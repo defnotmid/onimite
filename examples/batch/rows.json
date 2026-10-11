@@ -1,0 +1,5 @@
+[
+  { "name": "Ada Lovelace", "role": "Analytical Engines", "color": "#f472b6" },
+  { "name": "Grace Hopper", "role": "Compilers", "color": "#38bdf8" },
+  { "name": "Alan Turing", "role": "Computability", "color": "#a3e635" }
+]

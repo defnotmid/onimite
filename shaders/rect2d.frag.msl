@@ -1,0 +1,725 @@
+#include <metal_stdlib>
+#include <metal_math>
+#include <metal_texture>
+using namespace metal;
+
+#line 75 "rect2d.slang"
+float3 palette_rgb_0(float raw_0, float max_raw_0, float palette_0, float log_curve_0)
+{
+
+#line 75
+    float t_0;
+
+    if(log_curve_0 > 0.5f)
+    {
+
+#line 77
+        t_0 = clamp(log(1.0f + max(raw_0, 0.0f)) / log(1.0f + max(max_raw_0, 9.99999997475242708e-07f)), 0.0f, 1.0f);
+
+#line 77
+    }
+    else
+    {
+
+#line 77
+        t_0 = clamp(raw_0 / max(max_raw_0, 9.99999997475242708e-07f), 0.0f, 1.0f);
+
+#line 77
+    }
+
+    if(palette_0 > 1.5f)
+    {
+
+#line 79
+        float3 heat_0;
+
+        if(t_0 < 0.3333333432674408f)
+        {
+
+#line 81
+            heat_0 = float3(3.0f * t_0, 0.0f, 0.0f);
+
+#line 81
+        }
+        else
+        {
+
+#line 82
+            if(t_0 < 0.66666668653488159f)
+            {
+
+#line 82
+                heat_0 = float3(1.0f, 3.0f * t_0 - 1.0f, 0.0f);
+
+#line 82
+            }
+            else
+            {
+
+#line 82
+                heat_0 = float3(1.0f, 1.0f, 3.0f * t_0 - 2.0f);
+
+#line 82
+            }
+
+#line 81
+        }
+
+
+        return heat_0;
+    }
+    if(palette_0 > 0.5f)
+    {
+
+#line 86
+        return float3(t_0, t_0, t_0);
+    }
+
+#line 87
+    return mix(float3(250.0f, 204.0f, 21.0f), float3(40.0f, 90.0f, 200.0f), float3(t_0) ) / float3(255.0f) ;
+}
+
+float rounded_box_sdf_0(float2 p_0, float2 half_size_0, float r_0)
+{
+
+#line 91
+    float2 q_0 = abs(p_0) - half_size_0 + float2(r_0) ;
+    return min(max(q_0.x, q_0.y), 0.0f) + length(max(q_0, float2(0.0f) )) - r_0;
+}
+
+
+#line 90 "core"
+struct pixelOutput_0
+{
+    float4 output_0 [[color(0)]];
+};
+
+
+#line 90
+struct pixelInput_0
+{
+    float2 uv_0 [[user(TEXCOORD)]];
+    float4 color_0 [[user(TEXCOORD_1)]];
+    float2 pos_0 [[user(TEXCOORD_2)]];
+    float2 center_0 [[user(TEXCOORD_3)]];
+    float2 half_0 [[user(TEXCOORD_4)]];
+    float4 radii_0 [[user(TEXCOORD_5)]];
+    float4 style_0 [[user(TEXCOORD_6)]];
+    float2 tex_size_0 [[user(TEXCOORD_7)]];
+};
+
+
+#line 90
+struct KernelContext_0
+{
+    texture2d<float, access::sample> u_tex_texture_0;
+    sampler u_tex_sampler_0;
+};
+
+
+#line 96 "rect2d.slang"
+[[fragment]] pixelOutput_0 fs_main(pixelInput_0 _S1 [[stage_in]], float4 clip_0 [[position]], texture2d<float, access::sample> u_tex_texture_1 [[texture(0)]], sampler u_tex_sampler_1 [[sampler(0)]])
+{
+
+#line 96
+    thread KernelContext_0 kernelContext_0;
+
+#line 96
+    (&kernelContext_0)->u_tex_texture_0 = u_tex_texture_1;
+
+#line 96
+    (&kernelContext_0)->u_tex_sampler_0 = u_tex_sampler_1;
+    float2 p_1 = _S1.pos_0 - _S1.center_0;
+
+
+    float _S2 = p_1.x;
+
+#line 100
+    bool _S3 = _S2 < 0.0f;
+
+#line 100
+    bool invalid_0;
+
+#line 100
+    if(_S3)
+    {
+
+#line 100
+        invalid_0 = (p_1.y) < 0.0f;
+
+#line 100
+    }
+    else
+    {
+
+#line 100
+        invalid_0 = false;
+
+#line 100
+    }
+
+#line 100
+    float r_1;
+
+#line 100
+    if(invalid_0)
+    {
+
+#line 100
+        r_1 = _S1.radii_0.x;
+
+#line 100
+    }
+    else
+    {
+
+#line 101
+        if(_S2 >= 0.0f)
+        {
+
+#line 101
+            invalid_0 = (p_1.y) < 0.0f;
+
+#line 101
+        }
+        else
+        {
+
+#line 101
+            invalid_0 = false;
+
+#line 101
+        }
+
+#line 101
+        if(invalid_0)
+        {
+
+#line 101
+            r_1 = _S1.radii_0.y;
+
+#line 101
+        }
+        else
+        {
+
+#line 102
+            if(_S3)
+            {
+
+#line 102
+                invalid_0 = (p_1.y) >= 0.0f;
+
+#line 102
+            }
+            else
+            {
+
+#line 102
+                invalid_0 = false;
+
+#line 102
+            }
+
+#line 102
+            if(invalid_0)
+            {
+
+#line 102
+                r_1 = _S1.radii_0.z;
+
+#line 102
+            }
+            else
+            {
+
+#line 102
+                r_1 = _S1.radii_0.w;
+
+#line 102
+            }
+
+#line 101
+        }
+
+#line 100
+    }
+
+#line 105
+    float border_0 = _S1.style_0.x;
+    float _S4 = max(_S1.style_0.y, 0.0f);
+    int mode_0 = int(_S1.style_0.z + 0.5f);
+
+#line 107
+    float rel_0;
+
+    if(mode_0 == int(5))
+    {
+
+
+        float2 _S5 = float2(1.0f, 1.0f);
+
+#line 113
+        float2 size_0 = max(_S1.tex_size_0, _S5);
+
+        float range_0 = length(p_1) / max(_S1.half_0.x, 1.0f);
+
+
+        float angle_step_0 = _S1.radii_0.y;
+        float _S6 = atan2(- _S2, - p_1.y) - _S1.radii_0.x;
+
+        float _S7 = size_0.x;
+
+#line 121
+        float span_0 = angle_step_0 * _S7;
+        if(span_0 > 0.0f)
+        {
+
+#line 122
+            rel_0 = _S6;
+
+#line 122
+            for(;;)
+            {
+
+#line 122
+                if(rel_0 < 0.0f)
+                {
+
+#line 122
+                    invalid_0 = (rel_0 + 6.28318548202514648f) <= span_0;
+
+#line 122
+                }
+                else
+                {
+
+#line 122
+                    invalid_0 = false;
+
+#line 122
+                }
+
+#line 122
+                if(invalid_0)
+                {
+                }
+                else
+                {
+
+#line 122
+                    break;
+                }
+
+#line 122
+                rel_0 = rel_0 + 6.28318548202514648f;
+
+#line 122
+            }
+
+#line 122
+            for(;;)
+            {
+
+#line 122
+                if(rel_0 > span_0)
+                {
+
+#line 122
+                    invalid_0 = (rel_0 - 6.28318548202514648f) >= 0.0f;
+
+#line 122
+                }
+                else
+                {
+
+#line 122
+                    invalid_0 = false;
+
+#line 122
+                }
+
+#line 122
+                if(invalid_0)
+                {
+                }
+                else
+                {
+
+#line 122
+                    break;
+                }
+
+#line 122
+                rel_0 = rel_0 - 6.28318548202514648f;
+
+#line 122
+            }
+
+#line 122
+        }
+        else
+        {
+
+#line 122
+            rel_0 = _S6;
+            for(;;)
+            {
+
+#line 123
+                if(rel_0 > 0.0f)
+                {
+
+#line 123
+                    invalid_0 = (rel_0 - 6.28318548202514648f) >= span_0;
+
+#line 123
+                }
+                else
+                {
+
+#line 123
+                    invalid_0 = false;
+
+#line 123
+                }
+
+#line 123
+                if(invalid_0)
+                {
+                }
+                else
+                {
+
+#line 123
+                    break;
+                }
+
+#line 123
+                rel_0 = rel_0 - 6.28318548202514648f;
+
+#line 123
+            }
+
+#line 123
+            for(;;)
+            {
+
+#line 123
+                if(rel_0 < span_0)
+                {
+
+#line 123
+                    invalid_0 = (rel_0 + 6.28318548202514648f) <= 0.0f;
+
+#line 123
+                }
+                else
+                {
+
+#line 123
+                    invalid_0 = false;
+
+#line 123
+                }
+
+#line 123
+                if(invalid_0)
+                {
+                }
+                else
+                {
+
+#line 123
+                    break;
+                }
+
+#line 123
+                rel_0 = rel_0 + 6.28318548202514648f;
+
+#line 123
+            }
+
+#line 122
+        }
+
+#line 122
+        float column_0;
+
+        if((abs(angle_step_0)) > 9.99999971718068537e-10f)
+        {
+
+#line 124
+            column_0 = rel_0 / angle_step_0;
+
+#line 124
+        }
+        else
+        {
+
+#line 124
+            column_0 = -1.0f;
+
+#line 124
+        }
+        float inner_0 = clamp(_S1.radii_0.z, 0.0f, 0.99900001287460327f);
+        if(range_0 > 1.0f)
+        {
+
+#line 126
+            invalid_0 = true;
+
+#line 126
+        }
+        else
+        {
+
+#line 126
+            invalid_0 = range_0 < inner_0;
+
+#line 126
+        }
+
+#line 126
+        if(invalid_0)
+        {
+
+#line 126
+            invalid_0 = true;
+
+#line 126
+        }
+        else
+        {
+
+#line 126
+            invalid_0 = column_0 < 0.0f;
+
+#line 126
+        }
+
+#line 126
+        if(invalid_0)
+        {
+
+#line 126
+            invalid_0 = true;
+
+#line 126
+        }
+        else
+        {
+
+#line 126
+            invalid_0 = column_0 >= _S7;
+
+#line 126
+        }
+
+#line 126
+        if(invalid_0)
+        {
+
+#line 126
+            pixelOutput_0 _S8 = { float4(0.0f, 0.0f, 0.0f, 0.0f) };
+
+#line 126
+            return _S8;
+        }
+
+        float2 _S9 = (clamp(floor(float2(column_0, (range_0 - inner_0) / (1.0f - inner_0) * size_0.y)), float2(0.0f, 0.0f), size_0 - _S5) + float2(0.5f, 0.5f)) / size_0;
+
+#line 129
+        ;
+
+#line 129
+        float raw_1 = (((&kernelContext_0)->u_tex_texture_0).sample(((&kernelContext_0)->u_tex_sampler_0), (_S9))).x;
+        if(isnan(raw_1))
+        {
+
+#line 130
+            pixelOutput_0 _S10 = { float4(28.0f, 30.0f, 38.0f, 255.0f) / float4(255.0f)  };
+
+#line 130
+            return _S10;
+        }
+
+#line 130
+        pixelOutput_0 _S11 = { float4(palette_rgb_0(raw_1, _S1.color_0.x, _S1.color_0.z, _S1.color_0.w), 1.0f) };
+        return _S11;
+    }
+
+    float aa_0 = _S4 + 0.5f;
+
+    float _S12 = - aa_0;
+
+#line 136
+    float alpha_0 = 1.0f - smoothstep(_S12, aa_0, rounded_box_sdf_0(p_1, _S1.half_0, r_1));
+    if(border_0 > 0.0f)
+    {
+
+#line 137
+        rel_0 = clamp(alpha_0 - (1.0f - smoothstep(_S12, aa_0, rounded_box_sdf_0(p_1, _S1.half_0 - float2(border_0, border_0), max(r_1 - border_0, 0.0f)))), 0.0f, 1.0f);
+
+#line 137
+    }
+    else
+    {
+
+#line 137
+        rel_0 = alpha_0;
+
+#line 137
+    }
+
+#line 137
+    float4 tex_0;
+
+#line 144
+    if(mode_0 == int(1))
+    {
+
+#line 144
+        ;
+
+#line 144
+        tex_0 = (((&kernelContext_0)->u_tex_texture_0).sample(((&kernelContext_0)->u_tex_sampler_0), (_S1.uv_0)));
+
+#line 144
+    }
+    else
+    {
+
+#line 145
+        if(mode_0 == int(2))
+        {
+
+#line 145
+            ;
+
+#line 145
+            tex_0 = float4(1.0f, 1.0f, 1.0f, (((&kernelContext_0)->u_tex_texture_0).sample(((&kernelContext_0)->u_tex_sampler_0), (_S1.uv_0))).x);
+
+#line 145
+        }
+        else
+        {
+
+#line 146
+            if(mode_0 == int(3))
+            {
+
+
+                float2 _S13 = float2(1.0f, 1.0f);
+
+#line 150
+                float2 size_1 = max(_S1.tex_size_0, _S13);
+
+                float2 _S14 = (clamp(floor(_S1.uv_0 * size_1), float2(0.0f, 0.0f), size_1 - _S13) + float2(0.5f, 0.5f)) / size_1;
+
+#line 152
+                ;
+
+#line 152
+                tex_0 = (((&kernelContext_0)->u_tex_texture_0).sample(((&kernelContext_0)->u_tex_sampler_0), (_S14)));
+
+#line 146
+            }
+            else
+            {
+
+#line 146
+                float4 _S15;
+
+#line 154
+                if(mode_0 == int(4))
+                {
+
+
+
+                    float2 _S16 = float2(1.0f, 1.0f);
+
+#line 159
+                    float2 size_2 = max(_S1.tex_size_0, _S16);
+
+                    float2 _S17 = (clamp(floor(_S1.uv_0 * size_2), float2(0.0f, 0.0f), size_2 - _S16) + float2(0.5f, 0.5f)) / size_2;
+
+#line 161
+                    ;
+
+#line 161
+                    float raw_2 = (((&kernelContext_0)->u_tex_texture_0).sample(((&kernelContext_0)->u_tex_sampler_0), (_S17))).x * 65535.0f;
+                    float _S18 = _S1.color_0.y;
+
+#line 162
+                    if(_S18 >= 0.0f)
+                    {
+
+#line 162
+                        invalid_0 = (abs(raw_2 - _S18)) < 0.5f;
+
+#line 162
+                    }
+                    else
+                    {
+
+#line 162
+                        invalid_0 = false;
+
+#line 162
+                    }
+
+#line 162
+                    float3 rgb_0;
+                    if(invalid_0)
+                    {
+
+#line 163
+                        rgb_0 = float3(28.0f, 30.0f, 38.0f) / float3(255.0f) ;
+
+#line 163
+                    }
+                    else
+                    {
+
+#line 163
+                        rgb_0 = palette_rgb_0(raw_2, _S1.color_0.x, _S1.color_0.z, _S1.color_0.w);
+
+#line 163
+                    }
+
+#line 163
+                    pixelOutput_0 _S19 = { float4(rgb_0, rel_0) };
+
+                    return _S19;
+                }
+                else
+                {
+
+#line 165
+                    _S15 = float4(1.0f, 1.0f, 1.0f, 1.0f);
+
+#line 154
+                }
+
+#line 154
+                tex_0 = _S15;
+
+#line 146
+            }
+
+#line 145
+        }
+
+#line 144
+    }
+
+#line 169
+    thread float4 o_0 = _S1.color_0 * tex_0;
+    o_0.w = o_0.w * rel_0;
+
+#line 170
+    pixelOutput_0 _S20 = { o_0 };
+    return _S20;
+}
+

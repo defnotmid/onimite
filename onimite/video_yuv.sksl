@@ -1,0 +1,110 @@
+// Decoded video planes to premultiplied RGBA: odecs' conversion (codec/movie
+// color.odin, hdr.odin, alpha) as a program, so GPU renders convert clip
+// frames on the GPU. `p` is in frame pixels; planes are sampled nearest at
+// texel centres, chroma at the luma position shifted down (odecs' siting).
+uniform shader luma;  // Y' (G' for G B R planes)
+uniform shader cb;    // Cb (B')
+uniform shader cr;    // Cr (R')
+uniform shader alpha; // luma-sized; unbound without alpha
+
+uniform float4 sampling;   // texel to code (255 or 65535), chroma divisors x and y, 1 / (2^depth - 1)
+uniform float4 ranges;     // codes to Y' in [0, 1] and C' in [-0.5, 0.5]: y_mul, y_off, c_mul, c_off
+uniform float4 coefs;      // R'G'B' from Y'CbCr: rv, gu, gv, bu
+uniform float4 mode;       // path (0 matrix, 1 G B R planes, 2 to light and tone mapped), transfer (0 gamma 2.4, 1 PQ, 2 HLG), monochrome, BT.2020 primaries
+uniform float4 alpha_mode; // has alpha, colour premultiplied by it, HLG display peak (relative to SDR white)
+uniform float4 tone_curve; // BT.2390 in PQ space: the peak's signal, knee, SDR white's signal (relative)
+uniform float3 gamut_r;    // linear BT.2020 to BT.709, by row
+uniform float3 gamut_g;
+uniform float3 gamut_b;
+
+const float SDR_WHITE = 203.0;
+const float PQ_M1 = 0.1593017578125;
+const float PQ_M2 = 78.84375;
+const float PQ_C1 = 0.8359375;
+const float PQ_C2 = 18.8515625;
+const float PQ_C3 = 18.6875;
+
+// SMPTE ST 2084: signal in [0, 1] to nits, and back.
+float pq_eotf(float e) {
+	float p = pow(max(e, 0.0), 1.0 / PQ_M2);
+	return 10000.0 * pow(max(p - PQ_C1, 0.0) / (PQ_C2 - PQ_C3 * p), 1.0 / PQ_M1);
+}
+
+float pq_inverse(float nits) {
+	float y = pow(max(nits, 0.0) / 10000.0, PQ_M1);
+	return pow((PQ_C1 + PQ_C2 * y) / (1.0 + PQ_C3 * y), PQ_M2);
+}
+
+// E' to light relative to SDR white (HLG: normalized scene light).
+float to_light(float e) {
+	e = clamp(e, 0.0, 1.0);
+	if (mode.y == 1.0) {
+		return pq_eotf(e) / SDR_WHITE;
+	}
+	if (mode.y == 2.0) {
+		return e <= 0.5 ? e * e / 3.0 : (exp((e - 0.55991073) / 0.17883277) + 0.28466892) / 12.0;
+	}
+	return pow(e, 2.4);
+}
+
+// The BT.2390 EETF on the brightest channel `m`, as a gain.
+float tone_gain(float m) {
+	if (m <= 0.0 || mode.y == 0.0) {
+		return 1.0;
+	}
+	float source = tone_curve.x;
+	float knee = tone_curve.y;
+	float max_lum = tone_curve.z;
+	float x = min(pq_inverse(m * SDR_WHITE) / source, 1.0);
+	if (x > knee) {
+		float s = (x - knee) / (1.0 - knee);
+		float s2 = s * s;
+		float s3 = s2 * s;
+		x = (2.0 * s3 - 3.0 * s2 + 1.0) * knee + (s3 - 2.0 * s2 + s) * (1.0 - knee) + (-2.0 * s3 + 3.0 * s2) * max_lum;
+	}
+	return pq_eotf(x * source) / SDR_WHITE / m;
+}
+
+half4 main(float2 p) {
+	float2 px = floor(p);
+	float2 at = px + 0.5;
+	float2 chroma_at = floor(px / sampling.yz) + 0.5;
+	float y = floor(luma.eval(at).r * sampling.x + 0.5);
+	float u = 0.0;
+	float v = 0.0;
+	if (mode.z == 0.0) {
+		u = floor(cb.eval(chroma_at).r * sampling.x + 0.5);
+		v = floor(cr.eval(chroma_at).r * sampling.x + 0.5);
+	}
+	float3 rgb;
+	if (mode.x == 1.0) {
+		rgb = float3(v, y, u) * sampling.w;
+	} else {
+		float yn = y * ranges.x - ranges.y;
+		float un = mode.z == 0.0 ? u * ranges.z - ranges.w : 0.0;
+		float vn = mode.z == 0.0 ? v * ranges.z - ranges.w : 0.0;
+		rgb = float3(yn + coefs.x * vn, yn + coefs.y * un + coefs.z * vn, yn + coefs.w * un);
+		if (mode.x == 2.0) {
+			float3 l = float3(to_light(rgb.r), to_light(rgb.g), to_light(rgb.b));
+			if (mode.y == 2.0) {
+				// HLG's OOTF: system gamma 1.2 at the display peak.
+				float ys = dot(l, float3(0.2627, 0.6780, 0.0593));
+				l *= ys > 0.0 ? alpha_mode.z * pow(min(ys, 1.0), 0.2) : 0.0;
+			}
+			if (mode.w == 1.0) {
+				l = max(float3(dot(gamut_r, l), dot(gamut_g, l), dot(gamut_b, l)), 0.0);
+			}
+			l *= tone_gain(max(max(l.r, l.g), l.b));
+			rgb = pow(clamp(l, 0.0, 1.0), float3(1.0 / 2.4));
+		}
+	}
+	rgb = clamp(rgb, 0.0, 1.0);
+	float a = 1.0;
+	if (alpha_mode.x == 1.0) {
+		a = floor(alpha.eval(at).r * sampling.x + 0.5) * sampling.w;
+		if (alpha_mode.y == 0.0) {
+			rgb *= a;
+		}
+	}
+	return half4(rgb, a);
+}

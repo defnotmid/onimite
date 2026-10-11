@@ -1,0 +1,629 @@
+package onimite_script
+
+import "core:encoding/json"
+import "core:os"
+import "core:path/filepath"
+import "core:testing"
+import om "../onimite"
+import "../speech"
+
+// text_width, text_fit and text_lines work at load, with the media the
+// script was loaded with (no render in progress).
+@(test)
+test_measure_at_load :: proc(t: ^testing.T) {
+	dir, derr := os.make_directory_temp("", "onimite_script_test_*", context.temp_allocator)
+	testing.expect(t, derr == nil)
+	defer os.remove_all(dir)
+	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
+	src := `
+local w = text_width { "Hello", size = 20 }
+local fitted = text_fit { "A long title that does not fit", size = 20, max_width = 100 }
+local lines = text_lines { "one two three four five six", size = 20, max_width = 80 }
+assert(w > 30 and w < 80, w)
+assert(#fitted < 30 and text_width { fitted, size = 20 } <= 100, fitted)
+assert(#lines >= 3, #lines)
+video { width = math.floor(w), height = 90, fps = 30, duration = 1 }
+`
+	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
+
+	media: om.Media
+	om.media_init(&media)
+	defer om.media_destroy(&media)
+	s: Script
+	defer unload(&s)
+	ok := load(&s, path, nil, &media)
+	testing.expectf(t, ok == nil, "load failed: %s", error_message(s.failure, context.temp_allocator))
+	w, _ := om.text_width(&media, {size = 20}, "Hello")
+	testing.expect_value(t, s.video.width, int(w))
+
+	// Without the media, measuring at load is an error naming the call.
+	s2: Script
+	defer unload(&s2)
+	testing.expect(t, load(&s2, path, nil) != nil)
+}
+
+// `shared` builds its value in the first state loaded with a `Shared`; the
+// others get a copy (identity, cycles, integer/float subtypes and path
+// handles kept) without running the build again.
+@(test)
+test_shared_values :: proc(t: ^testing.T) {
+	dir, derr := os.make_directory_temp("", "onimite_script_test_*", context.temp_allocator)
+	testing.expect(t, derr == nil)
+	defer os.remove_all(dir)
+	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
+	src := `
+local built = false
+local v = shared("data", function()
+  built = true
+  local inner = { 1, 2, 3 }
+  local t = { a = inner, b = inner, n = 7, x = 0.1, s = "text", yes = true, no = false,
+    d = path_data("M0 0 L10 0 L10 10 Z"), [0] = "zero" }
+  t.self = t
+  return t
+end)
+assert(v.a == v.b and v.self == v and #v.a == 3 and v.a[3] == 3)
+assert(math.type(v.n) == "integer" and v.x == 0.1 and v.s == "text" and v.yes and v.no == false)
+assert(v[0] == "zero" and v.d == path_data("M0 0 L10 0 L10 10 Z"))
+assert(not pcall(shared, "bad", function() return { print } end))
+video { width = built and 100 or 200, height = 90, fps = 30, duration = 1 }
+`
+	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
+
+	sh: Shared
+	defer shared_destroy(&sh)
+	first, second: Script
+	defer unload(&first)
+	defer unload(&second)
+	testing.expectf(t, load(&first, path, nil, nil, &sh) == nil, "load failed: %s", error_message(first.failure, context.temp_allocator))
+	testing.expectf(t, load(&second, path, nil, nil, &sh) == nil, "load failed: %s", error_message(second.failure, context.temp_allocator))
+	testing.expect_value(t, first.video.width, 100)
+	testing.expect_value(t, second.video.width, 200)
+	testing.expect_value(t, len(sh.paths), 1)
+	for _, a in sh.paths {
+		testing.expect_value(t, len(a.verbs), 4)
+	}
+}
+
+// std.lua: sequence, series, loop, freeze, stagger, beat_clock and the
+// transitions' endpoints, checked at load (group and rect stubbed to
+// record what a transition draws).
+@(test)
+test_std_lib :: proc(t: ^testing.T) {
+	dir, derr := os.make_directory_temp("", "onimite_script_test_*", context.temp_allocator)
+	testing.expect(t, derr == nil)
+	defer os.remove_all(dir)
+	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
+	src := `
+local function near(a, b) return math.abs(a - b) < 1e-9 end
+-- math helpers, noise and colour mixing
+assert(near(lerp(0, 10, 0.25), 2.5) and clamp(5, 0, 3) == 3 and near(progress(5, 0, 10), 0.5))
+assert(near(remap(5, 0, 10, 100, 200), 150) and near(smoothstep(0, 1, 0.5), 0.5))
+assert(near(fract(-1.25), 0.75) and round(-2.5) == -3 and sign(-3) == -1)
+local n1, n2 = noise(0.3, 0.7), noise(0.3, 0.7, nil, 7)
+assert(n1 >= -1 and n1 <= 1 and n1 ~= n2 and noise(0.3, 0.7) == n1)
+local half = mix_color("#ff0000", "#0000ff", 0.5, "srgb")
+assert(near(half.r, 0.5) and near(half.b, 0.5) and near(half.a, 1))
+local same = mix_color("#336699", "#336699", 0.3)
+assert(math.abs(same.r - 0.2) < 1e-3 and math.abs(same.b - 0.6) < 1e-3)
+local function frame(i) return { index = i, global_index = i, fps = 30, seconds = i / 30, global_seconds = i / 30 } end
+
+-- sequence: local clock, progress, open end, nesting
+local seen
+assert(sequence(frame(29), 1, 2, function() return 1 end) == nil)
+sequence(frame(30), 1, 2, function(g) seen = g end)
+assert(seen.index == 0 and near(seen.seconds, 0) and near(seen.progress, 0) and seen.global_index == 30)
+sequence(frame(45), 1, 2, function(g) seen = g end)
+assert(seen.index == 15 and near(seen.seconds, 0.5) and near(seen.progress, 0.25))
+assert(sequence(frame(90), 1, 2, function() return 1 end) == nil)
+assert(sequence(frame(9000), 1, nil, function(g) return g.index end) == 8970)
+local inner = sequence(frame(60), 1, 2, function(g)
+  return sequence(g, 0.5, 1, function(h) return h end)
+end)
+assert(inner.index == 15 and near(inner.seconds, 0.5) and near(inner.progress, 0.5) and inner.global_index == 60)
+assert(sequence(frame(90), 1, 2, function(g) return sequence(g, 0.5, 1, function() return 1 end) end) == nil)
+
+-- series: back to back, open last item, nothing past a closed end
+local function which(i)
+  return series(frame(i), { { 0.1, function(g) return "a" .. g.index end },
+                            { 0.2, function(g) return "b" .. g.index end },
+                            { 0.3, function(g) return "c" .. g.index end } })
+end
+assert(which(0) == "a0" and which(2) == "a2" and which(3) == "b0" and which(8) == "b5" and which(9) == "c0")
+assert(which(17) == "c8" and which(18) == nil)
+assert(series(frame(300), { { 1, print }, { nil, function(g) return g.index end } }) == 270)
+
+-- loop
+local l = loop(frame(75), 1, function(g) return g end)
+assert(l.index == 15 and near(l.seconds, 0.5) and near(l.progress, 0.5) and l.iteration == 2)
+assert(loop(frame(60), 1, function(g) return g.index end) == 0)
+assert(loop(frame(59), 1, function(g) return g.index end) == 29)
+
+-- freeze
+local fr = freeze(frame(200), 1.5, function(g) return g end)
+assert(fr.index == 45 and near(fr.seconds, 1.5) and fr.global_index == 200)
+assert(sequence(frame(100), 2, 3, function(g) return freeze(g, 0.25, function(h) return h.index end) end) == 7)
+
+-- stagger
+assert(stagger(1, 0.1) == 0 and near(stagger(4, 0.1), 0.3))
+assert(near(stagger(1, 0.1, { n = 5, from = "end" }), 0.4) and stagger(5, 0.1, { n = 5, from = "end" }) == 0)
+assert(stagger(3, 0.1, { n = 5, from = "center" }) == 0 and near(stagger(1, 0.1, { n = 5, from = "center" }), 0.2))
+assert(near(stagger(2, 0.1, { n = 4, from = "center" }), 0.05))
+assert(near(stagger(5, nil, { n = 5, amount = 2 }), 2) and near(stagger(3, nil, { n = 5, amount = 2 }), 1))
+assert(near(stagger(3, 0.1, { n = 5, easing = ease_in }), 0.4 * 0.125))
+assert(near(stagger(4, 0.1, { n = 7, from = 2 }), 0.2))
+assert(not pcall(stagger, 1, 0.1, { from = "end" }))
+
+-- beat_clock and pulse
+local c = beat_clock(120, 0.5)
+assert(near(c.beat(frame(60)), 3) and near(c.bar(2.5), 1) and near(c.time(4), 2.5) and near(c.seconds(4), 2))
+assert(c.frame(1, 30) == 30 and near(c.pulse(2.5, 8), 1) and c.pulse(0, 8) == 0)
+assert(near(pulse(3, 4), 1) and near(pulse(3.25, 4), math.exp(-1)) and pulse(-0.5, 4) == 0)
+
+-- transitions: p <= 0 draws only a, p >= 1 only b, between both
+local drawn, groups
+local function A() drawn[#drawn + 1] = "a" end
+local function B() drawn[#drawn + 1] = "b" end
+group = function(props, fn) groups[#groups + 1] = props fn() end
+rect = function() end
+for _, kind in ipairs { "fade", "slide", "wipe", "clock_wipe", "zoom", "glitch" } do
+  for _, opts in ipairs { {}, { from = "top", softness = 40 }, { from = "right", x = 10, y = 20, w = 300, h = 200 } } do
+    drawn, groups = {}, {}
+    transition(kind, 0, A, B, opts)
+    assert(#drawn == 1 and drawn[1] == "a" and #groups == 0, kind)
+    drawn = {}
+    transition(kind, 1, A, B, opts)
+    assert(#drawn == 1 and drawn[1] == "b", kind)
+    drawn = {}
+    transition(kind, -1, A, nil, opts)
+    transition(kind, 2, nil, B, opts)
+    assert(#drawn == 2 and drawn[1] == "a" and drawn[2] == "b", kind)
+    drawn = {}
+    transition(kind, 0.5, A, B, opts)
+    local a, b = 0, 0
+    for _, d in ipairs(drawn) do if d == "a" then a = a + 1 else b = b + 1 end end
+    assert(a > 0 and b > 0, kind)
+  end
+end
+drawn, groups = {}, {}
+transition("fade", 0.25, A, B)
+assert(groups[1].opacity == 0.75 and groups[2].opacity == 0.25)
+assert(not pcall(transition, "spin", 0.5, A, B))
+assert(not pcall(transition, "slide", 0.5, A, B, { from = "up" }))
+
+video { width = 64, height = 36, fps = 30, duration = 1 }
+`
+	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
+	s: Script
+	defer unload(&s)
+	ok := load(&s, path)
+	testing.expectf(t, ok == nil, "load failed: %s", error_message(s.failure, context.temp_allocator))
+}
+
+// A scene with `transition` gets its overlap from the transition's duration
+// (unless it has one) and a wrapped render; the previous scene leaves by it.
+@(test)
+test_std_scene_transition :: proc(t: ^testing.T) {
+	dir, derr := os.make_directory_temp("", "onimite_script_test_*", context.temp_allocator)
+	testing.expect(t, derr == nil)
+	defer os.remove_all(dir)
+	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
+	src := `
+video { width = 64, height = 36, fps = 30 }
+scene { "A", duration = 2, render = function(f) end }
+scene { "B", duration = 2, transition = { "fade", duration = 0.5 }, render = function(f) end }
+scene { "C", duration = 1, overlap = { previous = 0.25 }, transition = { "wipe", duration = 1 }, render = function(f) end }
+`
+	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
+	s: Script
+	defer unload(&s)
+	ok := load(&s, path)
+	testing.expectf(t, ok == nil, "load failed: %s", error_message(s.failure, context.temp_allocator))
+	testing.expect_value(t, len(s.video.scenes), 3)
+	testing.expect_value(t, s.video.scenes[1].overlap.previous, 0.5)
+	testing.expect_value(t, s.video.scenes[2].overlap.previous, 0.25)
+}
+
+// `props`: JSON objects merged in order (objects to tables, arrays from 1,
+// integers stay integers, null is nil), then `key=value` arguments; and
+// json_decode, which reads JSON text the same way.
+@(test)
+test_props :: proc(t: ^testing.T) {
+	dir, derr := os.make_directory_temp("", "onimite_script_test_*", context.temp_allocator)
+	testing.expect(t, derr == nil)
+	defer os.remove_all(dir)
+	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
+	src := `
+assert(props.title == "From set", props.title)
+assert(math.type(props.count) == "integer" and props.count == 3)
+assert(props.ratio == 0.5 and props.yes == true and props.no == false and props.none == nil)
+assert(#props.list == 3 and props.list[1] == 1 and props.list[3].k == "v")
+assert(props.nested.inner.deep == "x" and props.nested.empty ~= nil)
+assert(props.base == "kept" and props.over == "second")
+assert(math.type(props.size) == "integer" and props.size == 40 and props.zip == "007" and props.big == 2e3)
+assert(arg.title == "From set" and arg.size == "40" and arg[1] == "pos")
+-- json_decode reads JSON the same way; invalid JSON is a Lua error
+local j = json_decode('{"color": {"brand": "#0ea5e9"}, "space": [4, 8.5], "none": null}')
+assert(j.color.brand == "#0ea5e9" and math.type(j.space[1]) == "integer" and j.space[2] == 8.5 and j.none == nil)
+assert(json_decode("[]") ~= nil and json_decode("3") == 3)
+local ok, msg = pcall(json_decode, '{"a": ')
+assert(not ok and msg:find("json_decode: invalid JSON", 1, true), msg)
+video { width = 10, height = 10, fps = 30, duration = 1 }
+`
+	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
+	props := []string {
+		`{"title": "From file", "base": "kept", "over": "first", "count": 3, "ratio": 0.5, "yes": true, "no": false, "none": null,
+		  "list": [1, 2, {"k": "v"}], "nested": {"inner": {"deep": "x"}, "empty": {}}}`,
+		`{"over": "second"}`,
+	}
+	s: Script
+	defer unload(&s)
+	ok := load(&s, path, {"title=From set", "size=40", "zip=007", "big=2e3", "pos"}, nil, nil, props)
+	testing.expectf(t, ok == nil, "load failed: %s", error_message(s.failure, context.temp_allocator))
+
+	// Not an object, or not JSON: the load fails naming props.
+	bad: Script
+	defer unload(&bad)
+	testing.expect_value(t, load(&bad, path, nil, nil, nil, {`[1, 2]`}), Error.Props_Not_Object)
+	testing.expect_value(t, error_message(bad.failure, context.temp_allocator), `props: the JSON must be an object, e.g. {"title": "Hello"}`)
+	testing.expect_value(t, load(&bad, path, nil, nil, nil, {`{"a": `}), Error.Props_Json)
+}
+
+@(test)
+test_scalar_value :: proc(t: ^testing.T) {
+	testing.expect_value(t, scalar_value("42").(json.Integer), 42)
+	testing.expect_value(t, scalar_value("-7").(json.Integer), -7)
+	testing.expect_value(t, scalar_value("1.5").(json.Float), 1.5)
+	testing.expect_value(t, scalar_value("2e3").(json.Float), 2000)
+	testing.expect_value(t, scalar_value("0").(json.Integer), 0)
+	for s in ([]string{"", "007", "1_000", "0x10", "1.", ".5", "1e", "inf", "nan", "12 ", "-", "#ff0000", "3 apples"}) {
+		str, is_string := scalar_value(s).(json.String)
+		testing.expectf(t, is_string && str == s, "%q should stay a string", s)
+	}
+}
+
+// lottie{} / lottie(f, ...) and lottie_info: a red square moving 20 units
+// over a 1 s animation at 10 fps, drawn by the scene's clock and a
+// sequence's.
+@(test)
+test_lottie_api :: proc(t: ^testing.T) {
+	dir, derr := os.make_directory_temp("", "onimite_script_test_*", context.temp_allocator)
+	testing.expect(t, derr == nil)
+	defer os.remove_all(dir)
+	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
+	src := `
+local ANIM = [[{"v": "5.7.0", "fr": 10, "ip": 0, "op": 10, "w": 40, "h": 20, "markers": [{"cm": "mid", "tm": 5, "dr": 0}],
+  "layers": [{"ty": 1, "ind": 1, "ip": 0, "op": 10, "sc": "#ff0000", "sw": 20, "sh": 20,
+    "ks": {"p": {"a": 1, "k": [{"t": 0, "s": [0, 0]}, {"t": 10, "s": [20, 0]}]}}},
+   {"ty": 5, "nm": "Title", "ind": 2, "ip": 0, "op": 10, "ks": {"p": {"a": 0, "k": [100, 100]}},
+    "t": {"d": {"k": [{"t": 0, "s": {"t": "x", "s": 10, "fc": [0, 0, 0], "lh": 12}}]}, "a": []}}]}]]
+video { width = 40, height = 40, fps = 10, background = "#ffffff" }
+scene { "Intro", duration = 1, render = function(f) end }
+scene { "Main", duration = 1, render = function(f)
+  local info = lottie_info { data = ANIM }
+  assert(info.width == 40 and info.fps == 10 and info.frames == 10 and info.duration == 1)
+  assert(#info.markers == 1 and info.markers[1].name == "mid" and info.markers[1].time == 0.5)
+  assert(lottie_info("missing.json") == nil)
+  lottie { data = ANIM, overrides = { ["Title"] = { text = "Hello" } } }
+  sequence(f, 0.5, nil, function(g) lottie(g, { data = ANIM, y = 20, loop = false }) end)
+end }
+`
+	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
+	media: om.Media
+	om.media_init(&media)
+	defer om.media_destroy(&media)
+	s: Script
+	defer unload(&s)
+	testing.expectf(t, load(&s, path, nil, &media) == nil, "load failed: %s", error_message(s.failure, context.temp_allocator))
+	r: om.Renderer
+	testing.expect_value(t, om.renderer_init(&r, &s.video, &media), om.Error.None)
+	defer om.renderer_destroy(&r)
+	// Video frame 17: the scene's frame 7 (square at x = 14), the
+	// sequence's frame 2 (x = 4).
+	px := om.render_frame(&r, 17)
+	at :: proc(px: []u8, x, y: int) -> [4]u8 {
+		i := (y * 40 + x) * 4
+		return {px[i], px[i + 1], px[i + 2], px[i + 3]}
+	}
+	testing.expect_value(t, at(px, 12, 10), [4]u8{255, 255, 255, 255})
+	testing.expect_value(t, at(px, 16, 10), [4]u8{255, 0, 0, 255})
+	testing.expect_value(t, at(px, 2, 30), [4]u8{255, 255, 255, 255})
+	testing.expect_value(t, at(px, 6, 30), [4]u8{255, 0, 0, 255})
+	// Only the expected miss is reported.
+	for d in r.ctx.diagnostics {
+		testing.expectf(t, d.severity < .Error || om.diagnostic_key(d, context.temp_allocator) == "missing_media:missing.json", "unexpected: %s", om.diagnostic_message(d, context.temp_allocator))
+	}
+}
+
+// A multipass program from Lua: Common, a pass from a file beside the
+// script, buffer channels (itself: the previous frame) and a group channel;
+// a channel naming a missing buffer is an error at the channel's use.
+@(test)
+test_shader_multipass_api :: proc(t: ^testing.T) {
+	dir, derr := os.make_directory_temp("", "onimite_script_test_*", context.temp_allocator)
+	testing.expect(t, derr == nil)
+	defer os.remove_all(dir)
+	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
+	image_path, _ := filepath.join({dir, "image.glsl"}, context.temp_allocator)
+	src := `
+video { width = 20, height = 10, fps = 10, duration = 2, background = "#000", render = function(f)
+  shader(f, { x = 0, y = 0, w = 20, h = 10, shadertoy = {
+    common = "#define STEP 0.1",
+    buffer_a = { source = "void mainImage(out vec4 o, in vec2 p) { vec2 uv = p / iResolution.xy; o = texture(iChannel0, uv) + vec4(STEP, 0.0, 0.0, 0.0) + texture(iChannel1, uv).a * vec4(0.0, 0.0, 1.0, 0.0); }",
+      channels = { "buffer_a", function() rect { x = 10, y = 0, w = 10, h = 10, fill = "#fff" } end } },
+    image = { src = "image.glsl", channels = { "buffer_a" } } } })
+  shader(f, { x = 0, y = 0, w = 1, h = 1, shadertoy = {
+    image = { source = "void mainImage(out vec4 o, in vec2 p) {\n  o = texture(iChannel2, p);\n}", channels = { [3] = "buffer_c" } } } })
+end }
+`
+	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
+	image := "void mainImage(out vec4 o, in vec2 p) { o = texture(iChannel0, p / iResolution.xy); }"
+	testing.expect(t, os.write_entire_file(image_path, transmute([]u8)image) == nil)
+	media: om.Media
+	om.media_init(&media)
+	defer om.media_destroy(&media)
+	s: Script
+	defer unload(&s)
+	testing.expectf(t, load(&s, path, nil, &media) == nil, "load failed: %s", error_message(s.failure, context.temp_allocator))
+	r: om.Renderer
+	testing.expect_value(t, om.renderer_init(&r, &s.video, &media), om.Error.None)
+	defer om.renderer_destroy(&r)
+	// Frame 3 (a seek: frames 0..2 run first): four steps of 0.1 in red;
+	// blue where the group's square is.
+	px := om.render_frame(&r, 3)
+	testing.expect_value(t, px[(5 * 20 + 2) * 4 + 0], u8(102))
+	testing.expect_value(t, px[(5 * 20 + 2) * 4 + 2], u8(0))
+	testing.expect_value(t, px[(5 * 20 + 15) * 4 + 2], u8(255))
+	bad := false
+	for d in r.ctx.diagnostics {
+		if d.severity == .Error && om.diagnostic_message(d, context.temp_allocator) == "shader <inline>: Image:2:15: iChannel2 reads Buffer C, which the program does not have" {
+			bad = true
+		} else {
+			testing.expectf(t, d.severity < .Error, "unexpected: %s", om.diagnostic_message(d, context.temp_allocator))
+		}
+	}
+	testing.expect(t, bad)
+}
+
+// captions_load (text and word lists) and caption_pages at load,
+// caption_words while rendering.
+@(test)
+test_captions_api :: proc(t: ^testing.T) {
+	dir, derr := os.make_directory_temp("", "onimite_script_test_*", context.temp_allocator)
+	testing.expect(t, derr == nil)
+	defer os.remove_all(dir)
+	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
+	src := `
+assert(captions_load("a.vtt", "WEBVTT\n\n00:00.000 --> 00:01.000\none <00:00.200>two three\n") == 3)
+assert(captions_load("w", { { text = "x", start = 0, stop = 0.5 }, { text = "y", start = 0.5, stop = 1 } }) == 2)
+local pages = caption_pages("w", { max_words = 1 })
+assert(#pages == 2 and pages[2].text == "y" and pages[2].start == 0.5 and pages[2].words[1].stop == 1)
+assert(caption_pages("a.vtt")[1].text == "one two three")
+video { width = 40, height = 40, fps = 10, duration = 2, render = function(f)
+  local ws = caption_words(0.5, "a.vtt")
+  assert(#ws == 3 and ws.page == 1 and ws.time == 0.5)
+  assert(ws[1].text == "one" and math.abs(ws[1].stop - 0.2) < 1e-6 and ws[1].progress == 1 and not ws[1].active)
+  assert(ws[2].active and math.abs(ws[2].progress - 0.75) < 1e-3 and ws[3].progress == 0)
+  assert(caption_words(1.5, "a.vtt") == nil)
+  assert(caption_words(1.1, "a.vtt", { hold = 0.2 }) ~= nil)
+  captions(f, { src = "w", x = 0, y = 20, w = 40, size = 10, highlight = "box" })
+end }
+`
+	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
+	media: om.Media
+	om.media_init(&media)
+	defer om.media_destroy(&media)
+	s: Script
+	defer unload(&s)
+	testing.expectf(t, load(&s, path, nil, &media) == nil, "load failed: %s", error_message(s.failure, context.temp_allocator))
+	r: om.Renderer
+	testing.expect_value(t, om.renderer_init(&r, &s.video, &media), om.Error.None)
+	defer om.renderer_destroy(&r)
+	om.render_frame(&r, 3)
+	for d in r.ctx.diagnostics {
+		testing.expectf(t, d.severity < .Error, "unexpected: %s", om.diagnostic_message(d, context.temp_allocator))
+	}
+}
+
+// The SVG 1.1 filter primitives from Lua: a dilated square grows, a
+// component transfer zeroes red, turbulence fills its region, lighting
+// lights a flat surface fully, and every primitive parses without errors.
+@(test)
+test_filter_primitives :: proc(t: ^testing.T) {
+	dir, derr := os.make_directory_temp("", "onimite_script_test_*", context.temp_allocator)
+	testing.expect(t, derr == nil)
+	defer os.remove_all(dir)
+	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
+	src := `
+video { width = 80, height = 40, fps = 10, background = "#000000" }
+scene { "Main", duration = 1, render = function(f)
+  local user = function(x, y, w, h) return { x = x, y = y, w = w, h = h, units = "userSpaceOnUse" } end
+  group({ filter = { { "morphology", operator = "dilate", radius = 2 }, region = user(0, 0, 20, 20) } }, function()
+    rect { x = 8, y = 8, w = 4, h = 4, fill = "#ffffff" }
+  end)
+  group({ filter = { { "component_transfer", r = { type = "linear", slope = 0 }, g = { type = "table", values = {0, 1} } },
+                     region = user(20, 0, 20, 20) } }, function()
+    rect { x = 20, y = 0, w = 20, h = 20, fill = "#ffff00" }
+  end)
+  group({ filter = { { "turbulence", type = "fractalNoise", base_frequency = 0.1, octaves = 2, seed = 3 },
+                     region = user(40, 0, 20, 20) } }, function()
+    rect { x = 41, y = 1, w = 1, h = 1, fill = "#ffffff" }
+  end)
+  group({ filter = { { "diffuse_lighting", color = "#ffffff", light = { "distant", elevation = 90 } },
+                     region = user(60, 0, 20, 20) } }, function()
+    rect { x = 61, y = 1, w = 1, h = 1, fill = "#ffffff" }
+  end)
+  group({ filter = {
+    { "turbulence", base_frequency = 0.2, result = "n" },
+    { "displacement_map", input = "SourceGraphic", input2 = "n", scale = 4, x_channel = "R", y_channel = "G", result = "d" },
+    { "convolve_matrix", kernel = {0, -1, 0, -1, 5, -1, 0, -1, 0}, edge = "wrap" },
+    { "specular_lighting", surface_scale = 2, exponent = 8, light = { "spot", x = 10, y = 30, z = 40, points_at = {10, 30, 0}, cone = 30 } },
+    { "tile", subregion = {0, 20, 40, 20} },
+    { "image", src = "missing.png" },
+    region = user(0, 20, 40, 20) } }, function()
+    rect { x = 5, y = 25, w = 10, h = 10, fill = "#ff0000" }
+  end)
+end }
+`
+	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
+	media: om.Media
+	om.media_init(&media)
+	defer om.media_destroy(&media)
+	s: Script
+	defer unload(&s)
+	testing.expectf(t, load(&s, path, nil, &media) == nil, "load failed: %s", error_message(s.failure, context.temp_allocator))
+	r: om.Renderer
+	testing.expect_value(t, om.renderer_init(&r, &s.video, &media), om.Error.None)
+	defer om.renderer_destroy(&r)
+	px := om.render_frame(&r, 0)
+	at :: proc(px: []u8, x, y: int) -> [4]u8 {
+		i := (y * 80 + x) * 4
+		return {px[i], px[i + 1], px[i + 2], px[i + 3]}
+	}
+	// Dilated by 2: (6, 6) .. (13, 13) white, (5, 10) black.
+	testing.expect_value(t, at(px, 6, 10), [4]u8{255, 255, 255, 255})
+	testing.expect_value(t, at(px, 13, 13), [4]u8{255, 255, 255, 255})
+	testing.expect_value(t, at(px, 5, 10), [4]u8{0, 0, 0, 255})
+	// Red to 0, green through an identity table.
+	testing.expect_value(t, at(px, 30, 10), [4]u8{0, 255, 0, 255})
+	// Noise everywhere in its region, varying.
+	a, b := at(px, 45, 5), at(px, 55, 15)
+	testing.expect(t, a != b && a != [4]u8{0, 0, 0, 255})
+	// Lit from straight above: full white.
+	testing.expect_value(t, at(px, 70, 10), [4]u8{255, 255, 255, 255})
+	for d in r.ctx.diagnostics {
+		testing.expectf(t, d.severity < .Error || om.diagnostic_key(d, context.temp_allocator) == "missing_media:missing.png", "unexpected: %s", om.diagnostic_message(d, context.temp_allocator))
+	}
+}
+
+// Misspelled options and globals are reported: unused fields with the
+// closest field read, a forgotten stop on animate's last key, undefined
+// globals as errors; `require` returns the module only.
+@(test)
+test_script_checks :: proc(t: ^testing.T) {
+	dir, derr := os.make_directory_temp("", "onimite_script_test_*", context.temp_allocator)
+	testing.expect(t, derr == nil)
+	defer os.remove_all(dir)
+	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
+	mod, _ := filepath.join({dir, "mod.lua"}, context.temp_allocator)
+	testing.expect(t, os.write_entire_file(mod, transmute([]u8)string("return 7")) == nil)
+	src := `
+local parts = { require("mod") }
+assert(#parts == 1 and parts[1] == 7)
+local ok, err = pcall(function() return eas_out end)
+assert(not ok and err:find("undefined global 'eas_out' %(did you mean 'ease_out'%?%)"), err)
+assert(rawget(_G, "not_set") == nil)
+stagger(2, 0.1, { n = 3, form = "center" })
+animate(1, { { 0, 0.5, 0, 1 }, { 0.6, nil, 1, 0, ease_in } })
+animate(1, { { 0, nil, 0, 1, spring { stiffness = 200, damping = 20 } } })
+video { width = 100, height = 90, fps = 30, backgroud = "#000",
+  audio = { { "a.wav", gain = -6 } } }
+scene { "A", duraton = 1, duration = 1 }
+`
+	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
+	s: Script
+	defer unload(&s)
+	testing.expectf(t, load(&s, path, nil) == nil, "load failed: %s", error_message(s.failure, context.temp_allocator))
+	want := [?]string {
+		"video.lua:7: `stagger.form` is not used (did you mean `from`?)",
+		"video.lua:8: animate's last key has no stop, so it jumps to its `to` at 0.6s (give it a stop; stop = start for a jump)",
+		"video.lua:10: `audio track.gain` is not used (did you mean `gain_db`?)",
+		"video.lua:10: `video.backgroud` is not used (did you mean `background`?)",
+		"video.lua:12: `scene.duraton` is not used (did you mean `duration`?)",
+	}
+	testing.expect_value(t, len(s.load_problems), len(want))
+	for d, i in s.load_problems {
+		if i < len(want) {
+			testing.expect_value(t, om.diagnostic_message(d, context.temp_allocator), want[i])
+		}
+	}
+}
+
+// say() for a line that can't be synthesized (an unknown voice: no engine,
+// no download): a silent placeholder with estimated times and a
+// `tts_unavailable` warning, the script still loads. Its clip and its
+// captions (a cue per sentence) are in the media; a track playing it with
+// no bus goes on the voice bus; say_cue names a word's video time.
+@(test)
+test_say_unavailable :: proc(t: ^testing.T) {
+	dir, derr := os.make_directory_temp("", "onimite_script_test_*", context.temp_allocator)
+	testing.expect(t, derr == nil)
+	defer os.remove_all(dir)
+	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
+	src := `
+local AT = 1.5
+local O = { voice = "nobody", seed = 2 }
+local line = say("intro", "The keeper climbed the stairs. Then the lamp went dark!", O)
+assert(line.ready == false and line.name == "intro" and line.voice == "nobody" and line.seed == 2)
+assert(#line.words == 10 and #line.chunks == 2, #line.words .. " words")
+assert(line.words[1].text == "The" and line.words[1].estimated and line.words[10].chunk == 2)
+assert(line.chunks[2].first == 6 and line.chunks[2].count == 5, line.chunks[2].first)
+assert(say("intro", "The keeper climbed the stairs. Then the lamp went dark!", O).duration == line.duration)
+assert(not pcall(say, "intro", "Something else.", O))
+local LAMP = say_cue(line, AT, "lamp")
+assert(math.abs(LAMP - (AT + line.words[8].start)) < 1e-9)
+local THE2 = say_cue(line, AT, "the", { nth = 3, name = "the_lamp" })
+assert(THE2 == AT + line.words[7].start)
+assert(not pcall(say_cue, line, AT, "the", { nth = 4 }))
+local pages = caption_pages("intro")
+assert(#pages == 2 and pages[2].words[1].text == "Then", #pages)
+local shifted = caption_pages("intro", { start = AT })
+assert(math.abs(shifted[1].start - (AT + pages[1].start)) < 1e-6)
+video { width = 100, height = 100, fps = 30, duration = { audio = "intro" }, buses = { speech = { kind = "voice" } },
+  audio = { { "intro", start = AT } } }
+`
+	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
+
+	media: om.Media
+	om.media_init(&media)
+	defer om.media_destroy(&media)
+	s: Script
+	defer unload(&s)
+	ok := load(&s, path, nil, &media)
+	testing.expectf(t, ok == nil, "load failed: %s", error_message(s.failure, context.temp_allocator))
+
+	testing.expect_value(t, len(s.load_problems), 1)
+	if len(s.load_problems) == 1 {
+		testing.expect_value(t, s.load_problems[0].code, om.Diagnostic_Code.Tts_Unavailable)
+		testing.expect_value(t, s.load_problems[0].a, "intro")
+	}
+	testing.expect(t, "intro" in media.audio)
+	cap := &media.captions["intro"]
+	testing.expect_value(t, om.caption_count(cap), 10)
+	testing.expect(t, cap.segmented)
+	testing.expect_value(t, cap.cues[5], 1)
+	testing.expect_value(t, om.caption_word(cap, 5), "Then")
+	testing.expect_value(t, s.video.audio[0].bus, "speech")
+	testing.expect(t, !s.video.audio[0].voice)
+
+	l, have := said_line(&s, "intro")
+	testing.expect(t, have && !l.ready && len(l.words) == 10)
+}
+
+// A line's captions: its words with their times, a cue per sentence, even
+// inside one chunk.
+@(test)
+test_line_captions :: proc(t: ^testing.T) {
+	two := speech.Line {
+		words  = {{0, 0.2, 3, 0, false}, {0.2, 0.4, 6, 0, false}, {0.7, 0.9, 11, 0, false}},
+		chunks = {{0, 0.9, 26, 0, 3}},
+		text   = transmute([]u8)string("OnetwoThreeOne two. Three!"),
+	}
+	c1 := line_captions(two)
+	defer om.captions_destroy(&c1)
+	testing.expect_value(t, c1.cues[0], 0)
+	testing.expect_value(t, c1.cues[1], 0)
+	testing.expect_value(t, c1.cues[2], 1)
+
+	l := speech.placeholder("One two. Three!")
+	defer speech.line_destroy(&l)
+	l.words[2].start, l.words[2].stop = 1.25, 1.5
+	c := line_captions(l)
+	defer om.captions_destroy(&c)
+	testing.expect_value(t, om.caption_count(&c), 3)
+	testing.expect_value(t, om.caption_word(&c, 2), "Three")
+	testing.expect_value(t, c.starts[2], 1250)
+	testing.expect_value(t, c.stops[2], 1500)
+	testing.expect_value(t, c.cues[1], 0)
+	testing.expect_value(t, c.cues[2], 1)
+	testing.expect(t, c.segmented)
+}

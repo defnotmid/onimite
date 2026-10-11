@@ -1,0 +1,163 @@
+{
+  "text": "Captions that follow every single word. Each one lights up right on time. Load Whisper JSON, VTT or SRT, then drop in one captions node. 🎬",
+  "segments": [
+    {
+      "start": 0.3,
+      "end": 2.3,
+      "text": " Captions that follow every single word.",
+      "words": [
+        {
+          "word": " Captions",
+          "start": 0.3,
+          "end": 0.86
+        },
+        {
+          "word": " that",
+          "start": 0.9,
+          "end": 1.08
+        },
+        {
+          "word": " follow",
+          "start": 1.12,
+          "end": 1.46
+        },
+        {
+          "word": " every",
+          "start": 1.5,
+          "end": 1.76
+        },
+        {
+          "word": " single",
+          "start": 1.8,
+          "end": 2.06
+        },
+        {
+          "word": " word.",
+          "start": 2.08,
+          "end": 2.4
+        }
+      ]
+    },
+    {
+      "start": 2.7,
+      "end": 4.7,
+      "text": " Each one lights up right on time.",
+      "words": [
+        {
+          "word": " Each",
+          "start": 2.7,
+          "end": 2.96
+        },
+        {
+          "word": " one",
+          "start": 3.0,
+          "end": 3.22
+        },
+        {
+          "word": " lights",
+          "start": 3.28,
+          "end": 3.62
+        },
+        {
+          "word": " up",
+          "start": 3.66,
+          "end": 3.84
+        },
+        {
+          "word": " right",
+          "start": 3.96,
+          "end": 4.2
+        },
+        {
+          "word": " on",
+          "start": 4.24,
+          "end": 4.38
+        },
+        {
+          "word": " time.",
+          "start": 4.42,
+          "end": 4.8
+        }
+      ]
+    },
+    {
+      "start": 5.3,
+      "end": 7.4,
+      "text": " Load Whisper JSON, VTT or SRT,",
+      "words": [
+        {
+          "word": " Load",
+          "start": 5.3,
+          "end": 5.6
+        },
+        {
+          "word": " Whisper",
+          "start": 5.66,
+          "end": 6.1
+        },
+        {
+          "word": " JSON,",
+          "start": 6.16,
+          "end": 6.62
+        },
+        {
+          "word": " VTT",
+          "start": 6.72,
+          "end": 7.0
+        },
+        {
+          "word": " or",
+          "start": 7.04,
+          "end": 7.16
+        },
+        {
+          "word": " SRT,",
+          "start": 7.2,
+          "end": 7.56
+        }
+      ]
+    },
+    {
+      "start": 7.7,
+      "end": 9.9,
+      "text": " then drop in one captions node. 🎬",
+      "words": [
+        {
+          "word": " then",
+          "start": 7.7,
+          "end": 7.92
+        },
+        {
+          "word": " drop",
+          "start": 7.96,
+          "end": 8.24
+        },
+        {
+          "word": " in",
+          "start": 8.28,
+          "end": 8.4
+        },
+        {
+          "word": " one",
+          "start": 8.46,
+          "end": 8.7
+        },
+        {
+          "word": " captions",
+          "start": 8.76,
+          "end": 9.24
+        },
+        {
+          "word": " node.",
+          "start": 9.3,
+          "end": 9.56
+        },
+        {
+          "word": " 🎬",
+          "start": 9.58,
+          "end": 9.9
+        }
+      ]
+    }
+  ]
+}

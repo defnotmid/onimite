@@ -1,0 +1,32 @@
+[
+  {
+    "name": "Maple Street Garden", "emoji": "🥕", "accent": "#fb923c", "accent2": "#a78bfa", "unit": "kg",
+    "months": [22, 26, 41, 70, 138, 205, 251, 289, 334, 262, 120, 48],
+    "crops": [
+      { "label": "🥕 Carrots", "value": 610 },
+      { "label": "🥔 Potatoes", "value": 540 },
+      { "label": "🧅 Onions", "value": 380 },
+      { "label": "🥬 Greens", "value": 276 }
+    ]
+  },
+  {
+    "name": "Harbor Rooftop Farm", "emoji": "🍅", "accent": "#f43f5e", "accent2": "#fbbf24", "unit": "kg",
+    "months": [4, 6, 15, 44, 96, 228, 371, 455, 388, 160, 38, 9],
+    "crops": [
+      { "label": "🍅 Tomatoes", "value": 820 },
+      { "label": "🌶️ Peppers", "value": 395 },
+      { "label": "🥒 Cucumbers", "value": 430 },
+      { "label": "🌿 Herbs", "value": 169 }
+    ]
+  },
+  {
+    "name": "Hillside Orchard", "emoji": "🍎", "accent": "#4ade80", "accent2": "#f472b6", "unit": "kg",
+    "months": [0, 0, 0, 12, 35, 160, 240, 310, 690, 820, 260, 30],
+    "crops": [
+      { "label": "🍎 Apples", "value": 1420 },
+      { "label": "🍐 Pears", "value": 610 },
+      { "label": "🍒 Cherries", "value": 290 },
+      { "label": "🫐 Blueberries", "value": 237 }
+    ]
+  }
+]

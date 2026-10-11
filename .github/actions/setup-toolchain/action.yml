@@ -1,0 +1,100 @@
+name: Set up the onimite toolchain
+description: >-
+  Pinned Odin (with vendor:kb_text_shape, vendor:miniaudio and vendor:stb built),
+  SDL3 built from source on Linux and macOS, and a static Lua 5.4 on macOS.
+  Each piece is cached by its version. Exports ODIN_ROOT, PATH,
+  ONIMITE_LDFLAGS, ONIMITE_TEST_LDFLAGS and SDL3_LIB_DIR (see install.sh).
+
+inputs:
+  odin-version:
+    description: Odin release tag. The code is developed against this nightly.
+    default: dev-2026-10
+  sdl-version:
+    description: SDL3 release built on Linux and macOS (Windows uses the SDL3.dll Odin ships).
+    default: 3.4.16
+  lua-version:
+    description: Lua built as a static library on macOS (Linux links Odin's bundled liblua54.a, Windows its lua54.dll).
+    default: 5.4.8
+  lua-sha256:
+    description: SHA-256 of lua-<lua-version>.tar.gz from lua.org.
+    default: 4f18ddae154e793e46eeab727c59ef1c0c0c2b744e7b94219710d76f530629ae
+  cache-version:
+    description: Bump to invalidate every cache this action writes.
+    default: v2
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve cache keys
+      id: keys
+      shell: bash
+      run: |
+        # ImageOS (ubuntu22, ubuntu24, macos15, win25, ...) separates runner
+        # images whose system libraries differ.
+        echo "image=${ImageOS:-$RUNNER_OS}-$RUNNER_ARCH" >> "$GITHUB_OUTPUT"
+
+    - name: Cache Odin
+      id: odin-cache
+      uses: actions/cache@v4
+      with:
+        path: ~/.onimite-ci/odin
+        key: odin-${{ steps.keys.outputs.image }}-${{ inputs.odin-version }}-${{ inputs.cache-version }}
+
+    - name: Install Odin ${{ inputs.odin-version }}
+      if: steps.odin-cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        ODIN_VERSION: ${{ inputs.odin-version }}
+      run: TOOLS_DIR="$HOME/.onimite-ci" bash "$GITHUB_ACTION_PATH/install.sh" odin
+
+    - name: Cache SDL3
+      id: sdl-cache
+      if: runner.os != 'Windows'
+      uses: actions/cache@v4
+      with:
+        path: ~/.onimite-ci/sdl3
+        key: sdl3-${{ steps.keys.outputs.image }}-${{ inputs.sdl-version }}-${{ inputs.cache-version }}
+
+    - name: Build SDL3 ${{ inputs.sdl-version }}
+      if: runner.os != 'Windows' && steps.sdl-cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        SDL_VERSION: ${{ inputs.sdl-version }}
+      run: |
+        if [ "$RUNNER_OS" = Linux ]; then
+          # Headers for the X11, Wayland and audio backends; SDL loads those
+          # libraries at run time, so only this cache-miss build needs them.
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends \
+            cmake ninja-build pkg-config \
+            libasound2-dev libpulse-dev libpipewire-0.3-dev \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxfixes-dev \
+            libxi-dev libxss-dev libxtst-dev libxkbcommon-dev \
+            libwayland-dev wayland-protocols libdecor-0-dev \
+            libdrm-dev libgbm-dev libegl1-mesa-dev libgles2-mesa-dev \
+            libdbus-1-dev libudev-dev libibus-1.0-dev
+        else
+          command -v cmake >/dev/null 2>&1 || brew install cmake
+          command -v ninja >/dev/null 2>&1 || brew install ninja
+        fi
+        TOOLS_DIR="$HOME/.onimite-ci" bash "$GITHUB_ACTION_PATH/install.sh" sdl3
+
+    - name: Cache Lua
+      id: lua-cache
+      if: runner.os == 'macOS'
+      uses: actions/cache@v4
+      with:
+        path: ~/.onimite-ci/lua
+        key: lua-${{ steps.keys.outputs.image }}-${{ inputs.lua-version }}-${{ inputs.cache-version }}
+
+    - name: Build Lua ${{ inputs.lua-version }} (static)
+      if: runner.os == 'macOS' && steps.lua-cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        LUA_VERSION: ${{ inputs.lua-version }}
+        LUA_SHA256: ${{ inputs.lua-sha256 }}
+      run: TOOLS_DIR="$HOME/.onimite-ci" bash "$GITHUB_ACTION_PATH/install.sh" lua
+
+    - name: Export toolchain environment
+      shell: bash
+      run: TOOLS_DIR="$HOME/.onimite-ci" bash "$GITHUB_ACTION_PATH/install.sh" env

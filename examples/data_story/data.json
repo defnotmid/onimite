@@ -1,0 +1,15 @@
+{
+  "name": "Riverside School Garden",
+  "emoji": "🌻",
+  "accent": "#facc15",
+  "accent2": "#22d3ee",
+  "unit": "kg",
+  "months": [8, 14, 30, 58, 112, 196, 318, 402, 356, 184, 66, 21],
+  "crops": [
+    { "label": "🍅 Tomatoes", "value": 560 },
+    { "label": "🎃 Squash", "value": 420 },
+    { "label": "🫘 Beans", "value": 290 },
+    { "label": "🥬 Greens", "value": 345 },
+    { "label": "🌿 Herbs", "value": 150 }
+  ]
+}

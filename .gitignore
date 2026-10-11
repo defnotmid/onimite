@@ -1,0 +1,40 @@
+# Private: never commit.
+PERFORMANCE_METHODOLOGY.md
+PERFORMANCE_TRADEOFFS.md
+
+# Build output and renders.
+build/
+*.mp4
+!examples/**/media/*.mp4
+!testdata/*.mp4
+*.wav.tmp
+# Default-named binaries (when built without -out:build/...).
+*.bin
+*.exe
+*.pdb
+*.dSYM/
+# Output from the example commands in the READMEs, run from the repo root.
+/out/
+/frames/
+/*.png
+/*.wav
+
+# Local leftovers of the old ports/ layout (the ports are in examples/fframes/,
+# whose own .gitignore keeps fframes' media out).
+/ports/
+
+# third_party source is fetched on demand; keep only the manifest/scripts.
+/third_party/*
+!/third_party/README.md
+!/third_party/fetch.sh
+
+# Editors and OS.
+.DS_Store
+*.swp
+.vscode/
+.idea/
+
+# Agent scratch and personal settings.
+.work/
+perf.data*
+.claude/settings.local.json

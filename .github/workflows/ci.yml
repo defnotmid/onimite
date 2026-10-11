@@ -1,0 +1,114 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# The build reads ovg, oksl, odecs and ottis through `-collection:deps=..`, so
+# every job checks the five repositories out side by side:
+#   $GITHUB_WORKSPACE/{onimite,ovg,oksl,odecs,ottis}
+# The siblings come from their default branches. The build, test and smoke
+# steps are .github/ci.sh, the same on every OS.
+#
+# third_party/fetch.sh is not run: it fetches only the fframes reference
+# checkout for tools/bench.sh. Nothing in the build or the tests reads
+# third_party/; Lua, stb, kb_text_shape, miniaudio and SDL3 come from Odin's
+# vendor packages (set up by .github/actions/setup-toolchain).
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        # GitHub-hosted: free for public repositories, and a fresh machine for
+        # every run (pull requests from forks never reach the org's own Mac).
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: onimite
+      - uses: actions/checkout@v4
+        with:
+          repository: defnotmid/ovg
+          path: ovg
+      - uses: actions/checkout@v4
+        with:
+          repository: defnotmid/oksl
+          path: oksl
+      - uses: actions/checkout@v4
+        with:
+          repository: defnotmid/odecs
+          path: odecs
+      - uses: actions/checkout@v4
+        with:
+          repository: defnotmid/ottis
+          path: ottis
+
+      - uses: ./onimite/.github/actions/setup-toolchain
+
+      - name: Install test dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          # Mesa's lavapipe is a CPU Vulkan driver: SDL_GPU accepts it (CPU
+          # devices rank lowest but are eligible), so encode's GPU test
+          # (test_gpu_i420_matches_cpu) really runs here, on SDL's offscreen
+          # video driver. Without a device it logs "skipped" and returns.
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends mesa-vulkan-drivers libvulkan1
+
+      - name: Build
+        run: bash onimite/.github/ci.sh build
+      - name: Test
+        run: bash onimite/.github/ci.sh test
+      - name: Smoke test (software renderer)
+        run: bash onimite/.github/ci.sh smoke
+
+  # Best effort until the Windows build is verified on real hardware: Odin
+  # ships SDL3.dll and lua54.dll, but nobody has built or run onimite on
+  # Windows yet, so a failure here does not fail the workflow.
+  windows:
+    name: test (windows-latest, best effort)
+    runs-on: windows-latest
+    continue-on-error: true
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: onimite
+      - uses: actions/checkout@v4
+        with:
+          repository: defnotmid/ovg
+          path: ovg
+      - uses: actions/checkout@v4
+        with:
+          repository: defnotmid/oksl
+          path: oksl
+      - uses: actions/checkout@v4
+        with:
+          repository: defnotmid/odecs
+          path: odecs
+      - uses: actions/checkout@v4
+        with:
+          repository: defnotmid/ottis
+          path: ottis
+
+      - uses: ./onimite/.github/actions/setup-toolchain
+
+      - name: Build
+        run: bash onimite/.github/ci.sh build
+      - name: Test
+        run: bash onimite/.github/ci.sh test
+      - name: Smoke test (software renderer)
+        run: bash onimite/.github/ci.sh smoke

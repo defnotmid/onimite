@@ -1,0 +1,5 @@
+[
+  { "name": "vertical", "format": "9x16" },
+  { "name": "square", "format": "1x1" },
+  { "name": "wide", "format": "16x9" }
+]

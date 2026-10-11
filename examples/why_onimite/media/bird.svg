@@ -1,0 +1,36 @@
+<!-- A bird for examples/svg_demo, drawn for onimite (CC0). The parts the
+     script animates have ids: wing, wing_back, sun, pupil. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300">
+  <defs>
+    <linearGradient id="body-grad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#38bdf8"/>
+      <stop offset="1" stop-color="#1d4ed8"/>
+    </linearGradient>
+    <radialGradient id="sun-grad" fx="0.35" fy="0.35">
+      <stop offset="0" stop-color="#fef3c7"/>
+      <stop offset="1" stop-color="#f59e0b"/>
+    </radialGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="160%">
+      <feDropShadow dx="0" dy="6" stdDeviation="5" flood-color="#0f172a" flood-opacity="0.35"/>
+    </filter>
+    <clipPath id="eye-clip">
+      <circle cx="268" cy="118" r="9"/>
+    </clipPath>
+    <style>
+      .feather { stroke: #1e3a8a; stroke-width: 3; stroke-linejoin: round; }
+    </style>
+  </defs>
+  <circle id="sun" cx="330" cy="62" r="34" fill="url(#sun-grad)"/>
+  <g id="bird" filter="url(#shadow)">
+    <path id="wing_back" class="feather" d="M200 150 C 170 92, 122 72, 92 80 C 132 110, 150 140, 180 166 Z" fill="#1e40af"/>
+    <path id="tail" d="M146 150 L 96 128 L 108 165 L 96 198 Z" fill="#1d4ed8"/>
+    <ellipse id="body" cx="215" cy="160" rx="75" ry="45" fill="url(#body-grad)"/>
+    <circle id="head" cx="270" cy="125" r="32" fill="#38bdf8"/>
+    <path id="beak" d="M298 118 L 332 129 L 298 139 Z" fill="#f59e0b"/>
+    <g clip-path="url(#eye-clip)">
+      <circle cx="268" cy="118" r="9" fill="#ffffff"/>
+      <circle id="pupil" cx="270" cy="118" r="5" fill="#0f172a"/>
+    </g>
+    <path id="wing" class="feather" d="M215 150 C 190 80, 140 56, 100 62 C 140 100, 165 140, 200 170 Z" fill="#60a5fa"/>
+  </g>
+</svg>

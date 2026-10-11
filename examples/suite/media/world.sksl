@@ -1,0 +1,92 @@
+// The world the whole piece sits in (oksl). A sky over a moving grid floor
+// with canyon.webp as a duotone skyline on the horizon, and on top of it
+// uWorld, the group of text and vector art world.lua draws (omtovg), warped
+// by waves and a beat bulge, split into colour fringes, bloomed, and folded
+// into a kaleidoscope in the second half. Uniforms come from the music.
+
+uniform float3 iResolution; // filled by onimite: the box size
+uniform float iTime;
+uniform shader uWorld;   // world.lua's group, in the box's units
+uniform shader uPano;    // canyon.webp, in its own pixels
+uniform float2 uPanoSize;
+uniform float uFade;     // 0 black .. 1 lit
+uniform float uWarp;     // 0 flat .. 1 full warp
+uniform float uPulse;    // 1 on a kick, decaying
+uniform float uBass;     // the low bands of the spectrum, 0..1
+uniform float uKaleido;  // 0 .. 1 into the kaleidoscope
+uniform float uTravel;   // how far the floor has moved, in rows
+uniform float3 uTintA;   // grid and shadows
+uniform float3 uTintB;   // horizon and highlights
+
+const float HORIZON = 0.1; // below the centre, in heights
+
+float3 sky(float2 p) {
+    float3 top = float3(0.008, 0.01, 0.028);
+    float3 c = mix(uTintB * (0.35 + 0.25 * uBass), top, clamp((HORIZON - p.y) * 2.4, 0.0, 1.0));
+    // The skyline: a band of the panorama scrolling slowly above the horizon.
+    float band = 0.3;
+    if (p.y < HORIZON && p.y > HORIZON - band) {
+        float v = (p.y - (HORIZON - band)) / band;
+        // mirrored repeats, so the panorama has no seam
+        float u = abs(fract((p.x * 0.16 + uTravel * 0.002) * 0.5) * 2.0 - 1.0);
+        half4 px = uPano.eval(float2(u * uPanoSize.x, v * uPanoSize.y));
+        float l = dot(float3(px.rgb), float3(0.299, 0.587, 0.114));
+        float3 duo = mix(uTintA * 0.06, uTintB * 0.8, l * l);
+        c = mix(c, duo, smoothstep(0.0, 0.35, v) * 0.8);
+    }
+    if (p.y > HORIZON) {
+        // The floor: rows coming towards us, columns converging.
+        float d = p.y - HORIZON;
+        float z = 0.16 / d;
+        float gz = abs(fract(z * 0.7 - uTravel) - 0.5);
+        float gx = abs(fract(p.x * z * 1.4) - 0.5);
+        float lx = 1.0 - smoothstep(0.0, 0.015 + 0.012 * z, gx);
+        float lz = 1.0 - smoothstep(0.0, 0.02 + 0.02 * z, gz);
+        float fog = exp(-z * 0.22);
+        c = mix(uTintB * 0.3, float3(0.01, 0.01, 0.025), clamp(d * 5.0, 0.0, 1.0));
+        c += uTintA * max(lx, lz) * fog * (0.45 + 0.9 * uPulse);
+    }
+    return c;
+}
+
+half4 main(float2 coord) {
+    float2 res = iResolution.xy;
+    float2 c0 = res * 0.5;
+    float2 d = coord - c0;
+    float2 p = d / res.y;
+
+    // Where the group is sampled: a bulge on the kick, travelling waves.
+    float2 q = c0 + d * (1.0 - uPulse * 0.04 * uWarp);
+    q += uWarp * 22.0 * (0.4 + length(p)) *
+        float2(sin(coord.y * 0.011 + iTime * 1.9), cos(coord.x * 0.009 + iTime * 1.5));
+    // The kaleidoscope: six mirrored wedges of the group turning slowly.
+    if (uKaleido > 0.0) {
+        float seg = 6.2831853 / 6.0;
+        float a = atan(d.y, d.x) + iTime * 0.25;
+        a = abs(mod(a, seg) - seg * 0.5);
+        float2 k = c0 + float2(cos(a), sin(a)) * length(d) * (0.9 + 0.1 * uPulse);
+        q = mix(q, k, uKaleido);
+    }
+
+    // Colour fringes that widen with the bass.
+    float2 off = float2(1.0 + 2.5 * uWarp + 6.0 * uBass * max(uWarp, 0.2), 0.0);
+    half4 g = uWorld.eval(q);
+    half r = uWorld.eval(q + off).r;
+    half b = uWorld.eval(q - off).b;
+    float4 child = float4(float(r), float(g.g), float(b), float(g.a));
+
+    // Bloom: two rings of taps.
+    float4 bloom = float4(0.0);
+    for (int i = 0; i < 8; i++) {
+        float t = float(i) * 0.785398;
+        float2 dir = float2(cos(t), sin(t));
+        bloom += float4(uWorld.eval(q + dir * 9.0)) + float4(uWorld.eval(q + dir * 24.0));
+    }
+    bloom /= 16.0;
+
+    float3 col = sky(p) * uFade * (1.0 - child.a) + child.rgb;
+    col += bloom.rgb * (0.22 + 0.35 * uPulse);
+    // Vignette.
+    col *= 1.0 - 0.45 * dot(p, p);
+    return half4(half3(col), 1.0);
+}

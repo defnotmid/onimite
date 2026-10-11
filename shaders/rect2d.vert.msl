@@ -1,0 +1,410 @@
+#include <metal_stdlib>
+#include <metal_math>
+#include <metal_texture>
+using namespace metal;
+
+#line 13 "rect2d.slang"
+struct vs_main_Result_0
+{
+    float4 clip_0 [[position]];
+    float2 uv_0 [[user(TEXCOORD)]];
+    float4 color_0 [[user(TEXCOORD_1)]];
+    float2 pos_0 [[user(TEXCOORD_2)]];
+    float2 center_0 [[user(TEXCOORD_3)]];
+    float2 half_0 [[user(TEXCOORD_4)]];
+    float4 radii_0 [[user(TEXCOORD_5)]];
+    float4 style_0 [[user(TEXCOORD_6)]];
+    float2 tex_size_0 [[user(TEXCOORD_7)]];
+};
+
+
+#line 13
+struct vertexInput_0
+{
+    float4 dst_0 [[attribute(0)]];
+    float4 src_0 [[attribute(1)]];
+    float4 col_tl_0 [[attribute(2)]];
+    float4 col_tr_0 [[attribute(3)]];
+    float4 col_bl_0 [[attribute(4)]];
+    float4 col_br_0 [[attribute(5)]];
+    float4 radii_1 [[attribute(6)]];
+    float4 style_1 [[attribute(7)]];
+};
+
+
+#line 36
+struct VS_0
+{
+    float2 viewport_0;
+    float2 tex_size_1;
+};
+
+
+#line 40
+struct KernelContext_0
+{
+    VS_0 constant* vs_0;
+};
+
+
+#line 24
+struct Varyings_0
+{
+    float4 clip_1;
+    float2 uv_1;
+    float4 color_1;
+    float2 pos_1;
+    float2 center_1;
+    float2 half_1;
+    float4 radii_2;
+    float4 style_2;
+    float2 tex_size_2;
+};
+
+
+#line 24
+[[vertex]] vs_main_Result_0 vs_main(vertexInput_0 _S1 [[stage_in]], uint vertex_id_0 [[vertex_id]], VS_0 constant* vs_1 [[buffer(0)]])
+{
+
+#line 24
+    thread KernelContext_0 kernelContext_0;
+
+#line 24
+    (&kernelContext_0)->vs_0 = vs_1;
+
+#line 24
+    bool _S2;
+
+#line 47
+    if(vertex_id_0 == 1U)
+    {
+
+#line 47
+        _S2 = true;
+
+#line 47
+    }
+    else
+    {
+
+#line 47
+        _S2 = vertex_id_0 == 3U;
+
+#line 47
+    }
+
+#line 47
+    int ix_0;
+
+#line 47
+    if(_S2)
+    {
+
+#line 47
+        ix_0 = int(1);
+
+#line 47
+    }
+    else
+    {
+
+#line 47
+        ix_0 = int(0);
+
+#line 47
+    }
+
+#line 47
+    int iy_0;
+    if(vertex_id_0 >= 2U)
+    {
+
+#line 48
+        iy_0 = int(1);
+
+#line 48
+    }
+    else
+    {
+
+#line 48
+        iy_0 = int(0);
+
+#line 48
+    }
+    bool _S3 = ix_0 == int(0);
+
+#line 49
+    float _S4;
+
+#line 49
+    if(_S3)
+    {
+
+#line 49
+        _S4 = _S1.dst_0.x;
+
+#line 49
+    }
+    else
+    {
+
+#line 49
+        _S4 = _S1.dst_0.z;
+
+#line 49
+    }
+
+#line 49
+    bool _S5 = iy_0 == int(0);
+
+#line 49
+    float _S6;
+
+#line 49
+    if(_S5)
+    {
+
+#line 49
+        _S6 = _S1.dst_0.y;
+
+#line 49
+    }
+    else
+    {
+
+#line 49
+        _S6 = _S1.dst_0.w;
+
+#line 49
+    }
+
+#line 49
+    float2 p_0 = float2(_S4, _S6);
+
+#line 49
+    float _S7;
+    if(_S3)
+    {
+
+#line 50
+        _S7 = _S1.src_0.x;
+
+#line 50
+    }
+    else
+    {
+
+#line 50
+        _S7 = _S1.src_0.z;
+
+#line 50
+    }
+
+#line 50
+    float _S8;
+
+#line 50
+    if(_S5)
+    {
+
+#line 50
+        _S8 = _S1.src_0.y;
+
+#line 50
+    }
+    else
+    {
+
+#line 50
+        _S8 = _S1.src_0.w;
+
+#line 50
+    }
+
+#line 50
+    float2 uv_2 = float2(_S7, _S8);
+
+    if(_S3)
+    {
+
+#line 52
+        _S2 = _S5;
+
+#line 52
+    }
+    else
+    {
+
+#line 52
+        _S2 = false;
+
+#line 52
+    }
+
+#line 52
+    float4 col_0;
+
+#line 52
+    if(_S2)
+    {
+
+#line 52
+        col_0 = _S1.col_tl_0;
+
+#line 52
+    }
+    else
+    {
+
+#line 53
+        if(ix_0 == int(1))
+        {
+
+#line 53
+            _S2 = _S5;
+
+#line 53
+        }
+        else
+        {
+
+#line 53
+            _S2 = false;
+
+#line 53
+        }
+
+#line 53
+        if(_S2)
+        {
+
+#line 53
+            col_0 = _S1.col_tr_0;
+
+#line 53
+        }
+        else
+        {
+
+#line 54
+            if(_S3)
+            {
+
+#line 54
+                _S2 = iy_0 == int(1);
+
+#line 54
+            }
+            else
+            {
+
+#line 54
+                _S2 = false;
+
+#line 54
+            }
+
+#line 54
+            if(_S2)
+            {
+
+#line 54
+                col_0 = _S1.col_bl_0;
+
+#line 54
+            }
+            else
+            {
+
+#line 54
+                col_0 = _S1.col_br_0;
+
+#line 54
+            }
+
+#line 53
+        }
+
+#line 52
+    }
+
+#line 57
+    thread Varyings_0 o_0;
+
+#line 57
+    float2 _S9;
+    if(((&kernelContext_0)->vs_0->tex_size_1.x) > 0.0f)
+    {
+
+#line 58
+        _S9 = uv_2 / (&kernelContext_0)->vs_0->tex_size_1;
+
+#line 58
+    }
+    else
+    {
+
+#line 58
+        _S9 = uv_2;
+
+#line 58
+    }
+
+#line 58
+    (&o_0)->uv_1 = _S9;
+    (&o_0)->color_1 = col_0;
+    (&o_0)->pos_1 = p_0;
+    float2 _S10 = _S1.dst_0.xy;
+
+#line 61
+    float2 _S11 = _S1.dst_0.zw;
+
+#line 61
+    float2 _S12 = float2(0.5f) ;
+
+#line 61
+    (&o_0)->center_1 = _S12 * (_S10 + _S11);
+    (&o_0)->half_1 = _S12 * abs(_S11 - _S10);
+    (&o_0)->radii_2 = _S1.radii_1;
+    (&o_0)->style_2 = _S1.style_1;
+    (&o_0)->tex_size_2 = (&kernelContext_0)->vs_0->tex_size_1;
+
+
+    (&o_0)->clip_1 = float4(float2(2.0f * _S4 / (&kernelContext_0)->vs_0->viewport_0.x - 1.0f, 1.0f - 2.0f * _S6 / (&kernelContext_0)->vs_0->viewport_0.y), 0.0f, 1.0f);
+    Varyings_0 _S13 = o_0;
+
+#line 69
+    thread vs_main_Result_0 _S14;
+
+#line 69
+    (&_S14)->clip_0 = _S13.clip_1;
+
+#line 69
+    (&_S14)->uv_0 = _S13.uv_1;
+
+#line 69
+    (&_S14)->color_0 = _S13.color_1;
+
+#line 69
+    (&_S14)->pos_0 = _S13.pos_1;
+
+#line 69
+    (&_S14)->center_0 = _S13.center_1;
+
+#line 69
+    (&_S14)->half_0 = _S13.half_1;
+
+#line 69
+    (&_S14)->radii_0 = _S13.radii_2;
+
+#line 69
+    (&_S14)->style_0 = _S13.style_2;
+
+#line 69
+    (&_S14)->tex_size_0 = _S13.tex_size_2;
+
+#line 69
+    return _S14;
+}
+

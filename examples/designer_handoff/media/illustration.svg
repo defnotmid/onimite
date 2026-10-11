@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 480" width="600" height="480">
+  <!-- Orbit, a smart speaker on a desk next to a plant. Drawn for the
+       onimite designer_handoff example (MIT). Every shape is a <path> with
+       an id: the script draws them on as line art, then shows the document
+       and recolours parts by id from tokens.json. -->
+  <defs>
+    <linearGradient id="bodyGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#3b3f63"/>
+      <stop offset="0.45" stop-color="#5a5f8f"/>
+      <stop offset="1" stop-color="#2c2f4d"/>
+    </linearGradient>
+    <linearGradient id="topGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#7a80b5"/>
+      <stop offset="1" stop-color="#4b507c"/>
+    </linearGradient>
+    <linearGradient id="potGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#e9845f"/>
+      <stop offset="1" stop-color="#c7603e"/>
+    </linearGradient>
+  </defs>
+  <path id="shadow" d="M100 442 C100 424 420 424 420 442 C420 460 100 460 100 442 Z" fill="#2b1d12" fill-opacity="0.16"/>
+  <path id="body" d="M150 150 C150 108 370 108 370 150 L370 400 C370 446 150 446 150 400 Z" fill="url(#bodyGrad)"/>
+  <path id="grille" d="M152 222 C220 240 300 240 368 222 M152 262 C220 280 300 280 368 262 M152 302 C220 320 300 320 368 302 M152 342 C220 360 300 360 368 342" fill="none" stroke="#8d92c9" stroke-width="3" stroke-linecap="round" stroke-opacity="0.55"/>
+  <path id="top" d="M150 150 C150 122 370 122 370 150 C370 178 150 178 150 150 Z" fill="url(#topGrad)"/>
+  <path id="ring" d="M192 150 C192 133 328 133 328 150 C328 167 192 167 192 150 Z" fill="none" stroke="#9ad7ff" stroke-width="7"/>
+  <path id="light" d="M252 392 C252 387.6 255.6 384 260 384 C264.4 384 268 387.6 268 392 C268 396.4 264.4 400 260 400 C255.6 400 252 396.4 252 392 Z" fill="#9ad7ff"/>
+  <path id="pot_shadow" d="M418 440 C418 430 522 430 522 440 C522 450 418 450 418 440 Z" fill="#2b1d12" fill-opacity="0.14"/>
+  <path id="leaf3" d="M468 322 C446 298 418 290 390 294 C402 320 436 332 468 322 Z" fill="#4f9a6b"/>
+  <path id="leaf1" d="M470 322 C440 280 430 240 452 196 C480 236 484 282 470 322 Z" fill="#3f8a5c"/>
+  <path id="leaf2" d="M472 322 C490 272 520 250 554 246 C550 286 518 314 472 322 Z" fill="#5aae78"/>
+  <path id="pot" d="M432 334 L508 334 L496 436 L444 436 Z" fill="url(#potGrad)"/>
+  <path id="rim" d="M424 318 L516 318 L516 338 L424 338 Z" fill="#f09a74"/>
+  <path id="spark" d="M106 84 Q110 100 126 104 Q110 108 106 124 Q102 108 86 104 Q102 100 106 84 Z" fill="#ffc94d"/>
+</svg>

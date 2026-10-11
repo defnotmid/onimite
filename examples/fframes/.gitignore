@@ -1,0 +1,6 @@
+# fframes' media, fonts, shaders and data, copied from third_party/fframes by
+# fetch.sh (listed in assets.tsv): not ours to redistribute, never committed.
+/*/media/
+/*/shaders/
+/made_of_motion/vector_ink/
+/made_of_motion/opening-type.path

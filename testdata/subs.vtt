@@ -1,0 +1,17 @@
+WEBVTT
+Kind: captions
+
+NOTE This is a comment block
+spanning lines
+
+1
+00:00:00.500 --> 00:00:02.000 align:center
+Hello there,
+second line
+
+00:02.000 --> 00:03.250
+Short form timing
+
+intro-end
+00:00:03.500 --> 00:00:05.000
+Last cue

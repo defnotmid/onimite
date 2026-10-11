@@ -1,0 +1,357 @@
+name: Release
+
+# Cut a release by pushing a tag: git tag v0.1.0 && git push origin v0.1.0
+# Assets (TAG is the tag, e.g. v0.1.0):
+#   onimite-TAG-linux-x86_64.tar.gz
+#   onimite-TAG-macos-arm64.tar.gz     signed (Developer ID) and notarized
+#   onimite-TAG-windows-x86_64.zip     best effort, see the build job
+#   onimite-video-skill-TAG.tar.gz     the agent skill at this tag (onimite-video/)
+#   SHA256SUMS
+# Each archive holds one directory, onimite-TAG-PLATFORM/, with the binary,
+# the SDL3 shared library next to it (lua54.dll too on Windows), LICENSE,
+# LICENSES/ and THIRD_PARTY_NOTICES.md.
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: build (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # 22.04 rather than ubuntu-latest: glibc 2.35, so the binary runs on
+          # older distributions too.
+          - os: ubuntu-22.04
+            target: linux-x86_64
+            best_effort: false
+          - os: macos-latest
+            target: macos-arm64
+            best_effort: false
+          # Best effort until verified on real hardware: a failed Windows
+          # build leaves that asset out instead of blocking the release.
+          - os: windows-latest
+            target: windows-x86_64
+            best_effort: true
+        # macos-x86_64 is left out: Odin publishes no macos-amd64 build of the
+        # pinned release, so it would mean cross-compiling SDL3 and Lua too.
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.best_effort }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      NAME: onimite-${{ github.ref_name }}-${{ matrix.target }}
+    steps:
+      # The siblings are taken from their default branches at release time.
+      - uses: actions/checkout@v4
+        with:
+          path: onimite
+      - uses: actions/checkout@v4
+        with:
+          repository: defnotmid/ovg
+          path: ovg
+      - uses: actions/checkout@v4
+        with:
+          repository: defnotmid/oksl
+          path: oksl
+      - uses: actions/checkout@v4
+        with:
+          repository: defnotmid/odecs
+          path: odecs
+      - uses: actions/checkout@v4
+        with:
+          repository: defnotmid/ottis
+          path: ottis
+
+      - uses: ./onimite/.github/actions/setup-toolchain
+
+      - name: Record sibling revisions
+        run: |
+          for r in ovg oksl odecs ottis; do
+            echo "$r $(git -C "$r" rev-parse HEAD)"
+          done
+
+      - name: Build (Linux)
+        if: runner.os == 'Linux'
+        working-directory: onimite
+        run: |
+          stage="$RUNNER_TEMP/$NAME"
+          mkdir -p "$stage"
+          # Odin links with -rpath $ORIGIN by default, so the binary loads the
+          # libSDL3.so.0 copied next to it.
+          odin build . -collection:deps=.. -o:speed -define:ONIMITE_VERSION="$GITHUB_REF_NAME" -out:"$stage/onimite" -extra-linker-flags:"$ONIMITE_LDFLAGS"
+          strip "$stage/onimite"
+          cp -L "$SDL3_LIB_DIR/libSDL3.so.0" "$stage/"
+          strip --strip-unneeded "$stage/libSDL3.so.0"
+          readelf -d "$stage/onimite" | grep -E 'RUNPATH|RPATH' | grep -F '$ORIGIN'
+          ldd "$stage/onimite" | grep -F "$stage/libSDL3.so.0"
+
+      - name: Build (macOS)
+        if: runner.os == 'macOS'
+        working-directory: onimite
+        run: |
+          stage="$RUNNER_TEMP/$NAME"
+          mkdir -p "$stage"
+          # -no-rpath drops Odin's default @loader_path; the binary gets
+          # exactly one rpath, @executable_path, where libSDL3.0.dylib sits.
+          odin build . -collection:deps=.. -o:speed -define:ONIMITE_VERSION="$GITHUB_REF_NAME" -no-rpath -out:"$stage/onimite" \
+            -extra-linker-flags:"$ONIMITE_LDFLAGS -Wl,-rpath,@executable_path"
+          strip "$stage/onimite"
+          cp -L "$SDL3_LIB_DIR/libSDL3.0.dylib" "$stage/"
+          strip -x "$stage/libSDL3.0.dylib"
+          otool -D "$stage/libSDL3.0.dylib" | grep -F '@rpath/libSDL3.0.dylib'
+          otool -L "$stage/onimite" | grep -F '@rpath/libSDL3.0.dylib'
+          # Lua is static; nothing may point into Homebrew or the CI prefixes.
+          if otool -L "$stage/onimite" | tail -n +2 | grep -Ei 'lua|homebrew|/opt/|/usr/local|onimite-ci'; then
+            echo "::error::onimite links a library outside the system and @rpath"
+            exit 1
+          fi
+          otool -l "$stage/onimite" | grep -A2 LC_RPATH | grep -F '@executable_path'
+          # strip invalidates the linker's ad-hoc signature, which arm64
+          # requires to run at all; sign-macos replaces it with the real one.
+          codesign --force --sign - "$stage/libSDL3.0.dylib"
+          codesign --force --sign - "$stage/onimite"
+
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        working-directory: onimite
+        run: |
+          stage="$RUNNER_TEMP/$NAME"
+          mkdir -p "$stage"
+          odin build . -collection:deps=.. -o:speed -define:ONIMITE_VERSION="$GITHUB_REF_NAME" -out:"$stage/onimite.exe"
+          vendor="$(cygpath -u "$ODIN_ROOT")/vendor"
+          cp "$vendor/sdl3/SDL3.dll" "$vendor/lua/5.4/windows/lua54.dll" "$stage/"
+
+      - name: Add licenses
+        working-directory: onimite
+        run: |
+          stage="$RUNNER_TEMP/$NAME"
+          cp LICENSE THIRD_PARTY_NOTICES.md "$stage/"
+          cp -R LICENSES "$stage/"
+
+      - name: Smoke test the staged binary
+        run: |
+          stage="$RUNNER_TEMP/$NAME"
+          exe="$stage/onimite"
+          [ "$RUNNER_OS" = Windows ] && exe="$stage/onimite.exe"
+          out="$RUNNER_TEMP/smoke"
+          mkdir -p "$out"
+          "$exe" --help > /dev/null
+          "$exe" frame onimite/examples/scenes/video.lua 0 --software -o "$out"
+          test -s "$out/0.png"
+
+      - name: Package
+        run: |
+          mkdir -p dist
+          cd "$RUNNER_TEMP"
+          export COPYFILE_DISABLE=1   # no AppleDouble ._ files in macOS tarballs
+          case "$RUNNER_OS" in
+            Windows) 7z a -tzip -bd "$GITHUB_WORKSPACE/dist/$NAME.zip" "$NAME" > /dev/null ;;
+            # The macOS tarball is unsigned; sign-macos repackages it.
+            *) tar -czf "$GITHUB_WORKSPACE/dist/$NAME.tar.gz" "$NAME" ;;
+          esac
+          ls -l "$GITHUB_WORKSPACE/dist"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target == 'macos-arm64' && 'unsigned-macos-arm64' || format('release-{0}', matrix.target) }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
+
+  sign-macos:
+    name: sign and notarize (macos-arm64)
+    needs: build
+    runs-on: macos-latest
+    # The Apple secrets exist only in this environment.
+    environment: release
+    env:
+      NAME: onimite-${{ github.ref_name }}-macos-arm64
+    steps:
+      - name: Paths
+        run: |
+          echo "KEYCHAIN=$RUNNER_TEMP/onimite-signing.keychain-db" >> "$GITHUB_ENV"
+          echo "API_KEY_FILE=$RUNNER_TEMP/notary_api_key.p8" >> "$GITHUB_ENV"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: unsigned-macos-arm64
+          path: unsigned
+
+      - name: Unpack
+        run: |
+          tar -xzf "unsigned/$NAME.tar.gz" -C "$RUNNER_TEMP"
+          ls -l "$RUNNER_TEMP/$NAME"
+
+      - name: Import the Developer ID certificate
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_CERT_P12: ${{ secrets.APPLE_APP_CERT_P12 }}
+          APPLE_APP_CERT_PASSWORD: ${{ secrets.APPLE_APP_CERT_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for v in APPLE_TEAM_ID APPLE_APP_CERT_P12 APPLE_APP_CERT_PASSWORD; do
+            if [ -z "${!v}" ]; then echo "::error::secret $v is not set in the release environment"; exit 1; fi
+          done
+          keychain_password=$(openssl rand -base64 32)
+          echo "::add-mask::$keychain_password"
+          cert="$RUNNER_TEMP/developer_id.p12"
+          trap 'rm -f "$cert"' EXIT
+          printf '%s' "$APPLE_APP_CERT_P12" | base64 --decode > "$cert"
+
+          security create-keychain -p "$keychain_password" "$KEYCHAIN"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN"
+          security unlock-keychain -p "$keychain_password" "$KEYCHAIN"
+          security import "$cert" -k "$KEYCHAIN" -f pkcs12 -P "$APPLE_APP_CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$KEYCHAIN" > /dev/null
+          # The Developer ID intermediate, in case the runner image or the p12
+          # lacks it (an untrusted chain hides the identity from find-identity -v).
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/DeveloperIDG2CA.cer" https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer
+          security import "$RUNNER_TEMP/DeveloperIDG2CA.cer" -k "$KEYCHAIN" > /dev/null 2>&1 || true
+          # Search the temporary keychain first, keeping the existing ones.
+          existing=$(security list-keychains -d user | sed -e 's/^ *"//' -e 's/" *$//')
+          # shellcheck disable=SC2086
+          security list-keychains -d user -s "$KEYCHAIN" $existing
+
+          # The Developer ID Application identity of the team, by SHA-1 hash so
+          # the choice is unambiguous.
+          identity=$(security find-identity -v -p codesigning "$KEYCHAIN" \
+            | grep -F "Developer ID Application" | grep -F "($APPLE_TEAM_ID)" \
+            | head -n 1 | awk '{print $2}')
+          if [ -z "$identity" ]; then
+            echo "::error::no 'Developer ID Application: ... ($APPLE_TEAM_ID)' identity in the certificate"
+            exit 1
+          fi
+          echo "SIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
+
+      - name: Codesign
+        run: |
+          set -euo pipefail
+          stage="$RUNNER_TEMP/$NAME"
+          # The library first: the binary's signature covers what it loads.
+          for f in "$stage/libSDL3.0.dylib" "$stage/onimite"; do
+            codesign --force --options runtime --timestamp \
+              --sign "$SIGN_IDENTITY" --keychain "$KEYCHAIN" "$f"
+            codesign --verify --strict --verbose=2 "$f"
+          done
+          codesign --display --verbose=2 "$stage/onimite" 2>&1 | grep -E '^(Authority|TeamIdentifier|Timestamp|Runtime)'
+
+      - name: Notarize
+        env:
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          set -euo pipefail
+          for v in APPLE_API_KEY_ID APPLE_API_ISSUER_ID APPLE_API_KEY_P8; do
+            if [ -z "${!v}" ]; then echo "::error::secret $v is not set in the release environment"; exit 1; fi
+          done
+          trap 'rm -f "$API_KEY_FILE"' EXIT
+          (umask 077 && printf '%s' "$APPLE_API_KEY_P8" | base64 --decode > "$API_KEY_FILE")
+          auth=(--key "$API_KEY_FILE" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER_ID")
+
+          # notarytool takes a zip, not a tarball; the ticket covers the
+          # signed files' code hashes, whatever container ships them.
+          zip="$RUNNER_TEMP/$NAME-notarize.zip"
+          ditto -c -k --keepParent "$RUNNER_TEMP/$NAME" "$zip"
+          result="$RUNNER_TEMP/notarize.json"
+          set +e
+          xcrun notarytool submit "$zip" "${auth[@]}" --wait --timeout 1h --output-format json > "$result"
+          submit_rc=$?
+          set -e
+          cat "$result"
+          id=$(plutil -extract id raw -o - "$result" 2>/dev/null || true)
+          status=$(plutil -extract status raw -o - "$result" 2>/dev/null || true)
+          if [ "$status" != "Accepted" ]; then
+            echo "::error::notarization ${id:-(no id)} finished as '${status:-unknown}' (notarytool exit $submit_rc)"
+            if [ -n "$id" ]; then xcrun notarytool log "$id" "${auth[@]}" || true; fi
+            exit 1
+          fi
+          echo "notarization $id: Accepted"
+
+      # A bare Mach-O binary cannot carry a stapled ticket (stapler handles
+      # apps, packages and disk images only), so neither a zip nor a tarball
+      # can be stapled; Gatekeeper looks the ticket up online by code hash on
+      # first launch either way. The release therefore ships a .tar.gz of the
+      # exact signed files that were notarized, like the Linux archive.
+      - name: Package
+        run: |
+          mkdir -p dist
+          export COPYFILE_DISABLE=1   # no AppleDouble ._ files
+          tar -czf "dist/$NAME.tar.gz" -C "$RUNNER_TEMP" "$NAME"
+          # The packaged files are the notarized ones, signature intact.
+          check="$RUNNER_TEMP/check"
+          mkdir -p "$check"
+          tar -xzf "dist/$NAME.tar.gz" -C "$check"
+          codesign --verify --strict --verbose=2 "$check/$NAME/onimite"
+          codesign --verify --strict --verbose=2 "$check/$NAME/libSDL3.0.dylib"
+          "$check/$NAME/onimite" --help > /dev/null
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-macos-arm64
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Remove the keychain and API key
+        if: always()
+        run: |
+          rm -f "$API_KEY_FILE"
+          if [ -f "$KEYCHAIN" ]; then security delete-keychain "$KEYCHAIN"; fi
+
+  publish:
+    name: publish
+    needs: [build, sign-macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+
+      # The agent skill at this tag, so it matches the binaries beside it.
+      - uses: actions/checkout@v4
+        with:
+          path: onimite
+          sparse-checkout: skills/onimite-video
+
+      - name: Package the skill
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          tar -czf "dist/onimite-video-skill-$TAG.tar.gz" -C onimite/skills onimite-video
+          tar -tzf "dist/onimite-video-skill-$TAG.tar.gz" | grep -qx 'onimite-video/SKILL.md'
+
+      - name: Checksums
+        working-directory: dist
+        run: |
+          sha256sum onimite-* > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          prerelease=()
+          case "$TAG" in *-*) prerelease=(--prerelease) ;; esac
+          gh release create "$TAG" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "onimite $TAG" \
+            --generate-notes \
+            --verify-tag \
+            "${prerelease[@]}"

@@ -1,0 +1,55 @@
+<!-- A rocket for omtovg/demo, drawn for it (CC0). The parts the script
+     animates have ids: rocket, flame, flame_core, window_glass, fin_l, fin_r,
+     star1..star3. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 400 400">
+  <defs>
+    <linearGradient id="hull" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#c7d2fe"/>
+      <stop offset="0.45" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#818cf8"/>
+    </linearGradient>
+    <radialGradient id="glass" cx="0.5" cy="0.5" r="0.5" fx="0.3" fy="0.3">
+      <stop offset="0" stop-color="#e0f2fe"/>
+      <stop offset="0.5" stop-color="#38bdf8"/>
+      <stop offset="1" stop-color="#0c4a6e"/>
+    </radialGradient>
+    <linearGradient id="fire" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fde047"/>
+      <stop offset="0.5" stop-color="#fb923c"/>
+      <stop offset="1" stop-color="#ef4444" stop-opacity="0"/>
+    </linearGradient>
+    <pattern id="rivets" width="16" height="16" patternUnits="userSpaceOnUse">
+      <circle cx="8" cy="8" r="2" fill="#6366f1" fill-opacity="0.45"/>
+    </pattern>
+    <clipPath id="band-clip">
+      <path d="M200 40 C 250 90, 262 170, 256 250 L 144 250 C 138 170, 150 90, 200 40 Z"/>
+    </clipPath>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="8" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="drop" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="10" stdDeviation="8" flood-color="#020617" flood-opacity="0.5"/>
+    </filter>
+  </defs>
+  <circle id="star1" cx="60" cy="70" r="5" fill="#fef9c3"/>
+  <circle id="star2" cx="335" cy="120" r="4" fill="#fef9c3"/>
+  <circle id="star3" cx="300" cy="330" r="3.5" fill="#fef9c3"/>
+  <g id="rocket" filter="url(#drop)">
+    <g id="flame" filter="url(#glow)">
+      <path d="M168 262 C 170 310, 190 345, 200 372 C 210 345, 230 310, 232 262 Z" fill="url(#fire)"/>
+      <path id="flame_core" d="M184 262 C 186 290, 195 310, 200 326 C 205 310, 214 290, 216 262 Z" fill="#fffbeb"/>
+    </g>
+    <path id="fin_l" d="M150 190 L 104 252 L 110 280 L 150 252 Z" fill="#f43f5e"/>
+    <path id="fin_r" d="M250 190 L 296 252 L 290 280 L 250 252 Z" fill="#f43f5e"/>
+    <path d="M200 40 C 250 90, 262 170, 256 250 L 248 268 L 152 268 L 144 250 C 138 170, 150 90, 200 40 Z"
+          fill="url(#hull)" stroke="#312e81" stroke-width="4" stroke-linejoin="round"/>
+    <g clip-path="url(#band-clip)">
+      <rect x="130" y="196" width="140" height="40" fill="#f43f5e"/>
+      <rect x="130" y="196" width="140" height="40" fill="url(#rivets)"/>
+    </g>
+    <circle cx="200" cy="138" r="30" fill="#312e81"/>
+    <circle id="window_glass" cx="200" cy="138" r="23" fill="url(#glass)"/>
+    <path d="M200 40 C 222 62, 236 84, 244 104 L 156 104 C 164 84, 178 62, 200 40 Z" fill="#f43f5e" fill-opacity="0.9"/>
+  </g>
+</svg>

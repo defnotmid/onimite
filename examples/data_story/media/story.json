@@ -1,0 +1,361 @@
+{
+ "text": "A year of harvest, told by its own numbers. Every bar is one month, rising on the beat. The tallest bar is the best month. The line adds each month to the last. It ends on the year's total. The donut splits the harvest by crop. Change the data and the video follows. One script, a new video per row.",
+ "segments": [
+  {
+   "start": 0.5,
+   "end": 3.25,
+   "text": " A year of harvest, told by its own numbers.",
+   "words": [
+    {
+     "word": " A",
+     "start": 0.5,
+     "end": 0.649
+    },
+    {
+     "word": " year",
+     "start": 0.662,
+     "end": 0.959
+    },
+    {
+     "word": " of",
+     "start": 0.985,
+     "end": 1.184
+    },
+    {
+     "word": " harvest,",
+     "start": 1.201,
+     "end": 1.647
+    },
+    {
+     "word": " told",
+     "start": 1.686,
+     "end": 1.984
+    },
+    {
+     "word": " by",
+     "start": 2.01,
+     "end": 2.208
+    },
+    {
+     "word": " its",
+     "start": 2.225,
+     "end": 2.474
+    },
+    {
+     "word": " own",
+     "start": 2.495,
+     "end": 2.743
+    },
+    {
+     "word": " numbers.",
+     "start": 2.765,
+     "end": 3.211
+    }
+   ]
+  },
+  {
+   "start": 4.75,
+   "end": 7.5,
+   "text": " Every bar is one month, rising on the beat.",
+   "words": [
+    {
+     "word": " Every",
+     "start": 4.75,
+     "end": 5.097
+    },
+    {
+     "word": " bar",
+     "start": 5.127,
+     "end": 5.375
+    },
+    {
+     "word": " is",
+     "start": 5.397,
+     "end": 5.595
+    },
+    {
+     "word": " one",
+     "start": 5.613,
+     "end": 5.861
+    },
+    {
+     "word": " month,",
+     "start": 5.882,
+     "end": 6.23
+    },
+    {
+     "word": " rising",
+     "start": 6.26,
+     "end": 6.657
+    },
+    {
+     "word": " on",
+     "start": 6.691,
+     "end": 6.89
+    },
+    {
+     "word": " the",
+     "start": 6.907,
+     "end": 7.155
+    },
+    {
+     "word": " beat.",
+     "start": 7.176,
+     "end": 7.474
+    }
+   ]
+  },
+  {
+   "start": 8.75,
+   "end": 11.0,
+   "text": " The tallest bar is the best month.",
+   "words": [
+    {
+     "word": " The",
+     "start": 8.75,
+     "end": 9.002
+    },
+    {
+     "word": " tallest",
+     "start": 9.024,
+     "end": 9.479
+    },
+    {
+     "word": " bar",
+     "start": 9.518,
+     "end": 9.771
+    },
+    {
+     "word": " is",
+     "start": 9.793,
+     "end": 9.995
+    },
+    {
+     "word": " the",
+     "start": 10.012,
+     "end": 10.265
+    },
+    {
+     "word": " best",
+     "start": 10.287,
+     "end": 10.59
+    },
+    {
+     "word": " month.",
+     "start": 10.616,
+     "end": 10.969
+    }
+   ]
+  },
+  {
+   "start": 12.75,
+   "end": 15.25,
+   "text": " The line adds each month to the last.",
+   "words": [
+    {
+     "word": " The",
+     "start": 12.75,
+     "end": 13.006
+    },
+    {
+     "word": " line",
+     "start": 13.028,
+     "end": 13.334
+    },
+    {
+     "word": " adds",
+     "start": 13.361,
+     "end": 13.668
+    },
+    {
+     "word": " each",
+     "start": 13.694,
+     "end": 14.001
+    },
+    {
+     "word": " month",
+     "start": 14.028,
+     "end": 14.386
+    },
+    {
+     "word": " to",
+     "start": 14.417,
+     "end": 14.621
+    },
+    {
+     "word": " the",
+     "start": 14.639,
+     "end": 14.894
+    },
+    {
+     "word": " last.",
+     "start": 14.917,
+     "end": 15.223
+    }
+   ]
+  },
+  {
+   "start": 15.75,
+   "end": 17.5,
+   "text": " It ends on the year's total.",
+   "words": [
+    {
+     "word": " It",
+     "start": 15.75,
+     "end": 15.939
+    },
+    {
+     "word": " ends",
+     "start": 15.956,
+     "end": 16.24
+    },
+    {
+     "word": " on",
+     "start": 16.265,
+     "end": 16.454
+    },
+    {
+     "word": " the",
+     "start": 16.471,
+     "end": 16.707
+    },
+    {
+     "word": " year's",
+     "start": 16.728,
+     "end": 17.107
+    },
+    {
+     "word": " total.",
+     "start": 17.14,
+     "end": 17.471
+    }
+   ]
+  },
+  {
+   "start": 18.75,
+   "end": 21.5,
+   "text": " The donut splits the harvest by crop.",
+   "words": [
+    {
+     "word": " The",
+     "start": 18.75,
+     "end": 19.038
+    },
+    {
+     "word": " donut",
+     "start": 19.062,
+     "end": 19.465
+    },
+    {
+     "word": " splits",
+     "start": 19.5,
+     "end": 19.96
+    },
+    {
+     "word": " the",
+     "start": 20.0,
+     "end": 20.288
+    },
+    {
+     "word": " harvest",
+     "start": 20.312,
+     "end": 20.83
+    },
+    {
+     "word": " by",
+     "start": 20.875,
+     "end": 21.105
+    },
+    {
+     "word": " crop.",
+     "start": 21.125,
+     "end": 21.47
+    }
+   ]
+  },
+  {
+   "start": 24.75,
+   "end": 27.25,
+   "text": " Change the data and the video follows.",
+   "words": [
+    {
+     "word": " Change",
+     "start": 24.75,
+     "end": 25.159
+    },
+    {
+     "word": " the",
+     "start": 25.194,
+     "end": 25.45
+    },
+    {
+     "word": " data",
+     "start": 25.472,
+     "end": 25.779
+    },
+    {
+     "word": " and",
+     "start": 25.806,
+     "end": 26.061
+    },
+    {
+     "word": " the",
+     "start": 26.083,
+     "end": 26.339
+    },
+    {
+     "word": " video",
+     "start": 26.361,
+     "end": 26.719
+    },
+    {
+     "word": " follows.",
+     "start": 26.75,
+     "end": 27.21
+    }
+   ]
+  },
+  {
+   "start": 27.75,
+   "end": 29.5,
+   "text": " One script, a new video per row.",
+   "words": [
+    {
+     "word": " One",
+     "start": 27.75,
+     "end": 27.962
+    },
+    {
+     "word": " script,",
+     "start": 27.98,
+     "end": 28.319
+    },
+    {
+     "word": " a",
+     "start": 28.349,
+     "end": 28.476
+    },
+    {
+     "word": " new",
+     "start": 28.487,
+     "end": 28.699
+    },
+    {
+     "word": " video",
+     "start": 28.717,
+     "end": 29.014
+    },
+    {
+     "word": " per",
+     "start": 29.039,
+     "end": 29.251
+    },
+    {
+     "word": " row.",
+     "start": 29.27,
+     "end": 29.482
+    }
+   ]
+  }
+ ]
+}

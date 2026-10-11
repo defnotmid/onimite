@@ -1,0 +1,197 @@
+#include <metal_stdlib>
+#include <metal_math>
+#include <metal_texture>
+using namespace metal;
+
+#line 22 "rgba_to_nv12.slang"
+struct Params_0
+{
+    int4 ky_0;
+    int4 ku_0;
+    int4 kv_0;
+    uint4 size_0;
+};
+
+
+#line 64
+struct KernelContext_0
+{
+    Params_0 constant* params_0;
+    texture2d<float, access::read_write> source_0;
+    uint32_t device* destination_0;
+};
+
+
+#line 30
+int3 texel_0(int x_0, int y_0, KernelContext_0 thread* kernelContext_0)
+{
+
+#line 31
+    float4 _S1 = ((kernelContext_0->source_0).read(vec<uint,2>(((int2(uint2(uint(min(x_0, int(kernelContext_0->params_0->size_0.x) - int(1))), uint(min(y_0, int(kernelContext_0->params_0->size_0.y) - int(1))))))).xy)));
+    return int3(round(_S1.xyz * float3(255.0f) ));
+}
+
+uint luma_0(int3 c_0, KernelContext_0 thread* kernelContext_1)
+{
+
+#line 36
+    return uint(clamp((kernelContext_1->params_0->ky_0.x * c_0.x + kernelContext_1->params_0->ky_0.y * c_0.y + kernelContext_1->params_0->ky_0.z * c_0.z + kernelContext_1->params_0->ky_0.w) >> 16U, int(0), int(255)));
+}
+
+
+
+[[kernel]] void cs_main(uint3 id_0 [[thread_position_in_grid]], Params_0 constant* params_1 [[buffer(0)]], texture2d<float, access::read_write> source_1 [[texture(0)]], uint32_t device* destination_1 [[buffer(1)]])
+{
+
+#line 41
+    thread KernelContext_0 kernelContext_2;
+
+#line 41
+    (&kernelContext_2)->params_0 = params_1;
+
+#line 41
+    (&kernelContext_2)->source_0 = source_1;
+
+#line 41
+    (&kernelContext_2)->destination_0 = destination_1;
+    uint y_stride_0 = params_1->size_0.z;
+    uint _S2 = id_0.x * 8U;
+
+#line 43
+    bool _S3;
+
+#line 43
+    if(_S2 >= y_stride_0)
+    {
+
+#line 43
+        _S3 = true;
+
+#line 43
+    }
+    else
+    {
+
+#line 43
+        _S3 = (id_0.y * 2U) >= (params_1->size_0.y);
+
+#line 43
+    }
+
+#line 43
+    if(_S3)
+    {
+
+#line 43
+        return;
+    }
+
+#line 44
+    int _S4 = int(_S2);
+    uint _S5 = id_0.y;
+
+#line 45
+    int y0_0 = int(_S5 * 2U);
+    thread array<uint, int(4)> y_words_0;
+
+#line 46
+    y_words_0[int(0)] = 0U;
+
+#line 46
+    y_words_0[int(1)] = 0U;
+
+#line 46
+    y_words_0[int(2)] = 0U;
+
+#line 46
+    y_words_0[int(3)] = 0U;
+    thread array<uint, int(2)> uv_words_0;
+
+#line 47
+    uv_words_0[int(0)] = 0U;
+
+#line 47
+    uv_words_0[int(1)] = 0U;
+
+#line 47
+    int i_0 = int(0);
+    for(;;)
+    {
+
+#line 48
+        if(i_0 < int(4))
+        {
+        }
+        else
+        {
+
+#line 48
+            break;
+        }
+
+#line 49
+        int x_1 = _S4 + i_0 * int(2);
+
+#line 49
+        int3 _S6 = texel_0(x_1, y0_0, &kernelContext_2);
+
+        int _S7 = x_1 + int(1);
+
+#line 51
+        int3 _S8 = texel_0(_S7, y0_0, &kernelContext_2);
+        int _S9 = y0_0 + int(1);
+
+#line 52
+        int3 _S10 = texel_0(x_1, _S9, &kernelContext_2);
+
+#line 52
+        int3 _S11 = texel_0(_S7, _S9, &kernelContext_2);
+
+        uint word_0 = uint(i_0 / int(2));
+        uint shift_0 = uint(i_0 % int(2)) * 16U;
+
+#line 55
+        uint _S12 = luma_0(_S6, &kernelContext_2);
+
+#line 55
+        uint _S13 = luma_0(_S8, &kernelContext_2);
+        y_words_0[word_0] = (y_words_0[word_0]) | ((_S12 | (_S13 << 8U)) << shift_0);
+
+#line 56
+        uint _S14 = luma_0(_S10, &kernelContext_2);
+
+#line 56
+        uint _S15 = luma_0(_S11, &kernelContext_2);
+        y_words_0[word_0 + 2U] = (y_words_0[word_0 + 2U]) | ((_S14 | (_S15 << 8U)) << shift_0);
+        int3 s_0 = _S6 + _S8 + _S10 + _S11;
+        int _S16 = s_0.x;
+
+#line 59
+        int _S17 = s_0.y;
+
+#line 59
+        int _S18 = s_0.z;
+
+        uv_words_0[i_0 / int(2)] = (uv_words_0[i_0 / int(2)]) | ((uint(clamp(((&kernelContext_2)->params_0->ku_0.x * _S16 + (&kernelContext_2)->params_0->ku_0.y * _S17 + (&kernelContext_2)->params_0->ku_0.z * _S18 + (&kernelContext_2)->params_0->ku_0.w) >> 18U, int(0), (&kernelContext_2)->params_0->kv_0.w)) | (uint(clamp(((&kernelContext_2)->params_0->kv_0.x * _S16 + (&kernelContext_2)->params_0->kv_0.y * _S17 + (&kernelContext_2)->params_0->kv_0.z * _S18 + (&kernelContext_2)->params_0->ku_0.w) >> 18U, int(0), (&kernelContext_2)->params_0->kv_0.w)) << 8U)) << shift_0);
+
+#line 48
+        i_0 = i_0 + int(1);
+
+#line 48
+    }
+
+#line 63
+    uint row0_0 = uint(y0_0) * y_stride_0 + _S2;
+    (&kernelContext_2)->destination_0[(row0_0)>>2] = as_type<uint32_t>(y_words_0[int(0)]);
+    (&kernelContext_2)->destination_0[(row0_0 + 4U)>>2] = as_type<uint32_t>(y_words_0[int(1)]);
+    uint _S19 = row0_0 + y_stride_0;
+
+#line 66
+    (&kernelContext_2)->destination_0[(_S19)>>2] = as_type<uint32_t>(y_words_0[int(2)]);
+    (&kernelContext_2)->destination_0[(_S19 + 4U)>>2] = as_type<uint32_t>(y_words_0[int(3)]);
+    uint chroma_0 = params_1->size_0.w + _S5 * y_stride_0 + _S2;
+    (&kernelContext_2)->destination_0[(chroma_0)>>2] = as_type<uint32_t>(uv_words_0[int(0)]);
+    (&kernelContext_2)->destination_0[(chroma_0 + 4U)>>2] = as_type<uint32_t>(uv_words_0[int(1)]);
+    return;
+}
+
