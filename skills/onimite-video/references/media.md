@@ -93,8 +93,10 @@ text { string.format("%dx%d %.1fs", info.width, info.height, info.duration),
   x = 100, y = 700, font = "DM Sans", size = 40, fill = "#fff" }
 ```
 
-`.mp4`, `.mov`, `.m4v`, `.webm` in `media/`. The clock is the frame's (scene-relative in a
-scene). Past the end the clip disappears unless it loops. A clip's sound is used by putting
+`.mp4`, `.mov`, `.m4v`, `.webm` in `media/`. The frame fits its box like an image: `fit`
+(`contain` default, `cover`, `fill`, or `preserve_aspect_ratio`), `align = {x, y}` (0..1),
+and a missing `w` or `h` follows the clip's aspect (neither: its own size; a rotated phone
+clip counts upright). The clock is the frame's (scene-relative in a scene). Past the end the clip disappears unless it loops. A clip's sound is used by putting
 its file name in an `audio` list (`offset` to start inside it). Renders wait for exact
 frames; the preview shows the nearest decoded one.
 
@@ -111,7 +113,7 @@ local all = subtitles("subs.vtt")                       -- every cue: text, star
 text { #all .. " cues", x = 100, y = 100, font = "DM Sans", size = 32, fill = "#94a3b8" }
 ```
 
-WebVTT and SRT files in `media/`. Wrap long cues with `text_lines` and cache the result per
+WebVTT and SRT files in `media/` (or loaded with `captions_load` below). Wrap long cues with `text_lines` and cache the result per
 cue text, or draw them with `captions{}` below.
 
 ## Word-level captions

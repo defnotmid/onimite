@@ -16,19 +16,20 @@ import lua "vendor:lua/5.4"
 // a table `{depth_db, attack, hold, release, merge_gap}`), `mono` (a stereo
 // file as 0.707 * (L + R) on both sides, like fframes' embedded media).
 
-// Reads field `audio` of the table at `t`. The tracks and their strings are
-// owned by the script and freed on unload.
+// Reads field `audio` of the table at `t` into the video's tracks, placed
+// by `scene` (an index into the scenes, or none for video{}). The strings
+// are owned by the script and freed on unload.
 @(private)
-read_audio :: proc(s: ^Script, L: ^lua.State, t: c.int) -> []om.Audio_Track {
+read_audio :: proc(s: ^Script, L: ^lua.State, t: c.int, scene: Maybe(int)) {
 	field(L, t, "audio")
 	defer lua.pop(L, 1)
 	if !lua.istable(L, -1) {
-		return nil
+		return
 	}
 	list := lua.absindex(L, -1)
 	n := int(lua.rawlen(L, list))
-	tracks := make([]om.Audio_Track, n)
-	append(&s.owned_tracks, tracks)
+	// Joined once all are read: a Lua error halfway leaves none.
+	tracks := make([]om.Audio_Track, n, context.temp_allocator)
 	source := strings.clone(caller_where(L))
 	append(&s.owned_strings, source)
 	for &tr, i in tracks {
@@ -42,6 +43,7 @@ read_audio :: proc(s: ^Script, L: ^lua.State, t: c.int) -> []om.Audio_Track {
 		tr.src = strings.clone(src)
 		append(&s.owned_strings, tr.src)
 		tr.source = source
+		tr.scene = scene
 		if cue := get_str(L, e, "cue", ""); cue != "" {
 			tr.cue = strings.clone(cue)
 			append(&s.owned_strings, tr.cue)
@@ -86,7 +88,7 @@ read_audio :: proc(s: ^Script, L: ^lua.State, t: c.int) -> []om.Audio_Track {
 		fields_pop(L, s, e, "audio track", outer)
 		lua.pop(L, 1)
 	}
-	return tracks
+	append(&s.tracks, ..tracks)
 }
 
 // `buses = { sfx = { gain_db = -4 }, music = { gain_db = 0 } }` on video{}:

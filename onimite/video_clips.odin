@@ -162,15 +162,10 @@ Video_Clip_Params :: struct {
 	start_from:   f32,
 	clip_start:   f32,
 	looping:      bool,
-	// How the frame fits the box: "contain" (SVG's default), "cover", "fill".
+	// How the frame fits the box and sits in it (`fit_box`).
 	fit:          Image_Fit,
+	align:        Maybe(Vec2),
 	opacity:      Maybe(f32),
-}
-
-Image_Fit :: enum u8 {
-	Contain,
-	Cover,
-	Fill,
 }
 
 // The node: which clip and the clip time this frame shows.
@@ -179,6 +174,7 @@ Video_Clip :: struct {
 	seconds:    f64,
 	x, y, w, h: f32,
 	fit:        Image_Fit,
+	align:      Maybe(Vec2),
 	opacity:    Maybe(f32),
 }
 
@@ -200,7 +196,7 @@ video_clip :: proc(ctx: ^Context, f: Frame, p: Video_Clip_Params) -> bool {
 	if !showing {
 		return true
 	}
-	tree_add(&ctx.tree, Video_Clip{i, t, p.x, p.y, p.w, p.h, p.fit, p.opacity})
+	tree_add(&ctx.tree, Video_Clip{i, t, p.x, p.y, p.w, p.h, p.fit, p.align, p.opacity})
 	if v.source.prefetch != nil && !ctx.recording {
 		v.source.prefetch(v.source.data, v.handles[i], t)
 	}
@@ -211,7 +207,7 @@ video_clip :: proc(ctx: ^Context, f: Frame, p: Video_Clip_Params) -> bool {
 // frame clock, `clip_start` seconds into the clip; false before the start
 // or after a non-looping clip ends.
 video_clip_time :: proc(info: Video_Info, f: Frame, start_from, clip_start: f32, looping: bool) -> (t: f64, showing: bool) {
-	start_frame := seconds_to_frames(start_from, f.fps)
+	start_frame := frame_at(f64(start_from), f.fps)
 	if f.index < start_frame {
 		return 0, false
 	}
@@ -433,40 +429,35 @@ draw_video_clip :: proc(r: ^Renderer, n: Video_Clip) {
 		return
 	}
 
-	// Fit the (rotated) frame into the box.
+	// Fit the frame, as shown (turned by the clip's rotation), into the box.
 	rotation := v.infos[n.clip].rotation
-	sideways := rotation == 90 || rotation == 270
-	fw, fh := f32(vi.width[slot]), f32(vi.height[slot])
-	if sideways {
-		fw, fh = fh, fw
-	}
-	bw := n.w if n.w > 0 else fw
-	bh := n.h if n.h > 0 else fh
-	dx, dy, dw, dh := n.x, n.y, bw, bh
-	switch n.fit {
-	case .Fill:
-	case .Contain, .Cover:
-		s := min(bw / fw, bh / fh) if n.fit == .Contain else max(bw / fw, bh / fh)
-		dw, dh = fw * s, fh * s
-		dx, dy = n.x + (bw - dw) / 2, n.y + (bh - dh) / 2
-	}
+	fw, fh := rotated_size(f32(vi.width[slot]), f32(vi.height[slot]), rotation)
+	box, pic := fit_box(n.x, n.y, n.w, n.h, fw, fh, n.fit, n.align)
 	c := &r.canvas
 	vg.save(c)
 	defer vg.restore(c)
 	if n.fit == .Cover {
-		vg.intersect_scissor(c, n.x, n.y, bw, bh)
+		vg.intersect_scissor(c, box.x, box.y, box.w, box.h)
 	}
-	// Draw around the box centre so the clip's rotation turns it in place.
-	vg.translate(c, dx + dw / 2, dy + dh / 2)
+	// Draw around the picture's centre so the clip's rotation turns it in place.
+	vg.translate(c, pic.x + pic.w / 2, pic.y + pic.h / 2)
 	if rotation != 0 {
 		vg.rotate(c, f32(rotation) * math.RAD_PER_DEG)
 	}
-	iw, ih := dw, dh
-	if sideways {
-		iw, ih = dh, dw
-	}
+	// The frame's own sides: the picture turned back.
+	iw, ih := rotated_size(pic.w, pic.h, rotation)
 	p := vg.paint_image(vi.image[slot], -iw / 2, -ih / 2, iw, ih, 0, n.opacity.? or_else 1)
 	vg.path_reset(&r.path)
 	vg.path_rect(&r.path, -iw / 2, -ih / 2, iw, ih)
 	vg.fill_path(c, &r.path, p)
+}
+
+// The sides of a `w x h` frame turned by `rotation` degrees (0, 90, 180,
+// 270): a sideways one swaps them.
+@(private)
+rotated_size :: proc "contextless" (w, h: f32, rotation: int) -> (f32, f32) {
+	if rotation == 90 || rotation == 270 {
+		return h, w
+	}
+	return w, h
 }

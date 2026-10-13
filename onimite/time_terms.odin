@@ -1,7 +1,5 @@
 package onimite
 
-import "core:math"
-
 // Durations and audio timestamps that depend on media, after fframes'
 // `Duration::{FromAudio, FromVideo, +, -}` and `AudioTimestamp`. A value is
 // a flat list of signed terms summed in order; the result never goes below
@@ -52,7 +50,7 @@ terms_frames :: proc(terms: []Time_Term, fps: int, m: ^Media) -> (frames: int, m
 		f: f64
 		switch t.kind {
 		case .Seconds:
-			f = f64(seconds_to_frames(t.value, fps))
+			f = f64(frame_at(f64(t.value), fps))
 		case .Frames:
 			f = f64(t.value)
 		case .Audio, .Video:
@@ -61,7 +59,7 @@ terms_frames :: proc(terms: []Time_Term, fps: int, m: ^Media) -> (frames: int, m
 				return 0, t.name, false
 			}
 			// fframes floors a file's length to whole frames.
-			f = math.floor(secs * f64(fps))
+			f = f64(frame_at(secs, fps))
 		}
 		total += f64(t.sign) * f
 	}

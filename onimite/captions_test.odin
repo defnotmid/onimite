@@ -91,7 +91,7 @@ test_captions_vtt_inline_timestamps :: proc(t: ^testing.T) {
 @(test)
 test_captions_srt_even_split :: proc(t: ^testing.T) {
 	src := "1\r\n00:00:00,000 --> 00:00:02,000\r\nfour <i>words</i> in\r\nthis\r\n\r\n2\r\n00:00:03,000 --> 00:00:03,900\r\nlast  three words\r\n"
-	subs, sok := parse_srt(src)
+	subs, sok := parse_subtitles(src)
 	defer subtitles_destroy(&subs)
 	testing.expect(t, sok)
 	testing.expect_value(t, len(subs.starts), 2)
@@ -107,7 +107,7 @@ test_captions_srt_even_split :: proc(t: ^testing.T) {
 	}
 	testing.expect_value(t, c.starts[5], 3300)
 	testing.expect_value(t, c.stops[6], 3900)
-	_, none := parse_srt("not subtitles")
+	_, none := parse_subtitles("not subtitles")
 	testing.expect(t, !none)
 }
 

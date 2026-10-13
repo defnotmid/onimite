@@ -28,9 +28,8 @@ Svg_Override :: struct {
 	visible:   Maybe(bool),
 }
 
-// An SVG document from the media (`src`, a .svg file) or `markup`, scaled
-// into the box `x, y, w, h` (0 = the document's size, or its aspect) like
-// an image: `fit` and `align` follow preserveAspectRatio. The document's
+// An SVG document from the media (`src`, a .svg file) or `markup`, placed
+// in the box `x, y, w, h` like an image (`fit_box`). The document's
 // viewport clips it.
 Svg :: struct {
 	src:        string,
@@ -222,33 +221,13 @@ draw_svg :: proc(r: ^Renderer, n: Svg) {
 	for w in doc.warnings {
 		report(&r.ctx, .Warning, {code = .Svg_Warning, name = label, a = w})
 	}
-	iw, ih := doc.width, doc.height
-	w, h := n.w, n.h
-	switch {
-	case w <= 0 && h <= 0:
-		w, h = iw, ih
-	case w <= 0:
-		w = h * iw / ih
-	case h <= 0:
-		h = w * ih / iw
-	}
-	ix, iy, dw, dh := n.x, n.y, w, h
-	if n.fit != .Fill {
-		k := min(w / iw, h / ih) if n.fit == .Contain else max(w / iw, h / ih)
-		dw, dh = iw * k, ih * k
-		al := n.align.? or_else {0.5, 0.5}
-		ix = n.x + (w - dw) * al.x
-		iy = n.y + (h - dh) * al.y
-	}
+	box, pic := fit_box(n.x, n.y, n.w, n.h, doc.width, doc.height, n.fit, n.align)
 	c := &r.canvas
 	vg.save(c)
 	defer vg.restore(c)
 	// The viewport clips, as an SVG shown as an image.
-	if n.fit == .Cover {
-		vg.intersect_scissor(c, n.x, n.y, w, h)
-	} else {
-		vg.intersect_scissor(c, ix, iy, dw, dh)
-	}
+	shown := box if n.fit == .Cover else pic
+	vg.intersect_scissor(c, shown.x, shown.y, shown.w, shown.h)
 	clear(&r.svg_overrides)
 	for o in n.overrides {
 		ov := vg.Svg_Override {
@@ -273,7 +252,7 @@ draw_svg :: proc(r: ^Renderer, n: Svg) {
 	if opacity < 1 {
 		vg.layer_push(&r.layers, c, {opacity = opacity})
 	}
-	xf := vg.Transform2D{dw / iw, 0, 0, dh / ih, ix, iy}
+	xf := vg.Transform2D{pic.w / doc.width, 0, 0, pic.h / doc.height, pic.x, pic.y}
 	vg.svg_draw(c, &r.layers, svg_renderer_of(r, a), doc, &a.text, xf, r.svg_overrides[:])
 	if opacity < 1 {
 		vg.layer_pop(&r.layers, c)

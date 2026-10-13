@@ -55,7 +55,7 @@ To install by hand instead, download the archive for your platform from
 (`X.Y.Z` is the release):
 
 - Linux x86_64: `onimite-vX.Y.Z-linux-x86_64.tar.gz`
-- macOS Apple Silicon: `onimite-vX.Y.Z-macos-arm64.tar.gz`
+- macOS Apple Silicon: `onimite-vX.Y.Z-macos-arm64.tar.gz` (signed and notarized)
 - Windows x86_64: `onimite-vX.Y.Z-windows-x86_64.zip` (when present; best effort)
 - `SHA256SUMS` to check them: `sha256sum -c --ignore-missing SHA256SUMS`
 
@@ -254,8 +254,11 @@ Template: `examples/batch/`.
 `Intro` (its first frame, or the whole scene where a range is expected), `#2` (scene index,
 from 0 as `timeline` prints it),
 `Intro[1]` (the second scene named Intro); inside a scene `Intro@1.5s`, `Intro@12`,
-`Intro@50%`, `Intro@end` (past the scene's end is an error, not the next scene). Ranges: `a..b` (end exclusive), `a..`, `..b`, `all`. Separate
-several times with commas.
+`Intro@50%`, `Intro@end` (past the scene's end is an error, not the next scene). Cues and sync
+ids (`timeline` lists them) work the same: `drop` (its frame), `drop@0.5s`, `drop@-12` (before
+it), `beat[3]`; a scene's name wins over a cue's. Ranges: `a..b` (end exclusive), `a..`, `..b`,
+`all`, with any of these as ends (`drop..beat[8]`, `Intro..drop@1s`). Separate several times
+with commas.
 
 ### All commands
 
@@ -284,7 +287,10 @@ Common options: `--json`, `--scale S`, `--media DIR` (default `media/` beside th
 ### As MCP tools
 
 `onimite mcp` serves these commands as MCP tools on stdin/stdout; the Claude Code plugin
-registers it (the `onimite` binary must be on PATH). Tools: `render`, `frame`, `strip`,
+registers it (the `onimite` binary must be on PATH), and the Claude Desktop extension
+(`onimite-macos-arm64.mcpb`, `onimite-windows-x86_64.mcpb` in the releases) bundles its own
+binary and a work folder (`onimite mcp --dir PATH`: relative paths start there). `guide`
+returns this skill and its references, built into the binary. Tools: `render`, `frame`, `strip`,
 `onion`, `snapshot`, `show`, `timeline`, `inspect`, `audio_render`, `audio_analyze`,
 `audio_at`, `audio_onsets`, `probe`, and `preview`, which opens the window for the user and
 returns at once (one window per script; it reloads on save, so open it once and keep

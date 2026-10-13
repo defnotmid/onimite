@@ -201,21 +201,18 @@ show_video :: proc(sh: ^Show, _: string) -> Error {
 	sh.res.kind = show_kind(.Video)
 	sh.res.summary = fmt.tprintf("%dx%d @ %d fps, %d frames (%.2fs)", v.width, v.height, v.fps, tl.duration_frames, f64(tl.duration_frames) / sh.fps)
 	sh.res.fields = reflect_object(v^, 0)
-	declared := len(v.audio)
-	for s in v.scenes {
-		declared += len(s.audio)
-	}
+	// `audio` is what video{} declares; scenes declare theirs.
+	sh.res.fields["audio"] = json.Integer(om.tracks_placed_by(v, nil))
 	child(sh, "scenes", .List, fmt.tprintf("%d scenes", len(tl.scenes)))
 	child(sh, "cues", .List, fmt.tprintf("%d cues", len(sh.app.script.cues)))
 	child(sh, "buses", .List, fmt.tprintf("%d buses", len(v.buses)))
-	child(sh, "tracks", .List, fmt.tprintf("%d sounds placed", declared))
+	child(sh, "tracks", .List, fmt.tprintf("%d sounds placed", len(v.audio)))
 	child(sh, "clips", .List, fmt.tprintf("%d clips (%d made by the script, built when needed)", len(sh.app.media.audio) + len(sh.app.script.pending_audio), len(sh.app.script.pending_audio)))
 	if n := len(sh.app.script.said); n > 0 {
 		child(sh, "says", .List, fmt.tprintf("%d spoken lines (say)", n))
 	}
 	m := &sh.app.media
-	files := len(m.images) + len(m.videos.names) + len(m.svgs) + len(m.lotties) + len(m.shaders) + len(m.captions) + len(m.subtitles)
-	child(sh, "media", .List, fmt.tprintf("%d media files besides the sounds", files))
+	child(sh, "media", .List, fmt.tprintf("%d media files besides the sounds", len(media_files(m))))
 	child(sh, "fonts", .List, fmt.tprintf("%d font faces", len(m.fonts.faces)))
 	if n := len(script.physics_bodies(&sh.app.script)); n > 0 {
 		child(sh, "bodies", .List, fmt.tprintf("%d physics bodies", n))
@@ -268,7 +265,7 @@ show_scene :: proc(sh: ^Show, rest: string) -> Error {
 		pa := om.placed_audio(&sh.r.ctx)
 		placed, order := pa.tracks[:], pa.order[:]
 		for k, idx in order {
-			if placed[k].scene == s.scene.name {
+			if placed[k].track.scene == s.index {
 				child(sh, fmt.tprintf("track/%d", idx), .Track, track_summary(placed[k]))
 			}
 		}
@@ -288,6 +285,8 @@ show_scene :: proc(sh: ^Show, rest: string) -> Error {
 	sh.res.summary = scene_summary(sh, s)
 	sh.res.source = s.scene.source
 	sh.res.fields = reflect_object(s.scene^, 0)
+	sounds := om.tracks_placed_by(sh.r.video, s.index)
+	sh.res.fields["audio"] = json.Integer(sounds)
 	sh.res.fields["start_frame"] = json.Integer(s.start_frame)
 	sh.res.fields["end_frame"] = json.Integer(s.end_frame)
 	sh.res.fields["start_seconds"] = json.Float(f64(s.start_frame) / sh.fps)
@@ -295,7 +294,7 @@ show_scene :: proc(sh: ^Show, rest: string) -> Error {
 	if s.scene.cue != "" {
 		child(sh, fmt.tprintf("cue/%s", s.scene.cue), .Cue, "the cue it starts on")
 	}
-	child(sh, fmt.tprintf("%s/sounds", base), .List, fmt.tprintf("%d sounds it places", len(s.scene.audio)))
+	child(sh, fmt.tprintf("%s/sounds", base), .List, fmt.tprintf("%d sounds it places", sounds))
 	child(sh, fmt.tprintf("%s/nodes", base), .List, "what it draws (--at, default its middle)")
 	return nil
 }
@@ -307,7 +306,7 @@ show_cues :: proc(sh: ^Show, _: string) -> Error {
 	sh.res.kind = show_kind(.List)
 	sh.res.summary = fmt.tprintf("%d cues", len(sh.app.script.cues))
 	for c in sh.app.script.cues {
-		child(sh, fmt.tprintf("cue/%s", c.name), .Cue, fmt.tprintf("%.3fs (frame %d)  %s", c.seconds, int(math.floor(c.seconds * sh.fps + 1e-6)), c.at))
+		child(sh, fmt.tprintf("cue/%s", c.name), .Cue, fmt.tprintf("%.3fs (frame %d)  %s", c.seconds, om.frame_at(c.seconds, sh.r.video.fps), c.at))
 	}
 	return nil
 }
@@ -321,7 +320,7 @@ show_cue :: proc(sh: ^Show, name: string) -> Error {
 			found = true
 			sh.res.kind = show_kind(.Cue)
 			sh.res.source = c.at
-			sh.res.summary = fmt.tprintf("%s at %.3fs (frame %d)", c.name, c.seconds, int(math.floor(c.seconds * sh.fps + 1e-6)))
+			sh.res.summary = fmt.tprintf("%s at %.3fs (frame %d)", c.name, c.seconds, om.frame_at(c.seconds, sh.r.video.fps))
 			sh.res.fields = reflect_object(c, 0)
 		}
 	}
@@ -568,125 +567,102 @@ show_say :: proc(sh: ^Show, rest: string) -> Error {
 
 // ---- media, fonts, physics bodies --------------------------------------------------------
 
-// The media files besides the sounds (`clips`), by name, and what the
-// folder could not read. A file's fields say what it is (its size, length,
-// cues), not how the engine stores its parse.
+// The media files besides the sounds (`clips`) and fonts (`fonts`), by
+// name, and what the folder could not read. A file's fields say what it is
+// (its size, length, cues), not how the engine stores its parse.
 @(private = "file")
 show_media :: proc(sh: ^Show, rest: string) -> Error {
 	m := &sh.app.media
 	if rest != "" {
 		return show_media_file(sh, rest)
 	}
-	Item :: struct {
-		name:    string,
-		summary: string,
-	}
-	items := make([dynamic]Item, context.temp_allocator)
-	for name, img in m.images {
-		append(&items, Item{name, fmt.tprintf("image %dx%d", img.width, img.height)})
-	}
-	for name, i in m.videos.names {
-		info := m.videos.infos[i]
-		append(&items, Item{name, fmt.tprintf("video %dx%d, %.3fs", info.width, info.height, info.duration)})
-	}
-	for name in m.svgs {
-		append(&items, Item{name, "SVG"})
-	}
-	for name in m.lotties {
-		append(&items, Item{name, "Lottie"})
-	}
-	for name in m.shaders {
-		append(&items, Item{name, "shader"})
-	}
-	for name in m.captions {
-		if name not_in m.subtitles {
-			append(&items, Item{name, "captions"})
-		}
-	}
-	for name in m.subtitles {
-		append(&items, Item{name, "subtitles (their words are captions too)"})
-	}
-	slice.sort_by(items[:], proc(a, b: Item) -> bool {return a.name < b.name})
+	files := media_files(m)
 	sh.res.kind = show_kind(.List)
-	sh.res.summary = fmt.tprintf("%d media files besides the sounds (clips)", len(items))
+	sh.res.summary = fmt.tprintf("%d media files besides the sounds (clips)", len(files))
 	if len(m.problems) > 0 {
 		sh.res.summary = fmt.tprintf("%s; %d could not be read (`inspect` lists them)", sh.res.summary, len(m.problems))
 	}
 	sh.res.source = m.dir
-	for it in items {
-		child(sh, fmt.tprintf("media/%s", it.name), .Media, it.summary)
+	for it in files {
+		child(sh, fmt.tprintf("media/%s", it.name), .Media, media_item_summary(it))
 	}
 	return nil
+}
+
+// The media items `show media` lists, by name: all but sounds and fonts.
+@(private = "file")
+media_files :: proc(m: ^om.Media) -> []Media_Item {
+	files := make([dynamic]Media_Item, context.temp_allocator)
+	for it in media_items(m) {
+		if it.kind != .Audio && it.kind != .Font {
+			append(&files, it)
+		}
+	}
+	slice.sort_by(files[:], proc(a, b: Media_Item) -> bool {return a.name < b.name})
+	return files[:]
 }
 
 @(private = "file")
 show_media_file :: proc(sh: ^Show, name: string) -> Error {
 	m := &sh.app.media
+	it: Media_Item
+	for f in media_files(m) {
+		if f.name == name {
+			it = f
+			break
+		}
+	}
+	if it.name == "" {
+		if name in m.audio {
+			return show_clip(sh, name)
+		}
+		return fail(sh.app, {code = .No_Path, name = fmt.tprintf("media/%s", name), names = {"media"}})
+	}
 	sh.res.kind = show_kind(.Media)
-	switch {
-	case name in m.images:
+	sh.res.summary = fmt.tprintf("%s  %s", name, media_item_summary(it))
+	#partial switch it.kind {
+	case .Image:
 		img := m.images[name]
-		sh.res.summary = fmt.tprintf("%s  image %dx%d", name, img.width, img.height)
 		sh.res.fields["width"] = json.Integer(img.width)
 		sh.res.fields["height"] = json.Integer(img.height)
 		sh.res.fields["path"] = json.String(img.path)
 		sh.res.fields["decoded"] = json.Boolean(img.pixels != nil)
 		sh.res.fields["failed"] = json.Boolean(img.failed)
-	case name in m.videos.by_name:
+	case .Video:
 		i := m.videos.by_name[name]
-		info := m.videos.infos[i]
-		sh.res.summary = fmt.tprintf("%s  video %dx%d, %.3fs", name, info.width, info.height, info.duration)
-		sh.res.fields = reflect_object(info, 0)
+		sh.res.fields = reflect_object(m.videos.infos[i], 0)
 		sh.res.fields["path"] = json.String(m.videos.paths[i])
 		if m.videos.handles[i] < 0 {
 			sh.res.fields["failure"] = json.String(om.video_failure_message(m.videos.failures[i], context.temp_allocator))
 		}
-	case name in m.svgs:
+	case .Svg:
 		doc := &m.svgs[name].doc
-		sh.res.summary = fmt.tprintf("%s  SVG %.0fx%.0f", name, doc.width, doc.height)
 		sh.res.fields["width"] = json.Float(f64(doc.width))
 		sh.res.fields["height"] = json.Float(f64(doc.height))
 		sh.res.fields["elements"] = json.Integer(len(doc.nodes))
 		sh.res.fields["ids"] = json.Integer(len(doc.ids))
-	case name in m.lotties:
+	case .Lottie:
 		doc := m.lotties[name]
-		seconds := f64(doc.out_frame - doc.in_frame) / f64(max(doc.fps, 1))
-		sh.res.summary = fmt.tprintf("%s  Lottie %.0fx%.0f, %.3fs at %.0f fps", name, doc.width, doc.height, seconds, doc.fps)
 		sh.res.fields["width"] = json.Float(f64(doc.width))
 		sh.res.fields["height"] = json.Float(f64(doc.height))
 		sh.res.fields["fps"] = json.Float(f64(doc.fps))
 		sh.res.fields["in_frame"] = json.Float(f64(doc.in_frame))
 		sh.res.fields["out_frame"] = json.Float(f64(doc.out_frame))
-		sh.res.fields["seconds"] = json.Float(seconds)
+		sh.res.fields["seconds"] = json.Float(lottie_seconds(doc))
 		sh.res.fields["layers"] = json.Integer(len(doc.layers))
-	case name in m.shaders:
-		src := m.shaders[name]
-		sh.res.summary = fmt.tprintf("%s  shader, %d lines", name, strings.count(src, "\n") + 1)
-		sh.res.fields["bytes"] = json.Integer(len(src))
-	case name in m.subtitles:
-		subs := m.subtitles[name]
-		n := len(subs.starts)
-		first, last := f64(subs.starts[0]) / 1000 if n > 0 else 0, f64(subs.stops[n - 1]) / 1000 if n > 0 else 0
-		sh.res.summary = fmt.tprintf("%s  subtitles, %d cues, %.3fs..%.3fs", name, n, first, last)
-		sh.res.fields["cues"] = json.Integer(n)
-		sh.res.fields["first_seconds"] = json.Float(first)
-		sh.res.fields["last_seconds"] = json.Float(last)
-		if cap, ok := m.captions[name]; ok {
-			sh.res.fields["words"] = json.Integer(len(cap.starts))
+	case .Shader:
+		sh.res.fields["bytes"] = json.Integer(len(m.shaders[name]))
+	case .Subtitles, .Captions:
+		c := &m.captions[name]
+		n := om.caption_count(c)
+		if c.from_subtitles {
+			sh.res.fields["cues"] = json.Integer(len(c.subtitles.starts))
+		} else {
+			sh.res.fields["segmented"] = json.Boolean(c.segmented)
 		}
-	case name in m.captions:
-		cap := m.captions[name]
-		n := len(cap.starts)
-		first, last := f64(cap.starts[0]) / 1000 if n > 0 else 0, f64(cap.stops[n - 1]) / 1000 if n > 0 else 0
-		sh.res.summary = fmt.tprintf("%s  captions, %d words, %.3fs..%.3fs", name, n, first, last)
 		sh.res.fields["words"] = json.Integer(n)
-		sh.res.fields["first_seconds"] = json.Float(first)
-		sh.res.fields["last_seconds"] = json.Float(last)
-		sh.res.fields["segmented"] = json.Boolean(cap.segmented)
-	case name in m.audio:
-		return show_clip(sh, name)
-	case:
-		return fail(sh.app, {code = .No_Path, name = fmt.tprintf("media/%s", name), names = {"media"}})
+		sh.res.fields["first_seconds"] = json.Float(f64(c.starts[0]) / 1000 if n > 0 else 0)
+		sh.res.fields["last_seconds"] = json.Float(f64(c.stops[n - 1]) / 1000 if n > 0 else 0)
 	}
 	return nil
 }
@@ -820,27 +796,12 @@ node_paths :: proc(sh: ^Show) -> []string {
 
 @(private = "file")
 node_summary :: proc(sh: ^Show, i: int) -> string {
-	n := sh.r.ctx.tree.nodes[i]
 	box := om.node_frame_box(sh.r, i32(i))
 	where_ := ""
 	if box.w >= 0 {
 		where_ = fmt.tprintf("  at (%.0f, %.0f) %.0fx%.0f", box.x, box.y, box.w, box.h)
 	}
-	label := strings.to_lower(strings.trim_prefix(fmt.tprint(reflect.union_variant_typeid(n.kind)), "onimite."), context.temp_allocator)
-	#partial switch k in n.kind {
-	case om.Text:
-		label = fmt.tprintf("text %q", k.text)
-	case om.Image:
-		label = fmt.tprintf("image %s", k.src)
-	case om.Svg:
-		label = fmt.tprintf("svg %s", k.src)
-	case om.Group:
-		kids := 0
-		for c := n.first_child; c != om.NO_NODE; c = sh.r.ctx.tree.nodes[c].next {
-			kids += 1
-		}
-		label = fmt.tprintf("group of %d", kids)
-	}
+	label := om.node_label(&sh.r.ctx.tree, i32(i))
 	// Drawn by a helper: the line in the scene (or video) that asked.
 	via := ""
 	if v := script.node_via(&sh.app.script, i); v != "" {
@@ -949,8 +910,9 @@ show_node :: proc(sh: ^Show, rest: string) -> Error {
 
 // The fields of a struct value as JSON: numbers, text, flags, enum names,
 // optional values (null when unset), small arrays, nested structs (two
-// levels); lists as their length. Pointers, procedures and maps are left
-// out, as are the fields only the engine uses.
+// levels), the fields of embedded (`using`) structs as its own; lists as
+// their length. Pointers, procedures and maps are left out, as are the
+// fields only the engine uses.
 reflect_object :: proc(v: any, depth: int) -> json.Object {
 	obj := make(json.Object, allocator = context.temp_allocator)
 	if v.data == nil || !reflect.is_struct(type_info_of(v.id)) {
@@ -961,7 +923,13 @@ reflect_object :: proc(v: any, depth: int) -> json.Object {
 		case "user", "render", "start_terms", "stop_terms", "samples":
 			continue
 		}
-		if jv, ok := reflect_value(reflect.struct_field_value(v, f), depth); ok {
+		fv := reflect.struct_field_value(v, f)
+		if f.is_using {
+			// Its fields read as the struct's own (a shape's style).
+			for name, jv in reflect_object(fv, depth) {
+				obj[name] = jv
+			}
+		} else if jv, ok := reflect_value(fv, depth); ok {
 			obj[f.name] = jv
 		}
 	}

@@ -2,6 +2,7 @@ package onimite_app
 
 import "core:fmt"
 import "core:math"
+import om "../onimite"
 import render "../render"
 import ui "../ui"
 
@@ -15,23 +16,16 @@ MEDIA_ROW :: 46
 MEDIA_CELL :: 104
 
 @(private = "file")
-KIND_TAGS := [Media_Kind]string {
-	.Image     = "IMG",
-	.Video     = "VID",
-	.Audio     = "AUD",
-	.Font      = "FNT",
-	.Subtitles = "SUB",
-	.Shader    = "SHD",
-}
-
-@(private = "file")
-KIND_COLORS := [Media_Kind][4]u8 {
+KIND_COLORS := [om.Media_Kind][4]u8 {
 	.Image     = {58, 96, 160, 255},
 	.Video     = {140, 90, 60, 255},
 	.Audio     = {48, 120, 110, 255},
 	.Font      = {92, 70, 150, 255},
-	.Subtitles = {120, 60, 100, 255},
+	.Svg       = {60, 120, 150, 255},
+	.Lottie    = {150, 110, 50, 255},
 	.Shader    = {90, 100, 60, 255},
+	.Subtitles = {120, 60, 100, 255},
+	.Captions  = {150, 70, 90, 255},
 }
 
 media_view :: proc(app: ^App_State, s: ^ui.State, dpi, width, h: f32) {
@@ -147,7 +141,7 @@ media_item :: proc(app: ^App_State, s: ^ui.State, dpi: f32, i: int, width: ui.Si
 		ui.set_next_text_align(s, .Center)
 		ui.set_next_font_size(s, 11 * dpi)
 		ui.set_next_corner_radius(s, 6 * dpi)
-		b := ui.build_box(s, {.Draw_Background, .Draw_Text}, fmt.tprintf("%s###media_icon%d", KIND_TAGS[row.kind], i))
+		b := ui.build_box(s, {.Draw_Background, .Draw_Text}, fmt.tprintf("%s###media_icon%d", om.MEDIA_KINDS[row.kind].tag, i))
 		b.image = nil
 	}
 	ui.set_next_pref_width(s, ui.fill())

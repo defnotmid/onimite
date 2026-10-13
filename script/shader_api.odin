@@ -232,7 +232,7 @@ read_frame :: proc(L: ^lua.State, ctx: ^om.Context, idx: c.int) -> om.Frame {
 	f := ctx.frame
 	if lua.isnumber(L, idx) {
 		seconds := f32(lua.tonumber(L, idx))
-		f.index = int(seconds * f32(max(f.fps, 1)))
+		f.index = om.frame_at(f64(seconds), max(f.fps, 1))
 		return f
 	}
 	if lua.istable(L, idx) {

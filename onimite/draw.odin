@@ -2,7 +2,6 @@ package onimite
 
 import "core:math"
 import "core:mem/virtual"
-import "core:strings"
 import "core:sync"
 import "core:thread"
 import vg "deps:ovg"
@@ -319,39 +318,7 @@ check_box :: proc(r: ^Renderer, i: i32) {
 	if over <= 2 { // anti-aliasing, a spring's overshoot
 		return
 	}
-	label := reflect_kind(r.ctx.tree.nodes[i].kind)
-	#partial switch n in r.ctx.tree.nodes[i].kind {
-	case Text:
-		label = strings.concatenate({"text \"", n.text, "\""}, context.temp_allocator)
-	case Image:
-		label = strings.concatenate({"image ", n.src}, context.temp_allocator)
-	case Svg:
-		label = strings.concatenate({"svg ", n.src}, context.temp_allocator)
-	}
-	report(&r.ctx, .Warning, {code = .Outside_Box, name = label, a = box.name, w = over})
-}
-
-@(private = "file")
-reflect_kind :: proc(k: Node_Kind) -> string {
-	#partial switch _ in k {
-	case Rect:
-		return "rect"
-	case Circle:
-		return "circle"
-	case Ellipse:
-		return "ellipse"
-	case Line:
-		return "line"
-	case Path:
-		return "path"
-	case Lottie:
-		return "lottie"
-	case Shader:
-		return "shader"
-	case Video_Clip:
-		return "video"
-	}
-	return "node"
+	report(&r.ctx, .Warning, {code = .Outside_Box, name = node_label(&r.ctx.tree, i), a = box.name, w = over})
 }
 
 @(private = "file")
@@ -373,7 +340,7 @@ draw_node :: proc(r: ^Renderer, i: i32) {
 		}
 		p := begin_path(r)
 		vg.path_rounded_rect_elliptic(p, n.x, n.y, n.w, n.h, n.rx, n.ry)
-		paint_shape(r, n.fill, n.fill_opacity, n.stroke, .Non_Zero, n.opacity, n.crisp)
+		paint_shape(r, n.style)
 	case Circle:
 		if n.r <= 0 {
 			report(&r.ctx, .Warning, {code = .Circle_Zero_Radius, x = n.cx, y = n.cy})
@@ -381,7 +348,7 @@ draw_node :: proc(r: ^Renderer, i: i32) {
 		}
 		p := begin_path(r)
 		vg.path_circle(p, n.cx, n.cy, n.r)
-		paint_shape(r, n.fill, n.fill_opacity, n.stroke, .Non_Zero, n.opacity, n.crisp)
+		paint_shape(r, n.style)
 	case Ellipse:
 		if n.rx <= 0 || n.ry <= 0 {
 			report(&r.ctx, .Warning, {code = .Ellipse_Zero_Radius, x = n.cx, y = n.cy})
@@ -389,12 +356,12 @@ draw_node :: proc(r: ^Renderer, i: i32) {
 		}
 		p := begin_path(r)
 		vg.path_ellipse(p, n.cx, n.cy, n.rx, n.ry)
-		paint_shape(r, n.fill, n.fill_opacity, n.stroke, .Non_Zero, n.opacity, n.crisp)
+		paint_shape(r, n.style)
 	case Line:
 		p := begin_path(r)
 		vg.path_move_to(p, n.x1, n.y1)
 		vg.path_line_to(p, n.x2, n.y2)
-		paint_shape(r, nil, nil, n.stroke, .Non_Zero, n.opacity, n.crisp)
+		paint_shape(r, n.style)
 	case Path:
 		p := begin_path(r)
 		if len(n.points) > 0 {
@@ -410,7 +377,7 @@ draw_node :: proc(r: ^Renderer, i: i32) {
 		} else if !vg.path_svg(p, n.d) {
 			report(&r.ctx, .Error, {code = .Invalid_Path, a = n.d})
 		}
-		paint_shape(r, n.fill, n.fill_opacity, n.stroke, n.fill_rule, n.opacity, n.crisp)
+		paint_shape(r, n.style, n.fill_rule)
 	case Text:
 		draw_text(r, n, i)
 	case Image:
@@ -696,22 +663,24 @@ draw_content :: proc(r: ^Renderer, content: i32, w, h: f32, pw, ph: u32) -> vg.I
 	return img
 }
 
+// Fills and strokes the path built in `r.path` with `style`.
 @(private = "file")
-paint_shape :: proc(r: ^Renderer, fill: Paint, fill_opacity: Maybe(f32), stroke: Stroke, rule: vg.Fill_Rule, opacity: Maybe(f32), crisp := false) {
+paint_shape :: proc(r: ^Renderer, style: Shape_Style, rule := vg.Fill_Rule.Non_Zero) {
 	box := path_box(&r.path)
-	anti_alias := !(crisp || r.crisp_depth > 0)
+	anti_alias := !(style.crisp || r.crisp_depth > 0)
 	c := &r.canvas
 	alpha := vg.state(c).alpha
-	if o, ok := opacity.?; ok {
+	if o, ok := style.opacity.?; ok {
 		vg.set_global_alpha(c, alpha * o)
 	}
 	defer vg.set_global_alpha(c, alpha)
-	if p, ok := to_vg_paint(r, fill, fill_opacity, box); ok {
+	if p, ok := to_vg_paint(r, style.fill, style.fill_opacity, box); ok {
 		p.fill_rule = rule
 		p.anti_alias = anti_alias
 		p.feather = r.feather
 		vg.fill_path(c, &r.path, p)
 	}
+	stroke := style.stroke
 	if p, ok := to_vg_paint(r, stroke.paint, stroke.opacity, box); ok && stroke.width > 0 {
 		p.anti_alias = anti_alias
 		p.stroke.line_width = stroke.width
@@ -881,34 +850,12 @@ draw_image :: proc(r: ^Renderer, n: Image) {
 		return
 	}
 	info, _ := vg.image_info(&r.canvas, id)
-	iw, ih := f32(info.width), f32(info.height)
-	// The box; a missing side follows the image's aspect.
-	w, h := n.w, n.h
-	switch {
-	case w <= 0 && h <= 0:
-		w, h = iw, ih
-	case w <= 0:
-		w = h * iw / ih
-	case h <= 0:
-		h = w * ih / iw
-	}
-	// The image rect inside the box (SVG preserveAspectRatio).
-	ix, iy, dw, dh := n.x, n.y, w, h
-	if n.fit != .Fill {
-		k := min(w / iw, h / ih) if n.fit == .Contain else max(w / iw, h / ih)
-		dw, dh = iw * k, ih * k
-		al := n.align.? or_else {0.5, 0.5}
-		ix = n.x + (w - dw) * al.x
-		iy = n.y + (h - dh) * al.y
-	}
-	p := vg.paint_image(id, ix, iy, dw, dh, 0, n.opacity.? or_else 1)
-	// Contain draws the image rect; cover is clipped to the box.
+	box, pic := fit_box(n.x, n.y, n.w, n.h, f32(info.width), f32(info.height), n.fit, n.align)
+	p := vg.paint_image(id, pic.x, pic.y, pic.w, pic.h, 0, n.opacity.? or_else 1)
+	// Contain draws the picture; cover is clipped to the box.
+	shown := box if n.fit == .Cover else pic
 	vg.path_reset(&r.path)
-	if n.fit == .Cover {
-		vg.path_rect(&r.path, n.x, n.y, w, h)
-	} else {
-		vg.path_rect(&r.path, ix, iy, dw, dh)
-	}
+	vg.path_rect(&r.path, shown.x, shown.y, shown.w, shown.h)
 	vg.fill_path(&r.canvas, &r.path, p)
 }
 
@@ -964,7 +911,9 @@ node_frame_box :: proc(r: ^Renderer, i: i32) -> vg.Rect {
 	return rect_transform(b, m) if b.w >= 0 else b
 }
 
-@(private = "file")
+// Node `i`'s box in its parent's coordinates (fill geometry, no stroke);
+// w < 0 when it has none.
+@(private)
 node_bbox :: proc(r: ^Renderer, i: i32) -> vg.Rect {
 	EMPTY :: vg.Rect{0, 0, -1, -1}
 	box :: proc(x0, y0, x1, y1: f32) -> vg.Rect {
@@ -1009,13 +958,29 @@ node_bbox :: proc(r: ^Renderer, i: i32) -> vg.Rect {
 		vg.text_layout(&r.media.fonts, {piece}, {n.x, n.y, vg.Text_Align(n.align), vg.Text_Baseline(n.baseline), n.line_height}, &r.text)
 		return {r.text.min.x, r.text.min.y, r.text.max.x - r.text.min.x, r.text.max.y - r.text.min.y}
 	case Image:
-		return {n.x, n.y, n.w, n.h}
+		img := r.media.images[n.src] or_else nil
+		if img == nil || img.width <= 0 || img.height <= 0 {
+			return EMPTY
+		}
+		b, _ := fit_box(n.x, n.y, n.w, n.h, f32(img.width), f32(img.height), n.fit, n.align)
+		return b
 	case Svg:
-		return {n.x, n.y, n.w, n.h}
+		if n.asset == nil || n.asset.doc.width <= 0 || n.asset.doc.height <= 0 {
+			return EMPTY
+		}
+		b, _ := fit_box(n.x, n.y, n.w, n.h, n.asset.doc.width, n.asset.doc.height, n.fit, n.align)
+		return b
 	case Lottie:
-		return {n.x, n.y, n.w, n.h}
+		if n.doc == nil || n.doc.width <= 0 || n.doc.height <= 0 {
+			return EMPTY
+		}
+		b, _ := fit_box(n.x, n.y, n.w, n.h, n.doc.width, n.doc.height, n.fit, n.align)
+		return b
 	case Video_Clip:
-		return {n.x, n.y, n.w, n.h}
+		info := r.ctx.videos.infos[n.clip]
+		fw, fh := rotated_size(f32(info.width), f32(info.height), info.rotation)
+		b, _ := fit_box(n.x, n.y, n.w, n.h, fw, fh, n.fit, n.align)
+		return b
 	case Shader:
 		return {n.x, n.y, n.w, n.h}
 	}

@@ -337,19 +337,7 @@ renderer :: proc(app: ^App_State, scale: f32) -> (^om.Renderer, Error) {
 	return &app.renderer, nil
 }
 
-// PNG from premultiplied RGBA8 (un-premultiplied for the file).
+// PNG from premultiplied RGBA8 (straight alpha in the file).
 write_png :: proc(path: string, pixels: []u8, w, h: u32) -> vg.Error {
-	straight := make([]u8, len(pixels), context.temp_allocator)
-	for i := 0; i < len(pixels); i += 4 {
-		a := pixels[i + 3]
-		if a == 255 || a == 0 {
-			copy(straight[i:i + 4], pixels[i:i + 4])
-			continue
-		}
-		for k in 0 ..< 3 {
-			straight[i + k] = u8(min(u32(pixels[i + k]) * 255 / u32(a), 255))
-		}
-		straight[i + 3] = a
-	}
-	return vg.write_png(path, straight, w, h)
+	return vg.write_png(path, om.straight_alpha(pixels), w, h)
 }

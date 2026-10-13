@@ -15,6 +15,7 @@ import "core:math/ease"
 import "core:math/noise"
 import "core:os"
 import "core:path/filepath"
+import "core:slice"
 import "core:strconv"
 import "core:strings"
 import om "../onimite"
@@ -42,8 +43,9 @@ Script :: struct {
 	// Props, owned: JSON objects merged in order (later keys win), then
 	// the `key=value` arguments; exposed to Lua as the global `props` table.
 	props:        []string,
-	// Audio track lists and their file names, freed on unload.
-	owned_tracks:  [dynamic][]om.Audio_Track,
+	// The video's tracks (video{} and scene{} `audio`, `Video.audio`),
+	// buses and their strings, freed on unload.
+	tracks:        [dynamic]om.Audio_Track,
 	owned_buses:   [dynamic][]om.Bus,
 	owned_strings: [dynamic]string,
 	// Duration and timestamp terms (media_api.odin), freed on unload.
@@ -61,12 +63,12 @@ Script :: struct {
 	cues:          [dynamic]Cue,
 	key_anchors:   [dynamic]Key_Anchor,
 	// Clips audio_add will build from a function when they are needed
-	// (`audio_build`).
+	// (`audio_build_clip`).
 	pending_audio: [dynamic]Pending_Audio,
 	// With `node_sources_on`, the script line that made each node of the
 	// frame being built, by node index (`node_source`); reset per frame.
 	node_sources_on: bool,
-	// The preview: deferred clips are built on the pool, never by a frame.
+	// The preview: deferred clips are built by clip jobs, never by a frame.
 	// A frame needing one that isn't here yet draws without it (silence)
 	// and counts it in its context's `audio_pending`, to be drawn again.
 	audio_later:     bool,
@@ -198,6 +200,11 @@ load :: proc(s: ^Script, path: string, args: []string = nil, media: ^om.Media = 
 		scene.render = scene_render
 	}
 	v.scenes = s.scenes[:]
+	// The video's own tracks first, then each scene's in scene order.
+	slice.stable_sort_by(s.tracks[:], proc(a, b: om.Audio_Track) -> bool {
+		return (a.scene.? or_else -1) < (b.scene.? or_else -1)
+	})
+	v.audio = s.tracks[:]
 	if s.video_render != lua.NOREF {
 		v.render = video_render
 		v.user = s
@@ -238,10 +245,7 @@ unload :: proc(s: ^Script) {
 	delete(s.node_vias)
 	delete(s.scenes)
 	delete(s.slots)
-	for t in s.owned_tracks {
-		delete(t)
-	}
-	delete(s.owned_tracks)
+	delete(s.tracks)
 	for b in s.owned_buses {
 		delete(b)
 	}
@@ -703,7 +707,7 @@ l_video :: proc "c" (L: ^lua.State) -> c.int {
 	}
 	lua.pop(L, 1)
 	v.duration = read_duration(s, L, 1)
-	v.audio = read_audio(s, L, 1)
+	read_audio(s, L, 1, nil)
 	// The master bus (fframes' AudioMixOptions): `master_gain_db = 3.5`,
 	// `limiter = { ceiling_db = -1.3 }` or `limiter = false`.
 	v.buses = read_buses(s, L, 1)
@@ -741,7 +745,6 @@ l_scene :: proc "c" (L: ^lua.State) -> c.int {
 	sc.name = strings.clone(string(lua.tostring(L, -1)) if lua.isstring(L, -1) else fmt.tprintf("Scene%d", len(s.scenes) + 1))
 	lua.pop(L, 1)
 	sc.duration = read_duration(s, L, 1)
-	sc.audio = read_audio(s, L, 1)
 	if cue := get_str(L, 1, "cue", ""); cue != "" {
 		sc.cue = strings.clone(cue)
 	}
@@ -755,6 +758,7 @@ l_scene :: proc "c" (L: ^lua.State) -> c.int {
 		delete(sc.source)
 		lua.L_error(L, "scene needs a duration (or a start: it then lasts until the next scene's start)")
 	}
+	read_audio(s, L, 1, len(s.scenes))
 	field(L, 1, "overlap")
 	if lua.istable(L, -1) {
 		sc.overlap = {get_num(L, -1, "previous", 0), get_num(L, -1, "next", 0)}
@@ -984,11 +988,7 @@ l_rect :: proc "c" (L: ^lua.State) -> c.int {
 			h = get_num(L, 1, "h", get_num(L, 1, "height", 0)),
 			rx = get_num(L, 1, "rx", 0),
 			ry = get_num(L, 1, "ry", 0),
-			fill = get_paint(L, 1, "fill", ctx),
-			fill_opacity = get_maybe(L, 1, "fill_opacity"),
-			stroke = read_stroke(L, 1, ctx),
-			opacity = get_maybe(L, 1, "opacity"),
-			crisp = get_str(L, 1, "shape_rendering", "") == "crispEdges",
+			style = read_style(L, 1, ctx),
 		},
 	)
 	fields_end(L, s, 1, "rect")
@@ -1008,11 +1008,7 @@ l_circle :: proc "c" (L: ^lua.State) -> c.int {
 			cx = get_num(L, 1, "cx", get_num(L, 1, "x", 0)),
 			cy = get_num(L, 1, "cy", get_num(L, 1, "y", 0)),
 			r = get_num(L, 1, "r", 0),
-			fill = get_paint(L, 1, "fill", ctx),
-			fill_opacity = get_maybe(L, 1, "fill_opacity"),
-			stroke = read_stroke(L, 1, ctx),
-			opacity = get_maybe(L, 1, "opacity"),
-			crisp = get_str(L, 1, "shape_rendering", "") == "crispEdges",
+			style = read_style(L, 1, ctx),
 		},
 	)
 	fields_end(L, s, 1, "circle")
@@ -1033,11 +1029,7 @@ l_ellipse :: proc "c" (L: ^lua.State) -> c.int {
 			cy = get_num(L, 1, "cy", 0),
 			rx = get_num(L, 1, "rx", 0),
 			ry = get_num(L, 1, "ry", 0),
-			fill = get_paint(L, 1, "fill", ctx),
-			fill_opacity = get_maybe(L, 1, "fill_opacity"),
-			stroke = read_stroke(L, 1, ctx),
-			opacity = get_maybe(L, 1, "opacity"),
-			crisp = get_str(L, 1, "shape_rendering", "") == "crispEdges",
+			style = read_style(L, 1, ctx),
 		},
 	)
 	fields_end(L, s, 1, "ellipse")
@@ -1058,9 +1050,7 @@ l_line :: proc "c" (L: ^lua.State) -> c.int {
 			y1 = get_num(L, 1, "y1", 0),
 			x2 = get_num(L, 1, "x2", 0),
 			y2 = get_num(L, 1, "y2", 0),
-			stroke = read_stroke(L, 1, ctx),
-			opacity = get_maybe(L, 1, "opacity"),
-			crisp = get_str(L, 1, "shape_rendering", "") == "crispEdges",
+			style = read_style(L, 1, ctx, fill = false),
 		},
 	)
 	fields_end(L, s, 1, "line")
@@ -1087,12 +1077,8 @@ l_path :: proc "c" (L: ^lua.State) -> c.int {
 		{
 			d = get_str(L, 1, "d", ""),
 			asset = asset,
-			fill = get_paint(L, 1, "fill", ctx),
-			fill_opacity = get_maybe(L, 1, "fill_opacity"),
 			fill_rule = rule,
-			stroke = read_stroke(L, 1, ctx),
-			opacity = get_maybe(L, 1, "opacity"),
-			crisp = get_str(L, 1, "shape_rendering", "") == "crispEdges",
+			style = read_style(L, 1, ctx),
 		},
 	)
 	fields_end(L, s, 1, "path")
@@ -1872,6 +1858,19 @@ get_paint :: proc(L: ^lua.State, t: c.int, key: cstring, ctx: ^om.Context) -> om
 	field(L, t, key)
 	defer lua.pop(L, 1)
 	return read_paint(L, -1, ctx)
+}
+
+// A shape's style: `fill`, `fill_opacity`, the stroke (`read_stroke`),
+// `opacity` and `shape_rendering = "crispEdges"`; a line has no fill.
+@(private)
+read_style :: proc(L: ^lua.State, t: c.int, ctx: ^om.Context, fill := true) -> om.Shape_Style {
+	return {
+		fill = get_paint(L, t, "fill", ctx) if fill else nil,
+		fill_opacity = get_maybe(L, t, "fill_opacity") if fill else nil,
+		stroke = read_stroke(L, t, ctx),
+		opacity = get_maybe(L, t, "opacity"),
+		crisp = get_str(L, t, "shape_rendering", "") == "crispEdges",
+	}
 }
 
 @(private)

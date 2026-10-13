@@ -9,7 +9,7 @@ import sdl "vendor:sdl3"
 // Preview sound. SDL's audio thread asks for samples through a callback,
 // which mixes them there and then from the placed tracks at the play
 // position (a stream: no mix is made ahead). The render worker publishes the
-// tracks after a load and again whenever clips built on the pool land, so
+// tracks after a load and again whenever clips the script builds land, so
 // sound joins in as it is made; the clock never waits for it. Playing,
 // muted, looping and seeks are written by the UI thread's command handlers;
 // the position is read back by the UI as the playback clock, so picture

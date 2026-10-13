@@ -221,8 +221,8 @@ Option :: struct {
 @(rodata)
 OPTIONS := [?]Option {
 	{mcp = "script", row = .Load, reg = .Path, commands = SCRIPT_COMMANDS, arg = "video.lua", about = "the video script (.lua)"},
-	{mcp = "range", reg = .Spec, commands = RANGE_COMMANDS, arg = "RANGE", about = "frames a..b (end exclusive), a.., ..b, all, or a scene name; times like 3.2s, 1:05.5, 50%, Intro@1.5s", default = "all"},
-	{mcp = "specs", reg = .Spec, commands = {.Frame, .Snapshot, .Audio_At}, arg = "SPECS", about = "comma-separated times: 120 (frame), 3.2s, 1:05.5, 50%, start, end, Intro, #3, Intro@1.5s, Intro@50%"},
+	{mcp = "range", reg = .Spec, commands = RANGE_COMMANDS, arg = "RANGE", about = "frames a..b (end exclusive), a.., ..b, all, or a scene name; times like 3.2s, 1:05.5, 50%, Intro@1.5s, a cue: drop, drop@0.5s", default = "all"},
+	{mcp = "specs", reg = .Spec, commands = {.Frame, .Snapshot, .Audio_At}, arg = "SPECS", about = "comma-separated times: 120 (frame), 3.2s, 1:05.5, 50%, start, end, Intro, #3, Intro@1.5s, Intro@50%, a cue: drop, drop@0.5s"},
 	{mcp = "path", reg = .Spec, commands = {.Show}, arg = "PATH", about = "what to show", default = "the video"},
 	{mcp = "at", reg = .Spec, commands = {.Preview}, arg = "AT", about = "where to start, a time spec", default = "the start"},
 	{mcp = "files", type = .List, reg = .Args, commands = {.Probe}, arg = "FILE", about = "media files"},
@@ -638,8 +638,8 @@ commands:
 USAGE_TAIL :: `
 TIME SPECS: 120 (frame), 3.2s, 1:05.5, 50%, start, end, Intro (first frame of the scene),
 #3 (scene index), Intro[1] (second scene named Intro), Intro@1.5s, Intro@50%, Intro@end
-(an offset must land inside its scene).
-RANGES: a..b (end exclusive), a.., ..b, all, or a scene name for the whole scene.
+(an offset must land inside its scene); cues and sync ids too: drop, drop@0.5s, drop@-6.
+RANGES: a..b (end exclusive, drop..beat[8]), a.., ..b, all, or a scene name for the whole scene.
 After "--", the arguments go to the script as positionals (arg[1..]).
 Exit codes: 1 when a command fails, 2 for usage errors and failed checks (inspect, snapshot).
 Run ` + "`timeline`" + ` to list scenes. Add --json to any command for machine-readable output.
@@ -671,7 +671,7 @@ usage :: proc() -> string {
 			}
 		}
 	}
-	usage_line(&b, 2, "mcp", "serve the commands above as MCP tools on stdin/stdout (JSON-RPC 2.0, one message per line; frames come back as images)")
+	usage_line(&b, 2, "mcp [--dir PATH]", "serve the commands above as MCP tools on stdin/stdout (JSON-RPC 2.0, one message per line; frames come back as images), plus `guide`, the built-in skill; --dir: the folder relative paths resolve in")
 	strings.write_string(&b, "\noptions:\n")
 	for o in OPTIONS {
 		if o.cli != "" && shared(o) {

@@ -10,6 +10,7 @@ import "core:path/filepath"
 import "core:slice"
 import "core:strings"
 import "core:time"
+import om "../onimite"
 import script "../script"
 
 // Batch rendering (Remotion's input props + renderMedia, fframes' videos per
@@ -179,30 +180,23 @@ batch_output :: proc(template: string, row: json.Object, index: int, allocator: 
 		ext := filepath.ext(tpl)
 		tpl = fmt.tprintf("%s-{{index}}%s", tpl[:len(tpl) - len(ext)], ext)
 	}
+	// What the placeholders read, and the first one that failed.
+	Fill :: struct {
+		row:       json.Object,
+		index:     int,
+		allocator: mem.Allocator,
+		failure:   Failure,
+	}
+	fill := Fill{row = row, index = index, allocator = allocator}
 	b := strings.builder_make(allocator)
-	rest := tpl
-	for {
-		open := strings.index_byte(rest, '{')
-		close := strings.index_byte(rest[max(open, 0):], '}')
-		if open < 0 || close < 0 {
-			strings.write_string(&b, rest)
-			break
+	om.template_write(&b, tpl, &fill, proc(b: ^strings.Builder, field, mode: string, data: rawptr) -> bool {
+		fill := (^Fill)(data)
+		if fill.failure.code != .None {
+			return true
 		}
-		close += open
-		strings.write_string(&b, rest[:open])
-		key := rest[open + 1:close]
-		rest = rest[close + 1:]
-		value, found := row[key]
-		if !found {
-			if key == "index" {
-				fmt.sbprintf(&b, "%d", index)
-				continue
-			}
-			keys, _ := slice.map_keys(row, allocator)
-			slice.sort(keys)
-			why^ = {code = .Output_No_Field, name = key, names = keys}
-			return "", why.code
-		}
+		// A colon is part of the field's name here.
+		key := fmt.tprintf("%s:%s", mode, field) if mode != "" else field
+		value, found := fill.row[key]
 		text: string
 		switch v in value {
 		case json.String:
@@ -215,12 +209,24 @@ batch_output :: proc(template: string, row: json.Object, index: int, allocator: 
 			text = "true" if v else "false"
 		case json.Null:
 		case json.Array, json.Object:
-			why^ = {code = .Output_Not_Scalar, name = key}
-			return "", why.code
+			fill.failure = {code = .Output_Not_Scalar, name = key}
+		}
+		switch {
+		case !found && key == "index":
+			fmt.sbprintf(b, "%d", fill.index)
+		case !found:
+			keys, _ := slice.map_keys(fill.row, fill.allocator)
+			slice.sort(keys)
+			fill.failure = {code = .Output_No_Field, name = key, names = keys}
 		}
 		for c in text {
-			strings.write_rune(&b, '_' if c == '/' || c == '\\' || c == 0 else c)
+			strings.write_rune(b, '_' if c == '/' || c == '\\' || c == 0 else c)
 		}
+		return true
+	})
+	if fill.failure.code != .None {
+		why^ = fill.failure
+		return "", why.code
 	}
 	return strings.to_string(b), nil
 }

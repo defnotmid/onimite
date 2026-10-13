@@ -292,16 +292,14 @@ say_default_buses :: proc(s: ^Script) {
 			break
 		}
 	}
-	for list in s.owned_tracks {
-		for &tr in list {
-			if tr.bus != "" || tr.src not_in s.said {
-				continue
-			}
-			if voice_bus != "" {
-				tr.bus = voice_bus
-			} else {
-				tr.voice = true
-			}
+	for &tr in s.tracks {
+		if tr.bus != "" || tr.src not_in s.said {
+			continue
+		}
+		if voice_bus != "" {
+			tr.bus = voice_bus
+		} else {
+			tr.voice = true
 		}
 	}
 }

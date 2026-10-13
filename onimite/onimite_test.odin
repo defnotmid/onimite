@@ -179,6 +179,29 @@ test_time_specs :: proc(t: ^testing.T) {
 	testing.expect(t, rerr == nil && a == 0 && b == 60)
 	_, _, rerr = parse_range(tl, 30, "Intro@0..Intro@3s")
 	testing.expect_value(t, rerr, Error.Past_Scene)
+
+	// Cues and sync ids are named times: every form a scene takes but
+	// `@50%` / `@end` (a moment has no length); a scene's name wins.
+	names := []Named_Time{{"drop", 2.1}, {"beat[3]", 4}, {"main", 0.5}}
+	frame :: proc(tl: Timeline, spec: string, names: []Named_Time) -> (int, Error) {return parse_frame(tl, 30, spec, names)}
+	f, ferr := frame(tl, "drop", names)
+	testing.expect(t, ferr == nil && f == 63)
+	f, ferr = frame(tl, "drop@0.5s", names)
+	testing.expect(t, ferr == nil && f == 78)
+	f, ferr = frame(tl, "drop@-3", names)
+	testing.expect(t, ferr == nil && f == 60)
+	f, ferr = frame(tl, "beat[3]", names)
+	testing.expect(t, ferr == nil && f == 120)
+	f, ferr = frame(tl, "main", names)
+	testing.expect(t, ferr == nil && f == 45)
+	_, ferr = frame(tl, "drop@50%", names)
+	testing.expect_value(t, ferr, Error.Invalid_Time_Spec)
+	_, ferr = frame(tl, "dorp", names)
+	testing.expect_value(t, ferr, Error.Unknown_Scene)
+	a, b, rerr = parse_range(tl, 30, "drop..beat[3]", names)
+	testing.expect(t, rerr == nil && a == 63 && b == 120)
+	a, b, rerr = parse_range(tl, 30, "Intro..drop@1s", names)
+	testing.expect(t, rerr == nil && a == 0 && b == 93)
 }
 
 // ---- rendering --------------------------------------------------------------------

@@ -15,37 +15,61 @@ import "core:strings"
 // | `#3`            | the first frame of scene index 3                  |
 // | `Intro[1]`      | the second scene named `Intro` (0-based)          |
 // | `Intro@1.2s`    | 1.2 s into the scene (also `@12`, `@50%`, `@end`) |
+// | `drop`          | the frame of the cue or sync id `drop`            |
+// | `drop@0.5s`     | 0.5 s after it (`@-0.5s` before, `@12` frames)    |
 //
 // Ranges are `a..b` (end exclusive, so `b` may be the frame count), `a..`,
 // `..b`, `all`, or a scene name for the whole scene. A scene name right of
 // `..` means the end of that scene. A name several scenes share needs `[n]`
-// or `#index`. Frames outside the video are `.Out_Of_Range`: the valid
-// ones are 0..duration_frames - 1. An offset past its scene's end is
-// `.Past_Scene` (it would name a frame of another scene).
+// or `#index`; a scene's name wins over a cue's. Frames outside the video
+// are `.Out_Of_Range`: the valid ones are 0..duration_frames - 1. An offset
+// past its scene's end is `.Past_Scene` (it would name a frame of another
+// scene).
 
-parse_frame :: proc(t: Timeline, fps: int, spec: string) -> (frame: int, err: Error) {
-	return frame_up_to(t, fps, spec, t.duration_frames - 1, false)
+// A time a spec can name besides the scenes: a cue or another sync id, on
+// the video clock.
+Named_Time :: struct {
+	name:    string,
+	seconds: f64,
+}
+
+parse_frame :: proc(t: Timeline, fps: int, spec: string, names: []Named_Time = nil) -> (frame: int, err: Error) {
+	return frame_up_to(t, fps, spec, names, t.duration_frames - 1, false)
 }
 
 // A frame spec resolving to at most `last`. An offset into a scene must
 // land inside it (`.Past_Scene`), or on its end when `scene_end` (the
 // exclusive end of a range).
 @(private = "file")
-frame_up_to :: proc(t: Timeline, fps: int, spec: string, last: int, scene_end: bool) -> (frame: int, err: Error) {
+frame_up_to :: proc(t: Timeline, fps: int, spec: string, names: []Named_Time, last: int, scene_end: bool) -> (frame: int, err: Error) {
 	s := strings.trim_space(spec)
-	if at := strings.index_byte(s, '@'); at >= 0 {
-		scene := find_scene_spec(t, s[:at]) or_return
+	name, at, offset := strings.partition(s, "@")
+	name = strings.trim_space(name)
+	has_offset := at != ""
+	scene, serr := scene_spec(t, name)
+	named, is_named := named_time(names, name)
+	switch {
+	case serr == nil && has_offset:
 		info := t.scenes[scene]
-		local := parse_offset(s[at + 1:], fps, scene_info_frames(info)) or_return
+		local := parse_offset(offset, fps, scene_info_frames(info)) or_return
 		if local > scene_info_frames(info) || local == scene_info_frames(info) && !scene_end {
 			return info.start_frame + local, .Past_Scene
 		}
 		frame = info.start_frame + local
-	} else if scene, serr := scene_spec(t, s); serr == nil {
+	case serr == nil:
 		frame = t.scenes[scene].start_frame
-	} else if is_scene_like(s) && !is_keyword(s) {
+	case is_named && has_offset:
+		// A moment has no length: `@50%` and `@end` mean nothing.
+		o := strings.trim_space(offset)
+		if o == "end" || strings.has_suffix(o, "%") {
+			return 0, .Invalid_Time_Spec
+		}
+		frame = frame_at(named, fps) + (parse_offset(o, fps, 0) or_return)
+	case is_named:
+		frame = frame_at(named, fps)
+	case has_offset || is_scene_like(s) && !is_keyword(s):
 		return 0, serr
-	} else {
+	case:
 		frame = parse_offset(s, fps, t.duration_frames) or_return
 	}
 	if frame < 0 || frame > last {
@@ -54,8 +78,23 @@ frame_up_to :: proc(t: Timeline, fps: int, spec: string, last: int, scene_end: b
 	return frame, nil
 }
 
+// The seconds of the time `name` names (case-insensitive; the first of
+// several), unless it is a keyword.
+@(private = "file")
+named_time :: proc(names: []Named_Time, name: string) -> (seconds: f64, ok: bool) {
+	if is_keyword(name) {
+		return 0, false
+	}
+	for n in names {
+		if equal_fold(n.name, name) {
+			return n.seconds, true
+		}
+	}
+	return 0, false
+}
+
 // `[start, end)` frames of a range spec.
-parse_range :: proc(t: Timeline, fps: int, spec: string) -> (start, end: int, err: Error) {
+parse_range :: proc(t: Timeline, fps: int, spec: string, names: []Named_Time = nil) -> (start, end: int, err: Error) {
 	s := strings.trim_space(spec)
 	if s == "all" || s == "" {
 		return 0, t.duration_frames, nil if t.duration_frames > 0 else .Out_Of_Range
@@ -66,14 +105,14 @@ parse_range :: proc(t: Timeline, fps: int, spec: string) -> (start, end: int, er
 			info := t.scenes[scene]
 			return info.start_frame, min(info.end_frame, t.duration_frames), nil
 		}
-		f := parse_frame(t, fps, s) or_return
+		f := parse_frame(t, fps, s, names) or_return
 		return f, f + 1, nil
 	}
 	left, right := s[:dots], s[dots + 2:]
 	start = 0
 	end = t.duration_frames
 	if left != "" {
-		start = parse_frame(t, fps, left) or_return
+		start = parse_frame(t, fps, left, names) or_return
 	}
 	if right != "" {
 		if scene, serr := scene_spec(t, right); serr == nil {
@@ -81,7 +120,7 @@ parse_range :: proc(t: Timeline, fps: int, spec: string) -> (start, end: int, er
 		} else if strings.trim_space(right) == "end" {
 			end = t.duration_frames
 		} else {
-			end = frame_up_to(t, fps, right, t.duration_frames, true) or_return
+			end = frame_up_to(t, fps, right, names, t.duration_frames, true) or_return
 		}
 	}
 	if end <= start {
@@ -170,7 +209,7 @@ parse_offset :: proc(spec: string, fps: int, total: int) -> (int, Error) {
 		if !ok {
 			return 0, .Invalid_Time_Spec
 		}
-		return int(v * f64(fps) + 1e-6), nil
+		return frame_at(v, fps), nil
 	case strings.contains_rune(s, ':'):
 		secs: f64 = 0
 		for part in strings.split(s, ":", context.temp_allocator) {
@@ -180,7 +219,7 @@ parse_offset :: proc(spec: string, fps: int, total: int) -> (int, Error) {
 			}
 			secs = secs * 60 + v
 		}
-		return int(secs * f64(fps) + 1e-6), nil
+		return frame_at(secs, fps), nil
 	case strings.has_suffix(s, "f"):
 		v, ok := strconv.parse_int(s[:len(s) - 1])
 		return v, nil if ok else .Invalid_Time_Spec

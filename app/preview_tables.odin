@@ -2,7 +2,6 @@ package onimite_app
 
 import "core:fmt"
 import "core:hash"
-import "core:math"
 import "core:os"
 import "core:path/filepath"
 import "core:slice"
@@ -500,19 +499,10 @@ wave_peak :: proc(t: ^Wave_Table, c: ^Wave_Clip, s0, s1: int) -> (lo, hi: f32, o
 
 // ---- media ------------------------------------------------------------------------------
 
-Media_Kind :: enum u8 {
-	Image,
-	Video,
-	Audio,
-	Font,
-	Subtitles,
-	Shader,
-}
-
 MEDIA_THUMB :: 64 // image thumbnails fit this square
 
 Media_Row :: struct {
-	kind:         Media_Kind,
+	kind:         om.Media_Kind,
 	name, detail: Text_Span,
 	// The first frame the item plays on the timeline (-1: unknown or unused).
 	first_frame:  int,
@@ -550,10 +540,6 @@ media_table_build :: proc(t: ^Media_Table, m: ^om.Media, placed: []om.Placed_Tra
 	clear(&t.text)
 	clear(&t.pixels)
 	t.thumbs_ready = 0
-	sorted_keys :: proc(keys: []string) -> []string {
-		slice.sort(keys)
-		return keys
-	}
 	first_use :: proc(placed: []om.Placed_Track, name: string, fps: int) -> int {
 		best := -1
 		for p in placed {
@@ -564,84 +550,25 @@ media_table_build :: proc(t: ^Media_Table, m: ^om.Media, placed: []om.Placed_Tra
 		}
 		return best
 	}
-	clock :: proc(seconds: f64) -> string {
-		return fmt.tprintf("%d:%04.1f", int(seconds) / 60, math.mod(seconds, 60))
-	}
-
-	names := make([dynamic]string, context.temp_allocator)
-	for name in m.images {
-		append(&names, name)
-	}
-	for name in sorted_keys(names[:]) {
-		img := m.images[name]
-		row := Media_Row{kind = .Image, first_frame = -1}
-		row.name = text_push(&t.text, name)
-		row.detail = text_push(&t.text, fmt.tprintf("%d×%d", img.width, img.height) if img.width > 0 else "can not read")
-		tw, th := img.width, img.height
-		if tw > MEDIA_THUMB || th > MEDIA_THUMB {
-			s := f32(MEDIA_THUMB) / f32(max(tw, th))
-			tw, th = max(int(f32(tw) * s), 1), max(int(f32(th) * s), 1)
+	// Images come first (`media_items` goes by kind).
+	for it in media_items(m) {
+		row := Media_Row{kind = it.kind, name = text_push(&t.text, it.name), detail = text_push(&t.text, it.detail), first_frame = -1}
+		#partial switch it.kind {
+		case .Image:
+			img := m.images[it.name]
+			tw, th := img.width, img.height
+			if tw > MEDIA_THUMB || th > MEDIA_THUMB {
+				s := f32(MEDIA_THUMB) / f32(max(tw, th))
+				tw, th = max(int(f32(tw) * s), 1), max(int(f32(th) * s), 1)
+			}
+			// Reserved here, filled by media_table_thumbs.
+			row.thumb = u32(len(t.pixels))
+			row.thumb_size = {u16(tw), u16(th)}
+			resize(&t.pixels, len(t.pixels) + tw * th * 4)
+		case .Video, .Audio:
+			row.first_frame = first_use(placed, it.name, fps)
 		}
-		// Reserved here, filled by media_table_thumbs.
-		row.thumb = u32(len(t.pixels))
-		row.thumb_size = {u16(tw), u16(th)}
-		resize(&t.pixels, len(t.pixels) + tw * th * 4)
 		append(&t.rows, row)
-	}
-
-	v := &m.videos
-	clear(&names)
-	for name in v.names {
-		append(&names, name)
-	}
-	for name in sorted_keys(names[:]) {
-		i := v.by_name[name]
-		info := v.infos[i]
-		detail := fmt.tprintf("%d×%d · %s · %.3g fps", info.width, info.height, clock(info.duration), info.fps)
-		if v.handles[i] < 0 {
-			detail = fmt.tprintf("can not open: %s", om.video_failure_message(v.failures[i], context.temp_allocator))
-		}
-		append(&t.rows, Media_Row{kind = .Video, name = text_push(&t.text, name), detail = text_push(&t.text, detail), first_frame = first_use(placed, name, fps)})
-	}
-
-	clear(&names)
-	for name in m.audio {
-		if _, is_video := v.by_name[name]; !is_video {
-			append(&names, name)
-		}
-	}
-	for name in sorted_keys(names[:]) {
-		clip := m.audio[name]
-		detail := fmt.tprintf("%s · %d Hz · %s", clock(f64(om.audio_clip_seconds(clip))), clip.source_rate, "mono" if clip.source_channels == 1 else "stereo")
-		append(&t.rows, Media_Row{kind = .Audio, name = text_push(&t.text, name), detail = text_push(&t.text, detail), first_frame = first_use(placed, name, fps)})
-	}
-
-	for face in m.fonts.faces {
-		detail := fmt.tprintf("%s %d%s", weight_name(face.weight), face.weight, " italic" if face.italic else "")
-		append(&t.rows, Media_Row{kind = .Font, name = text_push(&t.text, face.family), detail = text_push(&t.text, detail), first_frame = -1})
-	}
-
-	clear(&names)
-	// Every subtitle file has captions too; caption .json files only captions.
-	for name in m.captions {
-		append(&names, name)
-	}
-	for name in sorted_keys(names[:]) {
-		caps := &m.captions[name]
-		detail := fmt.tprintf("%d words", om.caption_count(caps))
-		if subs, ok := m.subtitles[name]; ok {
-			detail = fmt.tprintf("%d cues, %s", len(subs.starts), detail)
-		}
-		append(&t.rows, Media_Row{kind = .Subtitles, name = text_push(&t.text, name), detail = text_push(&t.text, detail), first_frame = -1})
-	}
-
-	clear(&names)
-	for name in m.shaders {
-		append(&names, name)
-	}
-	for name in sorted_keys(names[:]) {
-		lines := strings.count(m.shaders[name], "\n") + 1
-		append(&t.rows, Media_Row{kind = .Shader, name = text_push(&t.text, name), detail = text_push(&t.text, fmt.tprintf("%d lines", lines)), first_frame = -1})
 	}
 }
 
@@ -668,29 +595,6 @@ media_table_thumbs :: proc(t: ^Media_Table, m: ^om.Media, count: int, pool: ^thr
 		}
 	}, context.allocator)
 	return t.thumbs_ready >= len(t.rows) || t.rows[t.thumbs_ready].kind != .Image
-}
-
-@(private = "file")
-weight_name :: proc(weight: int) -> string {
-	switch {
-	case weight <= 150:
-		return "Thin"
-	case weight <= 250:
-		return "Extra Light"
-	case weight <= 350:
-		return "Light"
-	case weight <= 450:
-		return "Regular"
-	case weight <= 550:
-		return "Medium"
-	case weight <= 650:
-		return "Semi Bold"
-	case weight <= 750:
-		return "Bold"
-	case weight <= 850:
-		return "Extra Bold"
-	}
-	return "Black"
 }
 
 // Averages up to 4x4 source pixels spread over each destination pixel's

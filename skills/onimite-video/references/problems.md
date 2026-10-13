@@ -101,7 +101,8 @@ the SVG or Lottie parser's own note.
 A command that fails prints `error: message` on stderr, or with `--json` the document
 `{"error": "message", "code": "..."}` (exit code 1). Its codes: `props_read`,
 `no_media_dir`, `script` (the script did not load: a Lua error, a missing `video{}`, no
-duration, bad props), `renderer`, `spec_unknown_scene`, `spec_no_scenes`, `spec_ambiguous`,
+duration, bad props), `renderer`, `spec_unknown_scene`, `spec_unknown_name` (neither a scene nor a cue; the
+message lists both), `spec_no_scenes`, `spec_ambiguous`, `spec_past_scene`,
 `spec_out_of_range` (the message names the valid frames, `frames 0..N-1`), `spec_invalid`,
 `create_dir`, `write`, `onion_range`, `no_sheet_frames`, `encoder` (the MP4 writer:
 odd dimensions, the file, a frame, the GPU conversion), `read_back` (a frame could not be

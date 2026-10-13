@@ -2,8 +2,9 @@ package onimite
 
 import "core:strings"
 
-// WebVTT subtitles (fframes' `get_subtitles` / `get_subtitle_phrase`). Cues
-// are stored as parallel arrays so a time lookup scans only start/stop.
+// The cues of a WebVTT or SRT file as written (fframes' `get_subtitles` /
+// `get_subtitle_phrase`), kept with their words (`Captions.subtitles`).
+// Cues are stored as parallel arrays so a time lookup scans only start/stop.
 Subtitles :: struct {
 	starts:   [dynamic]u32, // milliseconds
 	stops:    [dynamic]u32,
@@ -30,21 +31,16 @@ subtitles_destroy :: proc(s: ^Subtitles) {
 	s^ = {}
 }
 
-// Parses WebVTT text. NOTE, STYLE and REGION blocks are skipped; cue text
-// keeps its lines. `ok = false` when the header is missing.
-parse_vtt :: proc(text: string, allocator := context.allocator) -> (s: Subtitles, ok: bool) {
-	src := strings.trim_prefix(text, "\xEF\xBB\xBF")
-	if !strings.has_prefix(src, "WEBVTT") {
-		return {}, false
+// Parses subtitle text by its header: WebVTT after a `WEBVTT` line (NOTE,
+// STYLE and REGION blocks are skipped), else SubRip (.srt): numbered blocks
+// of `00:00:01,000 --> 00:00:02,500` and text lines, the number becoming
+// the cue id. Cue text keeps its lines. `ok = false` for SRT without a cue.
+parse_subtitles :: proc(text: string, allocator := context.allocator) -> (s: Subtitles, ok: bool) {
+	src := strings.trim_left_space(strings.trim_prefix(text, "\xEF\xBB\xBF"))
+	if strings.has_prefix(src, "WEBVTT") {
+		return parse_cue_blocks(src, true, allocator), true
 	}
-	return parse_cue_blocks(src, true, allocator), true
-}
-
-// Parses SubRip (.srt) text: numbered blocks of `00:00:01,000 --> 00:00:02,500`
-// and text lines (the number becomes the cue id). `ok = false` when no cue
-// parses.
-parse_srt :: proc(text: string, allocator := context.allocator) -> (s: Subtitles, ok: bool) {
-	s = parse_cue_blocks(strings.trim_prefix(text, "\xEF\xBB\xBF"), false, allocator)
+	s = parse_cue_blocks(src, false, allocator)
 	if len(s.starts) == 0 {
 		subtitles_destroy(&s)
 		return {}, false

@@ -194,23 +194,18 @@ load_diagnostics :: proc(s: ^script.Script, m: ^om.Media) -> []om.Diagnostic {
 	append(&out, ..m.problems[:])
 	// Clips the script builds later (audio_add with a function) count.
 	pending := script.audio_pending_names(s)
-	check :: proc(out: ^[dynamic]om.Diagnostic, m: ^om.Media, pending: []string, tracks: []om.Audio_Track, fps: int) {
-		for tr in tracks {
-			if tr.src != "" && tr.src not_in m.audio && !slice.contains(pending, tr.src) {
-				append(out, om.Diagnostic{severity = .Error, code = .Missing_Track, name = tr.source, a = tr.src})
-				continue
-			}
-			for terms in ([2][]om.Time_Term{tr.start_terms, tr.stop_terms}) {
-				if _, name, ok := om.terms_seconds(terms, fps, m); !ok && !slice.contains(pending, name) {
-					append(out, om.Diagnostic{severity = .Error, code = .Missing_Track_Time, name = tr.source, a = name})
-					break
-				}
+	fps := s.video.fps
+	for tr in s.video.audio {
+		if tr.src != "" && tr.src not_in m.audio && !slice.contains(pending, tr.src) {
+			append(&out, om.Diagnostic{severity = .Error, code = .Missing_Track, name = tr.source, a = tr.src})
+			continue
+		}
+		for terms in ([2][]om.Time_Term{tr.start_terms, tr.stop_terms}) {
+			if _, name, ok := om.terms_seconds(terms, fps, m); !ok && !slice.contains(pending, name) {
+				append(&out, om.Diagnostic{severity = .Error, code = .Missing_Track_Time, name = tr.source, a = name})
+				break
 			}
 		}
-	}
-	check(&out, m, pending, s.video.audio, s.video.fps)
-	for sc in s.video.scenes {
-		check(&out, m, pending, sc.audio, s.video.fps)
 	}
 	return out[:]
 }

@@ -201,16 +201,12 @@ warn_load :: proc(s: ^script.Script, m: ^om.Media) {
 resolve_frames :: proc(app: ^App_State, t: ^om.Timeline, fps: int, specs: string) -> (specs_out: []string, frames: []int, err: Error) {
 	names := make([dynamic]string, context.temp_allocator)
 	list := make([dynamic]int, context.temp_allocator)
+	times := spec_names(app) or_return
 	for part in strings.split(specs, ",", context.temp_allocator) {
 		for spec in strings.fields(part, context.temp_allocator) {
-			// A sync id names its frame.
-			parsed := spec
-			if app.renderer_ready {
-				parsed = sync_spec(app, &app.renderer, spec) or_return
-			}
-			f, ferr := om.parse_frame(t^, fps, parsed)
+			f, ferr := om.parse_frame(t^, fps, spec, times)
 			if ferr != nil {
-				return nil, nil, fail(app, spec_failure(t, fps, spec, ferr))
+				return nil, nil, fail(app, spec_failure(t, fps, spec, ferr, times))
 			}
 			append(&names, spec)
 			append(&list, f)
@@ -221,14 +217,11 @@ resolve_frames :: proc(app: ^App_State, t: ^om.Timeline, fps: int, specs: string
 
 // `[start, end)` of a range spec ("" and "all" = the whole video).
 resolve_range :: proc(app: ^App_State, t: ^om.Timeline, fps: int, spec: string) -> (start, end: int, err: Error) {
+	times := spec_names(app) or_return
 	rerr: om.Error
-	spec := spec
-	if app.renderer_ready {
-		spec = sync_spec(app, &app.renderer, spec) or_return
-	}
-	start, end, rerr = om.parse_range(t^, fps, spec)
+	start, end, rerr = om.parse_range(t^, fps, spec, times)
 	if rerr != nil {
-		return 0, 0, fail(app, spec_failure(t, fps, spec, rerr))
+		return 0, 0, fail(app, spec_failure(t, fps, spec, rerr, times))
 	}
 	return start, end, nil
 }

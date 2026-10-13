@@ -2,24 +2,54 @@
 
 <img src="assets/logo.png" width="96" alt="Pip, onimite's mascot: a small red pixel-art firecracker">
 
-Videos as Lua scripts, rendered by a native Odin engine. An Odin take on
-[fframes](https://github.com/dmtrKovalenko/fframes): one prebuilt binary, a
-script per video, and agent-friendly tooling (timeline, frames, contact
-sheets, inspection, loudness numbers).
+Make videos with code. A video is a Lua script: scenes, shapes, text,
+images, SVG and Lottie, clips, shaders, music, sound effects and spoken
+lines. One small native binary renders it to MP4, plays it in a live
+preview that reloads on save, and checks it for you: frames, contact
+sheets, problems found automatically, loudness and beats. It is built so
+that a coding agent can make a video end to end and know it is right
+without watching it.
 
 ```sh
 onimite render examples/why_onimite/video.lua -o why_onimite.mp4
 onimite preview examples/why_onimite/video.lua      # plays with sound, reloads on save
+onimite inspect examples/why_onimite/video.lua      # what is wrong, by script line
 ```
 
-The only dependencies are sibling Odin projects and Odin's vendor packages:
+- **Small.** One binary and the SDL3 library beside it, 16-19 MB on disk
+  (a 7-8 MB download; v0.0.1). Nothing else to install, no build step per
+  video. (`say()`'s voice models are an optional ~830 MB download, made on
+  first use.)
+- **Fast.** Frames are built on every core and drawn on the GPU (Vulkan,
+  Metal), with hardware encoding when there is one. On the 18 fframes
+  examples ported 1:1 it is faster on 16, with 1-10% of fframes' CPU time
+  and 1-26% of its memory; fframes wins two
+  ([BENCHMARK.md](BENCHMARK.md)).
+- **Checkable.** `inspect`, `show`, `frame`, `strip`, `onion`, `audio
+  analyze` and `--json` on every command answer "is it right?" without a
+  human watching; an MCP server and an agent skill come with it.
+
+### When to use something else
+
+onimite is one opinionated program, not a library. If you want to write a
+video in Rust and compile it into your own program, with the whole language
+and its crates at hand, use [fframes](https://github.com/dmtrKovalenko/fframes)
+(onimite began by porting its examples and keeps parity with them). If you
+want React and the web platform (HTML, CSS, npm), use
+[Remotion](https://www.remotion.dev). For a TypeScript animation library
+with an editor, use [Motion Canvas](https://motioncanvas.io). What each
+puts on disk before the first frame, measured on Linux: fframes 3.4 GB
+(Rust toolchain, 311 crates, the first build), Remotion 682 MB (Node.js,
+251 packages, Chrome Headless Shell).
+
+onimite is built from sibling Odin projects and Odin's vendor packages:
 
 | piece | what |
 | --- | --- |
-| [`ovg`](../ovg) | 2D vector canvas (femtovg lineage): software backend + SDL_GPU (Vulkan / Metal / D3D12) |
-| [`odecs`](../odecs) | H.264 / H.265 / AAC codecs (native Odin, Vulkan Video when available), MP4, WebP, clip decoding |
-| [`oksl`](../oksl) | shader compiler for SkSL and Shadertoy GLSL: SPIR-V, MSL and a CPU interpreter |
-| [`ottis`](../ottis) | text to speech with word timings (Kyutai's Pocket TTS through ONNX Runtime, loaded at run time; models downloaded on first use) |
+| [`ovg`](https://github.com/defnotmid/ovg) | 2D vector canvas (femtovg lineage): software backend + SDL_GPU (Vulkan / Metal / D3D12) |
+| [`odecs`](https://github.com/defnotmid/odecs) | H.264 / H.265 / AAC codecs (native Odin, Vulkan Video when available), MP4, WebP, clip decoding |
+| [`oksl`](https://github.com/defnotmid/oksl) | shader compiler for SkSL and Shadertoy GLSL: SPIR-V, MSL and a CPU interpreter |
+| [`ottis`](https://github.com/defnotmid/ottis) | text to speech with word timings (Kyutai's Pocket TTS through ONNX Runtime, loaded at run time; models downloaded on first use) |
 | `vendor:lua/5.4` | the script runtime |
 | `vendor:sdl3` | GPU device and the preview window |
 | `vendor:stb`, `vendor:kb_text_shape`, `vendor:miniaudio` | fonts, images, PNG output; text shaping; ogg / mp3 / flac decoding |
@@ -148,8 +178,17 @@ and render onimite videos. No terminal tools are needed; use whichever fits your
 The skill downloads the `onimite` release binary itself (see Releases).
 
 `onimite mcp` also serves the commands as MCP tools (JSON-RPC over stdio): typed arguments,
-frames returned as images, no shell quoting. The Claude Code plugin registers it; for other
-MCP clients the server is the command `onimite` with the argument `mcp` (the binary on PATH).
+frames returned as images, no shell quoting, and a `guide` tool that returns this skill, built
+into the binary. The Claude Code plugin registers it; for other MCP clients the server is the
+command `onimite` with the argument `mcp` (the binary on PATH; `--dir PATH` sets the folder
+relative paths start in).
+
+**Claude Desktop**: download
+[onimite-macos-arm64.mcpb](https://github.com/defnotmid/onimite/releases/latest/download/onimite-macos-arm64.mcpb)
+or [onimite-windows-x86_64.mcpb](https://github.com/defnotmid/onimite/releases/latest/download/onimite-windows-x86_64.mcpb)
+and open it: Desktop installs the extension with its own copy of onimite and asks for a work
+folder (default `Documents/onimite`). Claude writes the video files there with a filesystem
+extension (Desktop's Filesystem extension, given the same folder).
 
 ## Releases
 
@@ -179,11 +218,10 @@ default branches of ovg, oksl, odecs and ottis, with the tag as their
 | `SHA256SUMS` | checksums of the archives |
 
 Each archive holds `LICENSE`, `LICENSES/` and `THIRD_PARTY_NOTICES.md` too.
-On macOS the release workflow signs the binary and the SDL3 dylib with the
-Developer ID Application certificate (hardened runtime, secure timestamp) and
-has Apple notarize them; a bare binary can't be stapled, so Gatekeeper checks
-the notarization online on first launch. (Not yet proven by a published
-release.) The Linux and Windows builds are not
+On macOS the binary and the SDL3 dylib are signed with the Developer ID
+Application certificate (hardened runtime, secure timestamp) and notarized
+by Apple; a bare binary can't be stapled, so Gatekeeper checks the
+notarization online on first launch. The Linux and Windows builds are not
 signed. The Apple secrets live in the `release` GitHub environment.
 
 ## Commands
@@ -225,8 +263,9 @@ onimite preview  video.lua [at] [--paused] [--no-loop] [--mute]
   and decode again when shown).
 - Times and ranges read like fframes: `120`, `3.2s`, `1:05`, `50%`,
   `start`, `end`, `Intro`, `#2`, `Intro[1]` (the second scene named Intro),
-  `Intro@1.5s`, `Intro@end` (an offset must land inside its scene), `a..b`
-  (end exclusive), `a..`, `..b`, `all`.
+  `Intro@1.5s`, `Intro@end` (an offset must land inside its scene), cues
+  and sync ids like scenes (`drop`, `drop@0.5s`, `drop@-6`), `a..b` (end
+  exclusive, `drop..beat[8]`), `a..`, `..b`, `all`.
 - `--batch rows.json|rows.csv` renders one video per row, the row as
   `props` (`--set` over the row over `--props`). `-o` takes `{field}` and
   `{index}`; `--rows 2..3` / `--only 2` pick rows. A failing row is

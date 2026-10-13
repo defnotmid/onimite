@@ -37,8 +37,6 @@ Scene :: struct {
 	duration: Duration,
 	overlap:  Overlap,
 	render:   Render_Proc,
-	// Sound, timed from the scene's first frame.
-	audio:    []Audio_Track,
 	// The cue the scene's first frame lands on (`cue` in scripts): everything
 	// on the same cue should meet there.
 	cue:      string,
@@ -60,7 +58,9 @@ Video :: struct {
 	// Draws a frame. With `nil`, frames are the background plus the active
 	// scenes (`render_scenes`).
 	render:        Render_Proc,
-	// Sound, timed from the video start.
+	// Sound: every track of the video, its own (timed from the video start)
+	// and its scenes' (`Audio_Track.scene`, timed from the scene's first
+	// frame), in that order.
 	audio:         []Audio_Track,
 	// Buses tracks are mixed through (Audio_Track.bus): a gain per group of
 	// tracks, e.g. every sound effect at once.
@@ -85,14 +85,24 @@ frame_seconds :: #force_inline proc "contextless" (f: Frame) -> f32 {
 	return f32(f.index) / f32(f.fps)
 }
 
-seconds_to_frames :: #force_inline proc "contextless" (s: f32, fps: int) -> int {
-	return int(s * f32(fps))
+// The frame on screen at `seconds` (frame k shows [k, k + 1) / fps), which
+// is also how many whole frames fit in `seconds`. A thousandth of a frame
+// of slack absorbs float error (`1.16 * 25` is 28.99...; an f32 time is
+// off by up to 6e-8 of itself).
+frame_at :: #force_inline proc "contextless" (seconds: f64, fps: int) -> int {
+	return int(math.floor(seconds * f64(fps) + 1e-3))
+}
+
+// The first frame starting at or after `seconds`: a scene placed on a cue
+// never starts before it, so its own clock is never negative.
+first_frame_from :: #force_inline proc "contextless" (seconds: f64, fps: int) -> int {
+	return int(math.ceil(seconds * f64(fps) - 1e-3))
 }
 
 duration_frames :: proc(d: Duration, fps: int, m: ^Media = nil) -> (frames: int, ok: bool) {
 	switch v in d {
 	case Seconds:
-		return seconds_to_frames(f32(v), fps), true
+		return frame_at(f64(v), fps), true
 	case Frames:
 		return int(v), true
 	case Duration_Terms:
@@ -151,14 +161,14 @@ resolve_timeline :: proc(v: ^Video, m: ^Media = nil, allocator := context.alloca
 	for &s, i in v.scenes {
 		// A scene with a start lands there; the others follow the previous one.
 		if at, has := s.start.?; has {
-			end = start_frame(at, v.fps)
+			end = first_frame_from(f64(at), v.fps)
 		}
 		d, ok := duration_frames(s.duration, v.fps, m)
 		if !ok && s.duration == nil {
 			// No duration: until the next scene's start, or the video's end.
 			if i + 1 < len(v.scenes) {
 				if next_at, has := v.scenes[i + 1].start.?; has {
-					d, ok = start_frame(next_at, v.fps) - end, true
+					d, ok = first_frame_from(f64(next_at), v.fps) - end, true
 				}
 			} else if vd, has := duration_frames(v.duration, v.fps, m); has && s.start != nil {
 				d, ok = vd - end, true
@@ -168,8 +178,8 @@ resolve_timeline :: proc(v: ^Video, m: ^Media = nil, allocator := context.alloca
 			delete(t.scenes, allocator)
 			return {}, .Scene_Without_Duration
 		}
-		prev := seconds_to_frames(s.overlap.previous, v.fps)
-		next := seconds_to_frames(s.overlap.next, v.fps)
+		prev := frame_at(f64(s.overlap.previous), v.fps)
+		next := frame_at(f64(s.overlap.next), v.fps)
 		start := max(end - prev, 0)
 		t.scenes[i] = {
 			index       = i,
@@ -190,13 +200,6 @@ resolve_timeline :: proc(v: ^Video, m: ^Media = nil, allocator := context.alloca
 		return {}, .Video_Without_Duration
 	}
 	return t, nil
-}
-
-// The first frame at or after `seconds`: a scene placed on a cue never
-// starts before it, so its own clock is never negative.
-@(private)
-start_frame :: proc(seconds: f32, fps: int) -> int {
-	return int(math.ceil(f64(seconds) * f64(fps) - 1e-3))
 }
 
 timeline_destroy :: proc(t: ^Timeline, allocator := context.allocator) {

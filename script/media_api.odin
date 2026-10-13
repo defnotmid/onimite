@@ -131,19 +131,19 @@ add_audio_samples :: proc(L: ^lua.State, s: ^Script, m: ^om.Media, name: string,
 	om.media_add_audio_samples(m, name, samples, max(rate, 1), channels)
 }
 
-// Runs the build function of clip `name` (every pending clip for "") and
-// adds the clip: once per render, the frame builders of a render share it.
+// Runs the build function of clip `name` and adds the clip: once per
+// render, the frame builders of a render share it.
 // Inside a binding the Lua error propagates; `protected` catches it and
 // returns it as an `.Audio_Build` failure instead (strings in temp memory).
 @(private)
-build_pending :: proc(L: ^lua.State, s: ^Script, name: string, protected := false, one := false) -> (failure: Failure) {
+build_pending :: proc(L: ^lua.State, s: ^Script, name: string, protected := false) -> (failure: Failure) {
 	m := s.ctx.media if s.ctx != nil else s.media
 	if m == nil {
 		return
 	}
 	for i := 0; i < len(s.pending_audio); {
 		p := s.pending_audio[i]
-		if name != "" && p.name != name {
+		if p.name != name {
 			i += 1
 			continue
 		}
@@ -188,9 +188,6 @@ build_pending :: proc(L: ^lua.State, s: ^Script, name: string, protected := fals
 			sh.audio[strings.clone(p.name)] = true
 		}
 		sync.unlock(&sh.lock)
-		if one {
-			return
-		}
 	}
 	return
 }
@@ -209,18 +206,6 @@ protected_add :: proc "c" (L: ^lua.State) -> c.int {
 	m := s.ctx.media if s.ctx != nil else s.media
 	add_sound(L, s, m, string(lua.tostring(L, 1)), 2)
 	return 0
-}
-
-// Builds every clip whose function audio_add deferred (`audio_add(name, fn)`):
-// before anything that plays or measures the sound. Returns the first
-// failing build (`.Audio_Build`, with the Lua traceback; strings in temp
-// memory).
-audio_build :: proc(s: ^Script, one := false) -> Failure {
-	if s.L == nil || len(s.pending_audio) == 0 {
-		return {}
-	}
-	context = s.odin_context
-	return build_pending(s.L, s, "", protected = true, one = one)
 }
 
 // Whether clip `name` is one audio_add deferred and nobody built yet.
@@ -287,7 +272,7 @@ frame_clock :: proc(L: ^lua.State, idx: c.int) -> (index: int, fps: int, seconds
 		s := host(L)
 		seconds = f32(lua.tonumber(L, idx))
 		fps = max(s.video.fps, 1)
-		return int(seconds * f32(fps)), fps, seconds
+		return om.frame_at(f64(seconds), fps), fps, seconds
 	}
 	lua.L_checktype(L, idx, i32(lua.Type.TABLE))
 	index = int(get_num(L, idx, "index", 0))
@@ -295,7 +280,7 @@ frame_clock :: proc(L: ^lua.State, idx: c.int) -> (index: int, fps: int, seconds
 	return index, fps, f32(index) / f32(fps)
 }
 
-// video_frame(f, { src, x, y, w, h, start_from, clip_start, looping, fit, opacity })
+// video_frame(f, { src, x, y, w, h, start_from, clip_start, looping, fit, align, opacity })
 @(private = "file")
 l_video_frame :: proc "c" (L: ^lua.State) -> c.int {
 	s := host(L)
@@ -304,13 +289,6 @@ l_video_frame :: proc "c" (L: ^lua.State) -> c.int {
 	index, fps, _ := frame_clock(L, 1)
 	lua.L_checktype(L, 2, i32(lua.Type.TABLE))
 	fields_begin(L, 2)
-	fit := om.Image_Fit.Contain
-	switch get_str(L, 2, "fit", "contain") {
-	case "cover":
-		fit = .Cover
-	case "fill":
-		fit = .Fill
-	}
 	field(L, 2, "looping")
 	looping := bool(lua.toboolean(L, -1))
 	lua.pop(L, 1)
@@ -326,7 +304,8 @@ l_video_frame :: proc "c" (L: ^lua.State) -> c.int {
 			start_from = get_num(L, 2, "start_from", 0),
 			clip_start = get_num(L, 2, "clip_start", 0),
 			looping = looping,
-			fit = fit,
+			fit = read_fit(L, 2),
+			align = read_align(L, 2),
 			opacity = get_maybe(L, 2, "opacity"),
 		},
 	)
@@ -356,12 +335,12 @@ l_video_info :: proc "c" (L: ^lua.State) -> c.int {
 
 @(private = "file")
 find_subtitles :: proc(L: ^lua.State, ctx: ^om.Context, name: string) -> ^om.Subtitles {
-	subs, ok := &ctx.media.subtitles[name]
-	if !ok {
+	caps, ok := &ctx.media.captions[name]
+	if !ok || !caps.from_subtitles {
 		om.report(ctx, .Error, {code = .Missing_Subtitles, name = name})
 		return nil
 	}
-	return subs
+	return &caps.subtitles
 }
 
 @(private = "file")

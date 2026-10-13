@@ -1,5 +1,6 @@
 package onimite
 
+import "core:fmt"
 import "core:math"
 import "core:mem"
 import "core:strings"
@@ -181,61 +182,49 @@ Group :: struct {
 	box_name:  string,
 }
 
-Rect :: struct {
-	x, y, w, h: f32,
-	// Corner radii; `ry` 0 means `rx` (SVG).
-	rx, ry:     f32,
-	fill:       Paint,
+// How a shape is painted: its fill (with SVG fill-opacity), its stroke,
+// its opacity as a whole, and SVG shape-rendering="crispEdges" (no
+// antialiasing). A line has no fill.
+Shape_Style :: struct {
+	fill:         Paint,
 	fill_opacity: Maybe(f32),
-	stroke:     Stroke,
-	opacity:    Maybe(f32),
-	// SVG shape-rendering="crispEdges": no antialiasing.
-	crisp:   bool,
+	stroke:       Stroke,
+	opacity:      Maybe(f32),
+	crisp:        bool,
+}
+
+Rect :: struct {
+	x, y, w, h:  f32,
+	// Corner radii; `ry` 0 means `rx` (SVG).
+	rx, ry:      f32,
+	using style: Shape_Style,
 }
 
 Circle :: struct {
-	cx, cy, r: f32,
-	fill:      Paint,
-	fill_opacity: Maybe(f32),
-	stroke:    Stroke,
-	opacity:   Maybe(f32),
-	// SVG shape-rendering="crispEdges": no antialiasing.
-	crisp:   bool,
+	cx, cy, r:   f32,
+	using style: Shape_Style,
 }
 
 Ellipse :: struct {
 	cx, cy, rx, ry: f32,
-	fill:           Paint,
-	fill_opacity:    Maybe(f32),
-	stroke:         Stroke,
-	opacity:        Maybe(f32),
-	// SVG shape-rendering="crispEdges": no antialiasing.
-	crisp:   bool,
+	using style:    Shape_Style,
 }
 
 Line :: struct {
 	x1, y1, x2, y2: f32,
-	stroke:         Stroke,
-	opacity:        Maybe(f32),
-	// SVG shape-rendering="crispEdges": no antialiasing.
-	crisp:   bool,
+	using style:    Shape_Style,
 }
 
 // SVG path data (`M 0 0 L 10 0 ...`), the same syntax as `<path d=...>`,
 // path data parsed once (`asset`), or a polyline / polygon through
 // `points` (closed when `closed`).
 Path :: struct {
-	d:         string,
-	asset:     ^Path_Asset,
-	points:    []Vec2,
-	closed:    bool,
-	fill:      Paint,
-	fill_opacity: Maybe(f32),
-	fill_rule: vg.Fill_Rule,
-	stroke:    Stroke,
-	opacity:   Maybe(f32),
-	// SVG shape-rendering="crispEdges": no antialiasing.
-	crisp:   bool,
+	d:           string,
+	asset:       ^Path_Asset,
+	points:      []Vec2,
+	closed:      bool,
+	fill_rule:   vg.Fill_Rule,
+	using style: Shape_Style,
 }
 
 // SVG path data parsed once and drawn by reference, e.g. thousands of
@@ -300,9 +289,7 @@ Text_Span :: struct {
 	dx, dy:         f32,
 }
 
-// An image from the media directory, scaled to `w x h` (0 = natural size).
-// An image from the media. `fit` follows SVG preserveAspectRatio: Contain
-// (meet, the default), Cover (slice) or Fill (none).
+// An image from the media, placed in the box `x, y, w, h` (`fit_box`).
 Image :: struct {
 	src:        string,
 	x, y, w, h: f32,
@@ -310,6 +297,40 @@ Image :: struct {
 	// Where a contained/covered image sits in its box, 0..1 (0.5 = mid).
 	align:      Maybe(Vec2),
 	opacity:    Maybe(f32),
+}
+
+// How a picture (image, SVG document, Lottie, video frame) fills its box,
+// as SVG preserveAspectRatio: Contain (meet, the default) shows all of it,
+// Cover (slice) fills the box and is clipped to it, Fill (none) stretches.
+Image_Fit :: enum u8 {
+	Contain,
+	Cover,
+	Fill,
+}
+
+// The box of a picture of natural size `natural_w x natural_h` placed at
+// `x, y, w, h` (a side <= 0 follows the picture's aspect, both: its natural
+// size), and the picture's rect in it: fitted by `fit` and placed by
+// `align` (0..1 on each axis, default the middle).
+fit_box :: proc "contextless" (x, y, w, h, natural_w, natural_h: f32, fit: Image_Fit, align: Maybe(Vec2)) -> (box, picture: vg.Rect) {
+	box = {x, y, w, h}
+	switch {
+	case w <= 0 && h <= 0:
+		box.w, box.h = natural_w, natural_h
+	case w <= 0:
+		box.w = h * natural_w / natural_h
+	case h <= 0:
+		box.h = w * natural_h / natural_w
+	}
+	picture = box
+	if fit != .Fill {
+		k := min(box.w / natural_w, box.h / natural_h) if fit == .Contain else max(box.w / natural_w, box.h / natural_h)
+		picture.w, picture.h = natural_w * k, natural_h * k
+		al := align.? or_else {0.5, 0.5}
+		picture.x = x + (box.w - picture.w) * al.x
+		picture.y = y + (box.h - picture.h) * al.y
+	}
+	return
 }
 
 Node_Kind :: union {
@@ -325,6 +346,58 @@ Node_Kind :: union {
 	Shader,
 	Svg,
 	Lottie,
+}
+
+// The name a node kind goes by in listings and findings.
+node_kind_name :: proc "contextless" (k: Node_Kind) -> string {
+	switch _ in k {
+	case Group:
+		return "group"
+	case Rect:
+		return "rect"
+	case Circle:
+		return "circle"
+	case Ellipse:
+		return "ellipse"
+	case Line:
+		return "line"
+	case Path:
+		return "path"
+	case Text:
+		return "text"
+	case Image:
+		return "image"
+	case Video_Clip:
+		return "video_clip"
+	case Shader:
+		return "shader"
+	case Svg:
+		return "svg"
+	case Lottie:
+		return "lottie"
+	}
+	return "node"
+}
+
+// Node `i` of `tree` in a few words, for listings and findings: its kind,
+// and what it shows (`text "Hello"`, `image logo.png`, `group of 3`).
+node_label :: proc(tree: ^Tree, i: i32) -> string {
+	n := tree.nodes[i]
+	#partial switch k in n.kind {
+	case Text:
+		return fmt.tprintf("text %q", k.text)
+	case Image:
+		return fmt.tprintf("image %s", k.src)
+	case Svg:
+		return fmt.tprintf("svg %s", k.src)
+	case Group:
+		kids := 0
+		for c := n.first_child; c != NO_NODE; c = tree.nodes[c].next {
+			kids += 1
+		}
+		return fmt.tprintf("group of %d", kids)
+	}
+	return node_kind_name(n.kind)
 }
 
 NO_NODE :: -1
@@ -442,28 +515,25 @@ group_end :: proc(ctx: ^Context, _: Group = {}) {
 
 rect :: proc(ctx: ^Context, r: Rect) {
 	r := r
-	r.fill = copy_paint(ctx, r.fill)
-	r.stroke = copy_stroke(ctx, r.stroke)
+	r.style = copy_style(ctx, r.style)
 	tree_add(&ctx.tree, r)
 }
 
 circle :: proc(ctx: ^Context, c: Circle) {
 	c := c
-	c.fill = copy_paint(ctx, c.fill)
-	c.stroke = copy_stroke(ctx, c.stroke)
+	c.style = copy_style(ctx, c.style)
 	tree_add(&ctx.tree, c)
 }
 
 ellipse :: proc(ctx: ^Context, e: Ellipse) {
 	e := e
-	e.fill = copy_paint(ctx, e.fill)
-	e.stroke = copy_stroke(ctx, e.stroke)
+	e.style = copy_style(ctx, e.style)
 	tree_add(&ctx.tree, e)
 }
 
 line :: proc(ctx: ^Context, l: Line) {
 	l := l
-	l.stroke = copy_stroke(ctx, l.stroke)
+	l.style = copy_style(ctx, l.style)
 	tree_add(&ctx.tree, l)
 }
 
@@ -475,8 +545,7 @@ path :: proc(ctx: ^Context, p: Path) {
 		copy(pts, p.points)
 		p.points = pts
 	}
-	p.fill = copy_paint(ctx, p.fill)
-	p.stroke = copy_stroke(ctx, p.stroke)
+	p.style = copy_style(ctx, p.style)
 	tree_add(&ctx.tree, p)
 }
 
@@ -503,6 +572,14 @@ image :: proc(ctx: ^Context, i: Image) {
 	i := i
 	i.src = strings.clone(i.src, ctx.tree.arena)
 	tree_add(&ctx.tree, i)
+}
+
+@(private)
+copy_style :: proc(ctx: ^Context, s: Shape_Style) -> Shape_Style {
+	s := s
+	s.fill = copy_paint(ctx, s.fill)
+	s.stroke = copy_stroke(ctx, s.stroke)
+	return s
 }
 
 @(private)

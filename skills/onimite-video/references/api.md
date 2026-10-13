@@ -283,7 +283,8 @@ end }
 - Derive times from the same numbers (`DROP`, `MUSIC_AT + o.beats[i]`): moving the music then
   moves everything. Tags catch the places that kept old numbers.
 - Cues are times on the command line: `frame video.lua drop`, `audio at video.lua beat[3]`,
-  `strip video.lua drop..beat[8]`. `timeline` lists them (a scene's on its own line).
+  `strip video.lua drop..beat[8]`, with an offset `frame video.lua drop@0.5s,drop@-6`.
+  `timeline` lists them (a scene's on its own line).
 - Spoken words: `say_cue(line, at, word, { name, nth })` names the moment a `say()` line,
   its track starting at `at`, says `word` (its text, or its index in `line.words`) and
   returns that video time; the cue has `hit = line.name`, so `inspect` checks the voice

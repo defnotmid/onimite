@@ -15,24 +15,17 @@ import vg "deps:ovg"
 
 // Builds the clips whose function the script's audio_add deferred (before
 // anything that plays or measures sound), side by side on the app's pool
-// (clip_builds.odin); a failing build fails the command as the script's
-// failure (`audio_build`).
+// or one after another without (clip_builds.odin); a failing build fails
+// the command as the script's failure.
 @(private)
 build_audio :: proc(app: ^App_State) -> Error {
 	if !app.script_loaded || !script.audio_pending(&app.script) {
 		return nil
 	}
-	names := script.audio_pending_names(&app.script)
-	if app.pool == nil || len(names) == 1 {
-		if f := script.audio_build(&app.script); f.code != .None {
-			return fail(app, {code = .Script, script = f})
-		}
-		return nil
-	}
 	s := &app.script
-	b := clip_builds_make(names, min(om.pool_count(app.pool), CLIP_JOBS), s.path, app.media.dir, s.args, s.props, &app.video)
+	b := clip_builds_make(script.audio_pending_names(s), app.pool, s.shared, s.path, app.media.dir, s.args, s.props, &app.video)
 	defer clip_builds_destroy(b)
-	clip_builds_wait(b, app.pool)
+	clip_builds_wait(b)
 	if _, f := clip_builds_drain(b, &app.media, s); f.code != .None {
 		return fail(app, {code = .Script, script = f})
 	}
@@ -84,15 +77,7 @@ audio_mix :: proc(app: ^App_State, r: ^om.Renderer, start, end: int, track := ""
 
 @(private)
 has_audio :: proc(v: ^om.Video) -> bool {
-	if len(v.audio) > 0 {
-		return true
-	}
-	for s in v.scenes {
-		if len(s.audio) > 0 {
-			return true
-		}
-	}
-	return false
+	return len(v.audio) > 0
 }
 
 // The sounds the tracks need that the media lacks (`missing_files`), as the

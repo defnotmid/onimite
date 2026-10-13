@@ -112,7 +112,6 @@ track_sound_start :: proc(m: ^om.Media, p: om.Placed_Track) -> f64 {
 sync_check :: proc(app: ^App_State, r: ^om.Renderer, anchors: []Anchor) -> []om.Diagnostic {
 	out := make([dynamic]om.Diagnostic, context.temp_allocator)
 	fps := f64(r.video.fps)
-	frame_of :: proc(seconds, fps: f64) -> int {return int(math.floor(seconds * fps + 1e-6))}
 
 	// One drift per row first; families are summarised below.
 	Drift :: struct {
@@ -131,7 +130,7 @@ sync_check :: proc(app: ^App_State, r: ^om.Renderer, anchors: []Anchor) -> []om.
 		i = j
 		if len(group) == 1 {
 			if group[0].kind != .Cue {
-				append(&out, om.Diagnostic{severity = .Warning, code = .Cue_Alone, frame = frame_of(group[0].seconds, fps), name = group[0].id, a = group[0].label})
+				append(&out, om.Diagnostic{severity = .Warning, code = .Cue_Alone, frame = om.frame_at(group[0].seconds, r.video.fps), name = group[0].id, a = group[0].label})
 			}
 		} else {
 			ref := group[0]
@@ -192,7 +191,7 @@ sync_check :: proc(app: ^App_State, r: ^om.Renderer, anchors: []Anchor) -> []om.
 			append(&out, om.Diagnostic {
 				severity = .Warning,
 				code = .Cue_Drift,
-				frame = frame_of(d.a.seconds, fps),
+				frame = om.frame_at(d.a.seconds, r.video.fps),
 				name = fmt.tprintf("%s[*]", d.family),
 				a = fmt.tprintf("%d of %d %ss", len(same), total, kind_name(d.a.kind)),
 				b = fmt.tprintf("their %ss", kind_name(d.ref.kind)),
@@ -204,7 +203,7 @@ sync_check :: proc(app: ^App_State, r: ^om.Renderer, anchors: []Anchor) -> []om.
 		append(&out, om.Diagnostic {
 			severity = .Warning,
 			code = .Cue_Drift,
-			frame = frame_of(d.a.seconds, fps),
+			frame = om.frame_at(d.a.seconds, r.video.fps),
 			name = d.a.id,
 			a = fmt.tprintf("%s at %.3fs", d.a.label, d.a.seconds),
 			b = fmt.tprintf("%s at %.3fs", d.ref.label, d.ref.seconds),
@@ -263,7 +262,7 @@ cue_hit :: proc(app: ^App_State, r: ^om.Renderer, c: Anchor) -> (d: om.Diagnosti
 	return {
 			severity = .Warning,
 			code = .Cue_No_Hit,
-			frame = int(math.floor(c.seconds * f64(r.video.fps) + 1e-6)),
+			frame = om.frame_at(c.seconds, r.video.fps),
 			name = c.id,
 			a = near,
 			b = c.hit,
@@ -272,46 +271,21 @@ cue_hit :: proc(app: ^App_State, r: ^om.Renderer, c: Anchor) -> (d: om.Diagnosti
 		true
 }
 
-// Ids as times on the command line: each `id` in a time spec or range that
-// is not a scene becomes its frame (a cue's, a scene's first frame, a
-// track's first sound).
-sync_spec :: proc(app: ^App_State, r: ^om.Renderer, spec: string) -> (out: string, err: Error) {
-	if !app.script_loaded || (len(app.script.cues) == 0 && !has_ids(r)) {
-		return spec, nil
+// The cues and sync ids a time spec can name (`om.parse_frame`), by
+// their anchors: a cue's time, a scene's first frame, a track's first
+// sound; animate keys are left out. None before the renderer is ready.
+spec_names :: proc(app: ^App_State) -> (names: []om.Named_Time, err: Error) {
+	r := &app.renderer
+	if !app.renderer_ready || !app.script_loaded || (len(app.script.cues) == 0 && !has_ids(r)) {
+		return nil, nil
 	}
-	anchors := sync_anchors(app, r) or_return
-	if len(anchors) == 0 {
-		return spec, nil
+	out := make([dynamic]om.Named_Time, context.temp_allocator)
+	for a in sync_anchors(app, r) or_return {
+		if a.kind != .Key {
+			append(&out, om.Named_Time{a.id, a.seconds})
+		}
 	}
-	fps := f64(r.video.fps)
-	lookup :: proc(anchors: []Anchor, r: ^om.Renderer, token: string, fps: f64) -> (string, bool) {
-		if om.find_scene(r.timeline, token) >= 0 {
-			return "", false // a scene name (any case) keeps meaning the scene
-		}
-		for a in anchors {
-			if a.id == token && a.kind != .Key {
-				return fmt.tprint(int(math.floor(a.seconds * fps + 1e-6))), true
-			}
-		}
-		return "", false
-	}
-	b := strings.builder_make(context.temp_allocator)
-	for part, i in strings.split(spec, ",", context.temp_allocator) {
-		if i > 0 {
-			strings.write_byte(&b, ',')
-		}
-		lo, sep, hi := strings.partition(part, "..")
-		if f, ok := lookup(anchors, r, strings.trim_space(lo), fps); ok {
-			lo = f
-		}
-		if f, ok := lookup(anchors, r, strings.trim_space(hi), fps); ok && sep != "" {
-			hi = f
-		}
-		strings.write_string(&b, lo)
-		strings.write_string(&b, sep)
-		strings.write_string(&b, hi)
-	}
-	return strings.to_string(b), nil
+	return out[:], nil
 }
 
 @(private)
@@ -326,13 +300,6 @@ has_ids :: proc(r: ^om.Renderer) -> bool {
 
 @(private)
 tracks_have_ids :: proc(r: ^om.Renderer) -> bool {
-	for s in r.video.scenes {
-		for t in s.audio {
-			if t.cue != "" {
-				return true
-			}
-		}
-	}
 	for t in r.video.audio {
 		if t.cue != "" {
 			return true
@@ -552,7 +519,7 @@ off_beat_check :: proc(app: ^App_State, r: ^om.Renderer) -> []om.Diagnostic {
 		d := om.Diagnostic {
 			severity = .Warning,
 			code     = .Off_Beat,
-			frame    = int(math.floor(t * f64(r.video.fps) + 1e-6)),
+			frame    = om.frame_at(t, r.video.fps),
 			name     = h.track.track.source,
 			a        = h.track.track.src,
 			x        = f32(t),

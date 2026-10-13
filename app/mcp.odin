@@ -15,7 +15,8 @@ import "core:strings"
 // `--json` document) is the call's text; frames, strips, onion skins and
 // waveforms come back as images too. Warnings and progress stay on stderr.
 // `preview` opens the window for the user as a process of its own and
-// returns at once.
+// returns at once. `guide` returns the built-in skill (mcp_guide.odin), which
+// the server's instructions tell a client to read first.
 
 // The release (its tag; release builds set it with -define), else "dev".
 ONIMITE_VERSION :: #config(ONIMITE_VERSION, "dev")
@@ -23,8 +24,20 @@ ONIMITE_VERSION :: #config(ONIMITE_VERSION, "dev")
 // The protocol revision answered when the client asks for none.
 MCP_PROTOCOL :: "2025-06-18"
 
-// Serves tools on stdin/stdout until stdin closes.
-mcp_serve :: proc() {
+// What a client is told when it connects: read the guide before making a
+// video, and where relative paths go.
+@(private = "file")
+MCP_INSTRUCTIONS :: `onimite makes videos from Lua scripts: a video is a video.lua file (plus a media/ folder beside it for fonts, images, sounds, clips and shaders) that this server renders, checks and previews. Before writing or changing a video, call the guide tool (topic "skill") and follow it; it names further topics (api, audio, design, media, shaders, filters, problems) to read when the video needs them. Write video.lua and its media with your file tools. Check your work without watching it: inspect, frame, strip, onion, audio_analyze. Open preview to show the user (it reloads when the files change), and render for the final MP4. Relative paths in every tool, the script's included, are relative to the working folder: %s`
+
+// Serves tools on stdin/stdout until stdin closes. With `dir`, works there
+// (made if missing): relative paths in tool calls resolve against it.
+mcp_serve :: proc(dir := "") {
+	if dir != "" {
+		_ = os.make_directory_all(dir)
+		if err := os.set_working_directory(dir); err != nil {
+			fmt.eprintfln("onimite mcp: can not work in %s (%v)", dir, err)
+		}
+	}
 	out := mcp_protocol_out()
 	reader: bufio.Reader
 	bufio.reader_init(&reader, os.to_reader(os.stdin), 1 << 16)
@@ -67,7 +80,8 @@ mcp_handle :: proc(line: string) -> string {
 		if version == "" {
 			version = MCP_PROTOCOL
 		}
-		return mcp_result(id, fmt.tprintf(`{{"protocolVersion":%s,"capabilities":{{"tools":{{}}}},"serverInfo":{{"name":"onimite","version":%s}}}}`, mcp_quote(version), mcp_quote(ONIMITE_VERSION)))
+		cwd, _ := os.get_working_directory(context.temp_allocator)
+		return mcp_result(id, fmt.tprintf(`{{"protocolVersion":%s,"capabilities":{{"tools":{{}}}},"serverInfo":{{"name":"onimite","version":%s}},"instructions":%s}}`, mcp_quote(version), mcp_quote(ONIMITE_VERSION), mcp_quote(fmt.tprintf(MCP_INSTRUCTIONS, cwd))))
 	case "ping":
 		return mcp_result(id, "{}")
 	case "tools/list":
@@ -75,6 +89,9 @@ mcp_handle :: proc(line: string) -> string {
 	case "tools/call":
 		name, _ := params["name"].(json.String)
 		args, _ := params["arguments"].(json.Object)
+		if name == "guide" {
+			return mcp_result(id, mcp_guide(args))
+		}
 		for info, c in COMMANDS {
 			if info.tool == name {
 				return mcp_result(id, mcp_call(c, args))
@@ -164,6 +181,8 @@ mcp_tools_list :: proc() -> string {
 		}
 		strings.write_string(&b, `],"additionalProperties":false}}`)
 	}
+	topics, _ := json.marshal(guide_topics(), {}, context.temp_allocator)
+	fmt.sbprintf(&b, `,{{"name":"guide","description":%s,"inputSchema":{{"type":"object","properties":{{"topic":{{"type":"string","enum":%s,"description":"skill (the start: how to make and check a video), or a reference"}}}},"required":[],"additionalProperties":false}}}}`, mcp_quote("How to make videos with onimite: the onimite-video skill (writing the script, design, sound, checking) and its references. Read topic skill first."), string(topics))
 	strings.write_string(&b, `]}`)
 	return strings.to_string(b)
 }
@@ -466,4 +485,16 @@ mcp_preview :: proc(c: Front_Command, args: json.Object, path: string) -> string
 	}
 	append(&mcp_previews, Mcp_Preview{strings.clone(script), process})
 	return fmt.tprintf(`{{"content":[{{"type":"text","text":%s}}],"isError":false}}`, mcp_quote(fmt.tprintf(`{{"script":%s,"pid":%d,"already_open":false}}`, mcp_quote(script), process.pid)))
+}
+
+// The built-in skill: topic "skill" (the default) or a reference.
+@(private = "file")
+mcp_guide :: proc(args: json.Object) -> string {
+	topic, _ := args["topic"].(json.String)
+	text, ok := guide_text(string(topic))
+	if !ok {
+		names := strings.join(guide_topics(), ", ", context.temp_allocator)
+		return mcp_usage(fmt.tprintf("guide has no topic %q; topics: %s", topic, names))
+	}
+	return fmt.tprintf(`{{"content":[{{"type":"text","text":%s}}],"isError":false}}`, mcp_quote(text))
 }

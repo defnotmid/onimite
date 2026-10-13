@@ -24,7 +24,11 @@ Captions :: struct {
 	// The source groups its words into cues (else pages default to
 	// `combine_ms = 1200`).
 	segmented: bool,
-	// Of the rows above: the same words twice compare equal.
+	// The words come from a subtitle file, whose cues as written are
+	// `subtitles` (for `subtitle_at`); `cues` index them.
+	from_subtitles: bool,
+	subtitles: Subtitles,
+	// Of the rows above: the same text twice compares equal.
 	hash:      u64,
 }
 
@@ -34,6 +38,7 @@ captions_destroy :: proc(c: ^Captions) {
 	delete(c.ends)
 	delete(c.cues)
 	delete(c.text)
+	subtitles_destroy(&c.subtitles)
 	c^ = {}
 }
 
@@ -138,10 +143,13 @@ captions_add_cue :: proc(c: ^Captions, text: string, start, stop: u32, cue: u32)
 	}
 }
 
-// Words from parsed subtitles: each cue's words, by `captions_add_cue`.
-captions_from_subtitles :: proc(subs: ^Subtitles, allocator := context.allocator) -> Captions {
+// A subtitle file's captions (taking `subs`): each cue's words, by
+// `captions_add_cue`, with the cues.
+captions_from_subtitles :: proc(subs: Subtitles, allocator := context.allocator) -> Captions {
 	c := captions_make(allocator)
 	c.segmented = true
+	c.from_subtitles = true
+	c.subtitles = subs
 	for text, i in subs.texts {
 		captions_add_cue(&c, text, subs.starts[i], subs.stops[i], u32(i))
 	}
@@ -149,26 +157,16 @@ captions_from_subtitles :: proc(subs: ^Subtitles, allocator := context.allocator
 	return c
 }
 
-// Parses caption text by its shape: WebVTT (`WEBVTT` header), JSON (`{` or
-// `[`, see `captions_parse_json`), else SRT. `ok = false` when it is none
-// of them.
+// Parses caption text by its shape: JSON (`{` or `[`, see
+// `captions_parse_json`), else subtitles (`parse_subtitles`). `ok = false`
+// when it is neither.
 captions_parse :: proc(text: string, allocator := context.allocator) -> (c: Captions, ok: bool) {
 	src := strings.trim_left_space(strings.trim_prefix(text, "\xEF\xBB\xBF"))
 	if strings.has_prefix(src, "{") || strings.has_prefix(src, "[") {
 		return captions_parse_json(src, allocator)
 	}
-	subs: Subtitles
-	if strings.has_prefix(src, "WEBVTT") {
-		subs, ok = parse_vtt(src, context.temp_allocator)
-	} else {
-		subs, ok = parse_srt(src, context.temp_allocator)
-	}
-	if !ok {
-		return {}, false
-	}
-	c = captions_from_subtitles(&subs, allocator)
-	subtitles_destroy(&subs)
-	return c, true
+	subs := parse_subtitles(src, allocator) or_return
+	return captions_from_subtitles(subs, allocator), true
 }
 
 // Parses word timings from JSON:
@@ -303,7 +301,9 @@ captions_seal :: proc(c: ^Captions) {
 	h = hash.fnv64a(slice.to_bytes(c.stops[:]), h)
 	h = hash.fnv64a(slice.to_bytes(c.ends[:]), h)
 	h = hash.fnv64a(slice.to_bytes(c.cues[:]), h)
-	c.hash = hash.fnv64a(c.text[:], h ~ (1 if c.segmented else 0))
+	h = hash.fnv64a(c.text[:], h ~ (1 if c.segmented else 0))
+	// The cues as written: their ids and settings too.
+	c.hash = hash.fnv64a(c.subtitles.buffer.buf[:], h)
 }
 
 // Captions from words a script lists (seconds), as one flat cue, or

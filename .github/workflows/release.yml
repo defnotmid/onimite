@@ -6,6 +6,8 @@ name: Release
 #   onimite-TAG-macos-arm64.tar.gz     signed (Developer ID) and notarized
 #   onimite-TAG-windows-x86_64.zip     best effort, see the build job
 #   onimite-video-skill-TAG.tar.gz     the agent skill at this tag (onimite-video/)
+#   onimite-TAG-{macos-arm64,windows-x86_64}.mcpb  Claude Desktop extensions
+#   onimite-{macos-arm64,windows-x86_64}.mcpb      the same, version-free names
 #   SHA256SUMS
 # Each archive holds one directory, onimite-TAG-PLATFORM/, with the binary,
 # the SDL3 shared library next to it (lua54.dll too on Windows), LICENSE,
@@ -328,7 +330,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           path: onimite
-          sparse-checkout: skills/onimite-video
+          sparse-checkout: |
+            skills/onimite-video
+            assets
 
       - name: Package the skill
         env:
@@ -336,6 +340,73 @@ jobs:
         run: |
           tar -czf "dist/onimite-video-skill-$TAG.tar.gz" -C onimite/skills onimite-video
           tar -tzf "dist/onimite-video-skill-$TAG.tar.gz" | grep -qx 'onimite-video/SKILL.md'
+
+      # Claude Desktop extensions: one per platform Desktop runs on, holding
+      # the release's own (signed) binary, so `onimite mcp` installs in one
+      # click. The tool list is read from the binary itself. Also published
+      # under version-free names, so a site can link to the latest for good.
+      - name: Package the Claude Desktop bundles (.mcpb)
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/mcpb"
+          mkdir -p "$work"
+          tar -xzf "dist/onimite-$TAG-linux-x86_64.tar.gz" -C "$work"
+          printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
+            | "$work/onimite-$TAG-linux-x86_64/onimite" mcp > "$work/tools.json"
+          tools=$(jq -c '[.result.tools[] | {name, description}]' "$work/tools.json")
+          for target in macos-arm64 windows-x86_64; do
+            case $target in
+              macos-arm64) archive="dist/onimite-$TAG-$target.tar.gz"; platform=darwin; exe=onimite ;;
+              windows-x86_64) archive="dist/onimite-$TAG-$target.zip"; platform=win32; exe=onimite.exe ;;
+            esac
+            if [ ! -f "$archive" ]; then
+              echo "::warning::$archive is missing: no $target bundle"
+              continue
+            fi
+            bundle="$work/$target"
+            mkdir -p "$bundle/server" "$work/unpack-$target"
+            case $archive in
+              *.zip) unzip -q "$archive" -d "$work/unpack-$target" ;;
+              *) tar -xzf "$archive" -C "$work/unpack-$target" ;;
+            esac
+            cp -R "$work/unpack-$target/onimite-$TAG-$target/." "$bundle/server/"
+            cp onimite/assets/logo_512.png "$bundle/icon.png"
+            jq -n --arg version "${TAG#v}" --arg exe "$exe" --arg platform "$platform" --argjson tools "$tools" '{
+              manifest_version: "0.3",
+              name: "onimite",
+              display_name: "onimite",
+              version: $version,
+              description: "Make videos with code: a video is a Lua script; onimite renders it to MP4, previews it and checks it.",
+              long_description: "onimite renders videos written as Lua scripts and checks them without anyone watching: frames, contact sheets, problems found automatically, loudness and beats. The guide tool holds how to write a video. Claude writes video.lua into your work folder with a filesystem extension, then renders, inspects and previews it here.",
+              author: {name: "defnotmid", url: "https://defnotmid.com"},
+              homepage: "https://github.com/defnotmid/onimite",
+              repository: {type: "git", url: "https://github.com/defnotmid/onimite"},
+              license: "MIT",
+              icon: "icon.png",
+              server: {
+                type: "binary",
+                entry_point: ("server/" + $exe),
+                mcp_config: {command: ("${__dirname}/server/" + $exe), args: ["mcp", "--dir", "${user_config.work_dir}"]}
+              },
+              tools: $tools,
+              user_config: {
+                work_dir: {
+                  type: "directory",
+                  title: "Work folder",
+                  description: "Where your videos and their media live; relative paths in tool calls start here.",
+                  default: "${DOCUMENTS}/onimite",
+                  required: true
+                }
+              },
+              compatibility: {platforms: [$platform], claude_desktop: ">=0.10.0"}
+            }' > "$bundle/manifest.json"
+            npx -y @anthropic-ai/mcpb@2.1.2 validate "$bundle/manifest.json"
+            npx -y @anthropic-ai/mcpb@2.1.2 pack "$bundle" "dist/onimite-$TAG-$target.mcpb"
+            cp "dist/onimite-$TAG-$target.mcpb" "dist/onimite-$target.mcpb"
+          done
+          ls -l dist
 
       - name: Checksums
         working-directory: dist

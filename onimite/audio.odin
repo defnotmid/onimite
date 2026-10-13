@@ -40,6 +40,17 @@ Audio_Track :: struct {
 	bus:         string,
 	// The script line that placed it (its video{} or scene{} call).
 	source:      string,
+	// The scene that places it (an index into `Video.scenes`), or none for
+	// the video's own tracks.
+	scene:       Maybe(int),
+}
+
+// How many of the video's tracks `scene` places (none: the video's own).
+tracks_placed_by :: proc(v: ^Video, scene: Maybe(int)) -> (n: int) {
+	for tr in v.audio {
+		n += int(tr.scene == scene)
+	}
+	return
 }
 
 Fade_Curve :: enum u8 {

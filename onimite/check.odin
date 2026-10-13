@@ -17,7 +17,6 @@ check_frame :: proc(r: ^Renderer) {
 	nodes := r.ctx.tree.nodes[:]
 	leaves := 0
 	for n, i in nodes {
-		kind := ""
 		bad := false
 		#partial switch v in n.kind {
 		case Group:
@@ -30,40 +29,32 @@ check_frame :: proc(r: ^Renderer) {
 			if o, ok := v.opacity.?; ok {
 				bad |= !finite(o)
 			}
-			kind = "group"
 		case Rect:
 			bad = !finite(v.x, v.y, v.w, v.h, v.rx)
-			kind = "rect"
 			leaves += 1
 		case Circle:
 			bad = !finite(v.cx, v.cy, v.r)
-			kind = "circle"
 			leaves += 1
 		case Ellipse:
 			bad = !finite(v.cx, v.cy, v.rx, v.ry)
-			kind = "ellipse"
 			leaves += 1
 		case Line:
 			bad = !finite(v.x1, v.y1, v.x2, v.y2)
-			kind = "line"
 			leaves += 1
 		case Path:
-			kind = "path"
 			leaves += 1
 		case Text:
 			bad = !finite(v.x, v.y, v.size)
-			kind = "text"
 			leaves += 1
 			check_glyphs(r, v, i32(i) + 1)
 		case Image:
 			bad = !finite(v.x, v.y, v.w, v.h)
-			kind = "image"
 			leaves += 1
 		case:
 			leaves += 1
 		}
 		if bad {
-			report(&r.ctx, .Error, {code = .Nan_Transform, name = kind, n = i64(i), node = i32(i) + 1})
+			report(&r.ctx, .Error, {code = .Nan_Transform, name = node_kind_name(n.kind), n = i64(i), node = i32(i) + 1})
 		}
 	}
 	if leaves == 0 {

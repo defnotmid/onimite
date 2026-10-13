@@ -55,11 +55,8 @@ poly :: proc(L: ^lua.State, s: ^Script, closed: bool) -> c.int {
 		{
 			points = points,
 			closed = closed,
-			fill = get_paint(L, 1, "fill", ctx) if closed || has_field(L, 1, "fill") else nil,
-			fill_opacity = get_maybe(L, 1, "fill_opacity"),
 			fill_rule = rule,
-			stroke = read_stroke(L, 1, ctx),
-			opacity = get_maybe(L, 1, "opacity"),
+			style = read_style(L, 1, ctx),
 		},
 	)
 	fields_end(L, s, 1, "polygon" if closed else "polyline")

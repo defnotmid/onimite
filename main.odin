@@ -18,7 +18,15 @@ main :: proc() {
 		return
 	}
 	if len(args) > 0 && args[0] == "mcp" {
-		app.mcp_serve()
+		// `--dir PATH`: the folder relative paths resolve in (the MCP bundle's work folder).
+		dir := ""
+		if len(args) == 3 && args[1] == "--dir" {
+			dir = args[2]
+		} else if len(args) != 1 {
+			fmt.eprintln("usage: onimite mcp [--dir PATH]")
+			os.exit(2)
+		}
+		app.mcp_serve(dir)
 		return
 	}
 	rows, help := app.cli_parse(args)

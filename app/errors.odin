@@ -5,6 +5,7 @@ import "core:encoding/json"
 import "core:fmt"
 import "core:mem/virtual"
 import "core:os"
+import "core:slice"
 import "core:strings"
 import om "../onimite"
 import enc "../encode"
@@ -29,6 +30,7 @@ Error :: enum u8 {
 	Renderer,
 	// Time specs (`om.parse_frame`, `om.parse_range`).
 	Spec_Unknown_Scene,
+	Spec_Unknown_Name,
 	Spec_No_Scenes,
 	Spec_Ambiguous,
 	Spec_Out_Of_Range,
@@ -96,11 +98,12 @@ FAILURE_TEXT := [Error]string {
 	.Script             = "{script}",
 	.Renderer           = "can not set up rendering: {render}",
 	.Spec_Unknown_Scene = "no scene {q:name}, available: {names}",
+	.Spec_Unknown_Name  = "no scene or cue {q:name}, available: {names}",
 	.Spec_No_Scenes     = "no scene {q:name}, the video does not define scenes",
 	.Spec_Ambiguous     = "{q:name} matches scenes [{indices}], use {name}[n] or #index",
 	.Spec_Out_Of_Range  = "{q:spec} is outside the video (frames 0..{n})",
 	.Spec_Past_Scene    = "{q:spec} is past the end of scene {q:name}: it is {n} frames long ({path}), so offsets run @0..@{m} (or @end)",
-	.Spec_Invalid       = "can not parse {q:spec}: use a frame (120), time (3.2s, 1:05), percentage (50%), scene (Intro, #3, Intro@1.5s) or start/end",
+	.Spec_Invalid       = "can not parse {q:spec}: use a frame (120), time (3.2s, 1:05), percentage (50%), scene (Intro, #3, Intro@1.5s), cue (drop, drop@0.5s; no @50% or @end) or start/end",
 	.Create_Dir         = "can not create {path}: {os}",
 	.Png_Many_Frames    = "-o {path} is one PNG but {n} frames were asked for; give a directory instead",
 	.Write              = "can not write {path}",
@@ -205,15 +208,28 @@ failure_message :: proc(f: Failure, allocator := context.allocator) -> string {
 	return strings.to_string(b)
 }
 
-// The failure for a time spec that doesn't resolve (fframes' messages).
-spec_failure :: proc(t: ^om.Timeline, fps: int, spec: string, err: om.Error) -> Failure {
+// The failure for a time spec that doesn't resolve (fframes' messages);
+// `times` are the cues and sync ids it could name.
+spec_failure :: proc(t: ^om.Timeline, fps: int, spec: string, err: om.Error, times: []om.Named_Time = nil) -> Failure {
 	#partial switch err {
 	case .Unknown_Scene:
-		names := make([]string, len(t.scenes), context.temp_allocator)
-		for s, i in t.scenes {
-			names[i] = s.scene.name
+		names := make([dynamic]string, context.temp_allocator)
+		for s in t.scenes {
+			append(&names, s.scene.name)
 		}
-		return {code = .Spec_Unknown_Scene if len(names) > 0 else .Spec_No_Scenes, spec = spec, name = strip_at(spec), names = names}
+		for n in times {
+			if !slice.contains(names[:], n.name) {
+				append(&names, n.name)
+			}
+		}
+		code := Error.Spec_No_Scenes
+		switch {
+		case len(times) > 0:
+			code = .Spec_Unknown_Name
+		case len(names) > 0:
+			code = .Spec_Unknown_Scene
+		}
+		return {code = code, spec = spec, name = strip_at(spec), names = names[:]}
 	case .Ambiguous_Scene:
 		name := strip_at(spec)
 		idx := make([dynamic]int, context.temp_allocator)

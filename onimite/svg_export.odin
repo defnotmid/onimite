@@ -81,27 +81,24 @@ export_node :: proc(e: ^Svg_Export, i: i32, m: vg.Transform2D) {
 		if n.w <= 0 || n.h <= 0 {
 			return
 		}
-		shape_defs(e, i, n.fill, n.stroke, m)
+		shape_defs(e, i, n.style, m)
 		if dashed(n.stroke) {
 			vg.path_rounded_rect_elliptic(shape_path(e), n.x, n.y, n.w, n.h, n.rx, n.ry)
 			path_data(e)
 		} else {
 			strings.write_string(b, "<rect")
-			num_attr(b, "x", n.x)
-			num_attr(b, "y", n.y)
-			num_attr(b, "width", n.w)
-			num_attr(b, "height", n.h)
+			rect_attrs(b, {n.x, n.y, n.w, n.h})
 			if n.rx > 0 || n.ry > 0 {
 				num_attr(b, "rx", n.rx)
 				num_attr(b, "ry", n.ry if n.ry > 0 else n.rx)
 			}
 		}
-		shape_attrs(e, i, n.fill, n.fill_opacity, .Non_Zero, n.stroke, n.opacity, n.crisp)
+		shape_attrs(e, i, n.style)
 	case Circle:
 		if n.r <= 0 {
 			return
 		}
-		shape_defs(e, i, n.fill, n.stroke, m)
+		shape_defs(e, i, n.style, m)
 		if dashed(n.stroke) {
 			vg.path_circle(shape_path(e), n.cx, n.cy, n.r)
 			path_data(e)
@@ -111,12 +108,12 @@ export_node :: proc(e: ^Svg_Export, i: i32, m: vg.Transform2D) {
 			num_attr(b, "cy", n.cy)
 			num_attr(b, "r", n.r)
 		}
-		shape_attrs(e, i, n.fill, n.fill_opacity, .Non_Zero, n.stroke, n.opacity, n.crisp)
+		shape_attrs(e, i, n.style)
 	case Ellipse:
 		if n.rx <= 0 || n.ry <= 0 {
 			return
 		}
-		shape_defs(e, i, n.fill, n.stroke, m)
+		shape_defs(e, i, n.style, m)
 		if dashed(n.stroke) {
 			vg.path_ellipse(shape_path(e), n.cx, n.cy, n.rx, n.ry)
 			path_data(e)
@@ -127,17 +124,17 @@ export_node :: proc(e: ^Svg_Export, i: i32, m: vg.Transform2D) {
 			num_attr(b, "rx", n.rx)
 			num_attr(b, "ry", n.ry)
 		}
-		shape_attrs(e, i, n.fill, n.fill_opacity, .Non_Zero, n.stroke, n.opacity, n.crisp)
+		shape_attrs(e, i, n.style)
 	case Line:
-		shape_defs(e, i, nil, n.stroke, m)
+		shape_defs(e, i, n.style, m)
 		strings.write_string(b, "<line")
 		num_attr(b, "x1", n.x1)
 		num_attr(b, "y1", n.y1)
 		num_attr(b, "x2", n.x2)
 		num_attr(b, "y2", n.y2)
-		shape_attrs(e, i, nil, nil, .Non_Zero, n.stroke, n.opacity, n.crisp)
+		shape_attrs(e, i, n.style)
 	case Path:
-		shape_defs(e, i, n.fill, n.stroke, m)
+		shape_defs(e, i, n.style, m)
 		if len(n.points) > 0 {
 			strings.write_string(b, "<polygon points=\"" if n.closed else "<polyline points=\"")
 			for p, k in n.points {
@@ -158,40 +155,39 @@ export_node :: proc(e: ^Svg_Export, i: i32, m: vg.Transform2D) {
 			strings.write_string(b, "<path")
 			str_attr(b, "d", n.d)
 		}
-		shape_attrs(e, i, n.fill, n.fill_opacity, n.fill_rule, n.stroke, n.opacity, n.crisp)
+		shape_attrs(e, i, n.style, n.fill_rule)
 	case Text:
 		export_text(e, i, n, m)
 	case Image:
 		export_image(e, n)
 	case Video_Clip:
-		v := e.r.ctx.videos
-		info := v.infos[n.clip]
-		fw, fh := f32(info.width), f32(info.height)
-		if info.rotation == 90 || info.rotation == 270 {
-			fw, fh = fh, fw
-		}
-		box := vg.Rect{n.x, n.y, n.w if n.w > 0 else fw, n.h if n.h > 0 else fh}
-		strings.write_string(b, "<!-- video clip ")
-		comment_text(b, v.names[n.clip])
+		note_begin(b, n, e.r.ctx.videos.names[n.clip])
 		strings.write_string(b, " at ")
 		num(b, f32(n.seconds))
 		strings.write_string(b, "s, drawn to a PNG -->\n")
-		export_raster(e, i, box, m)
+		export_raster(e, i, node_bbox(e.r, i), m)
 	case Shader:
-		strings.write_string(b, "<!-- shader ")
-		comment_text(b, e.r.ctx.shaders.labels[n.program])
+		note_begin(b, n, e.r.ctx.shaders.labels[n.program])
 		strings.write_string(b, ", drawn to a PNG -->\n")
-		export_raster(e, i, {n.x, n.y, n.w, n.h}, m)
+		export_raster(e, i, node_bbox(e.r, i), m)
 	case Svg:
 		export_svg_node(e, i, n, m)
 	case Lottie:
-		strings.write_string(b, "<!-- lottie ")
-		comment_text(b, n.src)
+		note_begin(b, n, n.src)
 		strings.write_string(b, " at frame ")
 		num(b, n.frame)
 		strings.write_string(b, ", drawn to a PNG -->\n")
-		export_raster(e, i, {n.x, n.y, n.w, n.h}, m)
+		export_raster(e, i, node_bbox(e.r, i), m)
 	}
+}
+
+// `<!-- kind name`: the start of a note on a node.
+@(private = "file")
+note_begin :: proc(b: ^strings.Builder, kind: Node_Kind, name: string) {
+	strings.write_string(b, "<!-- ")
+	strings.write_string(b, node_kind_name(kind))
+	strings.write_byte(b, ' ')
+	comment_text(b, name)
 }
 
 @(private = "file")
@@ -226,10 +222,7 @@ export_group :: proc(e: ^Svg_Export, i: i32, g: Group, m: vg.Transform2D) {
 			strings.write_string(b, "<clipPath")
 			id_attr(b, i, 'r')
 			strings.write_string(b, "><rect")
-			num_attr(b, "x", clip.x)
-			num_attr(b, "y", clip.y)
-			num_attr(b, "width", clip.w)
-			num_attr(b, "height", clip.h)
+			rect_attrs(b, clip)
 			strings.write_string(b, "/></clipPath>")
 		}
 		if g.clip_path != "" {
@@ -476,10 +469,7 @@ export_primitive :: proc(e: ^Svg_Export, fl: vg.Filter, images: []string, p: vg.
 		}
 	}
 	if p.has_subregion {
-		num_attr(b, "x", p.subregion.x)
-		num_attr(b, "y", p.subregion.y)
-		num_attr(b, "width", p.subregion.w)
-		num_attr(b, "height", p.subregion.h)
+		rect_attrs(b, p.subregion)
 	}
 	strings.write_string(b, ` result="r`)
 	strings.write_int(b, k)
@@ -702,31 +692,31 @@ path_data :: proc(e: ^Svg_Export) {
 
 // The <defs> of a shape's gradient or pattern paints.
 @(private = "file")
-shape_defs :: proc(e: ^Svg_Export, i: i32, fill: Paint, stroke: Stroke, m: vg.Transform2D) {
-	stroked := stroke.width > 0 && needs_def(stroke.paint)
-	if !needs_def(fill) && !stroked {
+shape_defs :: proc(e: ^Svg_Export, i: i32, style: Shape_Style, m: vg.Transform2D) {
+	stroked := style.stroke.width > 0 && needs_def(style.stroke.paint)
+	if !needs_def(style.fill) && !stroked {
 		return
 	}
 	strings.write_string(e.b, "<defs>")
-	paint_def(e, fill, i, 'f', -1, m)
+	paint_def(e, style.fill, i, 'f', -1, m)
 	if stroked {
-		paint_def(e, stroke.paint, i, 's', -1, m)
+		paint_def(e, style.stroke.paint, i, 's', -1, m)
 	}
 	strings.write_string(e.b, "</defs>\n")
 }
 
 @(private = "file")
-shape_attrs :: proc(e: ^Svg_Export, i: i32, fill: Paint, fill_opacity: Maybe(f32), rule: vg.Fill_Rule, stroke: Stroke, opacity: Maybe(f32), crisp: bool) {
+shape_attrs :: proc(e: ^Svg_Export, i: i32, style: Shape_Style, rule := vg.Fill_Rule.Non_Zero) {
 	b := e.b
-	paint_attr(b, "fill", fill, fill_opacity, i, 'f', -1)
+	paint_attr(b, "fill", style.fill, style.fill_opacity, i, 'f', -1)
 	if rule == .Even_Odd {
 		strings.write_string(b, ` fill-rule="evenodd"`)
 	}
-	stroke_attrs(b, i, stroke, true)
-	if o, ok := opacity.?; ok && o < 1 {
+	stroke_attrs(b, i, style.stroke, true)
+	if o, ok := style.opacity.?; ok && o < 1 {
 		num_attr(b, "opacity", o)
 	}
-	if crisp {
+	if style.crisp {
 		strings.write_string(b, ` shape-rendering="crispEdges"`)
 	}
 	strings.write_string(b, "/>\n")
@@ -1054,25 +1044,12 @@ export_image :: proc(e: ^Svg_Export, n: Image) {
 		strings.write_string(b, " -->\n")
 		return
 	}
-	iw, ih := f32(img.width), f32(img.height)
-	w, h := n.w, n.h
-	switch {
-	case w <= 0 && h <= 0:
-		w, h = iw, ih
-	case w <= 0:
-		w = h * iw / ih
-	case h <= 0:
-		h = w * ih / iw
-	}
-	ix, iy, dw, dh := fit_box(n.x, n.y, w, h, iw, ih, n.fit, n.align)
+	box, pic := fit_box(n.x, n.y, n.w, n.h, f32(img.width), f32(img.height), n.fit, n.align)
 	if n.fit == .Cover {
-		clip_viewport_begin(b, {n.x, n.y, w, h})
+		clip_viewport_begin(b, box)
 	}
 	strings.write_string(b, "<image")
-	num_attr(b, "x", ix)
-	num_attr(b, "y", iy)
-	num_attr(b, "width", dw)
-	num_attr(b, "height", dh)
+	rect_attrs(b, pic)
 	strings.write_string(b, ` preserveAspectRatio="none"`)
 	if o, ok := n.opacity.?; ok && o < 1 {
 		num_attr(b, "opacity", o)
@@ -1109,23 +1086,11 @@ export_raster :: proc(e: ^Svg_Export, i: i32, box: vg.Rect, m: vg.Transform2D) {
 	if len(px) < int(pw * ph * 4) {
 		return
 	}
-	// Straight alpha for the PNG.
-	straight := make([]u8, int(pw * ph * 4), context.temp_allocator)
-	for k := 0; k < len(straight); k += 4 {
-		a := px[k + 3]
-		straight[k + 3] = a
-		for j in 0 ..< 3 {
-			straight[k + j] = px[k + j] if a == 255 || a == 0 else u8(min(u32(px[k + j]) * 255 / u32(a), 255))
-		}
-	}
 	b := e.b
 	strings.write_string(b, "<image")
-	num_attr(b, "x", box.x)
-	num_attr(b, "y", box.y)
-	num_attr(b, "width", box.w)
-	num_attr(b, "height", box.h)
+	rect_attrs(b, box)
 	strings.write_string(b, ` preserveAspectRatio="none"`)
-	png_href(b, straight, int(pw), int(ph))
+	png_href(b, straight_alpha(px[:int(pw * ph * 4)]), int(pw), int(ph))
 	strings.write_string(b, "/>\n")
 }
 
@@ -1151,16 +1116,7 @@ export_svg_node :: proc(e: ^Svg_Export, i: i32, n: Svg, m: vg.Transform2D) {
 	}
 	doc := &n.asset.doc
 	b := e.b
-	iw, ih := doc.width, doc.height
-	w, h := n.w, n.h
-	switch {
-	case w <= 0 && h <= 0:
-		w, h = iw, ih
-	case w <= 0:
-		w = h * iw / ih
-	case h <= 0:
-		h = w * ih / iw
-	}
+	box, pic := fit_box(n.x, n.y, n.w, n.h, doc.width, doc.height, n.fit, n.align)
 	source, ok := e.r.ctx.svgs.sources[n.asset]
 	if !ok && n.src != "" && e.r.media.dir != "" {
 		path, _ := filepath.join({e.r.media.dir, n.src}, context.temp_allocator)
@@ -1169,38 +1125,33 @@ export_svg_node :: proc(e: ^Svg_Export, i: i32, n: Svg, m: vg.Transform2D) {
 		}
 	}
 	if !ok {
-		strings.write_string(b, "<!-- SVG ")
-		comment_text(b, n.src)
+		note_begin(b, n, n.src)
 		strings.write_string(b, " has no source file, drawn to a PNG -->\n")
-		export_raster(e, i, {n.x, n.y, w, h}, m)
+		export_raster(e, i, box, m)
 		return
 	}
 	opacity := n.opacity.? or_else 1
 	if opacity <= 0 {
 		return
 	}
-	ix, iy, dw, dh := fit_box(n.x, n.y, w, h, iw, ih, n.fit, n.align)
 	if opacity < 1 {
 		strings.write_string(b, "<g")
 		num_attr(b, "opacity", opacity)
 		strings.write_string(b, ">\n")
 	}
 	if n.fit == .Cover {
-		clip_viewport_begin(b, {n.x, n.y, w, h})
+		clip_viewport_begin(b, box)
 	}
-	// The document's size scaled into the image rect, which clips it.
+	// The document's size scaled into the picture's rect, which clips it.
 	strings.write_string(b, "<svg")
-	num_attr(b, "x", ix)
-	num_attr(b, "y", iy)
-	num_attr(b, "width", dw)
-	num_attr(b, "height", dh)
+	rect_attrs(b, pic)
 	strings.write_string(b, ` viewBox="0 0 `)
-	num(b, iw)
+	num(b, doc.width)
 	strings.write_byte(b, ' ')
-	num(b, ih)
+	num(b, doc.height)
 	strings.write_string(b, `" preserveAspectRatio="none">`)
 	strings.write_string(b, "\n")
-	inline_svg(b, i, source, n.overrides, iw, ih)
+	inline_svg(b, i, source, n.overrides, doc.width, doc.height)
 	strings.write_string(b, "\n</svg>\n")
 	if n.fit == .Cover {
 		strings.write_string(b, "</svg>\n")
@@ -1210,29 +1161,20 @@ export_svg_node :: proc(e: ^Svg_Export, i: i32, n: Svg, m: vg.Transform2D) {
 	}
 }
 
-// The image rect of an `iw x ih` picture fitted into a box (SVG
-// preserveAspectRatio, `align` 0..1).
+// ` x=".." y=".." width=".." height=".."` of `r`.
 @(private = "file")
-fit_box :: proc(x, y, w, h, iw, ih: f32, fit: Image_Fit, align: Maybe(Vec2)) -> (ix, iy, dw, dh: f32) {
-	ix, iy, dw, dh = x, y, w, h
-	if fit != .Fill {
-		k := min(w / iw, h / ih) if fit == .Contain else max(w / iw, h / ih)
-		dw, dh = iw * k, ih * k
-		al := align.? or_else {0.5, 0.5}
-		ix = x + (w - dw) * al.x
-		iy = y + (h - dh) * al.y
-	}
-	return
+rect_attrs :: proc(b: ^strings.Builder, r: vg.Rect) {
+	num_attr(b, "x", r.x)
+	num_attr(b, "y", r.y)
+	num_attr(b, "width", r.w)
+	num_attr(b, "height", r.h)
 }
 
 // A viewport clipping to `r` without changing coordinates.
 @(private = "file")
 clip_viewport_begin :: proc(b: ^strings.Builder, r: vg.Rect) {
 	strings.write_string(b, "<svg")
-	num_attr(b, "x", r.x)
-	num_attr(b, "y", r.y)
-	num_attr(b, "width", r.w)
-	num_attr(b, "height", r.h)
+	rect_attrs(b, r)
 	strings.write_string(b, ` viewBox="`)
 	num(b, r.x)
 	strings.write_byte(b, ' ')

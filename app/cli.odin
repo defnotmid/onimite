@@ -119,8 +119,8 @@ timeline_print :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 	rep.missing_files = missing_audio(app)
 	sync := make([dynamic]Timeline_Sync, context.temp_allocator)
 	for sp in timeline_sync(sync_anchors(app, r) or_return, v.fps) {
-		f := int(sp.seconds[0] * f64(fps) + 0.5)
-		l := int(sp.seconds[len(sp.seconds) - 1] * f64(fps) + 0.5)
+		f := om.frame_at(sp.seconds[0], v.fps)
+		l := om.frame_at(sp.seconds[len(sp.seconds) - 1], v.fps)
 		if inside(f, l + 1, start, end) {
 			append(&sync, sp)
 		}
@@ -516,7 +516,7 @@ snapshot_check :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 		os.remove(actual_path)
 		os.remove(diff_path)
 		res := Snapshot_Result{spec = specs[i], frame = f, status = "matched", snapshot = snap}
-		actual := straight_alpha(px)
+		actual := om.straight_alpha(px)
 		if !os.exists(snap) {
 			write_straight_png(app, snap, actual, r.width, r.height) or_return
 			res.status = "created"
@@ -991,23 +991,6 @@ encoder_failure :: proc(e: ^enc.Encoder, code: enc.Error, frame := 0) -> Failure
 }
 
 // ---- pixels -------------------------------------------------------------------------
-
-// Premultiplied RGBA8 to straight alpha (for PNG files), in the temp allocator.
-straight_alpha :: proc(pixels: []u8) -> []u8 {
-	out := make([]u8, len(pixels), context.temp_allocator)
-	for i := 0; i < len(pixels); i += 4 {
-		a := pixels[i + 3]
-		if a == 255 || a == 0 {
-			copy(out[i:i + 4], pixels[i:i + 4])
-			continue
-		}
-		for k in 0 ..< 3 {
-			out[i + k] = u8(min((u32(pixels[i + k]) * 255 + u32(a) / 2) / u32(a), 255))
-		}
-		out[i + 3] = a
-	}
-	return out
-}
 
 // A render never ships what the load found broken (a silent spoken line,
 // a track whose sound is missing): it refuses while the load found errors.

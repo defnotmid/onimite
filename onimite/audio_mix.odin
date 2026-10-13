@@ -22,7 +22,7 @@ Placed_Track :: struct {
 	start, end: int,
 	// First clip sample played.
 	file_start: int,
-	// The owning scene, or "" for video tracks.
+	// The name of the scene that places it, or "" for the video's own.
 	scene:      string,
 	// Left out of the mix but still a voice for ducking (one track heard
 	// alone, as it sounds in the mix).
@@ -43,10 +43,19 @@ seconds_to_samples :: #force_inline proc "contextless" (s: f32) -> int {
 	return int(math.round(f64(s) * MIX_RATE))
 }
 
-// Where track `tr` of a part that starts `origin` mix samples into the
-// video starts and (`has_stop`) stops, in mix samples; false when a time
-// term names a clip the media lacks (a load diagnostic).
-track_times :: proc(tr: Audio_Track, origin, fps: int, m: ^Media) -> (start, stop: int, has_stop, ok: bool) {
+// Where track `tr`'s clock starts on timeline `t`, in mix samples: its
+// scene's first frame, or the video start.
+track_origin :: proc(tr: Audio_Track, t: Timeline, fps: int) -> int {
+	if scene, in_scene := tr.scene.?; in_scene {
+		return frames_to_samples(t.scenes[scene].start_frame, fps)
+	}
+	return 0
+}
+
+// Where track `tr` starts and (`has_stop`) stops on timeline `t`, in mix
+// samples from the video start; false when a time term names a clip the
+// media lacks (a load diagnostic).
+track_times :: proc(tr: Audio_Track, t: Timeline, fps: int, m: ^Media) -> (start, stop: int, has_stop, ok: bool) {
 	start_s, stop_s := f64(tr.start), f64(tr.stop)
 	if len(tr.start_terms) > 0 {
 		start_s, _ = terms_seconds(tr.start_terms, fps, m) or_return
@@ -56,6 +65,7 @@ track_times :: proc(tr: Audio_Track, origin, fps: int, m: ^Media) -> (start, sto
 		stop_s, _ = terms_seconds(tr.stop_terms, fps, m) or_return
 		has_stop = true
 	}
+	origin := track_origin(tr, t, fps)
 	start = origin + int(math.round(start_s * MIX_RATE))
 	stop = origin + int(math.round(stop_s * MIX_RATE))
 	return start, stop, has_stop, true
@@ -88,19 +98,19 @@ placed_audio :: proc(ctx: ^Context) -> ^Placed_Audio {
 	return p
 }
 
-// Places the video's and scenes' tracks on timeline `t` into `p`. Tracks
-// whose sound the media lacks are left out (the load reports them).
+// Places the video's tracks on timeline `t` into `p`. Tracks whose sound
+// the media lacks are left out (the load reports them).
 placed_audio_update :: proc(p: ^Placed_Audio, v: ^Video, t: Timeline, m: ^Media) {
 	clear(&p.tracks)
 	total := frames_to_samples(t.duration_frames, v.fps)
-	place :: proc(placed: ^[dynamic]Placed_Track, m: ^Media, tr: Audio_Track, origin: int, scene: string, total: int, fps: int) {
+	for tr in v.audio {
 		clip, has := &m.audio[tr.src]
 		if !has {
-			return
+			continue
 		}
-		start, stop, has_stop, ok := track_times(tr, origin, fps, m)
+		start, stop, has_stop, ok := track_times(tr, t, v.fps, m)
 		if !ok {
-			return
+			continue
 		}
 		file_start := seconds_to_samples(tr.offset)
 		end := start + max(clip.frames - file_start, 0)
@@ -109,18 +119,13 @@ placed_audio_update :: proc(p: ^Placed_Audio, v: ^Video, t: Timeline, m: ^Media)
 		}
 		end = min(end, total)
 		if end <= start || start >= total {
-			return
+			continue
 		}
-		append(placed, Placed_Track{track = tr, clip = clip, start = start, end = end, file_start = file_start, scene = scene})
-	}
-	for tr in v.audio {
-		place(&p.tracks, m, tr, 0, "", total, v.fps)
-	}
-	for info in t.scenes {
-		origin := frames_to_samples(info.start_frame, v.fps)
-		for tr in info.scene.audio {
-			place(&p.tracks, m, tr, origin, info.scene.name, total, v.fps)
+		scene := ""
+		if i, in_scene := tr.scene.?; in_scene {
+			scene = v.scenes[i].name
 		}
+		append(&p.tracks, Placed_Track{track = tr, clip = clip, start = start, end = end, file_start = file_start, scene = scene})
 	}
 	// A bus's gain adds to its tracks' (placed tracks carry the sum), and
 	// its kind is theirs: a voice bus's tracks are voices (they duck).

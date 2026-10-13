@@ -8,9 +8,9 @@ import "core:testing"
 import stbi "vendor:stb/image"
 
 @(test)
-test_parse_vtt :: proc(t: ^testing.T) {
+test_parse_subtitles :: proc(t: ^testing.T) {
 	src := "WEBVTT\nKind: captions\n\nNOTE a comment\nspanning lines\n\n1\n00:00:00.500 --> 00:00:02.000 align:center\nHello there,\nsecond line\n\n00:02.000 --> 00:03.250\nShort form timing\n\nintro-end\n01:00:03.500 --> 01:00:05.000\nLast cue\n"
-	s, ok := parse_vtt(src)
+	s, ok := parse_subtitles(src)
 	defer subtitles_destroy(&s)
 	testing.expect(t, ok)
 	testing.expect_value(t, len(s.starts), 3)
@@ -31,9 +31,9 @@ test_parse_vtt :: proc(t: ^testing.T) {
 	testing.expect_value(t, subtitle_cue_at(&s, 2000), 1)
 	testing.expect_value(t, subtitle_cue_at(&s, 3300), -1)
 
-	_, bad := parse_vtt("not a vtt")
+	_, bad := parse_subtitles("not a vtt")
 	testing.expect(t, !bad)
-	crlf, crlf_ok := parse_vtt("WEBVTT\r\n\r\n00:01.000 --> 00:02.000\r\nA\r\nB\r\n")
+	crlf, crlf_ok := parse_subtitles("WEBVTT\r\n\r\n00:01.000 --> 00:02.000\r\nA\r\nB\r\n")
 	defer subtitles_destroy(&crlf)
 	testing.expect(t, crlf_ok && len(crlf.texts) == 1 && crlf.texts[0] == "A\nB")
 }

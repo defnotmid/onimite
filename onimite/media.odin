@@ -34,9 +34,8 @@ Media :: struct {
 	decoder:  Audio_Decoder,
 	// Video clips (decoded by `videos.source`, set by the host).
 	videos:   Video_Clips,
-	subtitles: map[string]Subtitles,
-	// Word timings by name: every subtitle file's, caption .json files and
-	// the script's `captions_load`.
+	// Timed text by name: subtitle files (their cues and their words),
+	// caption .json files and the script's `captions_load`.
 	captions:  map[string]Captions,
 	// Shader sources by file name: SkSL (.sksl) and Shadertoy GLSL (.glsl).
 	shaders:  map[string]string,
@@ -55,6 +54,58 @@ Media :: struct {
 	// Files of the folder `media_load_dir` could not read or decode
 	// (warnings, strings owned): the load's findings carry them.
 	problems:      [dynamic]Diagnostic,
+}
+
+// What a media file is. The loader picks it by the file's extension
+// (`media_kind_of`); listings word and tag the files by it.
+Media_Kind :: enum u8 {
+	Image,
+	Video,
+	Audio,
+	Font,
+	Svg,
+	Lottie,
+	Shader,
+	Subtitles,
+	Captions,
+}
+
+Media_Kind_Info :: struct {
+	// What listings call it ("image", "SVG").
+	label:       string,
+	// Three letters for the preview's media panel.
+	tag:         string,
+	// The file extensions it loads from (lower case). A .json file is
+	// Lottie or captions by its content, other JSON the script's own data.
+	exts:        []string,
+	// What a file of this kind that does not decode was meant to be, for
+	// its warning; "" for none (a video's sound is optional).
+	undecodable: string,
+}
+
+@(rodata)
+MEDIA_KINDS := [Media_Kind]Media_Kind_Info {
+	.Image     = {"image", "IMG", {".png", ".jpg", ".jpeg", ".bmp", ".gif", ".tga", ".webp"}, "an image"},
+	.Video     = {"video", "VID", {".mp4", ".mov", ".m4v", ".webm"}, ""},
+	.Audio     = {"sound", "AUD", {".wav", ".wave", ".ogg", ".oga", ".m4a", ".aac", ".mp3", ".flac"}, "audio"},
+	.Font      = {"font", "FNT", {".ttf", ".otf", ".ttc"}, "a font"},
+	.Svg       = {"SVG", "SVG", {".svg"}, "SVG"},
+	.Lottie    = {"Lottie", "LOT", {".json"}, "Lottie"},
+	.Shader    = {"shader", "SHD", {".sksl", ".glsl"}, ""},
+	.Subtitles = {"subtitles", "SUB", {".vtt", ".srt"}, "subtitles (WebVTT or SRT)"},
+	.Captions  = {"captions", "CAP", {".json"}, ""},
+}
+
+// The kind file `name` loads as, by its extension (a .json file as Lottie
+// until its content says otherwise); false for files the media skips.
+media_kind_of :: proc(name: string) -> (kind: Media_Kind, ok: bool) {
+	ext := strings.to_lower(file_ext(name), context.temp_allocator)
+	for info, k in MEDIA_KINDS {
+		if slice.contains(info.exts, ext) {
+			return k, true
+		}
+	}
+	return {}, false
 }
 
 // An image: its size (from the file's header when the media loads) and
@@ -120,7 +171,6 @@ media_init :: proc(m: ^Media) {
 	m.audio = make(map[string]Audio_Clip)
 	m.onsets = new(Onset_Cache)
 	m.onsets.entries = make(map[string]Onset_Cache_Entry)
-	m.subtitles = make(map[string]Subtitles)
 	m.captions = make(map[string]Captions)
 	m.shaders = make(map[string]string)
 	m.svgs = make(map[string]^Svg_Asset)
@@ -153,11 +203,6 @@ media_destroy :: proc(m: ^Media) {
 	}
 	delete(m.blobs)
 	video_clips_destroy(&m.videos)
-	for name, &s in m.subtitles {
-		delete(name)
-		subtitles_destroy(&s)
-	}
-	delete(m.subtitles)
 	for name, &c in m.captions {
 		delete(name)
 		captions_destroy(&c)
@@ -228,6 +273,24 @@ media_premultiplied :: proc(m: ^Media, name: string, frame := -1) -> []u8 {
 		c.bytes += len(pm)
 	}
 	return pm
+}
+
+// Premultiplied RGBA8 to straight alpha (what PNG files hold), rounded to
+// the nearest, in `allocator`.
+straight_alpha :: proc(pixels: []u8, allocator := context.temp_allocator) -> []u8 {
+	out := make([]u8, len(pixels), allocator)
+	for i := 0; i < len(pixels); i += 4 {
+		a := pixels[i + 3]
+		if a == 255 || a == 0 {
+			copy(out[i:i + 4], pixels[i:i + 4])
+			continue
+		}
+		for k in 0 ..< 3 {
+			out[i + k] = u8(min((u32(pixels[i + k]) * 255 + u32(a) / 2) / u32(a), 255))
+		}
+		out[i + 3] = a
+	}
+	return out
 }
 
 // Adds a font from memory (TTF/OTF; every face of a TTC). The data must stay
@@ -349,7 +412,7 @@ add_image_file :: proc(m: ^Media, name, path: string) {
 		}
 	}
 	if img.width == 0 {
-		media_problem(m, {code = .Undecodable_Media, name = name, a = "an image"})
+		media_problem(m, {code = .Undecodable_Media, name = name, a = MEDIA_KINDS[.Image].undecodable})
 	}
 	put_image(m, name, img)
 }
@@ -396,20 +459,11 @@ put_image :: proc(m: ^Media, name: string, img: Media_Image) {
 	}
 }
 
-// Adds WebVTT or SRT subtitles (the text is copied), and their words as
-// captions. False when it doesn't parse.
+// Adds WebVTT or SRT subtitles (the text is copied): their cues and their
+// words, as captions. False when it doesn't parse.
 media_add_subtitles :: proc(m: ^Media, name, text: string) -> bool {
-	subs, ok := parse_vtt(text)
-	if !ok {
-		subs = parse_srt(text) or_return
-	}
-	media_add_captions(m, name, captions_from_subtitles(&subs))
-	if old, exists := &m.subtitles[name]; exists {
-		subtitles_destroy(old)
-		old^ = subs
-	} else {
-		m.subtitles[strings.clone(name)] = subs
-	}
+	subs := parse_subtitles(text) or_return
+	media_add_captions(m, name, captions_from_subtitles(subs))
 	return true
 }
 
@@ -520,13 +574,13 @@ put_audio :: proc(m: ^Media, name: string, clip: Audio_Clip) {
 	m.audio_gen += 1
 }
 
-// Loads every font, image, SVG, Lottie, audio, video and subtitle file in `dir` (not
-// recursive); everything but fonts is named by file name. Touches only `m`
-// (and the thread-safe video source), so it can run on a loader thread for a
-// Media no other thread uses, handed over when done. Images only read their
-// size here and decode on first use (`media_image`); audio, SVG and Lottie
-// files decode as tasks on `pool` (borrowed; nil decodes here) and are added
-// in directory order.
+// Loads every font, image, SVG, Lottie, audio, video and subtitle file in
+// `dir` (not recursive); everything but fonts is named by file name.
+// Touches only `m` (and the thread-safe video source), so it can run on a
+// loader thread for a Media no other thread uses, handed over when done.
+// Images only read their size here and decode on first use
+// (`media_image`); audio, SVG and Lottie files decode as tasks on `pool`
+// (borrowed; nil decodes here) and are added in directory order.
 media_load_dir :: proc(m: ^Media, dir: string, pool: ^thread.Pool = nil) -> Error {
 	infos, err := os.read_all_directory_by_path(dir, context.allocator)
 	if err != nil {
@@ -546,78 +600,65 @@ media_load_dir :: proc(m: ^Media, dir: string, pool: ^thread.Pool = nil) -> Erro
 		if fi.type != .Regular {
 			continue
 		}
-		ext := strings.to_lower(file_ext(fi.name), context.temp_allocator)
-		switch ext {
-		case ".ttf", ".otf", ".ttc":
+		kind := media_kind_of(fi.name) or_continue
+		switch kind {
+		case .Image:
+			add_image_file(m, fi.name, fi.fullpath)
+		case .Font, .Shader, .Subtitles:
 			data, read_err := os.read_entire_file(fi.fullpath, context.allocator)
 			if read_err != nil {
 				media_problem(m, {code = .Unreadable_Media, name = fi.name, b = fmt.tprint(read_err)})
 				continue
 			}
-			if media_add_font(m, data) {
-				append(&m.blobs, data)
-			} else {
-				delete(data)
-				media_problem(m, {code = .Undecodable_Media, name = fi.name, a = "a font"})
+			if !add_whole_file(m, kind, fi.name, data) {
+				media_problem(m, {code = .Undecodable_Media, name = fi.name, a = MEDIA_KINDS[kind].undecodable})
 			}
-		case ".mp4", ".mov", ".m4v", ".webm":
+		case .Video:
 			// A clip, and its sound when it has an audio track.
 			media_add_video(m, fi.name, fi.fullpath)
-			append(&jobs, Decode_Job{name = fi.name, path = fi.fullpath, audio = true, optional = true, decoder = m.decoder})
-		case ".sksl", ".glsl":
-			data, read_err := os.read_entire_file(fi.fullpath, context.allocator)
-			if read_err != nil {
-				media_problem(m, {code = .Unreadable_Media, name = fi.name, b = fmt.tprint(read_err)})
-				continue
-			}
-			media_add_shader(m, fi.name, string(data))
-			delete(data)
-		case ".vtt", ".srt":
-			data, read_err := os.read_entire_file(fi.fullpath, context.allocator)
-			if read_err != nil {
-				media_problem(m, {code = .Unreadable_Media, name = fi.name, b = fmt.tprint(read_err)})
-				continue
-			}
-			if !media_add_subtitles(m, fi.name, string(data)) {
-				media_problem(m, {code = .Undecodable_Media, name = fi.name, a = "subtitles (WebVTT or SRT)"})
-			}
-			delete(data)
-		case ".wav", ".wave", ".ogg", ".oga", ".m4a", ".aac", ".mp3", ".flac":
-			append(&jobs, Decode_Job{name = fi.name, path = fi.fullpath, audio = true, decoder = m.decoder})
-		case ".png", ".jpg", ".jpeg", ".bmp", ".gif", ".tga", ".webp":
-			add_image_file(m, fi.name, fi.fullpath)
-		case ".svg":
-			// Parsed once into a document (after the fonts above: text
-			// boxes are measured with them).
-			append(&jobs, Decode_Job{name = fi.name, path = fi.fullpath, svg = true, media = m})
-		case ".json":
-			// Lottie animations and caption files (other JSON is left to
-			// the script).
-			append(&jobs, Decode_Job{name = fi.name, path = fi.fullpath, lottie = true, media = m})
+			append(&jobs, Decode_Job{name = fi.name, path = fi.fullpath, kind = .Video, media = m})
+		case .Audio, .Svg, .Lottie, .Captions:
+			// Decoded once every file is listed: SVG text is measured with
+			// all the fonts.
+			append(&jobs, Decode_Job{name = fi.name, path = fi.fullpath, kind = kind, media = m})
 		}
 	}
 	return nil
 }
 
-// One file to read and decode off the loading thread.
+// Adds a font, shader or subtitle file read whole (`data`, taken): false
+// when it does not decode.
+@(private = "file")
+add_whole_file :: proc(m: ^Media, kind: Media_Kind, name: string, data: []u8) -> (ok: bool) {
+	#partial switch kind {
+	case .Font:
+		// Font data lives as long as the media.
+		if media_add_font(m, data) {
+			append(&m.blobs, data)
+			return true
+		}
+	case .Shader:
+		media_add_shader(m, name, string(data))
+		ok = true
+	case .Subtitles:
+		ok = media_add_subtitles(m, name, string(data))
+	}
+	delete(data)
+	return ok
+}
+
+// One file to read and decode off the loading thread: a video's sound, a
+// sound, an SVG or a .json file (Lottie, else captions when it is).
 @(private)
 Decode_Job :: struct {
 	name, path: string,
-	audio:      bool,
-	// A video file's sound: missing audio is not a failure.
-	optional:   bool,
-	decoder:    Audio_Decoder,
-	// An SVG file, parsed with the media's fonts (read-only meanwhile).
-	svg:        bool,
-	// A .json file: a Lottie document or captions when it is one.
-	lottie:     bool,
+	// What the file is; a .json file that is not Lottie turns `.Captions`.
+	kind:       Media_Kind,
+	// Read only while the jobs run (its decoder, folder and fonts).
 	media:      ^Media,
 	ok:         bool,
-	// Why it failed, when that is worth a warning: the file could not be
-	// read (`read`), or `what` it could not be decoded as ("" for a .json
-	// file that is neither Lottie nor captions: the script's own data).
+	// The file could not be read (else a failed job could not be decoded).
 	read:       os.Error,
-	what:       string,
 	clip:       Audio_Clip,
 	svg_asset:  ^Svg_Asset,
 	lottie_doc: ^vg.Lottie_Document,
@@ -633,19 +674,19 @@ decode_jobs :: proc(m: ^Media, jobs: []Decode_Job, pool: ^thread.Pool) {
 			switch {
 			case j.read != nil:
 				media_problem(m, {code = .Unreadable_Media, name = j.name, b = fmt.tprint(j.read)})
-			case j.what != "" && !j.optional:
-				media_problem(m, {code = .Undecodable_Media, name = j.name, a = j.what})
+			case MEDIA_KINDS[j.kind].undecodable != "":
+				media_problem(m, {code = .Undecodable_Media, name = j.name, a = MEDIA_KINDS[j.kind].undecodable})
 			}
 			continue
 		}
-		switch {
-		case j.audio:
+		#partial switch j.kind {
+		case .Audio, .Video:
 			put_audio(m, j.name, j.clip)
-		case j.svg:
+		case .Svg:
 			put_svg(m, j.name, j.svg_asset)
-		case j.lottie && j.lottie_doc != nil:
+		case .Lottie:
 			put_lottie(m, j.name, j.lottie_doc)
-		case j.lottie:
+		case .Captions:
 			media_add_captions(m, j.name, j.captions)
 		}
 	}
@@ -663,22 +704,20 @@ decode_task :: proc(task: thread.Task) {
 		j.read = err
 		return
 	}
-	switch {
-	case j.audio:
-		j.clip, j.ok = audio_decode(data, file_ext(j.name), j.decoder)
-		j.what = "audio"
-	case j.svg:
+	if j.kind == .Lottie && !vg.lottie_sniff(data) {
+		j.kind = .Captions
+	}
+	#partial switch j.kind {
+	case .Audio, .Video:
+		j.clip, j.ok = audio_decode(data, file_ext(j.name), j.media.decoder)
+	case .Svg:
 		err: vg.Svg_Error
 		j.svg_asset, err = svg_asset_make(data, j.media.dir, &j.media.fonts)
 		j.ok = err == nil
-		j.what = "SVG"
-	case j.lottie:
-		if vg.lottie_sniff(data) {
-			j.lottie_doc, j.ok = lottie_parse_media(data, j.media.dir)
-			j.what = "Lottie"
-		} else {
-			j.captions, j.ok = captions_parse_json(string(data))
-		}
+	case .Lottie:
+		j.lottie_doc, j.ok = lottie_parse_media(data, j.media.dir)
+	case .Captions:
+		j.captions, j.ok = captions_parse_json(string(data))
 	}
 }
 

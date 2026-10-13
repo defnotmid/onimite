@@ -227,24 +227,7 @@ draw_lottie :: proc(r: ^Renderer, n: Lottie) {
 			report(&r.ctx, .Warning, {code = .Lottie_Missing_Layer, name = n.src, a = o.name})
 		}
 	}
-	iw, ih := doc.width, doc.height
-	w, h := n.w, n.h
-	switch {
-	case w <= 0 && h <= 0:
-		w, h = iw, ih
-	case w <= 0:
-		w = h * iw / ih
-	case h <= 0:
-		h = w * ih / iw
-	}
-	ix, iy, dw, dh := n.x, n.y, w, h
-	if n.fit != .Fill {
-		k := min(w / iw, h / ih) if n.fit == .Contain else max(w / iw, h / ih)
-		dw, dh = iw * k, ih * k
-		al := n.align.? or_else {0.5, 0.5}
-		ix = n.x + (w - dw) * al.x
-		iy = n.y + (h - dh) * al.y
-	}
+	box, pic := fit_box(n.x, n.y, n.w, n.h, doc.width, doc.height, n.fit, n.align)
 	opacity := n.opacity.? or_else 1
 	if opacity <= 0 {
 		return
@@ -254,15 +237,15 @@ draw_lottie :: proc(r: ^Renderer, n: Lottie) {
 	defer vg.restore(c)
 	// The composition's bounds clip (and the box, when covering).
 	if n.fit == .Cover {
-		vg.intersect_scissor(c, n.x, n.y, w, h)
+		vg.intersect_scissor(c, box.x, box.y, box.w, box.h)
 	}
-	vg.intersect_scissor(c, ix, iy, dw, dh)
+	vg.intersect_scissor(c, pic.x, pic.y, pic.w, pic.h)
 	if opacity < 1 {
 		vg.layer_push(&r.layers, c, {opacity = opacity})
 	}
 	lr := lottie_renderer_of(r, doc)
 	lr.fonts = &r.media.fonts
-	vg.lottie_draw(c, &r.layers, lr, doc, n.frame, {dw / iw, 0, 0, dh / ih, ix, iy}, r.lottie_overrides[:])
+	vg.lottie_draw(c, &r.layers, lr, doc, n.frame, {pic.w / doc.width, 0, 0, pic.h / doc.height, pic.x, pic.y}, r.lottie_overrides[:])
 	if opacity < 1 {
 		vg.layer_pop(&r.layers, c)
 	}

@@ -242,12 +242,11 @@ Render_Worker :: struct {
 	waves:          Wave_Builder,
 	media_table:    Media_Table,
 	media_dirty:    bool,
-	// The clips the script defers, built on the pool (nil: none or all
-	// drained), earlier loads' builds still finishing a clip, and (no pool)
-	// clips built here instead, one per idle step.
+	// The clips the script defers, built on the pool or (no pool) here, one
+	// per idle step (nil: none or all drained), and earlier loads' builds
+	// still finishing a clip.
 	clips:          ^Clip_Builds,
 	clips_retired:  [dynamic]^Clip_Builds,
-	clips_serial:   bool,
 	clips_began:    time.Tick,
 	// The last frame drawn without sound still being built.
 	frame_audio:    bool,
@@ -394,7 +393,7 @@ worker_lanes :: proc(w: ^Render_Worker) {
 	wave_builder_lanes(&w.waves, w.placed.tracks[:], w.placed.order[:], &w.script.video, len(w.timeline.scenes), w.script.cues[:])
 }
 
-// Called by a pool job when a clip lands.
+// Called by a clip job when a clip lands.
 @(private = "file")
 worker_wake :: proc(data: rawptr) {
 	w := (^Render_Worker)(data)
@@ -404,19 +403,14 @@ worker_wake :: proc(data: rawptr) {
 	sync.mutex_unlock(&w.mb.mutex)
 }
 
-// Starts building the clips `s` defers on the pool, nearest the frame
-// `from` first (by the first track that plays each), the builds of an
-// earlier load going on only to finish the clip they are on.
+// Starts building the clips `s` defers, nearest the frame `from` first (by
+// the first track that plays each), the builds of an earlier load going on
+// only to finish the clip they are on.
 @(private = "file")
 worker_clips_start :: proc(w: ^Render_Worker, s: ^script.Script, tl: om.Timeline, from: int) {
 	worker_clips_retire(w)
-	w.clips_serial = false
 	names := script.audio_pending_names(s)
 	if len(names) == 0 {
-		return
-	}
-	if w.pool == nil {
-		w.clips_serial = true
 		return
 	}
 	v := &s.video
@@ -428,24 +422,16 @@ worker_clips_start :: proc(w: ^Render_Worker, s: ^script.Script, tl: om.Timeline
 	for &n in need {
 		n = max(int)
 	}
-	note :: proc(names: []string, need: []int, tr: om.Audio_Track, origin, at, fps: int, m: ^om.Media) {
-		start, _, _, ok := om.track_times(tr, origin, fps, m)
+	for tr in v.audio {
+		start, _, _, ok := om.track_times(tr, tl, v.fps, w.media)
 		if !ok {
-			return
+			continue
 		}
 		key := start - at if start >= at else max(int) / 2 + start
 		for name, i in names {
 			if name == tr.src {
 				need[i] = min(need[i], key)
 			}
-		}
-	}
-	for tr in v.audio {
-		note(names, need, tr, 0, at, v.fps, w.media)
-	}
-	for info in tl.scenes {
-		for tr in info.scene.audio {
-			note(names, need, tr, om.frames_to_samples(info.start_frame, v.fps), at, v.fps, w.media)
 		}
 	}
 	order := make([]int, len(names), context.temp_allocator)
@@ -463,11 +449,17 @@ worker_clips_start :: proc(w: ^Render_Worker, s: ^script.Script, tl: om.Timeline
 	}
 	// Frames never build them: they draw without and again once they land.
 	s.audio_later = true
-	b := clip_builds_make(sorted, min(om.pool_count(w.pool), CLIP_JOBS), w.script_path, w.media_dir, w.script_args, w.script_props, w.video)
+	b := clip_builds_make(sorted, w.pool, nil, w.script_path, w.media_dir, w.script_args, w.script_props, w.video)
 	b.wake, b.wake_data = worker_wake, w
 	w.clips_began = time.tick_now()
-	clip_builds_start(b, w.pool)
+	clip_builds_start(b)
 	w.clips = b
+}
+
+// Whether the worker builds clips itself (no pool) and has some left.
+@(private = "file")
+clips_built_here :: proc(w: ^Render_Worker) -> bool {
+	return w.clips != nil && w.clips.pool == nil
 }
 
 // Cancels the current builds (a job finishes the clip it is on) and frees
@@ -508,19 +500,13 @@ worker_clips :: proc(w: ^Render_Worker) -> bool {
 		return false
 	}
 	landed := 0
-	if w.clips_serial {
-		if f := script.audio_build(w.script, one = true); f.code != .None {
-			worker_build_failed(w, f)
-		}
-		w.clips_serial = script.audio_pending(w.script)
-		landed = 1
-	}
 	if w.clips != nil {
+		clip_builds_step(w.clips)
 		n, f := clip_builds_drain(w.clips, w.media, w.script)
 		if f.code != .None {
 			worker_build_failed(w, f)
 		}
-		landed += n
+		landed = n
 		if clip_builds_finished(w.clips) {
 			if w.debug {
 				fmt.eprintfln("preview worker: %d clips built in %.1f ms", len(w.clips.slots), time.duration_milliseconds(time.tick_since(w.clips_began)))
@@ -600,7 +586,7 @@ worker_idle_ready :: proc(w: ^Render_Worker) -> (ready: bool, retry: time.Durati
 		append(&w.thumb_free, ..w.thumb_retired[:])
 		clear(&w.thumb_retired)
 	}
-	if w.mb.clips_landed || w.clips_serial || wave_builder_pending(&w.waves) || media_pending(w) {
+	if w.mb.clips_landed || clips_built_here(w) || wave_builder_pending(&w.waves) || media_pending(w) {
 		return true, 0
 	}
 	if thumb_next(w) < 0 {
