@@ -36,6 +36,19 @@ smoke)
 	"build/onimite$exe" frame examples/scenes/video.lua 0 --software -o "$out"
 	"build/onimite$exe" render examples/scenes/video.lua 0..15 --software --native -o "$out/scenes.mp4"
 	test -s "$out/0.png" && test -s "$out/scenes.mp4"
+	# The MCP server starts, answers, serves the guide and renders with
+	# paths relative to its --dir (as the Claude Desktop extension runs it).
+	work="$out/mcp"
+	mkdir -p "$work"
+	cp examples/scenes/video.lua "$work/"
+	printf '%s\n' \
+		'{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
+		'{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"guide","arguments":{}}}' \
+		'{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"render","arguments":{"script":"video.lua","range":"0..5","output":"mcp.mp4"}}}' \
+		| "build/onimite$exe" mcp --dir "$work" > "$out/mcp.out"
+	grep -q '"serverInfo"' "$out/mcp.out"
+	test "$(grep -c '"isError":false' "$out/mcp.out")" = 2
+	test -s "$work/mcp.mp4"
 	;;
 *)
 	echo "usage: bash .github/ci.sh build | test | smoke" >&2

@@ -38,7 +38,7 @@ mcp_serve :: proc(dir := "") {
 			fmt.eprintfln("onimite mcp: can not work in %s (%v)", dir, err)
 		}
 	}
-	out := mcp_protocol_out()
+	mcp_protocol_open()
 	reader: bufio.Reader
 	bufio.reader_init(&reader, os.to_reader(os.stdin), 1 << 16)
 	defer bufio.reader_destroy(&reader)
@@ -46,8 +46,9 @@ mcp_serve :: proc(dir := "") {
 		line, err := bufio.reader_read_string(&reader, '\n', context.temp_allocator)
 		if strings.trim_space(line) != "" {
 			if reply := mcp_handle(line); reply != "" {
-				os.write_string(out, reply)
-				os.write_string(out, "\n")
+				if !mcp_protocol_write(strings.concatenate({reply, "\n"}, context.temp_allocator)) {
+					return
+				}
 			}
 		}
 		free_all(context.temp_allocator)
@@ -60,7 +61,7 @@ mcp_serve :: proc(dir := "") {
 // Answers one message ("" for notifications), in temp memory.
 @(private = "file")
 mcp_handle :: proc(line: string) -> string {
-	msg, perr := json.parse_string(line, allocator = context.temp_allocator)
+	msg, perr := json.parse_string(line, parse_integers = true, allocator = context.temp_allocator)
 	if perr != nil {
 		return mcp_error(nil, -32700, "parse error")
 	}
