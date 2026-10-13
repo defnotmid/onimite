@@ -55,7 +55,7 @@ Command_Kind :: enum u8 {
 	Timeline_Rows_Scroll, // regs.count rows, signed: the timeline's rows below the scenes
 	Fullscreen_Toggle,
 	Cursor_Hover, // regs.count the frame under the mouse on the timeline; lasts one window frame
-	Dismiss, // Escape: closes the list of views, else the Watch, else leaves fullscreen, else quits
+	Dismiss, // Escape: closes the lister, else the Watch, else leaves fullscreen, else quits
 	// The preview's workspace (preview_workspace.odin): panels and their views.
 	Panel_Split, // regs.panel a leaf, regs.direction the side an empty panel opens on, regs.ratio the first side's share (0: half)
 	Panel_Close, // regs.panel a leaf, with its views
@@ -64,7 +64,9 @@ Command_Kind :: enum u8 {
 	View_Close, // regs.view; a panel it leaves empty closes
 	View_Select, // regs.view: the tab its panel shows
 	View_Move, // regs.view into regs.panel after regs.previous (0: first), or with regs.direction into a new panel on that side; what a tab dropped somewhere pushes
-	View_Picker_Toggle, // regs.panel: the list of views to open in it
+	Lister_Open, // regs.lister the mode (what it lists), for leaf regs.panel (0: the focused one)
+	Lister_Filter, // regs.spec the lister's filter
+	Lister_Close,
 	Watch_Show, // regs.section: the Watch on that section, opened beside the video when none is
 	Watch_Section_Set, // regs.view a Watch, regs.section
 	Watch_Scroll, // regs.view a Watch, regs.count rows, signed
@@ -130,6 +132,7 @@ Command_Regs :: struct {
 	direction:  Direction,
 	view_kind:  View_Kind,
 	section:    Watch_Section,
+	lister:     Lister_Mode,
 }
 
 Command_Row :: struct {

@@ -23,6 +23,8 @@ Platform :: struct {
 	should_close:  bool,
 	resized:       bool, // framebuffer size changed since last tick
 	input:         Input,
+	// TEXT_INPUT events are on (while a text field has keyboard focus).
+	text_input:    bool,
 
 	// the native open-file dialog: one at a time; its answer arrives as a
 	// dropped file
@@ -87,10 +89,24 @@ init :: proc(p: ^Platform, title: cstring, w, h: i32) -> (err: Error, detail: st
 	if p.dpi_scale <= 0 {
 		p.dpi_scale = 1
 	}
-	_ = sdl.StartTextInput(p.window) // enable TEXT_INPUT events for line edits
 	p.start_ns = sdl.GetTicksNS()
 	p.last_ns = p.start_ns
 	return .None, ""
+}
+
+// Turns the window's text events on or off: on while a text field has
+// keyboard focus, so typing elsewhere is only keys (and no input method
+// shows).
+text_input_set :: proc(p: ^Platform, on: bool) {
+	if on == p.text_input || p.window == nil {
+		return
+	}
+	p.text_input = on
+	if on {
+		_ = sdl.StartTextInput(p.window)
+	} else {
+		_ = sdl.StopTextInput(p.window)
+	}
 }
 
 // The dialog's filters must outlive the dialog, so they are static.

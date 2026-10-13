@@ -59,11 +59,14 @@ Preview_State :: struct {
 	rows_scroll:        int,
 	// The press on the timeline began on a group's name (no scrubbing).
 	press_on_name:      bool,
-	// Points the timeline's rows below the scenes get in its panel (from
-	// the last layout).
+	// Points the timeline's rows below the scenes get in its panel, and
+	// how it lies there (from the last layout).
 	rows_room:          f32,
+	timeline_axis:      Time_Axis,
 	// The panels and their views, laid out each window frame at `dpi`.
 	workspace:          Workspace,
+	// The lister's draft filter, selection and scroll (presentation).
+	lister:             Lister_View,
 	dpi:                f32,
 	// A tab being dragged (gesture state, not a command): its view, where
 	// the press began and whether it has moved far enough to be a drag.
@@ -310,9 +313,10 @@ preview_run :: proc(app: ^App_State, capture, drive: string) -> Error {
 
 		render.begin_frame(&r, PREVIEW_BG)
 		ui.build_begin(&s)
+		ui.modal_input_set(&s, pv.workspace.lister.panel != 0)
 		preview_input(app, &s)
 		if drive != "" {
-			preview_drive(app, drive, frames)
+			preview_drive(app, &s, drive, frames)
 		}
 		preview_watch_files(app, now)
 		preview_views(app, &s, &p)
@@ -427,9 +431,10 @@ preview_report :: proc(app: ^App_State) {
 // the right (10), "move" moves the timeline into the empty panel (20),
 // "drag" drops the timeline's tab on the left edge of the video's panel
 // (30), "pick" clicks the Watch's third row (40), "next" goes to the next
-// warning or error (45), "close" closes the Watch (50).
+// warning or error (45), "close" closes the Watch (50). The lister, as
+// keys and typing reach it (`preview_drive_lister`): "goto" and "openview".
 @(private)
-preview_drive :: proc(app: ^App_State, drive: string, frames: int) {
+preview_drive :: proc(app: ^App_State, s: ^ui.State, drive: string, frames: int) {
 	c := &app.commands
 	total := preview_duration(app)
 	PERIOD :: 240
@@ -448,6 +453,7 @@ preview_drive :: proc(app: ^App_State, drive: string, frames: int) {
 		command_push(c, .Playback_Set, {flag = false})
 	}
 	preview_drive_workspace(app, drive, frames)
+	preview_drive_lister(app, s, drive, frames)
 	if frames == 90 && strings.contains(drive, "lanes") {
 		for it in app.preview.waves.items {
 			if it.kind == .Group {
@@ -524,6 +530,52 @@ preview_drive_workspace :: proc(app: ^App_State, drive: string, frames: int) {
 	}
 }
 
+// The drive's lister steps, as Ctrl+P, the + and typed keys reach it:
+// "goto" opens it on the places to go (window frame 60), types its filter
+// ("goto=QUERY", default "scene"; 64), moves the selection down (70) and
+// picks with Enter (80); "openview" opens it on the views of the video's
+// panel (60), types "cues" (64) and picks with Enter (80).
+@(private = "file")
+preview_drive_lister :: proc(app: ^App_State, s: ^ui.State, drive: string, frames: int) {
+	c := &app.commands
+	ws := &app.preview.workspace
+	go_to := strings.contains(drive, "goto")
+	if !go_to && !strings.contains(drive, "openview") {
+		return
+	}
+	query := "cues"
+	if go_to {
+		query = "scene"
+		if i := strings.index(drive, "goto="); i >= 0 {
+			query = drive[i + len("goto="):]
+			if end := strings.index_any(query, " ,"); end >= 0 {
+				query = query[:end]
+			}
+		}
+	}
+	key :: proc(s: ^ui.State, k: platform.Key) {
+		append(&s.actions.rows, ui.Action_Row{kind = .Key, key = k})
+	}
+	switch frames {
+	case 60:
+		if go_to {
+			command_push(c, .Lister_Open, {lister = .Go_To})
+		} else if v := workspace_view(ws, workspace_find(ws, .Video)); v != nil {
+			command_push(c, .Lister_Open, {panel = v.panel, lister = .Panel})
+		}
+	case 64:
+		for r in query {
+			append(&s.actions.rows, ui.Action_Row{kind = .Text, text = r})
+		}
+	case 70:
+		if go_to {
+			key(s, .Down)
+		}
+	case 80:
+		key(s, .Enter)
+	}
+}
+
 @(private)
 preview_state_destroy :: proc(pv: ^Preview_State) {
 	delete(pv.script_path)
@@ -532,6 +584,7 @@ preview_state_destroy :: proc(pv: ^Preview_State) {
 	delete(pv.device_name)
 	watch_table_destroy(&pv.watch)
 	workspace_destroy(&pv.workspace)
+	delete(pv.lister.query)
 	wave_table_destroy(&pv.waves)
 	media_table_destroy(&pv.media)
 	delete(pv.media_images)
@@ -729,13 +782,13 @@ preview_apply :: proc(app: ^App_State, kind: Command_Kind, regs: Command_Regs) {
 		pv.hover_frame = regs.count
 		pv.hover_valid = true
 	case .Dismiss:
-		// Closes a list of views, then the Watch, then leaves fullscreen,
-		// then the window.
+		// Closes the lister, then the Watch, then leaves fullscreen, then
+		// the window.
 		ws := &pv.workspace
 		c := &app.commands
 		switch {
-		case ws.picker != 0:
-			command_push(c, .View_Picker_Toggle, {panel = ws.picker})
+		case ws.lister.panel != 0:
+			command_push(c, .Lister_Close)
 		case workspace_find(ws, .Watch) != 0:
 			command_push(c, .View_Close, {view = workspace_find(ws, .Watch)})
 		case pv.fullscreen:
@@ -1152,7 +1205,8 @@ preview_request :: proc(app: ^App_State, p: ^platform.Platform) {
 
 // Lays the workspace out above the controls and the status line: the
 // timeline's panel, while fitted, at the timeline's natural height. The
-// timeline's rows get what its panel leaves them.
+// timeline lies along its panel or down it, and its rows get what the
+// panel leaves them.
 @(private)
 preview_layout :: proc(app: ^App_State, p: ^platform.Platform) {
 	pv := &app.preview
@@ -1160,8 +1214,12 @@ preview_layout :: proc(app: ^App_State, p: ^platform.Platform) {
 	natural := [View_Kind]f32{.Video = -1, .Timeline = timeline_height(app) * pv.dpi, .Watch = -1}
 	workspace_measure(&pv.workspace, workspace_rect(p), pv.dpi, natural)
 	pv.rows_room = ROWS_AREA_MAX
+	pv.timeline_axis = TIME_ALONG
 	if area, shown := view_area(app, .Timeline); shown {
-		pv.rows_room = max(area.height / pv.dpi - (TIMELINE_GAP * 2 + RULER_HEIGHT + SCENE_HEIGHT), 0)
+		ws := &pv.workspace
+		vertical := timeline_vertical(ws, workspace_view(ws, workspace_shown(ws, .Timeline)).panel, area)
+		pv.timeline_axis = timeline_axis(app, area, pv.dpi, vertical)
+		pv.rows_room = timeline_rows_room(pv.timeline_axis, area, pv.dpi)
 	}
 }
 
@@ -1189,7 +1247,7 @@ view_area :: proc(app: ^App_State, kind: View_Kind) -> (area: Workspace_Rect, sh
 // dropped on the window or picked in the open-file dialog.
 @(private)
 preview_input :: proc(app: ^App_State, s: ^ui.State) {
-	preview_keys(app, s.actions.rows[:])
+	preview_keys(app, s.actions.rows[:], s.modal_input)
 	for &a in s.actions.rows {
 		if a.kind == .Drop && !a.consumed && strings.has_suffix(strings.to_lower(a.path, context.temp_allocator), ".lua") {
 			a.consumed = true
@@ -1209,7 +1267,8 @@ COLOR_TRACK :: [4]u8{30, 33, 41, 255}
 // Scene segments and audio lanes cycle through these.
 SCENE_COLORS := [?][4]u8{{58, 96, 160, 255}, {92, 70, 150, 255}, {48, 120, 110, 255}, {140, 90, 60, 255}, {120, 60, 100, 255}}
 
-// The workspace's panels, then the controls and the status line.
+// The workspace's panels, then the controls and the status line, and
+// the lister over them.
 @(private)
 preview_views :: proc(app: ^App_State, s: ^ui.State, p: ^platform.Platform) {
 	dpi := p.dpi_scale
@@ -1227,6 +1286,7 @@ preview_views :: proc(app: ^App_State, s: ^ui.State, p: ^platform.Platform) {
 
 	controls_view(app, s, dpi)
 	status_view(app, s, dpi)
+	lister_view(app, s, dpi)
 }
 
 // The video, letterboxed in `area`; a click toggles playback. Over it, what
@@ -1376,7 +1436,12 @@ controls_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32) {
 // "01:03.20"
 @(private)
 clock_label :: proc(app: ^App_State, f: int) -> string {
-	secs := f32(f) / f32(preview_fps(app))
+	return frame_clock(f, preview_fps(app))
+}
+
+// Frame `f` at `fps` as minutes and seconds: "00:03.20".
+frame_clock :: proc(f, fps: int) -> string {
+	secs := f32(f) / f32(fps)
 	return fmt.tprintf("%02d:%05.2f", int(secs) / 60, math.mod(secs, 60))
 }
 

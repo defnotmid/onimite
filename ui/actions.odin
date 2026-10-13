@@ -6,19 +6,24 @@ import platform "../platform"
 Action_Kind :: enum u8 {
 	Null,
 	Key,
+	Text,
 	Scroll,
 	Drop,
 }
 
 // The window's input this frame as rows, gathered once at build_begin:
 // every consumer claims a row explicitly, so nested focus scopes cannot
-// double-fire. Widgets take scrolls through `signal_from_box`; the
-// application takes keys and drops.
+// double-fire. Widgets take scrolls through `signal_from_box`, a focused
+// text field its text and editing keys; the application takes the other
+// keys and drops.
 Action_Row :: struct {
 	kind:         Action_Kind,
 	// Key: the key that went down, or (`repeat`) is repeating while held.
 	key:          platform.Key,
 	repeat:       bool,
+	// Text: one character typed (the window's text events are on while a
+	// text field has focus).
+	text:         rune,
 	// Control and Shift as held (Scroll: Control only).
 	control:      bool,
 	shift:        bool,
@@ -59,6 +64,13 @@ actions_gather_from_platform :: proc(storage: ^Action_Storage, p: ^platform.Plat
 			append(&storage.rows, Action_Row{kind = .Key, key = k, repeat = !platform.key_pressed(p, k), control = control, shift = shift})
 		}
 	}
+	// A Control chord is a command, never text, though some platforms
+	// still send its character.
+	if !control {
+		for character in string(p.input.text[:]) {
+			append(&storage.rows, Action_Row{kind = .Text, text = character})
+		}
+	}
 	at := platform.mouse_pos(p)
 	if wheel := platform.mouse_wheel(p); wheel != 0 {
 		append(&storage.rows, Action_Row{kind = .Scroll, position = at, scroll_delta = wheel, control = control})
@@ -83,4 +95,40 @@ action_scroll_consume :: proc(s: ^State, control: bool, min, max: [2]f32, horizo
 		}
 	}
 	return result
+}
+
+// Claims a press (or repeat) of `key` without Control.
+action_key_take :: proc(s: ^State, key: platform.Key) -> bool {
+	for &action in s.actions.rows {
+		if !action.consumed && action.kind == .Key && action.key == key && !action.control {
+			action.consumed = true
+			return true
+		}
+	}
+	return false
+}
+
+// Claims the list keys pressed this frame and sums the rows they move a
+// selection by: Up / Down one, Page Up / Page Down `page`.
+action_list_step :: proc(s: ^State, page: int) -> int {
+	step := 0
+	for &action in s.actions.rows {
+		if action.consumed || action.kind != .Key || action.control {
+			continue
+		}
+		#partial switch action.key {
+		case .Up:
+			step -= 1
+		case .Down:
+			step += 1
+		case .Page_Up:
+			step -= page
+		case .Page_Down:
+			step += page
+		case:
+			continue
+		}
+		action.consumed = true
+	}
+	return step
 }

@@ -10,10 +10,10 @@ test_preview_keys :: proc(t: ^testing.T) {
 	app: App_State
 	app.commands = command_storage_make()
 	defer command_storage_destroy(&app.commands)
-	press :: proc(app: ^App_State, key: platform.Key, shift := false, ctrl := false, repeat := false) -> Command_Row {
+	press :: proc(app: ^App_State, key: platform.Key, shift := false, ctrl := false, repeat := false, modal := false) -> Command_Row {
 		actions := []ui.Action_Row{{kind = .Key, key = key, shift = shift, control = ctrl, repeat = repeat}}
 		clear(&app.commands.pending.rows)
-		preview_keys(app, actions)
+		preview_keys(app, actions, modal)
 		return app.commands.pending.rows[0].row if len(app.commands.pending.rows) == 1 else {}
 	}
 	testing.expect_value(t, press(&app, .Left).kind, Command_Kind.Frame_Step)
@@ -32,4 +32,11 @@ test_preview_keys :: proc(t: ^testing.T) {
 	// Held keys repeat only the rows that say so.
 	testing.expect_value(t, press(&app, .Left, repeat = true).kind, Command_Kind.Frame_Step)
 	testing.expect_value(t, press(&app, .Home, repeat = true).kind, Command_Kind.None)
+	// Ctrl+P opens the lister on the places to go; while it is up, keys
+	// are its own but Escape still dismisses it.
+	testing.expect_value(t, press(&app, .P, ctrl = true).kind, Command_Kind.Lister_Open)
+	testing.expect_value(t, press(&app, .P, ctrl = true).regs.lister, Lister_Mode.Go_To)
+	testing.expect_value(t, press(&app, .Q, modal = true).kind, Command_Kind.None)
+	testing.expect_value(t, press(&app, .Down, modal = true).kind, Command_Kind.None)
+	testing.expect_value(t, press(&app, .Escape, modal = true).kind, Command_Kind.Dismiss)
 }

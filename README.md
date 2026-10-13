@@ -348,8 +348,11 @@ frames shown; a click opens them in the Watch.
 
 The video, the timeline and Watch views are tabs in panels, as in oasic:
 drag a tab onto another panel's tab strip, centre or edge to move it there
-or split the panel; drag a splitter to resize; `x` closes a tab; `+` opens
-a view or splits the panel. The **Watch** lists the video's scenes (with
+or split the panel; drag a splitter to resize; `x` closes a tab; `+` lists
+what opens in the panel (the video, the timeline, a Watch on each section,
+a split, closing it) and Ctrl+P every scene, cue and problem to go to, both
+filtered as you type. A timeline in a panel beside another and taller than
+wide runs top to bottom, its scenes and lanes as columns. The **Watch** lists the video's scenes (with
 the problems seen in each), cues (with their sync findings: drift, a `hit`
 with no sound near it), problems and media (thumbnails; failed files, sounds
 no track plays), each row coloured by its status; a click goes to its
@@ -378,8 +381,9 @@ callback is the playback clock, and the UI thread only draws.
 | N / Shift+N | next / previous scene, cue, problem or media row with a warning or an error |
 | Shift+L | loop |
 | R | reload |
+| Ctrl+P | go to a scene, cue or problem (type to filter, Up/Down, Enter) |
 | Ctrl+O | open a script (or drop a `.lua` file) |
-| Esc / Q | close a view list, then the Watch, leave fullscreen, then the window |
+| Esc / Q | close the list, then the Watch, leave fullscreen, then the window |
 
 `--exit-after N` closes after N window frames and prints frame timings;
 `ONIMITE_PREVIEW_CAPTURE=out.png` also writes the last frame.

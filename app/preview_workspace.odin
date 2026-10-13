@@ -19,17 +19,21 @@ View_Kind :: enum u8 {
 	Watch,
 }
 
-// What a view is called, and whether the workspace holds at most one (the
-// video and the timeline are the preview's own; Watch views may be many).
+// What a view is called and shows (a Watch: what its sections' counts
+// count), whether the workspace holds at most one (the video and the
+// timeline are the preview's own; Watch views may be many), and whether it
+// opens on one of the Watch's sections.
 View_Descriptor :: struct {
-	name:   string,
-	single: bool,
+	name:     string,
+	about:    string,
+	single:   bool,
+	sections: bool,
 }
 
 VIEW_DESCRIPTORS :: [View_Kind]View_Descriptor {
-	.Video    = {"Video", true},
-	.Timeline = {"Timeline", true},
-	.Watch    = {"Watch", false},
+	.Video    = {"Video", "the rendered frame", true, false},
+	.Timeline = {"Timeline", "ruler, scenes, cues and sound", true, false},
+	.Watch    = {"Watch", "rows", false, true},
 }
 
 Direction :: enum u8 {
@@ -103,8 +107,8 @@ Workspace :: struct {
 	// Parallel to `panels`, from the last measure.
 	areas:         [dynamic]Panel_Area,
 	root, focused: Panel_Id,
-	// The panel whose list of views to open is shown (0: none).
-	picker:        Panel_Id,
+	// The open lister (preview_lister.odin).
+	lister:        Lister,
 }
 
 // The default arrangement: the video above the timeline, the timeline at
@@ -123,6 +127,7 @@ workspace_destroy :: proc(ws: ^Workspace) {
 	delete(ws.panels)
 	delete(ws.views)
 	delete(ws.areas)
+	delete(ws.lister.query)
 	ws^ = {}
 }
 
@@ -260,8 +265,8 @@ workspace_close_panel :: proc(ws: ^Workspace, panel: Panel_Id) {
 		v^ = {}
 	}
 	p.first, p.last, p.shown = 0, 0, 0
-	if ws.picker == panel {
-		ws.picker = 0
+	if ws.lister.panel == panel {
+		lister_close(&ws.lister)
 	}
 	if p.parent == 0 {
 		ws.focused = ws.root
@@ -310,7 +315,6 @@ workspace_open :: proc(ws: ^Workspace, panel: Panel_Id, kind: View_Kind, directi
 			workspace_move(ws, open, panel, previous if previous != 0 || direction != .None else p.last, direction, ratio)
 		}
 		workspace_select(ws, open)
-		ws.picker = 0
 		return open
 	}
 	if workspace_leaf(ws, panel) == nil {
@@ -326,7 +330,6 @@ workspace_open :: proc(ws: ^Workspace, panel: Panel_Id, kind: View_Kind, directi
 	append(&ws.views, View_Record{live = true, kind = kind, section = section})
 	id := View_Id(len(ws.views))
 	view_attach(ws, id, target, previous if direction == .None else 0)
-	ws.picker = 0
 	return id
 }
 
@@ -410,7 +413,6 @@ workspace_apply :: proc(ws: ^Workspace, kind: Command_Kind, regs: Command_Regs) 
 	#partial switch kind {
 	case .Panel_Split:
 		workspace_split(ws, regs.panel, regs.direction, f32(regs.ratio))
-		ws.picker = 0
 	case .Panel_Close:
 		workspace_close_panel(ws, regs.panel)
 	case .Panel_Resize:
@@ -426,8 +428,14 @@ workspace_apply :: proc(ws: ^Workspace, kind: Command_Kind, regs: Command_Regs) 
 		workspace_select(ws, regs.view)
 	case .View_Move:
 		workspace_move(ws, regs.view, regs.panel, regs.previous, regs.direction, f32(regs.ratio))
-	case .View_Picker_Toggle:
-		ws.picker = 0 if ws.picker == regs.panel || workspace_leaf(ws, regs.panel) == nil else regs.panel
+	case .Lister_Open:
+		if panel := regs.panel if regs.panel != 0 else ws.focused; workspace_leaf(ws, panel) != nil {
+			lister_open(&ws.lister, panel, regs.lister)
+		}
+	case .Lister_Filter:
+		lister_filter_set(&ws.lister, regs.spec)
+	case .Lister_Close:
+		lister_close(&ws.lister)
 	}
 }
 

@@ -57,3 +57,39 @@ test_workspace :: proc(t: ^testing.T) {
 	testing.expect_value(t, workspace_view(&ws, video).panel, left)
 	testing.expect_value(t, ws.root, left)
 }
+
+// The timeline runs down only in a panel beside another and taller than
+// wide: across the bottom, or alone, it runs along whatever its shape.
+@(test)
+test_timeline_vertical :: proc(t: ^testing.T) {
+	ws: Workspace
+	defer workspace_destroy(&ws)
+	workspace_init(&ws)
+	timeline := workspace_view(&ws, workspace_find(&ws, .Timeline)).panel
+	tall := Workspace_Rect{0, 0, 300, 700}
+	testing.expect(t, !timeline_vertical(&ws, timeline, tall))
+	video := workspace_view(&ws, workspace_find(&ws, .Video)).panel
+	workspace_apply(&ws, .Panel_Split, {panel = video, direction = .Right})
+	workspace_apply(&ws, .View_Move, {view = workspace_find(&ws, .Timeline), panel = ws.focused})
+	beside := workspace_view(&ws, workspace_find(&ws, .Timeline)).panel
+	testing.expect(t, timeline_vertical(&ws, beside, tall))
+	testing.expect(t, !timeline_vertical(&ws, beside, {0, 0, 700, 300}))
+	workspace_apply(&ws, .Panel_Close, {panel = video})
+	testing.expect_value(t, ws.root, beside)
+	testing.expect(t, !timeline_vertical(&ws, beside, tall))
+}
+
+// Running down, the timeline's space swaps its axes about the box's
+// corner: time along x lands down y, and the pointer maps back the same way.
+@(test)
+test_time_axis :: proc(t: ^testing.T) {
+	a := Time_Axis{vertical = true, corner = {100, 20}, ruler = RULER_WIDTH, across = 1}
+	testing.expect_value(t, axis_point(a, {130, 25}), [2]f32{105, 50})
+	testing.expect_value(t, axis_point(a, axis_point(a, {130, 25})), [2]f32{130, 25})
+	x, y, w, h := axis_rect(a, 130, 25, 40, 10)
+	testing.expect_value(t, [4]f32{x, y, w, h}, [4]f32{105, 50, 10, 40})
+	along := TIME_ALONG
+	along.corner = {100, 20}
+	testing.expect_value(t, axis_point(along, {130, 25}), [2]f32{130, 25})
+	testing.expect_value(t, axis_label_along(a, 80, 14), f32(14))
+}

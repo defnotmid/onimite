@@ -37,20 +37,20 @@ STATUS_COLORS := [Watch_Status][4]u8 {
 	.Error   = COLOR_ERROR,
 }
 
-@(private = "file")
-SECTION_NAMES := [Watch_Section]string {
-	.Scenes   = "Scenes",
-	.Cues     = "Cues",
-	.Problems = "Problems",
-	.Media    = "Media",
+// What a Watch section is called, what one of its rows is, what it says
+// when empty, and whether its rows are places to go (the lister's).
+Watch_Section_Descriptor :: struct {
+	name:  string,
+	noun:  string,
+	empty: string,
+	go_to: bool,
 }
 
-@(private = "file")
-SECTION_EMPTY := [Watch_Section]string {
-	.Scenes   = "No scenes.",
-	.Cues     = "No cues.",
-	.Problems = "No problems at load or in the frames shown since.",
-	.Media    = "No media loaded.",
+WATCH_SECTIONS := [Watch_Section]Watch_Section_Descriptor {
+	.Scenes   = {"Scenes", "Scene", "No scenes.", true},
+	.Cues     = {"Cues", "Cue", "No cues.", true},
+	.Problems = {"Problems", "Problem", "No problems at load or in the frames shown since.", true},
+	.Media    = {"Media", "Media file", "No media loaded.", false},
 }
 
 // What a click on a Watch row pushes: the playhead to its frame.
@@ -81,7 +81,7 @@ watch_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32, id: View_Id, area: W
 			ui.set_next_text_color(s, STATUS_COLORS[g.worst])
 		}
 		r := Workspace_Rect{area.x + f32(int(section)) * section_w, area.y, section_w, header}
-		if ui.clicked(place_button(s, r, fmt.tprintf("%s %d###watch_section_%d_%v", SECTION_NAMES[section], g.count, id, section))) {
+		if ui.clicked(place_button(s, r, fmt.tprintf("%s %d###watch_section_%d_%v", WATCH_SECTIONS[section].name, g.count, id, section))) {
 			command_push(c, .Watch_Section_Set, {view = id, section = section})
 		}
 	}
@@ -99,7 +99,7 @@ watch_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32, id: View_Id, area: W
 		ui.set_next_text_color(s, COLOR_TEXT_DIM)
 		ui.set_next_font_size(s, 13 * dpi)
 		ui.set_next_text_padding(s, 10 * dpi)
-		place_box(s, {0, 0, list.width, 24 * dpi}, {.Draw_Text}, fmt.tprintf("%s###watch_none_%d", SECTION_EMPTY[v.section], id))
+		place_box(s, {0, 0, list.width, 24 * dpi}, {.Draw_Text}, fmt.tprintf("%s###watch_none_%d", WATCH_SECTIONS[v.section].empty, id))
 		return
 	}
 	// The row the playhead is in (the last one starting at or before it).

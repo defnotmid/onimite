@@ -24,6 +24,14 @@ lerp_u8 :: proc(a, b: [4]u8, t: f32) -> [4]u8 {
 	return out
 }
 
+// `c` at the box's opacity.
+faded :: proc(box: ^Box, c: [4]u8) -> [4]u8 {
+	if box.opacity >= 1 {
+		return c
+	}
+	return {c.r, c.g, c.b, u8(f32(c.a) * max(box.opacity, 0))}
+}
+
 approach :: proc(current, target, rate, dt: f32) -> f32 {
 	// exponential approach, framerate-independent
 	t := 1 - math.pow(f32(2), -rate * dt)
@@ -66,6 +74,7 @@ draw_box :: proc(s: ^State, box: ^Box, dt: f32) {
 			if .Draw_Active_Effects in box.flags {
 				col = lerp_u8(col, box.active_color, box.active_t)
 			}
+			col = faded(box, col)
 			if box.corner_radius > 0 {
 				render.draw_rect_rounded(s.r, x, y, w, h, box.corner_radius, col)
 			} else {
@@ -82,7 +91,7 @@ draw_box :: proc(s: ^State, box: ^Box, dt: f32) {
 				w,
 				h,
 				box.border_thickness,
-				s.theme.border,
+				faded(box, s.theme.border),
 				box.corner_radius,
 			)
 		}
@@ -108,7 +117,7 @@ draw_box :: proc(s: ^State, box: ^Box, dt: f32) {
 				tx,
 				ty,
 				box.font_size,
-				box.text_color,
+				faded(box, box.text_color),
 			)
 		}
 	}

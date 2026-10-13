@@ -17,7 +17,9 @@ import ui "../ui"
 // it is, with the path `onimite show` takes. The bookmark, the hovered
 // frame and the playhead run over all of it. It zooms (Ctrl+wheel, +/-),
 // pans (wheel, horizontal wheel or touchpad, middle drag) and follows the
-// playhead; the wheel over rows that don't fit scrolls them.
+// playhead; the wheel over rows that don't fit scrolls them. In a panel
+// at the side of another and taller than wide, time runs down and the
+// ruler, the scenes and the rows are columns side by side (`Time_Axis`).
 //
 // It is one box whose custom draw paints everything from the published
 // tables in O(pixels): waveforms read one pyramid level per pixel column,
@@ -27,6 +29,11 @@ import ui "../ui"
 TRACK_PAD :: 8
 TIMELINE_GAP :: 6
 RULER_HEIGHT :: 18
+// The ruler across when time runs down: its labels are side by side with it.
+RULER_WIDTH :: 44
+// Running down, the scenes and rows widen up to this many times to share
+// the panel's width.
+ACROSS_MAX :: 4
 SCENE_HEIGHT :: 48
 CUE_HEIGHT :: 14
 LANE_HEIGHT :: 24
@@ -54,6 +61,117 @@ row_height :: proc(kind: Timeline_Kind) -> f32 {
 		return TRACK_HEIGHT
 	}
 	return LANE_HEIGHT
+}
+
+// The timeline's axes. It draws and hit-tests in its own space: time
+// along x and the ruler, the scenes and the rows stacked across y, from
+// its box's corner. Along a wide panel that is the window's space; in a
+// panel taller than wide, time runs down, so the two axes swap about the
+// corner (a swap is its own inverse: the same map takes the pointer into
+// the timeline's space). Labels stay upright: only where they start maps.
+// The layout decides it once per window frame (`Preview_State.timeline_axis`).
+Time_Axis :: struct {
+	vertical: bool,
+	// The box's corner, the same point in both spaces.
+	corner:   [2]f32,
+	// Points the ruler takes across.
+	ruler:    f32,
+	// The scenes' and rows' points across per point of their height (above
+	// 1 when they share a wider panel than they need).
+	across:   f32,
+}
+
+// Time along x: the window's own axes.
+TIME_ALONG :: Time_Axis{ruler = RULER_HEIGHT, across = 1}
+
+// Whether the timeline in leaf `panel` runs down: the panel is at the side
+// of another (its split is left / right) and its `area` is taller than
+// wide. Across the top or bottom, or alone, it runs along.
+timeline_vertical :: proc(ws: ^Workspace, panel: Panel_Id, area: Workspace_Rect) -> bool {
+	p := workspace_panel(ws, panel)
+	split := workspace_panel(ws, p.parent) if p != nil else nil
+	return split != nil && split.axis == .X && area.height > area.width
+}
+
+// How the timeline lies in its `area` (pixels): along it, or (`vertical`)
+// down it, its columns sharing the area's width.
+timeline_axis :: proc(app: ^App_State, area: Workspace_Rect, dpi: f32, vertical: bool) -> Time_Axis {
+	if !vertical {
+		return TIME_ALONG
+	}
+	total, _ := rows_points(app, timeline_rows(app))
+	room := area.width / dpi - 2 * TRACK_PAD - RULER_WIDTH
+	return {vertical = true, ruler = RULER_WIDTH, across = clamp(room / (SCENE_HEIGHT + total), 1, ACROSS_MAX)}
+}
+
+// A point between the timeline's space and the window's.
+axis_point :: proc(a: Time_Axis, p: [2]f32) -> [2]f32 {
+	if !a.vertical {
+		return p
+	}
+	return {a.corner.x + (p.y - a.corner.y), a.corner.y + (p.x - a.corner.x)}
+}
+
+// A motion (a drag's) between the two spaces.
+axis_motion :: proc(a: Time_Axis, v: [2]f32) -> [2]f32 {
+	return v.yx if a.vertical else v
+}
+
+// A rect in the timeline's space, in the window's.
+axis_rect :: proc(a: Time_Axis, x, y, w, h: f32) -> (wx, wy, ww, wh: f32) {
+	p := axis_point(a, {x, y})
+	if a.vertical {
+		return p.x, p.y, h, w
+	}
+	return p.x, p.y, w, h
+}
+
+// How far an upright label `width` wide reaches along time.
+axis_label_along :: proc(a: Time_Axis, width, line: f32) -> f32 {
+	return line if a.vertical else width
+}
+
+// Drawing in the timeline's space.
+@(private = "file")
+fill :: proc(r: ^render.Renderer, a: Time_Axis, x, y, w, h: f32, c: [4]u8) {
+	wx, wy, ww, wh := axis_rect(a, x, y, w, h)
+	render.draw_rect(r, wx, wy, ww, wh, c)
+}
+
+@(private = "file")
+fill_rounded :: proc(r: ^render.Renderer, a: Time_Axis, x, y, w, h, radius: f32, c: [4]u8) {
+	wx, wy, ww, wh := axis_rect(a, x, y, w, h)
+	render.draw_rect_rounded(r, wx, wy, ww, wh, radius, c)
+}
+
+@(private = "file")
+clip :: proc(r: ^render.Renderer, a: Time_Axis, x, y, w, h: f32) {
+	wx, wy, ww, wh := axis_rect(a, x, y, w, h)
+	render.clip_push(r, wx, wy, ww, wh)
+}
+
+@(private = "file")
+image :: proc(r: ^render.Renderer, a: Time_Axis, img: ^render.Image, x, y, w, h: f32) {
+	wx, wy, ww, wh := axis_rect(a, x, y, w, h)
+	render.draw_image_contain(r, img, wx, wy, ww, wh)
+}
+
+// Upright text starting at `at`.
+@(private = "file")
+text :: proc(s: ^ui.State, a: Time_Axis, str: string, at: [2]f32, px: f32, c: [4]u8) {
+	p := axis_point(a, at)
+	render.draw_text(s.r, s.font, str, p.x, p.y, px, c)
+}
+
+// An upright label: a tab `size` big (window pixels) starting at `at`,
+// its text at `text_at` (both in the timeline's space; the text keeps its
+// place in the tab).
+@(private = "file")
+label :: proc(s: ^ui.State, a: Time_Axis, str: string, at, size, text_at: [2]f32, radius, px: f32, tab, c: [4]u8) {
+	p := axis_point(a, at)
+	q := p + (text_at - at) if a.vertical else text_at
+	render.draw_rect_rounded(s.r, p.x, p.y, size.x, size.y, radius, tab)
+	render.draw_text(s.r, s.font, str, q.x, q.y, px, c)
 }
 
 timeline_row_open :: proc(app: ^App_State, item: Timeline_Item) -> bool {
@@ -103,6 +221,14 @@ timeline_rows_clamp :: proc(app: ^App_State) {
 	pv.rows_scroll = clamp(pv.rows_scroll, 0, last if total > shown else 0)
 }
 
+// Points the rows below the scenes get in the timeline's `area` (pixels)
+// lying along `a`: what the box leaves across after the ruler and the
+// scenes.
+timeline_rows_room :: proc(a: Time_Axis, area: Workspace_Rect, dpi: f32) -> f32 {
+	across := area.width / dpi - 2 * TRACK_PAD if a.vertical else area.height / dpi - 2 * TIMELINE_GAP
+	return max((across - a.ruler) / a.across - SCENE_HEIGHT, 0)
+}
+
 // The timeline's natural height in points (before dpi scaling): the
 // ruler, the scenes and up to ROWS_AREA_MAX of rows.
 timeline_height :: proc(app: ^App_State) -> f32 {
@@ -139,11 +265,11 @@ Thumb_Grid :: struct {
 }
 
 @(private = "file")
-thumb_grid :: proc(app: ^App_State, ppf: f64, dpi: f32) -> Thumb_Grid {
+thumb_grid :: proc(app: ^App_State, a: Time_Axis, ppf: f64, dpi: f32) -> Thumb_Grid {
 	pv := &app.preview
 	g: Thumb_Grid
 	g.two_rows = len(pv.timeline.scenes) > 1
-	g.thumb_h = (SCENE_HEIGHT - 4) * dpi
+	g.thumb_h = (SCENE_HEIGHT - 4) * dpi * a.across
 	if g.two_rows {
 		g.thumb_h *= 0.5
 	}
@@ -152,6 +278,10 @@ thumb_grid :: proc(app: ^App_State, ppf: f64, dpi: f32) -> Thumb_Grid {
 		aspect = f32(pv.thumb_size.x) / f32(pv.thumb_size.y)
 	} else if pv.timeline.height > 0 {
 		aspect = f32(pv.timeline.width) / f32(pv.timeline.height)
+	}
+	// Running down, a thumbnail's width is across and its height along.
+	if a.vertical {
+		aspect = 1 / aspect
 	}
 	g.thumb_w = g.thumb_h * aspect
 	g.width = f64(g.thumb_w) / max(ppf, 1e-9)
@@ -172,9 +302,13 @@ thumbs_wanted :: proc(app: ^App_State, p: ^platform.Platform) -> []int {
 		return nil
 	}
 	dpi := p.dpi_scale
+	a := pv.timeline_axis
 	w := f64(area.width) - 2 * TRACK_PAD * f64(dpi)
+	if a.vertical {
+		w = f64(area.height) - 2 * TIMELINE_GAP * f64(dpi)
+	}
 	first, visible := pv.view_first, view_frames(app)
-	g := thumb_grid(app, w / visible, dpi)
+	g := thumb_grid(app, a, w / visible, dpi)
 	out := make([dynamic]int, 0, THUMBS_WANTED_MAX, context.temp_allocator)
 	for sc in segments(app) {
 		j := max(int(math.floor((first - f64(sc.start_frame) - g.width) / f64(g.step))), 0)
@@ -200,6 +334,7 @@ thumbs_wanted :: proc(app: ^App_State, p: ^platform.Platform) -> []int {
 Timeline_Draw :: struct {
 	app:  ^App_State,
 	dpi:  f32,
+	axis: Time_Axis,
 	head: f32, // the playhead frame, eased
 }
 
@@ -215,17 +350,21 @@ timeline_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32, area: Workspace_R
 	ui.set_next_corner_radius(s, 4 * dpi)
 	track := place_box(s, {area.x + pad, area.y + gap, max(area.width - 2 * pad, 0), max(area.height - 2 * gap, 0)}, {.Clickable, .Draw_Background, .Clip}, "###timeline")
 	sig := ui.signal_from_box(s, track)
+	a := pv.timeline_axis
 
-	// Last frame's rect (immediate-mode): what the pointer maps onto.
-	w := f64(track.rect.max.x - track.rect.min.x)
+	// Last frame's rect (immediate-mode): what the pointer maps onto, in
+	// the timeline's space.
+	a.corner = track.rect.min
+	extent := axis_motion(a, track.rect.max - track.rect.min)
+	w := f64(extent.x)
 	visible := view_frames(app)
 	if w > 0 {
 		ppf := w / visible
 		frame_at :: proc(pv: ^Preview_State, track: ^ui.Box, x: f32, ppf: f64) -> int {
 			return int(math.floor(pv.view_first + f64(x - track.rect.min.x) / ppf))
 		}
-		mouse := platform.mouse_pos(s.p)
-		hit, in_name := row_at(app, track, mouse, dpi)
+		mouse := axis_point(a, platform.mouse_pos(s.p))
+		hit, in_name := row_at(app, a, track, mouse, dpi)
 		if ui.pressed(sig) {
 			// A press on a group's name opens or closes it, and the drag it
 			// starts doesn't scrub.
@@ -240,8 +379,8 @@ timeline_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32, area: Workspace_R
 		if ui.mouse_over(sig) {
 			command_push(c, .Cursor_Hover, {count = clamp(frame_at(pv, track, mouse.x, ppf), 0, preview_duration(app) - 1)})
 		}
-		if ui.middle_dragging(sig) && sig.drag_motion.x != 0 {
-			command_push(c, .Timeline_Pan, {scalar = -f64(sig.drag_motion.x) / ppf})
+		if motion := axis_motion(a, sig.drag_motion); ui.middle_dragging(sig) && motion.x != 0 {
+			command_push(c, .Timeline_Pan, {scalar = -f64(motion.x) / ppf})
 		}
 		total, shown := rows_points(app, timeline_rows(app))
 		if sig.scroll != 0 && hit >= 0 && total > shown {
@@ -255,7 +394,7 @@ timeline_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32, area: Workspace_R
 	}
 
 	data := new(Timeline_Draw, context.temp_allocator)
-	data^ = {app, dpi, ui.anim_f32(s, track.key, f32(pv.frame), {initial = f64(pv.frame), duration = 0.05})}
+	data^ = {app, dpi, a, ui.anim_f32(s, track.key, f32(pv.frame), {initial = f64(pv.frame), duration = 0.05})}
 	track.custom_draw = timeline_draw
 	track.custom_draw_data = data
 }
@@ -264,18 +403,18 @@ timeline_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32, area: Workspace_R
 // below the rows) and whether it is over the row's name, from the box's
 // last rect.
 @(private = "file")
-row_at :: proc(app: ^App_State, track: ^ui.Box, mouse: [2]f32, dpi: f32) -> (item: int, in_name: bool) {
+row_at :: proc(app: ^App_State, a: Time_Axis, track: ^ui.Box, mouse: [2]f32, dpi: f32) -> (item: int, in_name: bool) {
 	pv := &app.preview
-	y := track.rect.min.y + (RULER_HEIGHT + SCENE_HEIGHT) * dpi
+	y := track.rect.min.y + (a.ruler + SCENE_HEIGHT * a.across) * dpi
 	_, shown := rows_points(app, timeline_rows(app))
-	if mouse.y < y || mouse.y >= y + shown * dpi {
+	if mouse.y < y || mouse.y >= y + shown * dpi * a.across {
 		return -1, false
 	}
 	rows := timeline_rows(app)
 	for i in rows[min(pv.rows_scroll, len(rows)):] {
-		h := row_height(pv.waves.items[i].kind) * dpi
+		h := row_height(pv.waves.items[i].kind) * dpi * a.across
 		if mouse.y < y + h {
-			return i, mouse.x - track.rect.min.x < ROW_NAME_WIDTH * dpi
+			return i, mouse.x - track.rect.min.x < axis_label_along(a, ROW_NAME_WIDTH, LANE_HEIGHT) * dpi
 		}
 		y += h
 	}
@@ -307,9 +446,12 @@ timeline_draw :: proc(s: ^ui.State, box: ^ui.Box, data: rawptr) {
 	pv := &app.preview
 	dpi := d.dpi
 	r := s.r
+	a := d.axis
+	a.corner = box.rect.min
+	// The box in the timeline's space: `w` along time, `h` across.
 	x0, y0 := box.rect.min.x, box.rect.min.y
-	w := box.rect.max.x - x0
-	h := box.rect.max.y - y0
+	extent := axis_motion(a, box.rect.max - box.rect.min)
+	w, h := extent.x, extent.y
 	fps := preview_fps(app)
 	first, visible := pv.view_first, view_frames(app)
 	ppf := f64(w) / visible
@@ -320,8 +462,8 @@ timeline_draw :: proc(s: ^ui.State, box: ^ui.Box, data: rawptr) {
 
 	// Ruler: major ticks with labels (m:ss, or m:ss:ff below a second),
 	// minor ticks between.
-	ruler_h := RULER_HEIGHT * dpi
-	render.draw_rect(r, x0, y0, w, ruler_h, RULER_BG)
+	ruler_h := a.ruler * dpi
+	fill(r, a, x0, y0, w, ruler_h, RULER_BG)
 	step := ruler_step(fps, ppf, 70 * f64(dpi))
 	minor := step / 5 if step % 5 == 0 else (step / 2 if step % 2 == 0 else step)
 	if f64(minor) * ppf < 5 * f64(dpi) {
@@ -331,17 +473,17 @@ timeline_draw :: proc(s: ^ui.State, box: ^ui.Box, data: rawptr) {
 	for f := int(first) / minor * minor; f64(f) <= first + visible; f += minor {
 		x := x_of(f64(f), first, ppf, x0)
 		if f % step == 0 {
-			render.draw_rect(r, x, y0 + ruler_h * 0.35, line_w, ruler_h * 0.65, {120, 128, 142, 255})
+			fill(r, a, x, y0 + ruler_h * 0.35, line_w, ruler_h * 0.65, {120, 128, 142, 255})
 			secs := f / fps
 			label := fmt.tprintf("%d:%02d", secs / 60, secs % 60) if step % fps == 0 else fmt.tprintf("%d:%02d:%02d", secs / 60, secs % 60, f % fps)
-			render.draw_text(r, s.font, label, x + 3 * dpi, y0 + 1 * dpi, font_px, COLOR_TEXT_DIM)
+			text(s, a, label, {x + 3 * dpi, y0 + 1 * dpi}, font_px, COLOR_TEXT_DIM)
 		} else {
-			render.draw_rect(r, x, y0 + ruler_h * 0.7, line_w, ruler_h * 0.3, {80, 86, 98, 255})
+			fill(r, a, x, y0 + ruler_h * 0.7, line_w, ruler_h * 0.3, {80, 86, 98, 255})
 		}
 	}
 
 	// Scenes, overlapping ones on alternating rows, with thumbnails.
-	g := thumb_grid(app, ppf, dpi)
+	g := thumb_grid(app, a, ppf, dpi)
 	scene_y := y0 + ruler_h + 2 * dpi
 	for sc, i in segments(app) {
 		xa := x_of(f64(sc.start_frame), first, ppf, x0)
@@ -354,8 +496,8 @@ timeline_draw :: proc(s: ^ui.State, box: ^ui.Box, data: rawptr) {
 		if cx1 <= cx0 {
 			continue
 		}
-		render.draw_rect_rounded(r, xa, y, xb - xa - line_w, g.thumb_h, 3 * dpi, SCENE_COLORS[i % len(SCENE_COLORS)])
-		render.clip_push(r, cx0, y, cx1 - cx0, g.thumb_h)
+		fill_rounded(r, a, xa, y, xb - xa - line_w, g.thumb_h, 3 * dpi, SCENE_COLORS[i % len(SCENE_COLORS)])
+		clip(r, a, cx0, y, cx1 - cx0, g.thumb_h)
 		j := max(int(math.floor((first - f64(sc.start_frame) - g.width) / f64(g.step))), 0)
 		for f := sc.start_frame + j * g.step; f < sc.end_frame && f64(f) < first + visible; f += g.step {
 			k, found := slice.binary_search_by(pv.thumbs[:], f, proc(t: Preview_Thumb, f: int) -> slice.Ordering {
@@ -365,14 +507,13 @@ timeline_draw :: proc(s: ^ui.State, box: ^ui.Box, data: rawptr) {
 				continue
 			}
 			img := render.Image{pv.thumbs[k].texture, pv.thumb_size.x, pv.thumb_size.y}
-			render.draw_image_contain(r, &img, x_of(f64(f), first, ppf, x0), y, g.thumb_w - line_w, g.thumb_h)
+			image(r, a, &img, x_of(f64(f), first, ppf, x0), y, g.thumb_w - line_w, g.thumb_h)
 		}
 		if name := scene_name(&pv.timeline, sc); name != "" {
 			fs := 12 * dpi
 			tw := render.measure_text(s.font, name, fs)
 			lh := render.line_height(s.font, fs)
-			render.draw_rect_rounded(r, cx0 + 2 * dpi, y + 2 * dpi, tw + 8 * dpi, lh + 2 * dpi, 3 * dpi, {0, 0, 0, 150})
-			render.draw_text(r, s.font, name, cx0 + 6 * dpi, y + 3 * dpi, fs, {240, 242, 246, 255})
+			label(s, a, name, {cx0 + 2 * dpi, y + 2 * dpi}, {tw + 8 * dpi, lh + 2 * dpi}, {cx0 + 6 * dpi, y + 3 * dpi}, 3 * dpi, fs, {0, 0, 0, 150}, {240, 242, 246, 255})
 		}
 		render.clip_pop(r)
 	}
@@ -380,16 +521,17 @@ timeline_draw :: proc(s: ^ui.State, box: ^ui.Box, data: rawptr) {
 	// The rows below the scenes, each drawn the way its kind says.
 	rows := timeline_rows(app)
 	_, shown := rows_points(app, rows)
-	rows_y := y0 + ruler_h + SCENE_HEIGHT * dpi
-	render.clip_push(r, x0, rows_y, w, shown * dpi)
-	view := Row_View{s, d, x0, w, first, ppf, f64(om.MIX_RATE) / f64(fps), line_w, font_px}
-	mouse := platform.mouse_pos(s.p)
+	rows_y := y0 + ruler_h + SCENE_HEIGHT * dpi * a.across
+	clip(r, a, x0, rows_y, w, shown * dpi * a.across)
+	view := Row_View{s, d, a, x0, w, first, ppf, f64(om.MIX_RATE) / f64(fps), line_w, font_px}
+	window_mouse := platform.mouse_pos(s.p)
+	mouse := axis_point(a, window_mouse)
 	hovered := -1
 	y := rows_y
 	for i, n in rows[min(pv.rows_scroll, len(rows)):] {
 		it := &pv.waves.items[i]
-		rh := row_height(it.kind) * dpi
-		if y >= rows_y + shown * dpi {
+		rh := row_height(it.kind) * dpi * a.across
+		if y >= rows_y + shown * dpi * a.across {
 			break
 		}
 		switch it.kind {
@@ -415,14 +557,15 @@ timeline_draw :: proc(s: ^ui.State, box: ^ui.Box, data: rawptr) {
 		y += rh
 	}
 	render.clip_pop(r)
-	// What the hovered row is, and its path for `onimite show`.
+	// What the hovered row is, and its path for `onimite show`: upright,
+	// beside the pointer and inside the box.
 	if hovered >= 0 {
 		it := pv.waves.items[hovered]
 		tip := fmt.tprintf("%s   (onimite show %s)", text_of(pv.waves.text[:], it.summary), text_of(pv.waves.text[:], it.path))
 		tw := render.measure_text(s.font, tip, font_px) + 10 * dpi
 		lh := render.line_height(s.font, font_px)
-		tx := clamp(mouse.x + 12 * dpi, x0, x0 + w - tw)
-		ty := max(mouse.y - lh - 10 * dpi, y0)
+		tx := clamp(window_mouse.x + 12 * dpi, box.rect.min.x, box.rect.max.x - tw)
+		ty := max(window_mouse.y - lh - 10 * dpi, box.rect.min.y)
 		render.draw_rect_rounded(r, tx, ty, tw, lh + 4 * dpi, 3 * dpi, {10, 11, 15, 235})
 		render.draw_text(r, s.font, tip, tx + 5 * dpi, ty + 2 * dpi, font_px, {235, 238, 244, 255})
 	}
@@ -430,15 +573,15 @@ timeline_draw :: proc(s: ^ui.State, box: ^ui.Box, data: rawptr) {
 	// The bookmark, the hovered frame and the playhead over everything.
 	if pv.bookmark >= 0 {
 		x := x_of(f64(pv.bookmark), first, ppf, x0)
-		render.draw_rect(r, x, y0, line_w, h, {COLOR_BOOKMARK.r, COLOR_BOOKMARK.g, COLOR_BOOKMARK.b, 200})
-		render.draw_rect(r, x, y0, 8 * dpi, 7 * dpi, COLOR_BOOKMARK)
+		fill(r, a, x, y0, line_w, h, {COLOR_BOOKMARK.r, COLOR_BOOKMARK.g, COLOR_BOOKMARK.b, 200})
+		fill(r, a, x, y0, 8 * dpi, 7 * dpi, COLOR_BOOKMARK)
 	}
 	if pv.hover_valid {
-		render.draw_rect(r, x_of(f64(pv.hover_frame), first, ppf, x0), y0, line_w, h, COLOR_HOVER)
+		fill(r, a, x_of(f64(pv.hover_frame), first, ppf, x0), y0, line_w, h, COLOR_HOVER)
 	}
 	head := x_of(f64(d.head), first, ppf, x0)
-	render.draw_rect(r, head - dpi, y0, 2 * dpi, h, COLOR_PLAYHEAD)
-	render.draw_rect(r, head - 4 * dpi, y0, 8 * dpi, 5 * dpi, COLOR_PLAYHEAD)
+	fill(r, a, head - dpi, y0, 2 * dpi, h, COLOR_PLAYHEAD)
+	fill(r, a, head - 4 * dpi, y0, 8 * dpi, 5 * dpi, COLOR_PLAYHEAD)
 }
 
 // What drawing a row needs from the timeline's draw.
@@ -446,6 +589,7 @@ timeline_draw :: proc(s: ^ui.State, box: ^ui.Box, data: rawptr) {
 Row_View :: struct {
 	s:                 ^ui.State,
 	d:                 ^Timeline_Draw,
+	a:                 Time_Axis,
 	x0, w:             f32,
 	first, ppf:        f64,
 	samples_per_frame: f64,
@@ -464,7 +608,7 @@ draw_lane :: proc(v: ^Row_View, index: int, y, lane_h: f32, color_index: int) {
 	}
 	lane := &waves.lanes[index]
 	dpi := v.d.dpi
-	render.draw_rect(r, v.x0, y, v.w, lane_h, LANE_BG)
+	fill(r, v.a, v.x0, y, v.w, lane_h, LANE_BG)
 	xa := v.x0 + f32((f64(lane.start) / v.samples_per_frame - v.first) * v.ppf)
 	xb := v.x0 + f32((f64(lane.end) / v.samples_per_frame - v.first) * v.ppf)
 	cx0, cx1 := max(xa, v.x0), min(xb, v.x0 + v.w)
@@ -472,7 +616,7 @@ draw_lane :: proc(v: ^Row_View, index: int, y, lane_h: f32, color_index: int) {
 		return
 	}
 	color := SCENE_COLORS[color_index % len(SCENE_COLORS)]
-	render.draw_rect_rounded(r, xa, y, xb - xa, lane_h, 3 * dpi, {color.r, color.g, color.b, 90})
+	fill_rounded(r, v.a, xa, y, xb - xa, lane_h, 3 * dpi, {color.r, color.g, color.b, 90})
 	clip := &waves.clips[lane.clip]
 	mid := y + lane_h * 0.5
 	half := lane_h * 0.5 - v.line_w
@@ -490,12 +634,13 @@ draw_lane :: proc(v: ^Row_View, index: int, y, lane_h: f32, color_index: int) {
 		env := om.track_envelope_peak(k, int(s1) - lane.start, length, lane.fade_in, lane.fade_out, lane.curve)
 		top := mid - clamp(hi * env, -1, 1) * half
 		bottom := mid - clamp(lo * env, -1, 1) * half
-		render.draw_rect(r, cx, top, col_w, max(bottom - top, v.line_w), wave)
+		fill(r, v.a, cx, top, col_w, max(bottom - top, v.line_w), wave)
 	}
 }
 
-// A row's name on a dark tab: at the left edge (groups, `at < 0`), or at
-// the start of its span (`at` in mix samples) while that is in view.
+// A row's name on a dark tab: at the start of the row (groups, `at < 0`),
+// or at the start of its span (`at` in mix samples) while that is in view;
+// kept inside its row.
 @(private = "file")
 draw_row_name :: proc(v: ^Row_View, name: string, y, row_h, indent: f32, at := -1) {
 	r := v.s.r
@@ -512,29 +657,33 @@ draw_row_name :: proc(v: ^Row_View, name: string, y, row_h, indent: f32, at := -
 		return
 	}
 	tw := render.measure_text(v.s.font, name, v.font_px)
-	render.draw_rect_rounded(r, x + 2 * dpi, y + (row_h - label_h) * 0.5 - dpi, tw + 6 * dpi, label_h + 2 * dpi, 3 * dpi, {0, 0, 0, 140})
-	render.draw_text(r, v.s.font, name, x + 5 * dpi, y + (row_h - label_h) * 0.5, v.font_px, {235, 238, 244, 230})
+	clip(r, v.a, v.x0, y, v.w, row_h)
+	label(v.s, v.a, name, {x + 2 * dpi, y + (row_h - label_h) * 0.5 - dpi}, {tw + 6 * dpi, label_h + 2 * dpi}, {x + 5 * dpi, y + (row_h - label_h) * 0.5}, 3 * dpi, v.font_px, {0, 0, 0, 140}, {235, 238, 244, 230})
+	render.clip_pop(r)
 }
 
-// The cues as marks with their names where there is room.
+// The cues as marks with their names where there is room (inside the row).
 @(private = "file")
 draw_cues :: proc(v: ^Row_View, y, row_h: f32) {
 	r := v.s.r
 	pv := &v.d.app.preview
 	fps := f64(preview_fps(v.d.app))
-	render.draw_rect(r, v.x0, y, v.w, row_h - v.d.dpi, LANE_BG)
+	fill(r, v.a, v.x0, y, v.w, row_h - v.d.dpi, LANE_BG)
+	clip(r, v.a, v.x0, y, v.w, row_h)
+	defer render.clip_pop(r)
 	free_x := v.x0
+	px := v.font_px * 0.85
 	for c in pv.waves.cues {
 		x := v.x0 + f32((c.seconds * fps - v.first) * v.ppf)
 		if x < v.x0 || x > v.x0 + v.w {
 			continue
 		}
-		render.draw_rect(r, x, y, v.line_w, row_h - v.d.dpi, {250, 204, 21, 220})
+		fill(r, v.a, x, y, v.line_w, row_h - v.d.dpi, {250, 204, 21, 220})
 		name := text_of(pv.waves.text[:], c.name)
-		tw := render.measure_text(v.s.font, name, v.font_px * 0.85)
-		if x + 3 * v.d.dpi >= free_x && x + tw < v.x0 + v.w {
-			render.draw_text(r, v.s.font, name, x + 3 * v.d.dpi, y, v.font_px * 0.85, {250, 230, 160, 230})
-			free_x = x + tw + 8 * v.d.dpi
+		along := axis_label_along(v.a, render.measure_text(v.s.font, name, px), render.line_height(v.s.font, px))
+		if x + 3 * v.d.dpi >= free_x && x + along < v.x0 + v.w {
+			text(v.s, v.a, name, {x + 3 * v.d.dpi, y}, px, {250, 230, 160, 230})
+			free_x = x + along + 8 * v.d.dpi
 		}
 	}
 }

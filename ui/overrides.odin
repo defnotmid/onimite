@@ -26,6 +26,7 @@ Box_Overrides :: struct {
 	corner_radius:     Maybe(f32),
 	font_size:         Maybe(f32),
 	text_padding:      Maybe(f32),
+	opacity:           Maybe(f32),
 }
 
 set_next_pref_width :: proc(s: ^State, v: Size) {s.next.pref_width = v}
@@ -41,3 +42,4 @@ set_next_text_color :: proc(s: ^State, v: [4]u8) {s.next.text_color = v}
 set_next_corner_radius :: proc(s: ^State, v: f32) {s.next.corner_radius = v}
 set_next_font_size :: proc(s: ^State, v: f32) {s.next.font_size = v}
 set_next_text_padding :: proc(s: ^State, v: f32) {s.next.text_padding = v}
+set_next_opacity :: proc(s: ^State, v: f32) {s.next.opacity = v}

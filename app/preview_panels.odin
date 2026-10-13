@@ -7,9 +7,9 @@ import ui "../ui"
 
 // The workspace's panels drawn from their measured areas, after oasic's
 // view/panels.odin: each leaf's tab strip (a press on a tab shows its view
-// and starts a drag, x closes it, + lists the views to open and the
-// splits), the view it shows, and each branch's splitter (a drag resizes
-// it). While a tab is dragged, every panel under the pointer offers drop
+// and starts a drag, x closes it, + opens the lister on what opens in it,
+// preview_lister.odin), the view it shows, and each branch's splitter (a
+// drag resizes it). While a tab is dragged, every panel under the pointer offers drop
 // sites: its tab strip (a reorder), its four edges (a split) and its centre
 // (a join). A site is a typed Drop_Target, and `workspace_drop_command`
 // turns it into the one command a drop pushes, the same rule deciding
@@ -17,7 +17,6 @@ import ui "../ui"
 
 TAB_WIDTH :: 96
 TAB_CLOSE :: 20
-PICKER_ROW :: 26
 // Points the pointer moves before a press on a tab becomes a drag.
 DRAG_START :: 10
 COLOR_TABS :: [4]u8{25, 29, 35, 255}
@@ -67,8 +66,8 @@ panels_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32) {
 		}
 		tabs_view(app, s, dpi, id, a)
 		v := workspace_view(ws, p.shown)
-		if ws.picker == id || v == nil {
-			picker_view(app, s, dpi, id, a.content)
+		if v == nil {
+			empty_panel_view(s, dpi, id, a.content)
 			continue
 		}
 		switch v.kind {
@@ -147,8 +146,8 @@ tab_hit :: proc(ws: ^Workspace, id: Panel_Id, r: Workspace_Rect, at: [2]f32, dpi
 }
 
 // A leaf's tab strip: one box, painted by `tabs_draw`; a press on a tab
-// shows it and may start a drag, a click on its x closes it, on + lists
-// what can open in the panel.
+// shows it and may start a drag, a click on its x closes it, on + opens
+// the lister on what can open in the panel.
 @(private = "file")
 tabs_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32, id: Panel_Id, a: Panel_Area) {
 	pv := &app.preview
@@ -166,7 +165,7 @@ tabs_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32, id: Panel_Id, a: Pane
 	// A click acts where it was pressed too.
 	if ui.clicked(sig) && hit == tab_hit(ws, id, r, s.drag_start, dpi) {
 		if hit.plus {
-			command_push(c, .View_Picker_Toggle, {panel = id})
+			command_push(c, .Lister_Open, {panel = id, lister = .Panel})
 		} else if hit.close {
 			command_push(c, .View_Close, {view = hit.tab})
 		}
@@ -215,7 +214,7 @@ tabs_draw :: proc(s: ^ui.State, box: ^ui.Box, data: rawptr) {
 		x += tw
 	}
 	plus_x := x0 + w - h
-	if ws.picker == d.panel {
+	if ws.lister.panel == d.panel && ws.lister.mode == .Panel {
 		render.draw_rect(r, plus_x, y0, h, h, COLOR_TAB_SHOWN)
 	} else if d.hover.plus {
 		render.draw_rect(r, plus_x, y0, h, h, {255, 255, 255, 20})
@@ -223,37 +222,15 @@ tabs_draw :: proc(s: ^ui.State, box: ^ui.Box, data: rawptr) {
 	render.draw_text(r, s.font, "+", plus_x + h * 0.5 - 4 * dpi, ty, px, s.theme.text)
 }
 
-// What can open in leaf `id`: each view, a split, closing it. An empty
-// panel always shows these.
+// An empty panel (only the whole workspace can be one): how to fill it.
 @(private = "file")
-picker_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32, id: Panel_Id, area: Workspace_Rect) {
-	Choice :: struct {
-		label: string,
-		kind:  Command_Kind,
-		regs:  Command_Regs,
-	}
-	choices := [?]Choice {
-		{"Video", .View_Open, {panel = id, view_kind = .Video}},
-		{"Timeline", .View_Open, {panel = id, view_kind = .Timeline}},
-		{"Watch", .View_Open, {panel = id, view_kind = .Watch}},
-		{"Split right", .Panel_Split, {panel = id, direction = .Right}},
-		{"Split down", .Panel_Split, {panel = id, direction = .Down}},
-		{"Close panel", .Panel_Close, {panel = id}},
-	}
+empty_panel_view :: proc(s: ^ui.State, dpi: f32, id: Panel_Id, area: Workspace_Rect) {
 	ui.set_next_bg_color(s, s.theme.background)
 	ui.set_next_corner_radius(s, 0)
-	place_box(s, area, {.Draw_Background}, fmt.tprintf("###picker_%d", id))
-	y := area.y + 8 * dpi
-	for choice, i in choices {
-		if y + PICKER_ROW * dpi > area.y + area.height {
-			break
-		}
-		ui.set_next_font_size(s, 13 * dpi)
-		if ui.clicked(place_button(s, {area.x + 8 * dpi, y, 120 * dpi, (PICKER_ROW - 4) * dpi}, fmt.tprintf("%s###pick_%d_%d", choice.label, id, i))) {
-			command_push(&app.commands, choice.kind, choice.regs)
-		}
-		y += PICKER_ROW * dpi
-	}
+	ui.set_next_text_color(s, COLOR_TEXT_DIM)
+	ui.set_next_text_align(s, .Center)
+	ui.set_next_font_size(s, 13 * dpi)
+	place_box(s, area, {.Draw_Background, .Draw_Text}, fmt.tprintf("+ opens a view here, Ctrl+P goes to a scene, cue or problem###empty_%d", id))
 }
 
 // The drop sites of every panel under the dragged tab, and its label at

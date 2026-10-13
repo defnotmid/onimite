@@ -131,6 +131,7 @@ Box_Flag :: enum u32 {
 	Fixed_Width, // fixed_size.x is authoritative (bypasses pref_size)
 	Fixed_Height,
 	Drop_Site, // may become the drop-hot box while a drag is active
+	Modal_Input_Root, // while a modal is up, only this box's subtree takes input
 }
 
 Box_Flags :: bit_set[Box_Flag;u32]
@@ -171,6 +172,8 @@ Box :: struct {
 	active_color:                    [4]u8,
 	corner_radius:                   f32,
 	border_thickness:                f32,
+	// 0..1, times the parent's: a modal fading in fades its contents.
+	opacity:                         f32,
 	font_size:                       f32,
 	text_padding:                    f32,
 	image:                           ^render.Image,
@@ -262,6 +265,13 @@ State :: struct {
 	middle_active:   Key, // the box the middle button pressed on, while held
 	drop_hot:        Key, // the Drop_Site box under the mouse this frame (raddbg's drop_hot_box_key)
 	active:          Key, // left-button active (the pressed widget)
+	// The text field that takes typing (sticky until another takes it).
+	keyboard_focus:  Key,
+	// A modal is up: boxes outside a Modal_Input_Root get no signals.
+	modal_input:     bool,
+	// A focused text field was built this frame: the window's text events
+	// stay on.
+	text_wanted:     bool,
 	drag_start:      [2]f32,
 	actions:         Action_Storage,
 	animations:      Animation_Storage,
@@ -342,6 +352,7 @@ destroy :: proc(s: ^State) {
 build_begin :: proc(s: ^State) {
 	s.build_index += 1
 	s.is_animating = false
+	s.text_wanted = false
 	animation_storage_prune(&s.animations, s.build_index)
 	actions_gather_from_platform(&s.actions, s.p)
 
@@ -390,6 +401,30 @@ build_end :: proc(s: ^State) {
 
 	remember(s, s.root)
 	prune(s)
+	platform.text_input_set(s.p, s.text_wanted)
+}
+
+// Whether `box` is inside a Modal_Input_Root (itself included).
+box_in_modal_input_scope :: proc(box: ^Box) -> bool {
+	for b := box; b != nil; b = b.parent {
+		if .Modal_Input_Root in b.flags {
+			return true
+		}
+	}
+	return false
+}
+
+// Puts a modal up or takes it down, before the frame's boxes are built.
+// Putting one up drops the focus, hot and pressed boxes under it: what
+// the modal builds takes them from there.
+modal_input_set :: proc(s: ^State, active: bool) {
+	if active && !s.modal_input {
+		s.keyboard_focus = Key(0)
+		s.hot = Key(0)
+		s.active = Key(0)
+		s.middle_active = Key(0)
+	}
+	s.modal_input = active
 }
 
 // build_box creates (or reuses) a box for `string_key`. The key is derived
@@ -465,6 +500,7 @@ build_box :: proc(s: ^State, flags: Box_Flags, string_key: string) -> ^Box {
 	box.font_size = n.font_size.? or_else s.theme.default_font_px
 	box.text_padding = n.text_padding.? or_else s.theme.default_padding
 	box.corner_radius = n.corner_radius.? or_else s.theme.default_corner
+	box.opacity = (n.opacity.? or_else 1) * (parent.opacity if parent != nil else 1)
 	box.bg_color = n.bg_color.? or_else s.theme.panel
 	box.text_color = n.text_color.? or_else s.theme.text
 	n^ = {}
@@ -693,7 +729,7 @@ signal_from_box :: proc(s: ^State, box: ^Box) -> Signal {
 	sig := Signal {
 		box = box,
 	}
-	if box == nil {
+	if box == nil || (s.modal_input && !box_in_modal_input_scope(box)) {
 		return sig
 	}
 

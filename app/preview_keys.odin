@@ -6,7 +6,9 @@ import ui "../ui"
 // The preview's keys: fframes' Dock keys (lowercase letters plain, capitals
 // with Shift) plus its own, each the command row it pushes. A row matches
 // when its key went down (`repeat`: or repeats while held) with Control and
-// Shift as it says; the first matching row of a key wins.
+// Shift as it says; the first matching row of a key wins. While the lister
+// is up, only the rows marked `modal` match: the other keys are the
+// lister's (typing, selecting, picking).
 
 Key_Mod :: enum u8 {
 	Any,
@@ -19,6 +21,7 @@ Key_Binding :: struct {
 	ctrl:   Key_Mod,
 	shift:  Key_Mod,
 	repeat: bool,
+	modal:  bool,
 	kind:   Command_Kind,
 	regs:   Command_Regs,
 }
@@ -65,13 +68,14 @@ PREVIEW_KEYS := [?]Key_Binding {
 	{key = .F, ctrl = .Up, kind = .Fullscreen_Toggle},
 	{key = .T, ctrl = .Up, kind = .Timeline_Toggle},
 	{key = .I, ctrl = .Up, kind = .Watch_Show, regs = {section = .Media}},
+	{key = .P, ctrl = .Down, kind = .Lister_Open, regs = {lister = .Go_To}},
 	{key = .Q, ctrl = .Up, kind = .Quit},
-	{key = .Escape, kind = .Dismiss},
+	{key = .Escape, modal = true, kind = .Dismiss},
 }
 
 // Pushes the rows of the keys that went down this window frame (the
-// window's key actions).
-preview_keys :: proc(app: ^App_State, actions: []ui.Action_Row) {
+// window's key actions); `modal`: the lister is up.
+preview_keys :: proc(app: ^App_State, actions: []ui.Action_Row, modal: bool) {
 	held :: proc(m: Key_Mod, down: bool) -> bool {
 		return m == .Any || (m == .Down) == down
 	}
@@ -80,7 +84,7 @@ preview_keys :: proc(app: ^App_State, actions: []ui.Action_Row) {
 			continue
 		}
 		for b in PREVIEW_KEYS {
-			if b.key == a.key && (b.repeat || !a.repeat) && held(b.ctrl, a.control) && held(b.shift, a.shift) {
+			if b.key == a.key && (b.modal || !modal) && (b.repeat || !a.repeat) && held(b.ctrl, a.control) && held(b.shift, a.shift) {
 				command_push(&app.commands, b.kind, b.regs)
 				a.consumed = true
 				break

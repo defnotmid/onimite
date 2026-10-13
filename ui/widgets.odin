@@ -1,8 +1,10 @@
 package ui
 
 import "core:fmt"
+import "core:unicode/utf8"
 
 import platform "../platform"
+import render "../render"
 
 ////////////////////////////////
 // Containers
@@ -175,4 +177,156 @@ spacer :: proc(s: ^State, size: Size) {
 		set_next_pref_width(s, fill())
 	}
 	build_box(s, {}, "")
+}
+
+////////////////////////////////
+// List scrolling
+//
+// A list's scroll is the first row it shows, a row index the caller
+// keeps; these keep it inside the list and the selection in view, and
+// ease the rows between scroll positions.
+
+// Moves `first` by the wheel (`wheel`, up positive) and keeps it within the
+// `count` rows of which `visible` show. Returns whether the wheel moved it,
+// which cancels following the selection until it moves again.
+list_scroll_apply :: proc(first: ^int, wheel: f32, visible, count: int, rows_per_tick: f32 = 2) -> (scrolled: bool) {
+	if wheel != 0 {
+		first^ -= int(wheel * rows_per_tick)
+		scrolled = true
+	}
+	first^ = clamp(first^, 0, max(count - visible, 0))
+	return
+}
+
+// Scrolls `first` just enough that row `selected` is among the `visible`
+// rows shown.
+list_scroll_contain_selection :: proc(first: ^int, selected, visible, count: int) {
+	if selected < first^ {
+		first^ = selected
+	} else if selected >= first^ + visible {
+		first^ = selected - visible + 1
+	}
+	first^ = clamp(first^, 0, max(count - visible, 0))
+}
+
+// The row to build first and the fraction of a row the list is scrolled
+// past it, easing toward `first` (keyed by the list).
+scroll_page :: proc(s: ^State, key: Key, first: int) -> (row: int, fraction: f32) {
+	at := anim_f32(s, key_from_string(key, "###scroll"), f32(first), {initial = f64(first), duration = 0.12, easing = .Cubic_Out})
+	row = int(max(at, 0))
+	return row, max(at, 0) - f32(row)
+}
+
+////////////////////////////////
+// Line edit
+
+// line_edit is a one-line text field on `buf` with a cursor at byte
+// `cursor`. While it has keyboard focus (a click gives it; the caller may
+// set State.keyboard_focus to its box's key) it takes the frame's text and
+// editing keys: Backspace, Delete, Left, Right, Home, End; and keeps the
+// window's text events on. `placeholder` shows, dimmed, while it is empty.
+// The caller sizes it (default fill x 28 px).
+line_edit :: proc(s: ^State, key: string, buf: ^[dynamic]u8, cursor: ^int, placeholder := "") -> Signal {
+	if s.next.pref_width == nil && s.next.fixed_width == nil {
+		set_next_pref_width(s, fill())
+	}
+	if s.next.pref_height == nil && s.next.fixed_height == nil {
+		set_next_pref_height(s, px(28))
+	}
+	if s.next.bg_color == nil {
+		set_next_bg_color(s, s.theme.background)
+	}
+	set_next_text_align(s, .Left)
+	box := build_box(s, {.Clickable, .Draw_Background, .Draw_Border, .Draw_Text, .Clip}, key)
+	sig := signal_from_box(s, box)
+	if clicked(sig) {
+		s.keyboard_focus = box.key
+	}
+	focused := box.key != Key(0) && s.keyboard_focus == box.key
+	cursor^ = clamp(cursor^, 0, len(buf))
+	if focused {
+		s.text_wanted = true
+		line_edit_apply(s, buf, cursor)
+	}
+	box.str = string(buf[:])
+	if len(buf) == 0 && placeholder != "" {
+		box.str = placeholder
+		box.text_color = lerp_u8(box.text_color, box.bg_color, 0.5)
+	}
+	if focused {
+		// The caret, easing to where the cursor is.
+		before := string(buf[:cursor^])
+		target := box.text_padding + (render.measure_text(s.font, before, box.font_size) if s.font != nil else 0)
+		x := anim_f32(s, key_from_string(box.key, "###caret"), target, {initial = f64(target), duration = 0.08, easing = .Cubic_Out})
+		push_parent(s, box)
+		set_next_fixed_x(s, x)
+		set_next_fixed_y(s, 4)
+		set_next_fixed_width(s, max(1, box.font_size / 10))
+		set_next_fixed_height(s, max(box.rect.max.y - box.rect.min.y - 8, 2))
+		set_next_bg_color(s, s.theme.accent)
+		set_next_corner_radius(s, 0)
+		build_box(s, {.Draw_Background}, "###caret")
+		pop_parent(s)
+	}
+	return sig
+}
+
+// Applies the frame's text and editing keys to `buf` at `cursor`, claiming
+// them; whole UTF-8 characters at a time.
+line_edit_apply :: proc(s: ^State, buf: ^[dynamic]u8, cursor: ^int) {
+	continuation :: proc(b: u8) -> bool {return b & 0xC0 == 0x80}
+	for &action in s.actions.rows {
+		if action.consumed {
+			continue
+		}
+		switch {
+		case action.kind == .Text:
+			bytes, n := utf8.encode_rune(action.text)
+			inject_at(buf, cursor^, ..bytes[:n])
+			cursor^ += n
+		case action.kind == .Key && !action.control:
+			#partial switch action.key {
+			case .Backspace:
+				if cursor^ > 0 {
+					first := cursor^ - 1
+					for first > 0 && continuation(buf[first]) {
+						first -= 1
+					}
+					remove_range(buf, first, cursor^)
+					cursor^ = first
+				}
+			case .Delete:
+				if cursor^ < len(buf) {
+					last := cursor^ + 1
+					for last < len(buf) && continuation(buf[last]) {
+						last += 1
+					}
+					remove_range(buf, cursor^, last)
+				}
+			case .Left:
+				for cursor^ > 0 {
+					cursor^ -= 1
+					if !continuation(buf[cursor^]) {
+						break
+					}
+				}
+			case .Right:
+				for cursor^ < len(buf) {
+					cursor^ += 1
+					if cursor^ == len(buf) || !continuation(buf[cursor^]) {
+						break
+					}
+				}
+			case .Home:
+				cursor^ = 0
+			case .End:
+				cursor^ = len(buf)
+			case:
+				continue
+			}
+		case:
+			continue
+		}
+		action.consumed = true
+	}
 }
