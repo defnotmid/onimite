@@ -35,10 +35,19 @@ File_Watcher :: struct {
 
 file_watcher_start :: proc(w: ^File_Watcher, script_path, media_dir: string) {
 	w^ = {}
-	// os.dir returns a slice of its input: own a copy.
-	w.script_dir = strings.clone(filepath.dir(script_path))
-	w.media_dir = strings.clone(media_dir)
+	w.script_dir = os_path(filepath.dir(script_path))
+	w.media_dir = os_path(media_dir)
 	w.thread = thread.create_and_start_with_poly_data(w, watch_loop)
+}
+
+// `path` as directory listings spell it (macOS lists /var as
+// /private/var): the media folder is skipped by comparing those spellings.
+@(private = "file")
+os_path :: proc(path: string) -> string {
+	if fi, err := os.stat(path, context.temp_allocator); err == nil {
+		return strings.clone(fi.fullpath)
+	}
+	return strings.clone(path)
 }
 
 file_watcher_stop :: proc(w: ^File_Watcher) {

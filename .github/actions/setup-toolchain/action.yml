@@ -33,6 +33,15 @@ runs:
         # images whose system libraries differ.
         echo "image=${ImageOS:-$RUNNER_OS}-$RUNNER_ARCH" >> "$GITHUB_OUTPUT"
 
+    - name: Linux build libraries
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        # ottis downloads its models with libcurl, which onimite links (the
+        # binary then needs libcurl.so.4 at run time, present on desktops).
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq --no-install-recommends libcurl4-openssl-dev
+
     - name: Cache Odin
       id: odin-cache
       uses: actions/cache@v4
