@@ -33,24 +33,30 @@ Input :: struct {
 	wheel:         f32, // vertical wheel ticks this frame
 	wheel_x:       f32, // horizontal wheel / touchpad ticks this frame (right is positive)
 	text:          [dynamic]u8, // UTF-8 text typed this frame (line edits)
-	dropped_files: [dynamic]string,
+	dropped_files: [dynamic]string, // dropped on the window or picked in the open-file dialog this frame (owned)
 	primed:        bool, // first tick has established button state
 	user_seen:     bool, // a real motion, button, or key event has arrived
 }
 
-key_scancodes := [Key]sdl.Scancode {
-	.None = .UNKNOWN,
+// The Key of each SDL scancode (.None: a key this app doesn't use).
+@(rodata)
+KEY_OF_SCANCODE := #partial #sparse [sdl.Scancode]Key {
 	.A = .A, .B = .B, .C = .C, .D = .D, .E = .E, .F = .F, .G = .G, .H = .H, .I = .I,
 	.J = .J, .K = .K, .L = .L, .M = .M, .N = .N, .O = .O, .P = .P, .Q = .Q, .R = .R, .S = .S,
 	.T = .T, .V = .V, .W = .W, .X = .X, .Z = .Z,
-	.Zero = ._0, .One = ._1, .Two = ._2, .Three = ._3, .Four = ._4, .Five = ._5,
-	.Six = ._6, .Seven = ._7, .Eight = ._8, .Nine = ._9,
-	.Minus = .MINUS, .Equals = .EQUALS, .Left_Bracket = .LEFTBRACKET, .Right_Bracket = .RIGHTBRACKET,
-	.Space = .SPACE, .Enter = .RETURN, .Escape = .ESCAPE,
-	.Backspace = .BACKSPACE, .Delete = .DELETE, .Tab = .TAB, .Home = .HOME, .End = .END,
-	.Page_Up = .PAGEUP, .Page_Down = .PAGEDOWN,
-	.Left = .LEFT, .Right = .RIGHT, .Up = .UP, .Down = .DOWN,
-	.LShift = .LSHIFT, .RShift = .RSHIFT, .LCtrl = .LCTRL, .RCtrl = .RCTRL,
+	._0 = .Zero, ._1 = .One, ._2 = .Two, ._3 = .Three, ._4 = .Four, ._5 = .Five,
+	._6 = .Six, ._7 = .Seven, ._8 = .Eight, ._9 = .Nine,
+	.MINUS = .Minus, .EQUALS = .Equals, .LEFTBRACKET = .Left_Bracket, .RIGHTBRACKET = .Right_Bracket,
+	.SPACE = .Space, .RETURN = .Enter, .ESCAPE = .Escape,
+	.BACKSPACE = .Backspace, .DELETE = .Delete, .TAB = .Tab, .HOME = .Home, .END = .End,
+	.PAGEUP = .Page_Up, .PAGEDOWN = .Page_Down,
+	.LEFT = .Left, .RIGHT = .Right, .UP = .Up, .DOWN = .Down,
+	.LSHIFT = .LShift, .RSHIFT = .RShift, .LCTRL = .LCtrl, .RCTRL = .RCtrl,
+}
+
+// The Key of an SDL scancode, .None for the keys this app doesn't use.
+key_of_scancode :: proc(sc: sdl.Scancode) -> Key {
+	return KEY_OF_SCANCODE[sc] if sc >= min(sdl.Scancode) && sc <= max(sdl.Scancode) else .None
 }
 
 // ---- per-frame queries ----
@@ -102,39 +108,6 @@ input_button_set :: proc(inp: ^Input, button: u8, down: bool) {
 	}
 }
 
-input_key_repeat :: proc(inp: ^Input, scancode: sdl.Scancode) {
-	for k in Key {
-		if key_scancodes[k] == scancode && scancode != .UNKNOWN {
-			inp.key_repeat[k] = true
-		}
-	}
-}
-
-input_key_edge :: proc(inp: ^Input, scancode: sdl.Scancode, edges: ^[Key]bool) {
-	for k in Key {
-		if key_scancodes[k] == scancode && scancode != .UNKNOWN {
-			edges[k] = true
-		}
-	}
-}
-
-input_key_is_down :: proc(inp: ^Input, scancode: sdl.Scancode) -> bool {
-	for k in Key {
-		if key_scancodes[k] == scancode && scancode != .UNKNOWN {
-			return inp.key_down[k]
-		}
-	}
-	return false
-}
-
-input_key_set :: proc(inp: ^Input, scancode: sdl.Scancode, down: bool) {
-	for k in Key {
-		if key_scancodes[k] == scancode && scancode != .UNKNOWN {
-			inp.key_down[k] = down
-		}
-	}
-}
-
 _pump :: proc(p: ^Platform) {
 	inp := &p.input
 	inp.key_hit = {}
@@ -166,14 +139,18 @@ _pump :: proc(p: ^Platform) {
 			// A repeat is flagged by SDL, or arrives as a second KEY_DOWN for
 			// a key still down (SDL3 on Wayland sends compositor repeats that
 			// way, with the flag clear); both count as typed again.
-			if ev.key.repeat || input_key_is_down(inp, ev.key.scancode) {
-				input_key_repeat(inp, ev.key.scancode)
-			} else {
-				input_key_edge(inp, ev.key.scancode, &inp.key_hit)
+			if k := key_of_scancode(ev.key.scancode); k != .None {
+				if ev.key.repeat || inp.key_down[k] {
+					inp.key_repeat[k] = true
+				} else {
+					inp.key_hit[k] = true
+				}
+				inp.key_down[k] = true
 			}
-			input_key_set(inp, ev.key.scancode, true)
 		case .KEY_UP:
-			input_key_set(inp, ev.key.scancode, false)
+			if k := key_of_scancode(ev.key.scancode); k != .None {
+				inp.key_down[k] = false
+			}
 		case .MOUSE_MOTION:
 			inp.user_seen = true
 		case .MOUSE_BUTTON_DOWN:
@@ -201,9 +178,11 @@ _pump :: proc(p: ^Platform) {
 				// seed them from the level state once, as state, not edges.
 				nkeys: c.int
 				ks := sdl.GetKeyboardState(&nkeys)
-				for k in Key {
-					sc := key_scancodes[k]
-					inp.key_down[k] = sc != .UNKNOWN && int(sc) < int(nkeys) && ks[int(sc)]
+				inp.key_down = {}
+				for i in 0 ..< int(nkeys) {
+					if k := key_of_scancode(sdl.Scancode(i)); k != .None && ks[i] {
+						inp.key_down[k] = true
+					}
 				}
 			}
 			when #config(ONIMITE_INPUT_DEBUG, false) {
@@ -218,6 +197,10 @@ _pump :: proc(p: ^Platform) {
 				append(&inp.dropped_files, strings.clone(string(ev.drop.data)))
 			}
 		}
+	}
+	// A file picked in the open-file dialog arrives like a dropped one.
+	if path, ok := _file_dialog_take(p); ok {
+		append(&inp.dropped_files, path)
 	}
 
 	// Key and button state comes from the events above, never from SDL's

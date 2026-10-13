@@ -55,37 +55,40 @@ test_cli_parse :: proc(t: ^testing.T) {
 	_, help = cli_parse({"show", "v.lua", "--help"})
 	testing.expect(t, help)
 
-	pushed :: proc(args: ..string) -> Command_Storage {
+	// The rows the arguments push, as pushed (all in temp memory).
+	pushed :: proc(args: ..string) -> []Command_Row {
+		context.allocator = context.temp_allocator
 		c := command_storage_make()
 		rows, _ := cli_parse(args)
 		front_rows_push(&c, rows)
-		return c
+		out := make([]Command_Row, len(c.pending.rows))
+		for q, i in c.pending.rows {
+			out[i] = command_row_of(&c.pending, q)
+		}
+		return out
 	}
 	batch := pushed("v.lua", "--batch", "rows.csv", "--rows", "2..", "--image-cache", "64")
-	defer command_storage_destroy(&batch)
 	kinds := make([dynamic]Command_Kind, context.temp_allocator)
-	for row in batch.rows {
+	for row in batch {
 		append(&kinds, row.kind)
 	}
 	testing.expect_value(t, len(kinds), 7)
 	if len(kinds) == 7 {
 		testing.expect_value(t, kinds[3], Command_Kind.Image_Cache_Set)
 		testing.expect_value(t, kinds[4], Command_Kind.Script_Load)
-		testing.expect_value(t, batch.rows[4].regs.flags, Command_Flags{.No_Script})
+		testing.expect_value(t, batch[4].regs.flags, Command_Flags{.No_Script})
 		testing.expect_value(t, kinds[6], Command_Kind.Batch_Render)
-		testing.expect_value(t, batch.rows[6].regs.props, "rows.csv")
-		testing.expect_value(t, batch.rows[6].regs.rows, [2]int{2, 0})
+		testing.expect_value(t, batch[6].regs.props, "rows.csv")
+		testing.expect_value(t, batch[6].regs.rows, [2]int{2, 0})
 	}
 	preview := pushed("preview", "v.lua", "3s", "--paused")
-	defer command_storage_destroy(&preview)
-	last := preview.rows[len(preview.rows) - 1]
-	testing.expect_value(t, preview.rows[len(preview.rows) - 3].regs.flags, Command_Flags{.No_Media})
+	last := preview[len(preview) - 1]
+	testing.expect_value(t, preview[len(preview) - 3].regs.flags, Command_Flags{.No_Media})
 	testing.expect_value(t, last.regs.flags, Command_Flags{.Paused})
 	testing.expect_value(t, last.regs.spec, "3s")
 	probe := pushed("probe", "a.mp4", "b.mp4")
-	defer command_storage_destroy(&probe)
-	last = probe.rows[len(probe.rows) - 1]
-	testing.expect_value(t, len(probe.rows), 4)
+	last = probe[len(probe) - 1]
+	testing.expect_value(t, len(probe), 4)
 	testing.expect_value(t, last.kind, Command_Kind.Probe_Print)
 	testing.expect_value(t, last.regs.args, "a.mp4\nb.mp4")
 }

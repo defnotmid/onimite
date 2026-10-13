@@ -138,24 +138,22 @@ DISPATCH_PASS_LIMIT :: 16
 // except loads, are skipped.
 dispatch :: proc(app: ^App_State) {
 	for _ in 0 ..< DISPATCH_PASS_LIMIT {
-		if len(app.commands.rows) == 0 {
+		if len(app.commands.pending.rows) == 0 {
 			break
 		}
 		dispatch_pass(app)
 	}
 }
 
+// One pass over the rows pushed so far. Rows pushed while it runs wait for
+// the next pass; a handler may run passes of its own (the preview window
+// applies its rows each window frame).
 @(private)
 dispatch_pass :: proc(app: ^App_State) {
-	app.commands.rows, app.commands.applying = app.commands.applying, app.commands.rows
-	rows := app.commands.applying[:]
-	defer {
-		for row in rows {
-			regs_delete(row.regs)
-		}
-		clear(&app.commands.applying)
-	}
-	for row in rows {
+	batch := command_batch_take(&app.commands)
+	defer command_batch_return(&app.commands, &batch)
+	for queued in batch.rows {
+		row := command_row_of(&batch, queued)
 		regs := row.regs
 		if app.exit_code == 1 && row.kind != .Script_Load {
 			// A failed load leaves nothing to act on.
@@ -215,7 +213,7 @@ dispatch_pass :: proc(app: ^App_State) {
 			err = preview_open(app, regs)
 		case .Update_Run:
 			err = update_run(app, regs)
-		case .Playback_Toggle, .Playback_Set, .Frame_Set, .Frame_Step, .Frame_Start, .Seconds_Step, .Scene_Step, .Script_Reload, .Script_Open, .File_Dialog, .Loop_Toggle, .Loop_Set, .Mute_Toggle, .Mute_Set, .Volume_Set, .Volume_Step, .Bookmark_Toggle, .Timeline_Zoom, .Timeline_Fit, .Timeline_Pan, .Timeline_Toggle, .Timeline_Row_Toggle, .Timeline_Rows_Scroll, .Fullscreen_Toggle, .Cursor_Hover, .Watch_Show, .Watch_Section_Set, .Watch_Scroll, .Problem_Step, .Quit:
+		case .Playback_Toggle, .Playback_Set, .Frame_Set, .Frame_Step, .Frame_Start, .Seconds_Step, .Scene_Step, .Script_Reload, .Script_Open, .File_Dialog, .Loop_Toggle, .Loop_Set, .Mute_Toggle, .Mute_Set, .Volume_Set, .Volume_Step, .Bookmark_Toggle, .Timeline_Zoom, .Timeline_Fit, .Timeline_Pan, .Timeline_Toggle, .Timeline_Row_Toggle, .Timeline_Rows_Scroll, .Fullscreen_Toggle, .Cursor_Hover, .Dismiss, .Watch_Show, .Watch_Section_Set, .Watch_Scroll, .Problem_Step, .Quit:
 			preview_apply(app, row.kind, regs)
 		case .Panel_Split, .Panel_Close, .Panel_Resize, .View_Open, .View_Close, .View_Select, .View_Move, .View_Picker_Toggle:
 			workspace_apply(&app.preview.workspace, row.kind, regs)

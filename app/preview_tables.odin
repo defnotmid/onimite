@@ -53,6 +53,55 @@ table_copy :: proc(dst: ^[dynamic]$T, src: []T) {
 	copy(dst[:], src)
 }
 
+// ---- the timeline ----------------------------------------------------------------------
+
+// A scene of the loaded script on the video's frames.
+Preview_Scene :: struct {
+	name:        Text_Span,
+	start_frame: int,
+	end_frame:   int,
+}
+
+// The loaded video's size, rate and length, and its scenes in order (all
+// zero when its timeline does not resolve).
+Preview_Timeline :: struct {
+	width, height: int,
+	fps:           int,
+	frames:        int,
+	scenes:        [dynamic]Preview_Scene,
+	text:          [dynamic]u8,
+}
+
+preview_timeline_destroy :: proc(t: ^Preview_Timeline) {
+	delete(t.scenes)
+	delete(t.text)
+}
+
+preview_timeline_copy :: proc(dst: ^Preview_Timeline, src: ^Preview_Timeline) {
+	dst.width, dst.height, dst.fps, dst.frames = src.width, src.height, src.fps, src.frames
+	table_copy(&dst.scenes, src.scenes[:])
+	table_copy(&dst.text, src.text[:])
+}
+
+// Fills `t` from a load: the video and its resolved timeline (nil: it
+// did not resolve).
+preview_timeline_build :: proc(t: ^Preview_Timeline, v: ^om.Video, tl: ^om.Timeline) {
+	clear(&t.scenes)
+	clear(&t.text)
+	t.width, t.height, t.fps, t.frames = 0, 0, 0, 0
+	if tl == nil {
+		return
+	}
+	t.width, t.height, t.fps, t.frames = v.width, v.height, v.fps, tl.duration_frames
+	for s in tl.scenes {
+		append(&t.scenes, Preview_Scene{text_push(&t.text, s.scene.name), s.start_frame, s.end_frame})
+	}
+}
+
+scene_name :: proc(t: ^Preview_Timeline, s: Preview_Scene) -> string {
+	return text_of(t.text[:], s.name)
+}
+
 // ---- waveforms --------------------------------------------------------------------------
 
 WAVE_BUCKET :: 256 // mix samples per peak pair at level 0

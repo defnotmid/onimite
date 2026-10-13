@@ -1,7 +1,5 @@
 package onimite_app
 
-import "core:strings"
-
 // Every action is a command row, as in paf (after raddbg): the command line,
 // and later the preview window's input and widgets, push rows; `dispatch`
 // applies them in one place, draining until no row is left.
@@ -28,7 +26,7 @@ Command_Kind :: enum u8 {
 	Audio_At, // regs.spec frame specs; regs.track one track ("" = all)
 	Audio_Onsets, // regs.spec a range, regs.ratio the weakest strength listed (0 = all); regs.track one track ("" = the mix)
 	Probe_Print, // regs.args media files, one per line: their streams (no script)
-	Preview_Open, // regs.spec the start frame, .Paused / .No_Loop / .Mute in regs.flags, regs.count window frames to exit after (0 = never); for measurements, regs.path a PNG of the last window frame and regs.args scripted input (`preview_drive`)
+	Preview_Open, // opens the window and runs it until it closes: regs.spec the start frame, .Paused / .No_Loop / .Mute in regs.flags, regs.count window frames to exit after (0 = never); for measurements, regs.path a PNG of the last window frame and regs.args scripted input (`preview_drive`)
 	Update_Run, // regs.flag: only check for a newer release (update.odin)
 	Debug_Set, // .Timing in regs.flags: time and log what runs (ONIMITE_DEBUG); .Clip_Log: the video clip frames each preview frame shows
 	// Preview window (preview.odin).
@@ -56,7 +54,8 @@ Command_Kind :: enum u8 {
 	Timeline_Row_Toggle, // regs.spec a timeline group's path ("bus/sfx"): open or close it
 	Timeline_Rows_Scroll, // regs.count rows, signed: the timeline's rows below the scenes
 	Fullscreen_Toggle,
-	Cursor_Hover, // regs.count the frame under the mouse on the timeline; lasts one frame
+	Cursor_Hover, // regs.count the frame under the mouse on the timeline; lasts one window frame
+	Dismiss, // Escape: closes the list of views, else the Watch, else leaves fullscreen, else quits
 	// The preview's workspace (preview_workspace.odin): panels and their views.
 	Panel_Split, // regs.panel a leaf, regs.direction the side an empty panel opens on, regs.ratio the first side's share (0: half)
 	Panel_Close, // regs.panel a leaf, with its views
@@ -138,60 +137,107 @@ Command_Row :: struct {
 	regs: Command_Regs,
 }
 
+// The string registers, which a queued row keeps as spans of its batch's
+// text.
+Regs_Text :: enum u8 {
+	Path,
+	Spec,
+	Media,
+	Every,
+	Args,
+	Track,
+	At,
+	Props,
+}
+
+@(private = "file")
+regs_text :: proc(r: ^Command_Regs) -> [Regs_Text]^string {
+	return {.Path = &r.path, .Spec = &r.spec, .Media = &r.media, .Every = &r.every, .Args = &r.args, .Track = &r.track, .At = &r.at, .Props = &r.props}
+}
+
+// A pushed row: its string registers are empty, their text is in `text`.
+Queued_Row :: struct {
+	using row: Command_Row,
+	text:      [Regs_Text]Text_Span,
+}
+
+// Rows and the bytes of their strings, reused from pass to pass.
+Command_Batch :: struct {
+	rows: [dynamic]Queued_Row,
+	text: [dynamic]u8,
+}
+
 Command_Storage :: struct {
-	rows:            [dynamic]Command_Row,
-	// Rows being applied; swapped with `rows` so rows pushed during a
-	// dispatch land in the next pass.
-	applying:        [dynamic]Command_Row,
+	// What was pushed since the last pass began.
+	pending:         Command_Batch,
+	// A cleared batch: the next pass takes `pending` and pushes go here
+	// meanwhile, so the rows being applied and their strings stay put
+	// however long their handlers run (a render, the preview window, whose
+	// own passes nest inside its row's).
+	spare:           Command_Batch,
 	next_request_id: u64,
 }
 
 command_storage_make :: proc() -> Command_Storage {
-	return {
-		rows = make([dynamic]Command_Row),
-		applying = make([dynamic]Command_Row),
-		next_request_id = 1,
-	}
+	return {next_request_id = 1}
 }
 
 command_storage_destroy :: proc(s: ^Command_Storage) {
-	for row in s.rows {
-		regs_delete(row.regs)
-	}
-	delete(s.rows)
-	delete(s.applying)
+	command_batch_destroy(&s.pending)
+	command_batch_destroy(&s.spare)
 	s^ = {}
 }
 
-// Appends one row. Strings are cloned so a row outlives the temporary
+@(private = "file")
+command_batch_destroy :: proc(b: ^Command_Batch) {
+	delete(b.rows)
+	delete(b.text)
+	b^ = {}
+}
+
+// Appends one row; its strings are copied, so it outlives the temporary
 // strings it was built from.
 command_push :: proc(s: ^Command_Storage, kind: Command_Kind, regs: Command_Regs = {}) -> u64 {
 	if kind == .None {
 		return 0
 	}
-	row := Command_Row{kind, regs}
-	row.regs.request_id = s.next_request_id
+	q := Queued_Row {
+		row = {kind, regs},
+	}
+	q.regs.request_id = s.next_request_id
 	s.next_request_id += 1
-	row.regs.path = strings.clone(row.regs.path)
-	row.regs.spec = strings.clone(row.regs.spec)
-	row.regs.media = strings.clone(row.regs.media)
-	row.regs.every = strings.clone(row.regs.every)
-	row.regs.args = strings.clone(row.regs.args)
-	row.regs.props = strings.clone(row.regs.props)
-	row.regs.track = strings.clone(row.regs.track)
-	row.regs.at = strings.clone(row.regs.at)
-	append(&s.rows, row)
-	return row.regs.request_id
+	for str, field in regs_text(&q.regs) {
+		q.text[field] = text_push(&s.pending.text, str^)
+		str^ = ""
+	}
+	append(&s.pending.rows, q)
+	return q.regs.request_id
 }
 
-@(private)
-regs_delete :: proc(r: Command_Regs) {
-	delete(r.path)
-	delete(r.spec)
-	delete(r.media)
-	delete(r.every)
-	delete(r.args)
-	delete(r.props)
-	delete(r.track)
-	delete(r.at)
+// Takes the pending rows for a pass; pushes go to the spare batch.
+command_batch_take :: proc(s: ^Command_Storage) -> Command_Batch {
+	batch := s.pending
+	s.pending, s.spare = s.spare, {}
+	return batch
+}
+
+// Clears a batch a pass is done with and keeps it as the spare (a nested
+// pass may have left one there already).
+command_batch_return :: proc(s: ^Command_Storage, batch: ^Command_Batch) {
+	clear(&batch.rows)
+	clear(&batch.text)
+	if cap(s.spare.rows) == 0 && cap(s.spare.text) == 0 {
+		s.spare = batch^
+	} else {
+		command_batch_destroy(batch)
+	}
+}
+
+// The row as pushed: its string registers read the batch's text.
+command_row_of :: proc(batch: ^Command_Batch, q: Queued_Row) -> Command_Row {
+	row := q.row
+	for str, field in regs_text(&row.regs) {
+		str^ = text_of(batch.text[:], q.text[field])
+	}
+	return row
 }

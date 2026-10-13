@@ -2,6 +2,7 @@ package onimite_app
 
 import "core:testing"
 import platform "../platform"
+import ui "../ui"
 
 // A key with Control and Shift as held picks its first matching row.
 @(test)
@@ -9,14 +10,11 @@ test_preview_keys :: proc(t: ^testing.T) {
 	app: App_State
 	app.commands = command_storage_make()
 	defer command_storage_destroy(&app.commands)
-	press :: proc(app: ^App_State, key: platform.Key, shift := false, ctrl := false) -> Command_Row {
-		p: platform.Platform
-		p.input.key_hit[key] = true
-		p.input.key_down[.LShift] = shift
-		p.input.key_down[.LCtrl] = ctrl
-		clear(&app.commands.rows)
-		preview_keys(app, &p)
-		return app.commands.rows[0] if len(app.commands.rows) == 1 else {}
+	press :: proc(app: ^App_State, key: platform.Key, shift := false, ctrl := false, repeat := false) -> Command_Row {
+		actions := []ui.Action_Row{{kind = .Key, key = key, shift = shift, control = ctrl, repeat = repeat}}
+		clear(&app.commands.pending.rows)
+		preview_keys(app, actions)
+		return app.commands.pending.rows[0].row if len(app.commands.pending.rows) == 1 else {}
 	}
 	testing.expect_value(t, press(&app, .Left).kind, Command_Kind.Frame_Step)
 	testing.expect_value(t, press(&app, .Left).regs.count, -1)
@@ -30,4 +28,8 @@ test_preview_keys :: proc(t: ^testing.T) {
 	testing.expect_value(t, press(&app, .I).regs.section, Watch_Section.Media)
 	testing.expect_value(t, press(&app, .N).kind, Command_Kind.Problem_Step)
 	testing.expect_value(t, press(&app, .N, shift = true).regs.count, -1)
+	testing.expect_value(t, press(&app, .Escape).kind, Command_Kind.Dismiss)
+	// Held keys repeat only the rows that say so.
+	testing.expect_value(t, press(&app, .Left, repeat = true).kind, Command_Kind.Frame_Step)
+	testing.expect_value(t, press(&app, .Home, repeat = true).kind, Command_Kind.None)
 }

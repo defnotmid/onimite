@@ -26,8 +26,6 @@ import sdl "vendor:sdl3"
 // line.
 
 Preview_State :: struct {
-	// Set by Preview_Open; `run` opens the window when it is.
-	requested:          bool,
 	start_frame:        int,
 	// The command line gave the start frame: it wins over the bookmark once.
 	start_given:        bool,
@@ -76,10 +74,6 @@ Preview_State :: struct {
 	quit:               bool,
 	// File_Dialog asked for the open-file dialog (the loop opens it).
 	file_dialog:        bool,
-	// Measurements (Preview_Open): a PNG of the last window frame, and
-	// scripted input (`preview_drive`); owned, "" for none.
-	capture:            string,
-	drive:              string,
 	script_path:        string,
 	media_dir:          string,
 	// Script folder and media changes, polled on its own thread.
@@ -155,18 +149,15 @@ STATUS_HEIGHT :: 26
 WATCH_WIDTH :: 360
 VOLUME_STEP :: 0.1
 
-// Preview_Open: remembers the request; `run` opens the window after the
-// command line's rows are applied. The start spec resolves against the
-// script main loaded (declarations only, no rendering).
+// Preview_Open: opens the window and runs it until it closes. The start
+// spec resolves against the script the load row loaded (declarations only,
+// no rendering).
 preview_open :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 	pv := &app.preview
-	pv.requested = true
 	pv.exit_after = regs.count
 	pv.playing = .Paused not_in regs.flags
 	pv.loop = .No_Loop not_in regs.flags
 	pv.muted = .Mute in regs.flags
-	pv.capture = strings.clone(regs.path)
-	pv.drive = strings.clone(regs.args)
 	if regs.spec != "" {
 		tl, err := om.resolve_timeline(&app.script.video, &app.media, context.temp_allocator)
 		if err != nil {
@@ -189,23 +180,15 @@ preview_open :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 	}
 	pv.script_path = strings.clone(app.script.path)
 	pv.media_dir = strings.clone(regs.media if regs.media != "" else default_media_dir(app.script.path))
-	return nil
-}
-
-// Applies queued rows; when Preview_Open asked for it, then runs the window.
-run :: proc(app: ^App_State) {
-	dispatch(app)
-	if app.preview.requested && app.exit_code == 0 {
-		if preview_run(app) != nil {
-			failure_print(app)
-			failure_clear(app)
-		}
-	}
+	return preview_run(app, capture = regs.path, drive = regs.args)
 }
 
 // The window loop. Never waits on Lua, the render worker or a fence: it
-// samples the newest frame the worker published.
-preview_run :: proc(app: ^App_State) -> Error {
+// samples the newest frame the worker published. For measurements,
+// `capture` a PNG of the last window frame and `drive` scripted input
+// (`preview_drive`), "" for none.
+@(private)
+preview_run :: proc(app: ^App_State, capture, drive: string) -> Error {
 	pv := &app.preview
 	pv.active = true
 	// Scrubbing seeks backwards a lot: native decoding seeks fastest.
@@ -221,9 +204,6 @@ preview_run :: proc(app: ^App_State) -> Error {
 	pv.rows_room = ROWS_AREA_MAX
 	workspace_init(&pv.workspace)
 	defer preview_state_destroy(pv)
-	// Scripted input for measurements is pushed as command rows (see
-	// preview_drive).
-	capture, drive := pv.capture, pv.drive
 	debug := app.debug || pv.exit_after > 0
 
 	p: platform.Platform
@@ -293,13 +273,20 @@ preview_run :: proc(app: ^App_State) -> Error {
 	}
 
 	// The opening state, through the same commands as the keys (the volume
-	// first: setting it unmutes).
+	// first: setting it unmutes), before the first window frame.
 	command_push(&app.commands, .Volume_Set, {scalar = 1})
 	command_push(&app.commands, .Frame_Set, {count = pv.start_frame})
 	command_push(&app.commands, .Playback_Set, {flag = pv.playing})
 	command_push(&app.commands, .Loop_Set, {flag = pv.loop})
 	command_push(&app.commands, .Mute_Set, {flag = pv.muted})
+	dispatch(app)
 
+	// Each window frame: what the worker published and the clock, then the
+	// frame is built while input, widgets and the file watch push rows; once
+	// it is presented, its rows are applied in one dispatch, what they ask of
+	// the window happens, and the worker is asked for the frame they lead
+	// to. Applying after the present keeps a script switch from releasing
+	// textures the frame still draws.
 	frames := 0
 	last_audio_log := 0
 	fullscreen := false
@@ -316,23 +303,33 @@ preview_run :: proc(app: ^App_State) -> Error {
 		now := platform.time(&p)
 		dt := clamp(f64(p.frame_time), 0, 0.25)
 
-		pv.hover_valid = false
-		if pv.scrubbing {
-			// Like hover, a scrub lasts one window frame.
-			pv.scrubbing = false
-			preview_sync_audio(app)
-		}
-		preview_gather_from_platform(app, &p)
-		if drive != "" {
-			preview_drive(app, drive, frames)
-		}
-		preview_watch_files(app, now)
-		dispatch(app)
 		preview_playback_advance(app, dt)
 		preview_take_published(app, &r, now)
 		preview_view_follow(app)
 		preview_layout(app, &p)
-		preview_request(app, &p)
+
+		render.begin_frame(&r, PREVIEW_BG)
+		ui.build_begin(&s)
+		preview_input(app, &s)
+		if drive != "" {
+			preview_drive(app, drive, frames)
+		}
+		preview_watch_files(app, now)
+		preview_views(app, &s, &p)
+		ui.build_end(&s)
+		built := time.tick_since(tick_began)
+		if capture != "" && pv.exit_after > 0 && frames >= pv.exit_after {
+			if pixels, ok := render.end_frame_capture(&r); ok {
+				vg.write_png(capture, pixels, r.fb_w, r.fb_h)
+				delete(pixels)
+				fmt.eprintln("preview: captured", capture)
+			}
+		} else {
+			render.end_frame(&r)
+		}
+
+		presented := time.tick_now()
+		preview_frame_apply(app)
 		if pv.quit {
 			break
 		}
@@ -344,24 +341,9 @@ preview_run :: proc(app: ^App_State) -> Error {
 			fullscreen = pv.fullscreen
 			platform.set_fullscreen(&p, fullscreen)
 		}
-
-		render.begin_frame(&r, PREVIEW_BG)
-		ui.build_begin(&s)
-		preview_global_actions(app, &s, &p)
-		preview_views(app, &s, &p)
-		ui.build_end(&s)
-		dispatch(app)
-		append(&pv.ui_ms, f32(time.duration_milliseconds(time.tick_since(tick_began))))
+		preview_request(app, &p)
+		append(&pv.ui_ms, f32(time.duration_milliseconds(built + time.tick_since(presented))))
 		append(&pv.interval_ms, p.frame_time * 1000)
-		if capture != "" && pv.exit_after > 0 && frames >= pv.exit_after {
-			if pixels, ok := render.end_frame_capture(&r); ok {
-				vg.write_png(capture, pixels, r.fb_w, r.fb_h)
-				delete(pixels)
-				fmt.eprintln("preview: captured", capture)
-			}
-		} else {
-			render.end_frame(&r)
-		}
 		if debug && pv.audio_stream != nil && frames - last_audio_log >= 30 {
 			last_audio_log = frames
 			pos, playing, fed := audio_position(audio)
@@ -545,8 +527,6 @@ preview_drive_workspace :: proc(app: ^App_State, drive: string, frames: int) {
 @(private)
 preview_state_destroy :: proc(pv: ^Preview_State) {
 	delete(pv.script_path)
-	delete(pv.capture)
-	delete(pv.drive)
 	delete(pv.media_dir)
 	delete(pv.reload_error)
 	delete(pv.device_name)
@@ -748,6 +728,21 @@ preview_apply :: proc(app: ^App_State, kind: Command_Kind, regs: Command_Regs) {
 	case .Cursor_Hover:
 		pv.hover_frame = regs.count
 		pv.hover_valid = true
+	case .Dismiss:
+		// Closes a list of views, then the Watch, then leaves fullscreen,
+		// then the window.
+		ws := &pv.workspace
+		c := &app.commands
+		switch {
+		case ws.picker != 0:
+			command_push(c, .View_Picker_Toggle, {panel = ws.picker})
+		case workspace_find(ws, .Watch) != 0:
+			command_push(c, .View_Close, {view = workspace_find(ws, .Watch)})
+		case pv.fullscreen:
+			command_push(c, .Fullscreen_Toggle)
+		case:
+			command_push(c, .Quit)
+		}
 	case .Quit:
 		pv.quit = true
 	}
@@ -758,7 +753,7 @@ preview_apply :: proc(app: ^App_State, kind: Command_Kind, regs: Command_Regs) {
 @(private)
 scene_step_target :: proc(app: ^App_State, steps: int) -> int {
 	pv := &app.preview
-	scenes := pv.timeline.scenes
+	scenes := pv.timeline.scenes[:]
 	if len(scenes) == 0 {
 		return 0 if steps < 0 else preview_duration(app) - 1
 	}
@@ -860,17 +855,17 @@ start_target :: proc(app: ^App_State) -> int {
 
 // ---- updates ------------------------------------------------------------------------
 
+// Applies the rows the window frame pushed. A hover and a scrub last one
+// window frame: they hold until the next frame's rows renew them.
 @(private)
-preview_gather_from_platform :: proc(app: ^App_State, p: ^platform.Platform) {
-	for path in platform.dropped_files(p) {
-		if strings.has_suffix(strings.to_lower(path, context.temp_allocator), ".lua") {
-			command_push(&app.commands, .Script_Open, {path = path})
-			break
-		}
-	}
-	if path, ok := platform.file_dialog_take(p); ok {
-		command_push(&app.commands, .Script_Open, {path = path})
-		delete(path)
+preview_frame_apply :: proc(app: ^App_State) {
+	pv := &app.preview
+	scrubbed := pv.scrubbing
+	pv.hover_valid = false
+	pv.scrubbing = false
+	dispatch(app)
+	if scrubbed && !pv.scrubbing {
+		preview_sync_audio(app)
 	}
 }
 
@@ -1027,8 +1022,7 @@ preview_take_published :: proc(app: ^App_State, r: ^render.Renderer, now: f64) {
 	}
 	if mb.timeline_seq != pv.seen_timeline {
 		pv.seen_timeline = mb.timeline_seq
-		preview_timeline_destroy(&pv.timeline)
-		pv.timeline = preview_timeline_clone(mb.timeline)
+		preview_timeline_copy(&pv.timeline, &mb.timeline)
 		bookmark_loaded = mb.bookmark_loaded
 		timeline_changed = true
 	}
@@ -1191,24 +1185,16 @@ view_area :: proc(app: ^App_State, kind: View_Kind) -> (area: Workspace_Rect, sh
 
 // ---- views ---------------------------------------------------------------------------
 
+// The window's input that no widget takes: the keys' rows, and a script
+// dropped on the window or picked in the open-file dialog.
 @(private)
-preview_global_actions :: proc(app: ^App_State, s: ^ui.State, p: ^platform.Platform) {
-	pv := &app.preview
-	c := &app.commands
-	ws := &pv.workspace
-	preview_keys(app, p)
-	if ui.action_pressed(s, .Cancel) {
-		// Escape closes a list of views, then the Watch, then leaves
-		// fullscreen, then the window.
-		switch {
-		case ws.picker != 0:
-			command_push(c, .View_Picker_Toggle, {panel = ws.picker})
-		case workspace_find(ws, .Watch) != 0:
-			command_push(c, .View_Close, {view = workspace_find(ws, .Watch)})
-		case pv.fullscreen:
-			command_push(c, .Fullscreen_Toggle)
-		case:
-			command_push(c, .Quit)
+preview_input :: proc(app: ^App_State, s: ^ui.State) {
+	preview_keys(app, s.actions.rows[:])
+	for &a in s.actions.rows {
+		if a.kind == .Drop && !a.consumed && strings.has_suffix(strings.to_lower(a.path, context.temp_allocator), ".lua") {
+			a.consumed = true
+			command_push(&app.commands, .Script_Open, {path = a.path})
+			break
 		}
 	}
 }
@@ -1402,7 +1388,7 @@ time_label :: proc(app: ^App_State, f: int) -> string {
 	scene := ""
 	for sc in app.preview.timeline.scenes {
 		if f >= sc.start_frame && f < sc.end_frame {
-			scene = fmt.tprintf("%s@%.2fs · ", sc.name, f32(f - sc.start_frame) / fps)
+			scene = fmt.tprintf("%s@%.2fs · ", scene_name(&app.preview.timeline, sc), f32(f - sc.start_frame) / fps)
 		}
 	}
 	return fmt.tprintf("%s%s · f %d/%d", scene, clock_label(app, f), f, total)

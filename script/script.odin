@@ -65,18 +65,16 @@ Script :: struct {
 	// Clips audio_add will build from a function when they are needed
 	// (`audio_build_clip`).
 	pending_audio: [dynamic]Pending_Audio,
-	// With `node_sources_on`, the script line that made each node of the
-	// frame being built, by node index (`node_source`); reset per frame.
+	// With `node_sources_on`, where each node of the frame being built came
+	// from, by node index (`node_source`, `node_via`, `node_scene`); the
+	// lines' text in `node_text`.
 	node_sources_on: bool,
 	// The preview: deferred clips are built by clip jobs, never by a frame.
 	// A frame needing one that isn't here yet draws without it (silence)
 	// and counts it in its context's `audio_pending`, to be drawn again.
 	audio_later:     bool,
-	node_sources:    [dynamic]string,
-	// And the scene being rendered when each was made ("" at video level),
-	// and the line that called into the helper that made it (`via`).
-	node_scenes:     [dynamic]string,
-	node_vias:       [dynamic]string,
+	node_sources:    [dynamic]Node_Source,
+	node_text:       [dynamic]u8,
 	// text_width's results by text and font (hashed).
 	widths:        map[u64]f32,
 	// Load-time data shared with the other states of a render (shared.odin):
@@ -239,10 +237,8 @@ unload :: proc(s: ^Script) {
 	say_unload(s)
 	physics_unload(s)
 	delete(s.widths)
-	node_sources_reset(s)
 	delete(s.node_sources)
-	delete(s.node_scenes)
-	delete(s.node_vias)
+	delete(s.node_text)
 	delete(s.scenes)
 	delete(s.slots)
 	delete(s.tracks)
@@ -643,48 +639,84 @@ render_ctx :: proc(L: ^lua.State, s: ^Script, fn: cstring) -> ^om.Context {
 		lua.L_error(L, "%s() can only be called while rendering a frame", fn)
 	}
 	if s.node_sources_on {
-		// The node this call makes comes next in the tree.
-		i := len(s.ctx.tree.nodes)
-		for len(s.node_sources) <= i {
-			append(&s.node_sources, "")
-			append(&s.node_scenes, "")
-			append(&s.node_vias, "")
-		}
-		delete(s.node_sources[i])
-		delete(s.node_vias[i])
-		at, via := caller_where_via(L)
-		s.node_sources[i], s.node_vias[i] = strings.clone(at), strings.clone(via)
-		s.node_scenes[i] = s.frame.scene.scene.name if s.frame.scene != nil else ""
+		node_source_record(s, L)
 	}
 	return s.ctx
 }
 
-// The script line that made node `i` of the last frame built while
-// `node_sources_on` ("" when unknown).
+// Where a node came from: the script line that made it, the line that
+// called into the helper that made it (`via`, "" if none), both in
+// `node_text`, and the scene being rendered ("" at video level; borrowed).
+Node_Source :: struct {
+	at, via: Text_Range,
+	scene:   string,
+}
+
+Text_Range :: struct {
+	offset, length: u32,
+}
+
+// Records where the node the current call makes (the next in the tree)
+// comes from. The rows from its index on are an earlier frame's.
+@(private)
+node_source_record :: proc(s: ^Script, L: ^lua.State) {
+	i := len(s.ctx.tree.nodes)
+	if i < len(s.node_sources) {
+		resize(&s.node_text, s.node_sources[i].at.offset)
+		resize(&s.node_sources, i)
+	}
+	// Nodes made without a call here (none known) come from nowhere.
+	nowhere := Text_Range{u32(len(s.node_text)), 0}
+	for len(s.node_sources) < i {
+		append(&s.node_sources, Node_Source{at = nowhere, via = nowhere})
+	}
+	text_add :: proc(s: ^Script, str: string) -> Text_Range {
+		r := Text_Range{u32(len(s.node_text)), u32(len(str))}
+		append(&s.node_text, str)
+		return r
+	}
+	at, via := caller_where_via(L)
+	source := Node_Source {
+		at  = text_add(s, at),
+		via = text_add(s, via),
+	}
+	if s.frame.scene != nil {
+		source.scene = s.frame.scene.scene.name
+	}
+	append(&s.node_sources, source)
+}
+
+// Where node `i` of the last frame built while `node_sources_on` came from
+// (zero when unknown).
+@(private)
+node_source_row :: proc(s: ^Script, i: int) -> Node_Source {
+	return s.node_sources[i] if i >= 0 && i < len(s.node_sources) else {}
+}
+
+@(private)
+node_text_of :: proc(s: ^Script, r: Text_Range) -> string {
+	return string(s.node_text[r.offset:][:r.length])
+}
+
+// The script line that made node `i` ("" when unknown).
 node_source :: proc(s: ^Script, i: int) -> string {
-	return s.node_sources[i] if i >= 0 && i < len(s.node_sources) else ""
-}
-
-// The scene that was rendering when node `i` was made ("" at video level).
-node_scene :: proc(s: ^Script, i: int) -> string {
-	return s.node_scenes[i] if i >= 0 && i < len(s.node_scenes) else ""
-}
-
-node_sources_reset :: proc(s: ^Script) {
-	for n in s.node_sources {
-		delete(n)
-	}
-	clear(&s.node_sources)
-	clear(&s.node_scenes) // names borrowed from the scenes
-	for v in s.node_vias {
-		delete(v)
-	}
-	clear(&s.node_vias)
+	return node_text_of(s, node_source_row(s, i).at)
 }
 
 // The line that called into the helper that made node `i` ("" if none).
 node_via :: proc(s: ^Script, i: int) -> string {
-	return s.node_vias[i] if i >= 0 && i < len(s.node_vias) else ""
+	return node_text_of(s, node_source_row(s, i).via)
+}
+
+// The scene that was rendering when node `i` was made ("" at video level).
+node_scene :: proc(s: ^Script, i: int) -> string {
+	return node_source_row(s, i).scene
+}
+
+// Forgets the recorded nodes.
+node_sources_reset :: proc(s: ^Script) {
+	clear(&s.node_sources)
+	clear(&s.node_text)
 }
 
 // ---- video and scenes -----------------------------------------------------------------

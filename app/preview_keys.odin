@@ -1,6 +1,7 @@
 package onimite_app
 
 import platform "../platform"
+import ui "../ui"
 
 // The preview's keys: fframes' Dock keys (lowercase letters plain, capitals
 // with Shift) plus its own, each the command row it pushes. A row matches
@@ -65,23 +66,25 @@ PREVIEW_KEYS := [?]Key_Binding {
 	{key = .T, ctrl = .Up, kind = .Timeline_Toggle},
 	{key = .I, ctrl = .Up, kind = .Watch_Show, regs = {section = .Media}},
 	{key = .Q, ctrl = .Up, kind = .Quit},
+	{key = .Escape, kind = .Dismiss},
 }
 
-// Pushes the rows of the keys that went down this window frame.
-preview_keys :: proc(app: ^App_State, p: ^platform.Platform) {
-	ctrl, shift := platform.ctrl_down(p), platform.shift_down(p)
+// Pushes the rows of the keys that went down this window frame (the
+// window's key actions).
+preview_keys :: proc(app: ^App_State, actions: []ui.Action_Row) {
 	held :: proc(m: Key_Mod, down: bool) -> bool {
 		return m == .Any || (m == .Down) == down
 	}
-	last: platform.Key
-	for b in PREVIEW_KEYS {
-		if b.key == last {
+	for &a in actions {
+		if a.kind != .Key || a.consumed {
 			continue
 		}
-		hit := platform.key_typed(p, b.key) if b.repeat else platform.key_pressed(p, b.key)
-		if hit && held(b.ctrl, ctrl) && held(b.shift, shift) {
-			command_push(&app.commands, b.kind, b.regs)
-			last = b.key
+		for b in PREVIEW_KEYS {
+			if b.key == a.key && (b.repeat || !a.repeat) && held(b.ctrl, a.control) && held(b.shift, a.shift) {
+				command_push(&app.commands, b.kind, b.regs)
+				a.consumed = true
+				break
+			}
 		}
 	}
 }

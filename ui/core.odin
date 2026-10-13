@@ -2,9 +2,9 @@
 // framework (raddebugger/src/ui), copied from ../paf/ui (itself from
 // odincade's sketch_and_extrude) with the preview's action vocabulary. It keeps the core semantics faithful:
 //
-//   - A persistent, keyed box tree rebuilt every frame. Keyed boxes survive
-//     across frames in `State.box_table`, so animation/interaction state
-//     (hot_t/active_t, last-frame rect) persists.
+//   - A box tree rebuilt every frame on the temp allocator. What a keyed
+//     box keeps across frames (hot_t/active_t, last-frame rect) is a row of
+//     `State.memories`, so animation/interaction state persists.
 //   - UI_Size kinds: Pixels, Text_Content, Parent_Pct.
 //   - The autolayout, run per-axis (X then Y): standalone sizes,
 //     upwards-dependent (parent pct), violation solving (shrink by
@@ -16,8 +16,8 @@
 //
 // The C original leans on macros, an implicit thread-static state pointer, and
 // intrusive nil-sentinel linked lists. This port instead threads an explicit
-// `^State` to every proc, uses `bit_set` flags and `map[Key]^Box`, and
-// represents nil boxes by plain `nil`.
+// `^State` to every proc, uses `bit_set` flags and flat rows of box memory
+// found by key, and represents nil boxes by plain `nil`.
 package ui
 
 import "core:math"
@@ -144,11 +144,10 @@ Text_Align :: enum u8 {
 ////////////////////////////////
 // Box
 
-// Box is one node in the per-frame tree. Keyed boxes are heap-allocated once
-// and reused across frames (found via State.box_table); transient boxes
-// (Key 0) live in State.frame_boxes and are freed each frame. Per-frame fields
-// (links, sizes, rect target) are reset by build_box; persistent fields
-// (hot_t, active_t, rect from last frame) survive.
+// Box is one node in the per-frame tree, on context.temp_allocator (the
+// caller frees it after the frame). A keyed box starts from its memory
+// (hot_t, active_t, rect from last frame) and writes it back at build_end;
+// a transient one (Key 0) starts from nothing.
 Box :: struct {
 	// intrusive tree (per-frame; nil-terminated)
 	first, last, next, prev, parent: ^Box,
@@ -182,13 +181,24 @@ Box :: struct {
 	custom_draw_data:                rawptr,
 
 	// computed layout (rect.min/max in pixels)
-	rect:                            struct {
-		min, max: [2]f32,
-	},
+	rect:                            Rect,
 
-	// persistent state (survives across frames)
+	// persistent state (from the box's memory; survives across frames)
 	hot_t, active_t:                 f32,
-	last_build_index:                u64,
+	// The box's row of State.memories (-1: transient).
+	memory:                          int,
+}
+
+Rect :: struct {
+	min, max: [2]f32,
+}
+
+// What a keyed box keeps from one frame to the next.
+Box_Memory :: struct {
+	key:              Key,
+	rect:             Rect,
+	hot_t, active_t:  f32,
+	last_build_index: u64,
 }
 
 Custom_Draw :: #type proc(s: ^State, box: ^Box, data: rawptr)
@@ -210,12 +220,17 @@ Sig_Flags :: bit_set[Sig_Flag;u32]
 // Signal is the interaction result for a box, computed against the box's
 // last-frame rect. `drag_delta` is mouse-now minus press-origin.
 Signal :: struct {
-	box:        ^Box,
-	flags:      Sig_Flags,
-	drag_delta: [2]f32,
-	scroll:     f32,
+	box:         ^Box,
+	flags:       Sig_Flags,
+	drag_delta:  [2]f32,
+	// The mouse's movement this frame while the box is dragged (either
+	// button).
+	drag_motion: [2]f32,
+	scroll:      f32,
 	// Horizontal scrolling over the box (right positive).
-	scroll_x:   f32,
+	scroll_x:    f32,
+	// Scrolling with Control held over the box: zoom steps (in positive).
+	zoom:        f32,
 }
 
 clicked :: proc(s: Signal) -> bool {return .Left_Clicked in s.flags}
@@ -234,11 +249,9 @@ State :: struct {
 	p:               ^platform.Platform,
 	font:            ^render.Font,
 
-	// persistent keyed boxes
-	box_table:       map[Key]^Box,
-
-	// per-frame transient boxes (Key 0), freed at build_begin
-	frame_boxes:     [dynamic]^Box,
+	// keyed boxes' memories, and their rows by key
+	memories:        [dynamic]Box_Memory,
+	memory_of_key:   map[Key]int,
 
 	// build state
 	root:            ^Box,
@@ -302,8 +315,8 @@ init :: proc(s: ^State, r: ^render.Renderer, p: ^platform.Platform, font: ^rende
 	s.r = r
 	s.p = p
 	s.font = font
-	s.box_table = make(map[Key]^Box)
-	s.frame_boxes = make([dynamic]^Box)
+	s.memories = make([dynamic]Box_Memory)
+	s.memory_of_key = make(map[Key]int)
 	s.parent_stack = make([dynamic]^Box)
 	s.actions = action_storage_make()
 	s.animations = animation_storage_make()
@@ -311,16 +324,10 @@ init :: proc(s: ^State, r: ^render.Renderer, p: ^platform.Platform, font: ^rende
 	s.build_index = 0
 }
 
-// destroy frees all persistent boxes and the State's containers.
+// destroy frees the boxes' memories and the State's containers.
 destroy :: proc(s: ^State) {
-	for _, b in s.box_table {
-		free(b)
-	}
-	delete(s.box_table)
-	for b in s.frame_boxes {
-		free(b)
-	}
-	delete(s.frame_boxes)
+	delete(s.memories)
+	delete(s.memory_of_key)
 	delete(s.parent_stack)
 	action_storage_destroy(&s.actions)
 	animation_storage_destroy(&s.animations)
@@ -329,20 +336,14 @@ destroy :: proc(s: ^State) {
 ////////////////////////////////
 // Build phase
 
-// build_begin starts a frame: bumps build_index, frees last frame's transient
-// boxes, clears the overrides, and pushes a framebuffer-sized root box. Interaction
-// keys computed last frame carry over.
+// build_begin starts a frame: bumps build_index, clears the overrides, and
+// pushes a framebuffer-sized root box. Interaction keys computed last frame
+// carry over.
 build_begin :: proc(s: ^State) {
 	s.build_index += 1
 	s.is_animating = false
 	animation_storage_prune(&s.animations, s.build_index)
 	actions_gather_from_platform(&s.actions, s.p)
-
-	// free transient boxes from previous frame
-	for b in s.frame_boxes {
-		free(b)
-	}
-	clear(&s.frame_boxes)
 
 	// reset the parents and overrides (they do not persist across frames)
 	clear(&s.parent_stack)
@@ -370,8 +371,8 @@ build_begin :: proc(s: ^State) {
 	push_parent(s, root)
 }
 
-// build_end runs the layout passes (X then Y), draws the tree, then prunes any
-// keyed box not touched this frame.
+// build_end runs the layout passes (X then Y), draws the tree, keeps the
+// keyed boxes' memories, then forgets the keys not built this frame.
 build_end :: proc(s: ^State) {
 	pop_parent(s) // pop root
 
@@ -387,7 +388,7 @@ build_end :: proc(s: ^State) {
 	draw(s)
 	animations_advance(s)
 
-	// prune keyed boxes untouched this frame
+	remember(s, s.root)
 	prune(s)
 }
 
@@ -402,35 +403,23 @@ build_box :: proc(s: ^State, flags: Box_Flags, string_key: string) -> ^Box {
 	key := key_from_string(active_seed_key(s), string_key)
 	transient := key == Key(0)
 
-	box: ^Box
-	if !transient {
-		if existing, ok := s.box_table[key]; ok {
-			// duplicate key within one frame -> demote to transient
-			if existing.last_build_index == s.build_index {
-				transient = true
-			} else {
-				box = existing
-			}
-		}
-	}
-
-	if box == nil {
-		box = new(Box)
-		if transient {
-			append(&s.frame_boxes, box)
-		} else {
-			s.box_table[key] = box
-		}
-	}
-
-	// reset per-frame fields (preserve persistent hot_t/active_t/rect)
-	box.first = nil
-	box.last = nil
-	box.next = nil
-	box.prev = nil
-	box.parent = nil
-	box.child_count = 0
+	box := new(Box, context.temp_allocator)
 	box.key = key
+	box.memory = -1
+	if !transient {
+		memory, known := s.memory_of_key[key]
+		if !known {
+			memory = len(s.memories)
+			append(&s.memories, Box_Memory{key = key})
+			s.memory_of_key[key] = memory
+		}
+		// A key built twice in one frame: the second box is transient.
+		if m := &s.memories[memory]; m.last_build_index != s.build_index {
+			m.last_build_index = s.build_index
+			box.memory = memory
+			box.rect, box.hot_t, box.active_t = m.rect, m.hot_t, m.active_t
+		}
+	}
 
 	// link into tree
 	if parent != nil {
@@ -493,8 +482,6 @@ build_box :: proc(s: ^State, flags: Box_Flags, string_key: string) -> ^Box {
 		box.str = ""
 	}
 
-	box.last_build_index = s.build_index
-
 	return box
 }
 
@@ -511,18 +498,32 @@ active_seed_key :: proc(s: ^State) -> Key {
 	return Key(0)
 }
 
-// prune removes keyed boxes whose last_build_index is stale.
-prune :: proc(s: ^State) {
-	to_remove := make([dynamic]Key, context.temp_allocator)
-	for k, b in s.box_table {
-		if b.last_build_index != s.build_index {
-			append(&to_remove, k)
-		}
+// Writes the keyed boxes' state back to their memories.
+remember :: proc(s: ^State, box: ^Box) {
+	if box.memory >= 0 {
+		m := &s.memories[box.memory]
+		m.rect, m.hot_t, m.active_t = box.rect, box.hot_t, box.active_t
 	}
-	for k in to_remove {
-		b := s.box_table[k]
-		free(b)
-		delete_key(&s.box_table, k)
+	for c := box.first; c != nil; c = c.next {
+		remember(s, c)
+	}
+}
+
+// Forgets the memories of keys not built this frame (the last row moves
+// into a forgotten one's place).
+prune :: proc(s: ^State) {
+	for i := 0; i < len(s.memories); {
+		m := s.memories[i]
+		if m.last_build_index == s.build_index {
+			i += 1
+			continue
+		}
+		delete_key(&s.memory_of_key, m.key)
+		last := pop(&s.memories)
+		if i < len(s.memories) {
+			s.memories[i] = last
+			s.memory_of_key[last.key] = i
+		}
 	}
 }
 
@@ -717,8 +718,9 @@ signal_from_box :: proc(s: ^State, box: ^Box) -> Signal {
 
 	// Like RAD Debugger's UI_EventKind_Scroll path, the hovered box consumes
 	// the admitted scroll row. Sibling widgets and the camera cannot replay it.
-	sig.scroll = action_scroll_consume(s, false, r_min, r_max, true)
-	sig.scroll_x = action_scroll_consume(s, false, r_min, r_max, true, horizontal = true)
+	sig.scroll = action_scroll_consume(s, false, r_min, r_max)
+	sig.scroll_x = action_scroll_consume(s, false, r_min, r_max, horizontal = true)
+	sig.zoom = action_scroll_consume(s, true, r_min, r_max)
 
 	// Drop sites: the first site under the mouse this frame owns the drop-hot
 	// key, so a site built earlier (a panel's edge) wins over one built later
@@ -771,6 +773,10 @@ signal_from_box :: proc(s: ^State, box: ^Box) -> Signal {
 		if platform.mouse_down(s.p, .Left) || .Left_Pressed in sig.flags {
 			sig.flags |= {.Left_Dragging}
 		}
+	}
+
+	if sig.flags & {.Left_Dragging, .Middle_Dragging} != {} {
+		sig.drag_motion = platform.mouse_delta(s.p)
 	}
 
 	// hover: mouse over and no other box owns hot/active

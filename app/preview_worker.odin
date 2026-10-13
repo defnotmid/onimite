@@ -66,36 +66,6 @@ Render_Request :: struct {
 	asked:        time.Tick,
 }
 
-// The scene list of the loaded script, owned by whoever holds it.
-Preview_Scene :: struct {
-	name:        string,
-	start_frame: int,
-	end_frame:   int,
-}
-
-Preview_Timeline :: struct {
-	width, height: int,
-	fps:           int,
-	frames:        int,
-	scenes:        []Preview_Scene,
-}
-
-preview_timeline_clone :: proc(t: Preview_Timeline) -> Preview_Timeline {
-	out := t
-	out.scenes = make([]Preview_Scene, len(t.scenes))
-	for s, i in t.scenes {
-		out.scenes[i] = {strings.clone(s.name), s.start_frame, s.end_frame}
-	}
-	return out
-}
-
-preview_timeline_destroy :: proc(t: ^Preview_Timeline) {
-	for s in t.scenes {
-		delete(s.name)
-	}
-	delete(t.scenes)
-	t^ = {}
-}
 
 // A finished timeline thumbnail: the frame and its texture (owned by the
 // worker; never written again while published).
@@ -812,17 +782,10 @@ worker_load :: proc(w: ^Render_Worker, reload_media: bool) {
 	om.timeline_destroy(&w.timeline)
 	tl, err := om.resolve_timeline(&next.video, media)
 	w.timeline, w.timeline_ok = tl, err == nil
-	pt: Preview_Timeline
 	clear(&w.placed.tracks)
 	clear(&w.placed.order)
 	if err == nil {
 		v := &next.video
-		pt = {width = v.width, height = v.height, fps = v.fps, frames = tl.duration_frames}
-		scenes := make([]Preview_Scene, len(tl.scenes), context.temp_allocator)
-		for s, i in tl.scenes {
-			scenes[i] = {s.scene.name, s.start_frame, s.end_frame}
-		}
-		pt.scenes = scenes
 		om.placed_audio_update(&w.placed, v, tl, media)
 		w.frames = tl.duration_frames
 		thumb_scale := min(f32(THUMB_HEIGHT) / f32(max(v.height, 1)), 1)
@@ -838,8 +801,7 @@ worker_load :: proc(w: ^Render_Worker, reload_media: bool) {
 	}
 
 	sync.mutex_lock(&w.mb.mutex)
-	preview_timeline_destroy(&w.mb.timeline)
-	w.mb.timeline = preview_timeline_clone(pt)
+	preview_timeline_build(&w.mb.timeline, &next.video, &w.timeline if err == nil else nil)
 	w.mb.timeline_seq += 1
 	if first_load {
 		w.mb.bookmark_loaded = bookmark

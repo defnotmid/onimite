@@ -433,7 +433,7 @@ front_rows_run :: proc(rows: Front_Rows, out: ^strings.Builder = nil) -> int {
 	app_init(&a)
 	a.out = out
 	front_rows_push(&a.commands, rows)
-	run(&a)
+	dispatch(&a)
 	code := a.exit_code
 	app_destroy(&a)
 	return code

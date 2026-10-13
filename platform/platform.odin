@@ -24,8 +24,8 @@ Platform :: struct {
 	resized:       bool, // framebuffer size changed since last tick
 	input:         Input,
 
-	// the native open-file dialog: one at a time, its answer taken by
-	// file_dialog_take
+	// the native open-file dialog: one at a time; its answer arrives as a
+	// dropped file
 	dialog_open:   bool,
 	dialog_ready:  bool,
 	dialog_path:   string, // owned
@@ -99,8 +99,8 @@ FILE_DIALOG_FILTERS := [?]sdl.DialogFileFilter {
 	{"all files", "*"},
 }
 
-// file_dialog_open shows the native open-file dialog; its answer arrives
-// through file_dialog_take on a later tick.
+// file_dialog_open shows the native open-file dialog; the file picked
+// arrives in `dropped_files` on a later tick.
 file_dialog_open :: proc(p: ^Platform) {
 	if p.dialog_open {
 		return
@@ -121,8 +121,8 @@ _file_dialog_done :: proc "c" (userdata: rawptr, filelist: [^]cstring, filter: c
 	p.dialog_ready = true
 }
 
-// file_dialog_take hands over the chosen path once (owned by the caller).
-file_dialog_take :: proc(p: ^Platform) -> (path: string, ok: bool) {
+// The chosen path, once (owned by the caller).
+_file_dialog_take :: proc(p: ^Platform) -> (path: string, ok: bool) {
 	if !p.dialog_ready {
 		return "", false
 	}

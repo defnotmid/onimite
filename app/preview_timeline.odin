@@ -116,11 +116,11 @@ timeline_height :: proc(app: ^App_State) -> f32 {
 // The scene segments; a video without scenes is one segment.
 @(private = "file")
 segments :: proc(app: ^App_State) -> []Preview_Scene {
-	if scenes := app.preview.timeline.scenes; len(scenes) > 0 {
+	if scenes := app.preview.timeline.scenes[:]; len(scenes) > 0 {
 		return scenes
 	}
 	whole := make([]Preview_Scene, 1, context.temp_allocator)
-	whole[0] = {"", 0, preview_duration(app)}
+	whole[0] = {{}, 0, preview_duration(app)}
 	return whole
 }
 
@@ -240,10 +240,8 @@ timeline_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32, area: Workspace_R
 		if ui.mouse_over(sig) {
 			command_push(c, .Cursor_Hover, {count = clamp(frame_at(pv, track, mouse.x, ppf), 0, preview_duration(app) - 1)})
 		}
-		if ui.middle_dragging(sig) {
-			if dx := platform.mouse_delta(s.p).x; dx != 0 {
-				command_push(c, .Timeline_Pan, {scalar = -f64(dx) / ppf})
-			}
+		if ui.middle_dragging(sig) && sig.drag_motion.x != 0 {
+			command_push(c, .Timeline_Pan, {scalar = -f64(sig.drag_motion.x) / ppf})
 		}
 		total, shown := rows_points(app, timeline_rows(app))
 		if sig.scroll != 0 && hit >= 0 && total > shown {
@@ -251,8 +249,8 @@ timeline_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32, area: Workspace_R
 		} else if sig.scroll != 0 || sig.scroll_x != 0 {
 			command_push(c, .Timeline_Pan, {scalar = f64(sig.scroll_x - sig.scroll) * visible * 0.1})
 		}
-		if zoom := ui.action_scroll_consume(s, true, track.rect.min, track.rect.max, true); zoom != 0 {
-			command_push(c, .Timeline_Zoom, {scalar = math.pow(1.25, f64(zoom)), count = frame_at(pv, track, mouse.x, ppf)})
+		if sig.zoom != 0 {
+			command_push(c, .Timeline_Zoom, {scalar = math.pow(1.25, f64(sig.zoom)), count = frame_at(pv, track, mouse.x, ppf)})
 		}
 	}
 
@@ -369,12 +367,12 @@ timeline_draw :: proc(s: ^ui.State, box: ^ui.Box, data: rawptr) {
 			img := render.Image{pv.thumbs[k].texture, pv.thumb_size.x, pv.thumb_size.y}
 			render.draw_image_contain(r, &img, x_of(f64(f), first, ppf, x0), y, g.thumb_w - line_w, g.thumb_h)
 		}
-		if sc.name != "" {
+		if name := scene_name(&pv.timeline, sc); name != "" {
 			fs := 12 * dpi
-			tw := render.measure_text(s.font, sc.name, fs)
+			tw := render.measure_text(s.font, name, fs)
 			lh := render.line_height(s.font, fs)
 			render.draw_rect_rounded(r, cx0 + 2 * dpi, y + 2 * dpi, tw + 8 * dpi, lh + 2 * dpi, 3 * dpi, {0, 0, 0, 150})
-			render.draw_text(r, s.font, sc.name, cx0 + 6 * dpi, y + 3 * dpi, fs, {240, 242, 246, 255})
+			render.draw_text(r, s.font, name, cx0 + 6 * dpi, y + 3 * dpi, fs, {240, 242, 246, 255})
 		}
 		render.clip_pop(r)
 	}
