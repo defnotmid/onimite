@@ -395,9 +395,9 @@ jobs:
                 work_dir: {
                   type: "directory",
                   title: "Work folder",
-                  description: "Where your videos and their media live; relative paths in tool calls start here.",
+                  description: "Where your videos and their media live; relative paths in tool calls start here. Leave it empty for Documents/onimite, made for you.",
                   default: "${DOCUMENTS}/onimite",
-                  required: true
+                  required: false
                 }
               },
               compatibility: {platforms: [$platform], claude_desktop: ">=0.10.0"}

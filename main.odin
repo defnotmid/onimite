@@ -5,6 +5,7 @@ package main
 
 import "core:fmt"
 import "core:os"
+import "core:strings"
 import app "app"
 
 main :: proc() {
@@ -18,10 +19,16 @@ main :: proc() {
 		return
 	}
 	if len(args) > 0 && args[0] == "mcp" {
-		// `--dir PATH`: the folder relative paths resolve in (the MCP bundle's work folder).
+		// `--dir PATH`: the folder relative paths resolve in (the MCP bundle's
+		// work folder); an empty or unset PATH means the default work folder.
 		dir := ""
 		if len(args) == 3 && args[1] == "--dir" {
 			dir = args[2]
+			if dir == "" || strings.has_prefix(dir, "${") {
+				dir = app.mcp_default_dir()
+			}
+		} else if len(args) == 2 && args[1] == "--dir" {
+			dir = app.mcp_default_dir()
 		} else if len(args) != 1 {
 			fmt.eprintln("usage: onimite mcp [--dir PATH]")
 			os.exit(2)
