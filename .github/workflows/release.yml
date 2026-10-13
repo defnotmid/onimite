@@ -45,6 +45,7 @@ jobs:
         # macos-x86_64 is left out: Odin publishes no macos-amd64 build of the
         # pinned release, so it would mean cross-compiling SDL3 and Lua too.
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     continue-on-error: ${{ matrix.best_effort }}
     defaults:
       run:

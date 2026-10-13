@@ -33,6 +33,8 @@ jobs:
         # every run (pull requests from forks never reach the org's own Mac).
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    # Hosted runners have no GPU: the GPU tests log "skipped". A hang fails fast.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
@@ -56,16 +58,6 @@ jobs:
 
       - uses: ./onimite/.github/actions/setup-toolchain
 
-      - name: Install test dependencies (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          # Mesa's lavapipe is a CPU Vulkan driver: SDL_GPU accepts it (CPU
-          # devices rank lowest but are eligible), so encode's GPU test
-          # (test_gpu_i420_matches_cpu) really runs here, on SDL's offscreen
-          # video driver. Without a device it logs "skipped" and returns.
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends mesa-vulkan-drivers libvulkan1
-
       - name: Build
         run: bash onimite/.github/ci.sh build
       - name: Test
@@ -79,6 +71,7 @@ jobs:
   windows:
     name: test (windows-latest, best effort)
     runs-on: windows-latest
+    timeout-minutes: 30
     continue-on-error: true
     defaults:
       run:
