@@ -344,6 +344,33 @@ test_render_emoji :: proc(t: ^testing.T) {
 	testing.expectf(t, orange > 1000, "orange pixels: %d", orange)
 }
 
+// The built-in families need no media; a family the media has replaces the
+// built-in one (its only weight wins over a closer built-in weight) and its
+// first face is the default.
+@(test)
+test_builtin_fonts :: proc(t: ^testing.T) {
+	media: Media
+	media_init(&media)
+	defer media_destroy(&media)
+	for family in ([]string{"DM Sans", "instrument serif", "Bebas Neue", "JetBrains Mono"}) {
+		_, ok := media_find_font(&media, family, 400)
+		testing.expectf(t, ok, "%s is not built in", family)
+	}
+	builtin_bold, _ := media_find_font(&media, "DM Sans", 700)
+	testing.expect_value(t, len(media_font_faces(&media)), 0)
+
+	medium := #load("../assets/fonts/DMSans-Medium.ttf")
+	testing.expect(t, media_add_font(&media, medium))
+	testing.expect_value(t, len(media_font_faces(&media)), 1)
+	regular, _ := media_find_font(&media, "DM Sans", 400)
+	bold, _ := media_find_font(&media, "DM Sans", 700)
+	testing.expect(t, regular == &media.fonts.faces[0].font && bold == regular && bold != builtin_bold)
+	first, _ := media_find_font(&media, "", 400)
+	testing.expect(t, first == &media.fonts.faces[0].font)
+	_, mono := media_find_font(&media, "JetBrains Mono", 700)
+	testing.expect(t, mono)
+}
+
 // Measuring needs only the media (scripts measure at load, outside a render).
 @(test)
 test_text_helpers :: proc(t: ^testing.T) {

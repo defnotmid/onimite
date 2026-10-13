@@ -119,7 +119,7 @@ media_items :: proc(m: ^om.Media) -> []Media_Item {
 			append(&items, Media_Item{kind = .Audio, name = name, detail = fmt.tprintf("%.3fs, %d Hz, %s", om.audio_clip_seconds(clip), clip.source_rate, channels)})
 		}
 	}
-	for face in m.fonts.faces {
+	for face in om.media_font_faces(m) {
 		append(&items, Media_Item{kind = .Font, name = face.family, detail = fmt.tprintf("%s %d%s", weight_name(face.weight), face.weight, " italic" if face.italic else "")})
 	}
 	for name, a in m.svgs {

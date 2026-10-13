@@ -118,9 +118,16 @@ scene { "Outro", duration = 2.5, overlap = { previous = 0.4 }, render = function
 end }
 ```
 
-- Copy fonts into `media/` and use their family names (`font = "DM Sans"`, numeric `weight`).
-  Example fonts live in `examples/*/media/` (DM Sans, Bebas Neue, Space Grotesk, JetBrains
-  Mono, Instrument Serif; all OFL).
+- Built in, with nothing in `media/`: `DM Sans` (weights 400, 500, 700), `Instrument Serif`
+  (400, and `italic = true`), `Bebas Neue` (400, display caps), `JetBrains Mono` (400, 700).
+  Name the family and a numeric `weight`; the nearest weight is drawn.
+- Any other font: copy its file (`.ttf`, `.otf` or `.ttc`) into `media/` and use its family
+  name (`font = "Poppins"`). A family in `media/` replaces the built-in one of the same name.
+  Fonts installed on the machine work the same way, copied from its font folder
+  (`/usr/share/fonts/`, `~/.local/share/fonts/`; macOS `/System/Library/Fonts/`,
+  `/Library/Fonts/`, `~/Library/Fonts/`; Windows `C:\Windows\Fonts\`); onimite never
+  reads those folders itself, so the video renders the same everywhere. `show video.lua fonts`
+  lists the families text can use.
 - `require("name")` and `dofile` resolve beside the script; `SCRIPT_DIR` is its directory
   (for `io.open` on data files). Data comes in as `props` (`--props file.json`, `--batch`
   rows, `--set key=value`); `arg.key` holds the raw `--set` string.
@@ -498,8 +505,8 @@ video { ..., buses = { music = {}, voice = {}, sfx = {} },
   or transform. Keep every key of one call the same type.
 - `text` defaults to black, 16 px and the left edge at `x`; `align = "center"` centres on `x`;
   `y` is the alphabetic baseline unless `baseline` says otherwise.
-- An unknown font family falls back silently while drawing; `inspect` reports it ("No match
-  for ... font-family"). Glyphs no media font has are reported too.
+- An unknown font family draws in DM Sans; `inspect` reports it ("No match for ...
+  font-family"). Glyphs no font has are reported too.
 - Zero-size rects and zero-radius circles are reported by `inspect`: animate sizes from a
   small positive value or skip drawing.
 - An invalid colour or transform string is an Error diagnostic (a Lua error at load).

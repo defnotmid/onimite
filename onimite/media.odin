@@ -48,6 +48,8 @@ Media :: struct {
 	dir:      string,
 	// Owned file contents (font data must outlive the fonts).
 	blobs:    [dynamic][]u8,
+	// How many of `fonts.faces`, at the end, are BUILTIN_FONTS.
+	builtin_faces: int,
 	// Content hashes of the audio clips scripts added from memory
 	// (`media_add_audio_bytes`), by name.
 	added_audio:   map[string]u64,
@@ -157,8 +159,26 @@ Image_Cache :: struct {
 // 1 GiB of decoded pixels (`--image-cache MB`).
 IMAGE_BUDGET_DEFAULT :: 1 << 30
 
+// The fonts every video has without a file in media/ (SIL OFL 1.1), after
+// the media's own faces. DM Sans draws text that names no family when the
+// media has no fonts, and a family nothing matches.
+BUILTIN_FONTS := [?][]u8 {
+	#load("../assets/fonts/DMSans-Regular.ttf"),
+	#load("../assets/fonts/DMSans-Medium.ttf"),
+	#load("../assets/fonts/DMSans-Bold.ttf"),
+	#load("../assets/fonts/InstrumentSerif-Regular.ttf"),
+	#load("../assets/fonts/InstrumentSerif-Italic.ttf"),
+	#load("../assets/fonts/BebasNeue-Regular.ttf"),
+	#load("../assets/fonts/JetBrainsMono-Regular.ttf"),
+	#load("../assets/fonts/JetBrainsMono-Bold.ttf"),
+}
+
 media_init :: proc(m: ^Media) {
-	vg.font_collection_init(&m.fonts)
+	vg.font_collection_init(&m.fonts, BUILTIN_FONTS[0])
+	for data in BUILTIN_FONTS {
+		m.builtin_faces += vg.font_collection_add(&m.fonts, data)
+	}
+	m.fonts.default_family = "DM Sans"
 	// Colour emoji out of the box (Noto Color Emoji COLRv1, vector).
 	vg.font_collection_set_emoji(&m.fonts, vg.EMOJI_FONT_DATA)
 	m.images = make(map[string]^Media_Image)
@@ -296,10 +316,41 @@ straight_alpha :: proc(pixels: []u8, allocator := context.temp_allocator) -> []u
 // Adds a font from memory (TTF/OTF; every face of a TTC). The data must stay
 // alive as long as the media. Family and weight come from the font's tables.
 media_add_font :: proc(m: ^Media, data: []u8) -> bool {
-	return vg.font_collection_add(&m.fonts, data) > 0
+	n := vg.font_collection_add(&m.fonts, data)
+	// Before the built-in faces, so its first face is the default; a family
+	// the media has replaces the built-in one of that name.
+	first := len(m.fonts.faces) - n - m.builtin_faces
+	slice.rotate_right(m.fonts.faces[first:], n)
+	for i := len(m.fonts.faces) - 1; i >= len(m.fonts.faces) - m.builtin_faces; i -= 1 {
+		face := &m.fonts.faces[i]
+		for added in m.fonts.faces[first:][:n] {
+			if strings.equal_fold(face.family, added.family) {
+				delete(face.family)
+				vg.font_destroy(&face.font)
+				ordered_remove(&m.fonts.faces, i)
+				m.builtin_faces -= 1
+				break
+			}
+		}
+	}
+	// Text that names no family: the media's first font's.
+	if n > 0 {
+		m.fonts.default_family = m.fonts.faces[0].family
+	}
+	return n > 0
 }
 
-// The bundled face used when a family is missing.
+// The faces of the media's font files (not the built-in ones).
+media_font_faces :: proc(m: ^Media) -> []vg.Font_Face {
+	return m.fonts.faces[:len(m.fonts.faces) - m.builtin_faces]
+}
+
+// Whether face `i` of `fonts.faces` is a built-in one.
+media_face_builtin :: proc(m: ^Media, i: int) -> bool {
+	return i >= len(m.fonts.faces) - m.builtin_faces
+}
+
+// The face used when a family is missing (built-in DM Sans).
 media_fallback_font :: proc(m: ^Media) -> ^vg.Font {
 	return &m.fonts.fallback.font
 }

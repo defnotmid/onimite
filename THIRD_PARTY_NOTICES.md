@@ -21,6 +21,8 @@ separate file in [LICENSES/](LICENSES); binary releases ship `LICENSE`,
 | Box2D 3.1 | rigid-body physics (`physics{}`) | `LICENSES/Box2D-MIT.txt` |
 | ottis | text to speech with word timings (`say()`): runs Pocket TTS and the word aligner through ONNX Runtime | `LICENSES/ottis-MIT.txt` |
 | Noto Color Emoji (COLRv1 build, Copyright 2022 Google Inc.) | the emoji fallback font, embedded via ovg | `LICENSES/OFL-1.1.txt` |
+| Bitstream Vera Sans (Copyright 2003 Bitstream, Inc.) | the preview window's interface font, embedded via ovg | `LICENSES/Bitstream-Vera.txt` |
+| DM Sans (Copyright 2014 The DM Sans Project Authors), Instrument Serif (Copyright 2022 The Instrument Serif Project Authors), Bebas Neue (Copyright 2010 Dharma Type), JetBrains Mono (Copyright 2020 The JetBrains Mono Project Authors) | the built-in fonts (`assets/fonts/`; DM Sans and JetBrains Mono are static instances of the Google Fonts variable fonts) | `LICENSES/OFL-1.1.txt` |
 
 ## Downloaded at run time (`say()`)
 

@@ -213,7 +213,7 @@ show_video :: proc(sh: ^Show, _: string) -> Error {
 	}
 	m := &sh.app.media
 	child(sh, "media", .List, fmt.tprintf("%d media files besides the sounds", len(media_files(m))))
-	child(sh, "fonts", .List, fmt.tprintf("%d font faces", len(m.fonts.faces)))
+	child(sh, "fonts", .List, fmt.tprintf("%d font faces (%d built in)", len(m.fonts.faces), m.builtin_faces))
 	if n := len(script.physics_bodies(&sh.app.script)); n > 0 {
 		child(sh, "bodies", .List, fmt.tprintf("%d physics bodies", n))
 	}
@@ -664,11 +664,11 @@ show_media_file :: proc(sh: ^Show, name: string) -> Error {
 // The font faces text can use, by family.
 @(private = "file")
 show_fonts :: proc(sh: ^Show, _: string) -> Error {
-	faces := sh.app.media.fonts.faces[:]
+	m := &sh.app.media
 	sh.res.kind = show_kind(.List)
-	sh.res.summary = fmt.tprintf("%d font faces (text without one of these families draws with the fallback)", len(faces))
-	for f in faces {
-		child(sh, fmt.tprintf("font/%s", f.family), .Font, fmt.tprintf("weight %d%s", f.weight, " italic" if f.italic else ""))
+	sh.res.summary = fmt.tprintf("%d font faces, %d of them built in (text without one of these families draws with %s)", len(m.fonts.faces), m.builtin_faces, m.fonts.fallback.family)
+	for f, i in m.fonts.faces {
+		child(sh, fmt.tprintf("font/%s", f.family), .Font, fmt.tprintf("weight %d%s%s", f.weight, " italic" if f.italic else "", ", built in" if om.media_face_builtin(m, i) else ""))
 	}
 	return nil
 }
@@ -678,11 +678,12 @@ show_fonts :: proc(sh: ^Show, _: string) -> Error {
 show_font :: proc(sh: ^Show, family: string) -> Error {
 	sh.res.kind = show_kind(.Font)
 	faces := make(json.Array, 0, 4, context.temp_allocator)
-	for f in sh.app.media.fonts.faces {
+	for f, i in sh.app.media.fonts.faces {
 		if strings.equal_fold(f.family, family) {
 			face := make(json.Object, allocator = context.temp_allocator)
 			face["weight"] = json.Integer(f.weight)
 			face["italic"] = json.Boolean(f.italic)
+			face["built_in"] = json.Boolean(om.media_face_builtin(&sh.app.media, i))
 			append(&faces, face)
 		}
 	}

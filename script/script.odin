@@ -1657,7 +1657,7 @@ measured :: proc(s: ^Script, q: om.Font_Query, ok: bool) {
 		om.report_missing_font(s.ctx, q.family)
 		return
 	}
-	if len(s.media.fonts.faces) == 0 {
+	if len(om.media_font_faces(s.media)) == 0 {
 		return
 	}
 	load_problem(s, .Warning, {code = .Missing_Font, name = q.family})

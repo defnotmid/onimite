@@ -72,8 +72,8 @@ lottie { src = "spinner.json", x = 0, y = 0, w = 300, overrides = {    -- by lay
   highlight), trim paths, repeater, eased / hold / spatial keyframes; effects (gaussian blur,
   drop shadow, fill, tint, tritone; animated); text layers (document keyframes, justification,
   tracking, line height, baseline shift, box text wrapping) laid out with the media's fonts
-  (the file's font family: put its .ttf in `media/`, else the fallback draws it and a
-  missing-font warning names the family) and text animators (range selectors by characters /
+  (the file's font family: built in, or put its .ttf in `media/`; else DM Sans draws it and
+  a missing-font warning names the family) and text animators (range selectors by characters /
   words / lines; per-letter position, scale, rotation, opacity, fill / stroke colour,
   tracking). Other effects, layer styles, merge paths, text on a path, expressions (keyframed
   values play), 3D and mask feather are warnings naming the file: check `onimite inspect`
