@@ -281,7 +281,7 @@ update_replace :: proc(dir, stage: string) -> Failure {
 	for e in entries {
 		target := filepath.join({dir, e.name}, context.temp_allocator) or_else ""
 		old := strings.concatenate({target, ".old"}, context.temp_allocator)
-		os.remove_all(old)
+		remove_path(old)
 		if os.exists(target) {
 			if err := os.rename(target, old); err != nil {
 				failure = {code = .Update_Install, path = target, os = err}
@@ -297,10 +297,10 @@ update_replace :: proc(dir, stage: string) -> Failure {
 	for target in aside {
 		old := strings.concatenate({target, ".old"}, context.temp_allocator)
 		if failure.code != .None {
-			os.remove_all(target)
+			remove_path(target)
 			os.rename(old, target)
 		} else {
-			os.remove_all(old) // Windows: the running onimite stays until the next update
+			remove_path(old) // Windows: the running onimite stays until the next update
 		}
 	}
 	return failure
@@ -315,12 +315,23 @@ update_leftovers_remove :: proc(dir: string) {
 	}
 	for e in entries {
 		if e.name == ".update" || e.name == ".update" + UPDATE_ARCHIVE {
-			os.remove_all(e.fullpath)
+			remove_path(e.fullpath)
 		} else if strings.has_suffix(e.name, ".old") {
 			if os.exists(filepath.join({dir, e.name[:len(e.name) - len(".old")]}, context.temp_allocator) or_else "") {
-				os.remove_all(e.fullpath)
+				remove_path(e.fullpath)
 			}
 		}
+	}
+}
+
+// Removes a file, or a directory and everything in it (os.remove_all
+// leaves a plain file on macOS).
+@(private = "file")
+remove_path :: proc(path: string) {
+	if os.is_dir(path) {
+		os.remove_all(path)
+	} else {
+		os.remove(path)
 	}
 }
 

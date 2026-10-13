@@ -72,6 +72,11 @@ smoke)
 	(cd "$upd/release" && { sha256sum "$name.$archive" 2>/dev/null || shasum -a 256 "$name.$archive"; } >SHA256SUMS)
 	ONIMITE_UPDATE_FROM="$upd/release" "$upd/installed/onimite$exe" update
 	test -f "$upd/installed/MARKER"
+	# The old files are gone (Windows keeps the running .exe until the next update).
+	if [ -z "$exe" ] && ls "$upd/installed" | grep -q '\.old$'; then
+		echo "update left old files: $(ls "$upd/installed")" >&2
+		exit 1
+	fi
 	"$upd/installed/onimite$exe" --version
 	;;
 *)
