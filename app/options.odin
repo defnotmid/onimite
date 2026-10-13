@@ -28,6 +28,7 @@ Front_Command :: enum u8 {
 	Audio_Onsets,
 	Preview,
 	Probe,
+	Update,
 }
 Front_Commands :: bit_set[Front_Command;u16]
 
@@ -121,6 +122,11 @@ COMMANDS := [Front_Command]Command_Info {
 	.Probe = {
 		cli = "probe", tool = "probe", kind = .Probe_Print, missing = "a media file",
 		about = "the streams of media files (container, video, audio)",
+	},
+	.Update = {
+		cli = "update", tool = "update", kind = .Update_Run,
+		about = "replace this onimite with the latest release, checked against the release's SHA256SUMS",
+		mcp_note = "The running server keeps the old version: restart the app (Claude Desktop: quit and reopen it) to use the new one.",
 	},
 }
 
@@ -226,6 +232,7 @@ OPTIONS := [?]Option {
 	{mcp = "path", reg = .Spec, commands = {.Show}, arg = "PATH", about = "what to show", default = "the video"},
 	{mcp = "at", reg = .Spec, commands = {.Preview}, arg = "AT", about = "where to start, a time spec", default = "the start"},
 	{mcp = "files", type = .List, reg = .Args, commands = {.Probe}, arg = "FILE", about = "media files"},
+	{cli = "--check", mcp = "check", type = .Boolean, reg = .Flag, commands = {.Update}, about = "only say whether a newer release is out"},
 
 	{cli = "-o|--output|--out", mcp = "output", reg = .Path, commands = {.Render}, arg = "PATH", about = "the .mp4, or a directory for PNGs; with a batch, a name template with {field} from the row and {index}, the row number", default = "out.mp4; with a batch, out/{index}.mp4"},
 	{cli = "--draft", mcp = "draft", type = .Boolean, reg = .Flags, flag = .Draft, commands = {.Render}, about = "half size, fastest encoding"},
@@ -268,7 +275,7 @@ OPTIONS := [?]Option {
 	{cli = "--set", mcp = "set", type = .Key_Value, row = .Load, reg = .Args, commands = SCRIPT_COMMANDS, arg = "K=V", about = "script arguments (Lua: arg.K, a string) that also set props.K (a number when it looks like one); they win over a batch row, which wins over the props file", invalid = "takes key=value"},
 	{cli = "--scale", mcp = "scale", type = .Number, row = .Scale, reg = .Scalar, commands = SCRIPT_COMMANDS, arg = "S", about = "output resolution factor, e.g. 0.5 for half resolution", check = .Positive, invalid = "needs a positive number"},
 	{cli = "--software", mcp = "software", type = .Boolean, row = .Backend, reg = .Flag, commands = SCRIPT_COMMANDS, about = "draw on the CPU instead of the GPU"},
-	{cli = "--json", type = .Boolean, row = .Output, reg = .Flag, commands = SCRIPT_COMMANDS + {.Probe}, about = "print one JSON document to stdout; progress and warnings go to stderr"},
+	{cli = "--json", type = .Boolean, row = .Output, reg = .Flag, commands = SCRIPT_COMMANDS + {.Probe, .Update}, about = "print one JSON document to stdout; progress and warnings go to stderr"},
 	{cli = "--threads", type = .Integer, row = .Threads, reg = .Count, commands = SCRIPT_COMMANDS, arg = "N", about = "threads for parallel work, this one included; 1: everything on one thread", default = "one per core", check = .Positive, invalid = "needs a count of at least 1"},
 	{cli = "--image-cache", type = .Integer, row = .Image_Cache, reg = .Count, commands = SCRIPT_COMMANDS, arg = "MB", about = "decoded images kept in memory; the least recently used are freed between frames and decode again when used", default = "1024", check = .Not_Negative, invalid = "needs a size in MB"},
 }

@@ -67,6 +67,14 @@ Error :: enum u8 {
 	// render: the script's load found errors (a silent spoken line, a
 	// track whose sound is missing).
 	Load_Errors,
+	// update.
+	Update_Platform,
+	Update_Dev,
+	Update_Fetch,
+	Update_Checksum,
+	Update_Unpack,
+	Update_Broken,
+	Update_Install,
 }
 
 // The operands `code` uses (FAILURE_TEXT).
@@ -126,6 +134,13 @@ FAILURE_TEXT := [Error]string {
 	.Window             = "can not open the preview window ({window}: {spec})",
 	.Window_Drawing     = "can not set up the preview's drawing ({drawing})",
 	.Load_Errors        = "the script's load found errors ({count} in all, `inspect` lists them), the first: {name}",
+	.Update_Platform    = "no onimite release is built for {name}; build it from source: https://github.com/defnotmid/onimite#build",
+	.Update_Dev         = "this onimite is a development build ({name}); it does not update itself (build it again, or install a release)",
+	.Update_Fetch       = "can not fetch {name} from the releases: {spec}",
+	.Update_Checksum    = "{name} does not match the release's SHA256SUMS; nothing was changed",
+	.Update_Unpack      = "can not unpack {name}: {spec}; nothing was changed",
+	.Update_Broken      = "the new onimite ({path}) does not run here; nothing was changed",
+	.Update_Install     = "can not install into {path}: {os}",
 }
 
 // Keeps `f` as the command's failure (its strings copied) and returns its

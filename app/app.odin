@@ -213,6 +213,8 @@ dispatch_pass :: proc(app: ^App_State) {
 			err = probe_print(app, regs)
 		case .Preview_Open:
 			err = preview_open(app, regs)
+		case .Update_Run:
+			err = update_run(app, regs)
 		case .Playback_Toggle, .Playback_Set, .Frame_Set, .Frame_Step, .Frame_Start, .Seconds_Step, .Scene_Step, .Script_Reload, .Script_Open, .File_Dialog, .Loop_Toggle, .Loop_Set, .Mute_Toggle, .Mute_Set, .Volume_Set, .Volume_Step, .Bookmark_Toggle, .Timeline_Zoom, .Timeline_Fit, .Timeline_Pan, .Timeline_Toggle, .Timeline_Row_Toggle, .Timeline_Rows_Scroll, .Fullscreen_Toggle, .Cursor_Hover, .Watch_Show, .Watch_Section_Set, .Watch_Scroll, .Problem_Step, .Quit:
 			preview_apply(app, row.kind, regs)
 		case .Panel_Split, .Panel_Close, .Panel_Resize, .View_Open, .View_Close, .View_Select, .View_Move, .View_Picker_Toggle:

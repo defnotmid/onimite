@@ -409,7 +409,7 @@ jobs:
               server: {
                 type: "binary",
                 entry_point: ("server/" + $exe),
-                mcp_config: {command: ("${__dirname}/server/" + $exe), args: ["mcp", "--dir", "${user_config.work_dir}"]}
+                mcp_config: {command: ("${__dirname}/server/" + $exe), args: ["mcp", "--dir", "${user_config.work_dir}", "--update-check", "${user_config.update_check}"]}
               },
               tools: $tools,
               user_config: {
@@ -418,6 +418,13 @@ jobs:
                   title: "Work folder",
                   description: "Where your videos and their media live; relative paths in tool calls start here. Leave it empty for Documents/onimite, made for you.",
                   default: "${DOCUMENTS}/onimite",
+                  required: false
+                },
+                update_check: {
+                  type: "boolean",
+                  title: "Check for updates",
+                  description: "When the extension starts, look for a newer onimite release on GitHub; Claude then says so, and the update tool installs it.",
+                  default: true,
                   required: false
                 }
               },

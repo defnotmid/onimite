@@ -50,6 +50,10 @@ irm https://defnotmid.com/install.ps1 | iex          # Windows, in PowerShell
 If `~/.local/bin` is not on `PATH`, the installer says so: add it, or call
 `~/.local/bin/onimite`. When the installer finds no release, build from source (below).
 
+`onimite update` replaces an installed release with the latest one (checked against its
+`SHA256SUMS` and run once before it is swapped in); `onimite update --check` only says
+whether a newer one is out. A source build (`dev`) does not update itself.
+
 To install by hand instead, download the archive for your platform from
 [github.com/defnotmid/onimite/releases](https://github.com/defnotmid/onimite/releases)
 (`X.Y.Z` is the release):
@@ -289,10 +293,14 @@ Common options: `--json`, `--scale S`, `--media DIR` (default `media/` beside th
 `onimite mcp` serves these commands as MCP tools on stdin/stdout; the Claude Code plugin
 registers it (the `onimite` binary must be on PATH), and the Claude Desktop extension
 (`onimite-macos-arm64.mcpb`, `onimite-windows-x86_64.mcpb` in the releases) bundles its own
-binary and a work folder (`onimite mcp --dir PATH`: relative paths start there). `guide`
+binary and a work folder (`onimite mcp --dir PATH`: relative paths start there). A release
+build looks for a newer release as it starts (`--update-check false` or
+`ONIMITE_NO_UPDATE_CHECK=1`: it doesn't); when one is out, the next tool result says so:
+tell the user, and run `update` when they agree. `guide`
 returns this skill and its references, built into the binary. Tools: `render`, `frame`, `strip`,
 `onion`, `snapshot`, `show`, `timeline`, `inspect`, `audio_render`, `audio_analyze`,
-`audio_at`, `audio_onsets`, `probe`, and `preview`, which opens the window for the user and
+`audio_at`, `audio_onsets`, `probe`, `update` (the server keeps running the old version
+until the app restarts), and `preview`, which opens the window for the user and
 returns at once (one window per script; it reloads on save, so open it once and keep
 editing). Every script tool takes `script` and
 optionally `media`, `props`, `set` (`{"key": value}`), `scale`, `software`; the rest are the

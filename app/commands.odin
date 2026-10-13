@@ -29,6 +29,7 @@ Command_Kind :: enum u8 {
 	Audio_Onsets, // regs.spec a range, regs.ratio the weakest strength listed (0 = all); regs.track one track ("" = the mix)
 	Probe_Print, // regs.args media files, one per line: their streams (no script)
 	Preview_Open, // regs.spec the start frame, .Paused / .No_Loop / .Mute in regs.flags, regs.count window frames to exit after (0 = never); for measurements, regs.path a PNG of the last window frame and regs.args scripted input (`preview_drive`)
+	Update_Run, // regs.flag: only check for a newer release (update.odin)
 	Debug_Set, // .Timing in regs.flags: time and log what runs (ONIMITE_DEBUG); .Clip_Log: the video clip frames each preview frame shows
 	// Preview window (preview.odin).
 	Playback_Toggle,

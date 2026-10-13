@@ -2,9 +2,9 @@
 # What CI runs (.github/workflows/ci.yml), from an onimite checkout with ovg,
 # oksl, odecs and ottis beside it; runnable locally too:
 #
-#   bash .github/ci.sh build   # build/onimite, -o:speed
+#   bash .github/ci.sh build   # build/onimite, -o:speed, version v0.0.0-ci (it can update)
 #   bash .github/ci.sh test    # odin test, every package that has tests
-#   bash .github/ci.sh smoke   # the built binary draws a frame and renders a clip (software)
+#   bash .github/ci.sh smoke   # the built binary draws a frame, renders a clip (software), serves MCP, updates itself
 #
 # ONIMITE_TEST_LDFLAGS (set by .github/actions/setup-toolchain) points the
 # links at CI's SDL3; unset, the system's is used.
@@ -17,7 +17,7 @@ mkdir -p build
 
 case ${1:-} in
 build)
-	odin build . -collection:deps=.. -o:speed -out:"build/onimite$exe" ${ONIMITE_TEST_LDFLAGS:+"-extra-linker-flags:$ONIMITE_TEST_LDFLAGS"}
+	odin build . -collection:deps=.. -o:speed -define:ONIMITE_VERSION=v0.0.0-ci -out:"build/onimite$exe" ${ONIMITE_TEST_LDFLAGS:+"-extra-linker-flags:$ONIMITE_TEST_LDFLAGS"}
 	;;
 test)
 	# macOS: the GPU test in encode skips (SDL's Metal driver needs Cocoa,
@@ -45,10 +45,34 @@ smoke)
 		'{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
 		'{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"guide","arguments":{}}}' \
 		'{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"render","arguments":{"script":"video.lua","range":"0..5","output":"mcp.mp4"}}}' \
-		| "build/onimite$exe" mcp --dir "$work" > "$out/mcp.out"
+		| "build/onimite$exe" mcp --dir "$work" --update-check false > "$out/mcp.out"
 	grep -q '"serverInfo"' "$out/mcp.out"
 	test "$(grep -c '"isError":false' "$out/mcp.out")" = 2
 	test -s "$work/mcp.mp4"
+	# update: the real releases answer; then a fake newer release (this
+	# binary again, in this platform's archive) replaces a copy of it.
+	"build/onimite$exe" update --check
+	case "$(uname -s)" in
+	Linux) platform=linux-x86_64 archive=tar.gz ;;
+	Darwin) platform=macos-arm64 archive=tar.gz ;;
+	*) platform=windows-x86_64 archive=zip ;;
+	esac
+	upd="$out/update"
+	rm -rf "${upd:?}"
+	name="onimite-v99.0.0-$platform"
+	mkdir -p "$upd/installed" "$upd/release/$name"
+	cp "build/onimite$exe" "$upd/installed/"
+	cp "build/onimite$exe" "$upd/release/$name/"
+	echo new >"$upd/release/$name/MARKER"
+	if [ "$archive" = zip ]; then
+		(cd "$upd/release" && 7z a -tzip -bd "$name.zip" "$name" >/dev/null)
+	else
+		tar -czf "$upd/release/$name.tar.gz" -C "$upd/release" "$name"
+	fi
+	(cd "$upd/release" && { sha256sum "$name.$archive" 2>/dev/null || shasum -a 256 "$name.$archive"; } >SHA256SUMS)
+	ONIMITE_UPDATE_FROM="$upd/release" "$upd/installed/onimite$exe" update
+	test -f "$upd/installed/MARKER"
+	"$upd/installed/onimite$exe" --version
 	;;
 *)
 	echo "usage: bash .github/ci.sh build | test | smoke" >&2

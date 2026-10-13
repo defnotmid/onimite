@@ -7,6 +7,8 @@ import "core:fmt"
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
+import "core:sync"
+import "core:thread"
 
 // `onimite mcp`: the commands as Model Context Protocol tools, JSON-RPC 2.0
 // over stdio, one message per line. Stateless: every call fills its
@@ -38,8 +40,13 @@ mcp_default_dir :: proc() -> string {
 }
 
 // Serves tools on stdin/stdout until stdin closes. With `dir`, works there
-// (made if missing): relative paths in tool calls resolve against it.
-mcp_serve :: proc(dir := "") {
+// (made if missing): relative paths in tool calls resolve against it. With
+// `update_check` (and not ONIMITE_NO_UPDATE_CHECK), a release build looks
+// for a newer release on a thread of its own as it starts.
+mcp_serve :: proc(dir := "", update_check := false) {
+	if _, released := update_version(ONIMITE_VERSION); released && update_check && !env_set("ONIMITE_NO_UPDATE_CHECK") {
+		thread.create_and_start(mcp_update_check, self_cleanup = true)
+	}
 	if dir != "" {
 		_ = os.make_directory_all(dir)
 		if err := os.set_working_directory(dir); err != nil {
@@ -64,6 +71,29 @@ mcp_serve :: proc(dir := "") {
 			return
 		}
 	}
+}
+
+// The startup update check: the latest release, when it is newer than this
+// onimite, for the next tool result to mention (mcp_answer_json). Never
+// waited for: the server may end first.
+@(private = "file")
+mcp_newer: string
+@(private = "file")
+mcp_newer_found: bool
+@(private = "file")
+mcp_newer_told: bool
+
+@(private = "file")
+mcp_update_check :: proc() {
+	exe, err := os.get_executable_path(context.temp_allocator)
+	if dir, root := update_layout(exe); err == nil && root == "" {
+		update_leftovers_remove(dir)
+	}
+	if latest, problem := update_latest(); problem == "" && update_newer(latest.tag, ONIMITE_VERSION) {
+		mcp_newer = strings.clone(latest.tag)
+		sync.atomic_store(&mcp_newer_found, true)
+	}
+	free_all(context.temp_allocator)
 }
 
 // Answers one message ("" for notifications), in temp memory.
@@ -99,16 +129,43 @@ mcp_handle :: proc(line: string) -> string {
 		name, _ := params["name"].(json.String)
 		args, _ := params["arguments"].(json.Object)
 		if name == "guide" {
-			return mcp_result(id, mcp_guide(args))
+			return mcp_result(id, mcp_answer_json(mcp_guide(args), name))
 		}
 		for info, c in COMMANDS {
 			if info.tool == name {
-				return mcp_result(id, mcp_call(c, args))
+				return mcp_result(id, mcp_answer_json(mcp_call(c, args), name))
 			}
 		}
 		return mcp_error(id, -32602, fmt.tprintf("no tool %q", name))
 	}
 	return mcp_error(id, -32601, fmt.tprintf("no method %q", method))
+}
+
+// A tool call's answer: its content items (JSON objects, comma-separated)
+// and whether the call failed.
+@(private = "file")
+Mcp_Answer :: struct {
+	content: string,
+	failed:  bool,
+}
+
+@(private = "file")
+mcp_text :: proc(text: string) -> string {
+	return fmt.tprintf(`{{"type":"text","text":%s}}`, mcp_quote(text))
+}
+
+// The result of tool `name`: its answer, and once, when the startup check
+// found a newer release, a line saying so (not on `update` itself).
+@(private = "file")
+mcp_answer_json :: proc(a: Mcp_Answer, name: string) -> string {
+	notice := ""
+	if !mcp_newer_told && sync.atomic_load(&mcp_newer_found) {
+		mcp_newer_told = true
+		if name != COMMANDS[.Update].tool {
+			notice = fmt.tprintf(",%s", mcp_text(fmt.tprintf("onimite %s is out (this server is %s). Tell the user; the update tool installs it, and the app needs a restart to use it.", mcp_newer, ONIMITE_VERSION)))
+		}
+	}
+	return fmt.tprintf(`{{"content":[%s%s],"isError":%v}}`, a.content, notice, a.failed)
 }
 
 @(private = "file")
@@ -227,7 +284,7 @@ mcp_type :: proc(t: Option_Type) -> string {
 // text, its images, `isError` when it failed; a check that fails (inspect,
 // snapshot: exit code 2) adds `{"failed": true}`.
 @(private = "file")
-mcp_call :: proc(c: Front_Command, args: json.Object) -> string {
+mcp_call :: proc(c: Front_Command, args: json.Object) -> Mcp_Answer {
 	info := COMMANDS[c]
 	rows := front_rows_make(c)
 	rows[.Output].regs.flag = true
@@ -298,7 +355,7 @@ mcp_call :: proc(c: Front_Command, args: json.Object) -> string {
 
 	text := strings.trim_space(strings.to_string(out))
 	b := strings.builder_make(context.temp_allocator)
-	fmt.sbprintf(&b, `{{"content":[{{"type":"text","text":%s}}`, mcp_quote(text))
+	strings.write_string(&b, mcp_text(text))
 	if exit_code == 2 {
 		strings.write_string(&b, `,{"type":"text","text":"{\"failed\": true}"}`)
 	}
@@ -311,15 +368,13 @@ mcp_call :: proc(c: Front_Command, args: json.Object) -> string {
 			fmt.sbprintf(&b, `,{{"type":"image","mimeType":"image/png","data":"%s"}}`, base64.encode(data, allocator = context.temp_allocator))
 		}
 	}
-	fmt.sbprintf(&b, `],"isError":%v}}`, exit_code == 1)
-	return strings.to_string(b)
+	return {strings.to_string(b), exit_code == 1}
 }
 
 // A call that can't run as asked: a tool error the caller can read.
 @(private = "file")
-mcp_usage :: proc(message: string) -> string {
-	doc := fmt.tprintf(`{{"error":%s,"code":"usage"}}`, mcp_quote(message))
-	return fmt.tprintf(`{{"content":[{{"type":"text","text":%s}}],"isError":true}}`, mcp_quote(doc))
+mcp_usage :: proc(message: string) -> Mcp_Answer {
+	return {mcp_text(fmt.tprintf(`{{"error":%s,"code":"usage"}}`, mcp_quote(message))), true}
 }
 
 // Tool `c`'s argument `name`.
@@ -436,7 +491,7 @@ mcp_previews: [dynamic]Mcp_Preview
 // shows the script already: it reloads on save, so one is enough. Its
 // command line is the call's arguments, spelled as OPTIONS says.
 @(private = "file")
-mcp_preview :: proc(c: Front_Command, args: json.Object, path: string) -> string {
+mcp_preview :: proc(c: Front_Command, args: json.Object, path: string) -> Mcp_Answer {
 	script, _ := filepath.abs(path, context.temp_allocator)
 	for i := 0; i < len(mcp_previews); {
 		p := mcp_previews[i]
@@ -446,7 +501,7 @@ mcp_preview :: proc(c: Front_Command, args: json.Object, path: string) -> string
 			continue
 		}
 		if p.script == script {
-			return fmt.tprintf(`{{"content":[{{"type":"text","text":%s}}],"isError":false}}`, mcp_quote(fmt.tprintf(`{{"script":%s,"pid":%d,"already_open":true}}`, mcp_quote(script), p.process.pid)))
+			return {mcp_text(fmt.tprintf(`{{"script":%s,"pid":%d,"already_open":true}}`, mcp_quote(script), p.process.pid)), false}
 		}
 		i += 1
 	}
@@ -493,17 +548,17 @@ mcp_preview :: proc(c: Front_Command, args: json.Object, path: string) -> string
 		return mcp_usage(fmt.tprintf("can not start the preview: %v", err))
 	}
 	append(&mcp_previews, Mcp_Preview{strings.clone(script), process})
-	return fmt.tprintf(`{{"content":[{{"type":"text","text":%s}}],"isError":false}}`, mcp_quote(fmt.tprintf(`{{"script":%s,"pid":%d,"already_open":false}}`, mcp_quote(script), process.pid)))
+	return {mcp_text(fmt.tprintf(`{{"script":%s,"pid":%d,"already_open":false}}`, mcp_quote(script), process.pid)), false}
 }
 
 // The built-in skill: topic "skill" (the default) or a reference.
 @(private = "file")
-mcp_guide :: proc(args: json.Object) -> string {
+mcp_guide :: proc(args: json.Object) -> Mcp_Answer {
 	topic, _ := args["topic"].(json.String)
 	text, ok := guide_text(string(topic))
 	if !ok {
 		names := strings.join(guide_topics(), ", ", context.temp_allocator)
 		return mcp_usage(fmt.tprintf("guide has no topic %q; topics: %s", topic, names))
 	}
-	return fmt.tprintf(`{{"content":[{{"type":"text","text":%s}}],"isError":false}}`, mcp_quote(text))
+	return {mcp_text(text), false}
 }

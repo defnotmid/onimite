@@ -1,5 +1,5 @@
 {
-  "name": "onimite-video",
+  "name": "onimite",
   "description": "Create, animate, review and render videos in code with onimite (Lua scripts, GPU vector drawing, H.264/H.265 MP4 with audio).",
   "author": { "name": "defnotmid" },
   "homepage": "https://github.com/defnotmid/onimite",

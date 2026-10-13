@@ -168,7 +168,7 @@ The `onimite-video` skill (`skills/onimite-video`) teaches a coding agent to wri
 and render onimite videos. No terminal tools are needed; use whichever fits your agent:
 
 - **Claude Code** (terminal, desktop app or IDE): type
-  `/plugin marketplace add defnotmid/onimite`, then `/plugin install onimite-video@onimite`.
+  `/plugin marketplace add defnotmid/onimite`, then `/plugin install onimite@defnotmid`.
 - **Codex**: ask it `$skill-installer install https://github.com/defnotmid/onimite/tree/main/skills/onimite-video`.
 - **Any other agent that can run commands**: paste this into it:
   *"Install the agent skill at https://github.com/defnotmid/onimite/tree/main/skills/onimite-video
@@ -188,7 +188,9 @@ relative paths start in).
 or [onimite-windows-x86_64.mcpb](https://github.com/defnotmid/onimite/releases/latest/download/onimite-windows-x86_64.mcpb)
 and open it: Desktop installs the extension with its own copy of onimite and asks for a work
 folder (default `Documents/onimite`). Claude writes the video files there with a filesystem
-extension (Desktop's Filesystem extension, given the same folder).
+extension (Desktop's Filesystem extension, given the same folder). When a newer release is
+out, Claude says so; ask it to update (the `update` tool), then quit and reopen Desktop.
+The extension's "Check for updates" setting turns the check off.
 
 ## Releases
 
@@ -201,7 +203,14 @@ curl -fsSL https://defnotmid.com/install.sh | sh          # macOS (Apple Silicon
 irm https://defnotmid.com/install.ps1 | iex               # Windows (PowerShell)
 ```
 
-`onimite --version` prints the release it is.
+`onimite --version` prints the release it is. `onimite update` replaces it with
+the latest release: it reads that release's `SHA256SUMS`, downloads this
+platform's archive, checks it, runs the new binary once, then swaps it in (an
+installer's `current` link moves to the new version's directory; anywhere else,
+a Desktop extension or an unpacked archive, the files are replaced in place).
+`onimite update --check` only says whether a newer release is out. `onimite mcp`
+does that check once as it starts (off with `--update-check false` or
+`ONIMITE_NO_UPDATE_CHECK=1`).
 
 Push a tag `vX.Y.Z` (`git tag v0.1.0 && git push origin v0.1.0`; a tag with
 a `-`, like `v0.2.0-rc1`, makes a prerelease, which the installers skip).

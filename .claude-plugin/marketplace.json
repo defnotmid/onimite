@@ -1,9 +1,9 @@
 {
-  "name": "onimite",
+  "name": "defnotmid",
   "owner": { "name": "defnotmid" },
   "plugins": [
     {
-      "name": "onimite-video",
+      "name": "onimite",
       "source": "./",
       "description": "Create, animate, review and render videos in code with onimite."
     }
