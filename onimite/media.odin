@@ -73,7 +73,7 @@ Media_Kind :: enum u8 {
 Media_Kind_Info :: struct {
 	// What listings call it ("image", "SVG").
 	label:       string,
-	// Three letters for the preview's media panel.
+	// Three letters for the media rows of the preview's Watch.
 	tag:         string,
 	// The file extensions it loads from (lower case). A .json file is
 	// Lottie or captions by its content, other JSON the script's own data.

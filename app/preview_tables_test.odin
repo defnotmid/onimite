@@ -2,6 +2,7 @@ package onimite_app
 
 import "core:testing"
 import om "../onimite"
+import script "../script"
 
 @(test)
 test_wave_pyramid :: proc(t: ^testing.T) {
@@ -84,30 +85,48 @@ test_timeline_items :: proc(t: ^testing.T) {
 	}
 }
 
+// The Watch's rows: a scene with the problems seen in it, a cue its sync
+// finding names (by family too), the problems grouped like `inspect`'s and
+// most severe first, the load's at no frame.
 @(test)
-test_problems_grouped :: proc(t: ^testing.T) {
+test_watch_rows :: proc(t: ^testing.T) {
+	intro, outro := om.Scene{name = "Intro"}, om.Scene{name = "Outro"}
+	scenes := []om.Scene_Info{{0, &intro, 0, 30, 30, false}, {1, &outro, 30, 60, 30, true}}
+	tl := om.Timeline{scenes, 60}
 	findings: Finding_Table
 	defer finding_table_destroy(&findings)
-	table: Problem_Table
-	defer problem_table_destroy(&table)
-	d := om.Diagnostic{severity = .Warning, code = .Text_Clipped, scene = "Intro", name = "title", x = 10}
-	testing.expect(t, finding_add(&findings, nil, 12, d))
+	d := om.Diagnostic{severity = .Warning, code = .Text_Clipped, name = "title", x = 10}
+	testing.expect(t, finding_add(&findings, &tl, 12, d))
 	// The same finding at another place in a later frame extends the range;
 	// one inside it changes nothing.
-	d2 := om.Diagnostic{severity = .Warning, code = .Text_Clipped, scene = "Intro", name = "title", x = 14}
-	testing.expect(t, finding_add(&findings, nil, 20, d2))
-	testing.expect(t, !finding_add(&findings, nil, 15, d2))
+	d2 := om.Diagnostic{severity = .Warning, code = .Text_Clipped, name = "title", x = 14}
+	testing.expect(t, finding_add(&findings, &tl, 20, d2))
+	testing.expect(t, !finding_add(&findings, &tl, 15, d2))
 	// What the load found is its own finding, seen in no frame.
 	load := om.Diagnostic{severity = .Error, code = .Missing_Track, name = "video.lua:3", a = "music.mp3"}
 	testing.expect(t, finding_add(&findings, nil, LOAD_FRAME, load))
-	problem_table_set(&table, &findings, nil)
-	testing.expect_value(t, len(table.rows), 2)
-	testing.expect_value(t, table.rows[0].first, 12)
-	testing.expect_value(t, table.rows[0].last, 20)
-	testing.expect_value(t, findings.rows[0].frames, 3)
-	testing.expect_value(t, text_of(table.text[:], table.rows[0].message), `text "title" is cut off by the canvas edge (x=10 y=0 w=0 h=0)`)
-	testing.expect_value(t, table.rows[1].first, LOAD_FRAME)
-	testing.expect_value(t, text_of(table.text[:], table.rows[1].message), `video.lua:3: the track plays "music.mp3", which is not in the media`)
-	worst, _ := findings_worst(&findings)
-	testing.expect_value(t, worst, om.Severity.Error)
+	cues := []script.Cue{{"drop", 1.5, "", "video.lua:9"}, {"beat[2]", 0.5, "", "video.lua:10"}}
+	sync := []om.Diagnostic{{severity = .Warning, code = .Cue_Drift, name = "beat[*]", a = "3 of 3 animate keys", b = "their cues", w = -0.5}}
+	table: Watch_Table
+	defer watch_table_destroy(&table)
+	watch_table_build(&table, {timeline = &tl, fps = 30, findings = &findings, cues = cues, sync = sync})
+	row :: proc(t: ^Watch_Table, section: Watch_Section, i: int) -> Watch_Row {return t.rows[t.sections[section].first + i]}
+	label :: proc(t: ^Watch_Table, section: Watch_Section, i: int) -> string {return text_of(t.text[:], row(t, section, i).label)}
+
+	testing.expect_value(t, table.sections[.Scenes].count, 2)
+	testing.expect_value(t, row(&table, .Scenes, 0).status, Watch_Status.Warning)
+	testing.expect_value(t, row(&table, .Scenes, 1).status, Watch_Status.Ok)
+	testing.expect_value(t, row(&table, .Scenes, 1).frame, 30)
+	testing.expect_value(t, row(&table, .Cues, 0).status, Watch_Status.Ok)
+	testing.expect_value(t, row(&table, .Cues, 0).frame, 45)
+	testing.expect_value(t, row(&table, .Cues, 1).status, Watch_Status.Warning)
+	testing.expect_value(t, table.sections[.Cues].worst, Watch_Status.Warning)
+	testing.expect_value(t, table.sections[.Problems].count, 2)
+	testing.expect_value(t, row(&table, .Problems, 0).status, Watch_Status.Error)
+	testing.expect_value(t, row(&table, .Problems, 0).frame, -1)
+	testing.expect_value(t, label(&table, .Problems, 0), `video.lua:3: the track plays "music.mp3", which is not in the media`)
+	testing.expect_value(t, row(&table, .Problems, 1).frame, 12)
+	testing.expect_value(t, label(&table, .Problems, 1), `text "title" is cut off by the canvas edge (x=10 y=0 w=0 h=0)`)
+	testing.expect_value(t, text_of(table.text[:], row(&table, .Problems, 1).detail), "Warning 0.40s..0.67s (frames 12..20, seen in 3) [Intro]")
+	testing.expect_value(t, table.sections[.Media].count, 0)
 }

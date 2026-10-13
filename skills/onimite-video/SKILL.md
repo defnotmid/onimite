@@ -307,9 +307,13 @@ are not kept). A failing command is an error result with its code; an `inspect` 
 Space play/pause · Left/Right or J/K step a frame · Ctrl+Left/Right one second · Home/0 the
 bookmark, then the start · End last frame · PgDn/S, PgUp/B next/previous scene · M set the
 bookmark (reloads return to it) · Up/Down volume · Ctrl+Down mute · Shift+L loop · =/- zoom
-the timeline · T hide timeline · F fullscreen · I media panel · D problems list · R reload ·
-Ctrl+O open a script · Q/Esc close. Click or drag the timeline to scrub. A script that fails
-to load shows its error in the window while the last good version keeps playing.
+the timeline · T hide timeline · F fullscreen · D/I the Watch on problems/media · N/Shift+N
+next/previous row with a warning or error · R reload · Ctrl+O open a script · Q/Esc close.
+Click or drag the timeline to scrub. Views are tabs in panels: drag a tab to another panel or
+its edge, `+` opens a view or splits. The Watch lists scenes, cues (with drift / missing-hit
+findings), problems and media (failed, unused sounds); a click on a row goes to its frame. A
+script that fails to load shows its error in the window while the last good version keeps
+playing.
 
 ## 4. Writing the video
 

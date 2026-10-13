@@ -123,9 +123,9 @@ finding_scenes :: proc(t: ^Finding_Table, tl: ^om.Timeline, row: int) -> []strin
 	return names[:]
 }
 
-// The findings as printed, most severe first, then by first frame (the
-// load's first), in `allocator`.
-findings_report :: proc(t: ^Finding_Table, tl: ^om.Timeline, fps: int, allocator := context.temp_allocator) -> []Finding {
+// The findings' rows in the order they are printed: most severe first,
+// then by first frame (the load's first). Temp memory.
+findings_order :: proc(t: ^Finding_Table) -> []int {
 	order := make([]int, len(t.rows), context.temp_allocator)
 	for &o, i in order {
 		o = i
@@ -139,6 +139,12 @@ findings_report :: proc(t: ^Finding_Table, tl: ^om.Timeline, fps: int, allocator
 		}
 		return x.first < y.first
 	})
+	return order
+}
+
+// The findings as printed (`findings_order`), in `allocator`.
+findings_report :: proc(t: ^Finding_Table, tl: ^om.Timeline, fps: int, allocator := context.temp_allocator) -> []Finding {
+	order := findings_order(t)
 	out := make([]Finding, len(order), allocator)
 	fps := f32(max(fps, 1))
 	for k, i in order {
@@ -159,24 +165,7 @@ findings_report :: proc(t: ^Finding_Table, tl: ^om.Timeline, fps: int, allocator
 // line and the message.
 findings_text :: proc(b: ^strings.Builder, findings: []Finding) {
 	for f in findings {
-		title := fmt.tprintf("%c%s", f.severity[0] - 32, f.severity[1:]) if f.severity != "" else ""
-		if f.frames == 0 {
-			fmt.sbprintf(b, "\n%s at load: %s", title, f.message)
-			continue
-		}
-		fmt.sbprintf(
-			b,
-			"\n%s %.2fs..%.2fs (frames %d..%d, seen in %d)%s: %s%s",
-			title,
-			f.first_seconds,
-			f.last_seconds,
-			f.first_frame,
-			f.last_frame,
-			f.frames,
-			scenes_label(f.scenes),
-			f.source != "" ? fmt.tprintf("%s: ", f.source) : "",
-			f.message,
-		)
+		fmt.sbprintf(b, "\n%s", finding_summary(f))
 	}
 }
 

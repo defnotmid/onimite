@@ -54,6 +54,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/ottis
+          # Pinned: ottis is released on its own; a new tag is taken on purpose.
+          ref: v0.0.1
           path: ottis
 
       - uses: ./onimite/.github/actions/setup-toolchain
@@ -95,6 +97,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/ottis
+          # Pinned: ottis is released on its own; a new tag is taken on purpose.
+          ref: v0.0.1
           path: ottis
 
       - uses: ./onimite/.github/actions/setup-toolchain

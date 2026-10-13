@@ -74,6 +74,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/ottis
+          # Pinned: ottis is released on its own; a new tag is taken on purpose.
+          ref: v0.0.1
           path: ottis
 
       - uses: ./onimite/.github/actions/setup-toolchain
@@ -241,12 +243,31 @@ jobs:
         run: |
           set -euo pipefail
           stage="$RUNNER_TEMP/$NAME"
+          # say() loads the ONNX Runtime ottis downloads, which Microsoft signs
+          # with its own team ID; the hardened runtime's library validation
+          # would refuse it ("different Team IDs"), so the binary is entitled
+          # to load libraries of other teams. Notarization accepts this.
+          entitlements="$RUNNER_TEMP/onimite.entitlements"
+          cat > "$entitlements" <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>com.apple.security.cs.disable-library-validation</key>
+            <true/>
+          </dict>
+          </plist>
+          PLIST
+          plutil -lint "$entitlements"
           # The library first: the binary's signature covers what it loads.
+          codesign --force --options runtime --timestamp \
+            --sign "$SIGN_IDENTITY" --keychain "$KEYCHAIN" "$stage/libSDL3.0.dylib"
+          codesign --force --options runtime --timestamp --entitlements "$entitlements" \
+            --sign "$SIGN_IDENTITY" --keychain "$KEYCHAIN" "$stage/onimite"
           for f in "$stage/libSDL3.0.dylib" "$stage/onimite"; do
-            codesign --force --options runtime --timestamp \
-              --sign "$SIGN_IDENTITY" --keychain "$KEYCHAIN" "$f"
             codesign --verify --strict --verbose=2 "$f"
           done
+          codesign -d --entitlements - "$stage/onimite" | grep -F disable-library-validation
           codesign --display --verbose=2 "$stage/onimite" 2>&1 | grep -E '^(Authority|TeamIdentifier|Timestamp|Runtime)'
 
       - name: Notarize

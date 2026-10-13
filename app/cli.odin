@@ -665,7 +665,7 @@ inspect :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 	// Sync points, now that the frames have shown the tagged animate keys,
 	// and sounds off the music's beat.
 	timed := make([dynamic]om.Diagnostic, context.temp_allocator)
-	append(&timed, ..sync_check(app, r, sync_anchors(app, r) or_return))
+	append(&timed, ..sync_check(&app.media, om.placed_audio(&r.ctx).tracks[:], r.video.fps, sync_anchors(app, r) or_return))
 	append(&timed, ..off_beat_check(app, r))
 	for d in timed {
 		if d.frame >= start && d.frame < end {

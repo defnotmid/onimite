@@ -18,9 +18,11 @@ import script "../script"
 // copies it out when the table's sequence number moved. Copies reuse the
 // destination's capacity, so a warm preview allocates nothing for them.
 //
-// - Problems: diagnostics seen since the last load, grouped by key like
-//   `inspect`, with the frame range they were seen in. The status line and
-//   the problems list read these, so they hold still while frames change.
+// - The Watch: one row per scene, cue, problem and media item, each with
+//   what it says (worded by items.odin), a status and the frame a click
+//   goes to. Problems are those seen since the last load, grouped like
+//   `inspect`'s, so the rows and the status line hold still while frames
+//   change.
 // - The timeline: its items as a flat tree (scenes, cues, the groups of
 //   tracks a bus mixes, the tracks), each a kind the UI draws its own way;
 //   one lane per placed audio track and per group, and per audio clip a
@@ -28,8 +30,8 @@ import script "../script"
 //   computed once per media load on the worker when it is idle; a group's
 //   pyramid is its tracks' together. Any zoom reads the level whose bucket
 //   is just under a pixel's samples, in O(pixels).
-// - Media: the loaded media as rows (kind, name, details, first use), with
-//   small image thumbnails as straight RGBA in a pixel arena.
+// - Media: the loaded media in the Watch's order, with small image
+//   thumbnails as straight RGBA in a pixel arena.
 
 Text_Span :: struct {
 	offset, length: u32,
@@ -49,49 +51,6 @@ text_of :: proc(buf: []u8, span: Text_Span) -> string {
 table_copy :: proc(dst: ^[dynamic]$T, src: []T) {
 	resize(dst, len(src))
 	copy(dst[:], src)
-}
-
-// ---- problems ---------------------------------------------------------------------------
-
-Preview_Problem :: struct {
-	severity:    om.Severity,
-	code:        om.Diagnostic_Code,
-	// The first and last frame it was seen in (renders arrive in any
-	// order); LOAD_FRAME for what the load found.
-	first, last: int,
-	scene:       Text_Span,
-	message:     Text_Span,
-}
-
-Problem_Table :: struct {
-	rows: [dynamic]Preview_Problem,
-	text: [dynamic]u8,
-}
-
-problem_table_clear :: proc(t: ^Problem_Table) {
-	clear(&t.rows)
-	clear(&t.text)
-}
-
-problem_table_destroy :: proc(t: ^Problem_Table) {
-	delete(t.rows)
-	delete(t.text)
-}
-
-problem_table_copy :: proc(dst: ^Problem_Table, src: ^Problem_Table) {
-	table_copy(&dst.rows, src.rows[:])
-	table_copy(&dst.text, src.text[:])
-}
-
-// The problems panel's rows from the worker's findings, their text made
-// here (`tl` names the scenes; nil before there is a timeline).
-problem_table_set :: proc(t: ^Problem_Table, f: ^Finding_Table, tl: ^om.Timeline) {
-	problem_table_clear(t)
-	for row, i in f.rows {
-		scenes := finding_scenes(f, tl, i) if tl != nil else nil
-		message := om.diagnostic_message(row.diagnostic, context.temp_allocator)
-		append(&t.rows, Preview_Problem{row.diagnostic.severity, row.diagnostic.code, row.first, row.last, text_push(&t.text, strings.join(scenes, " + ", context.temp_allocator)), text_push(&t.text, message)})
-	}
 }
 
 // ---- waveforms --------------------------------------------------------------------------
@@ -502,13 +461,11 @@ wave_peak :: proc(t: ^Wave_Table, c: ^Wave_Clip, s0, s1: int) -> (lo, hi: f32, o
 MEDIA_THUMB :: 64 // image thumbnails fit this square
 
 Media_Row :: struct {
-	kind:         om.Media_Kind,
-	name, detail: Text_Span,
-	// The first frame the item plays on the timeline (-1: unknown or unused).
-	first_frame:  int,
+	kind:       om.Media_Kind,
+	name:       Text_Span,
 	// Straight RGBA in `Media_Table.pixels` (images; size 0 otherwise).
-	thumb:        u32,
-	thumb_size:   [2]u16,
+	thumb:      u32,
+	thumb_size: [2]u16,
 }
 
 Media_Table :: struct {
@@ -532,29 +489,18 @@ media_table_copy :: proc(dst: ^Media_Table, src: ^Media_Table) {
 	dst.thumbs_ready = src.thumbs_ready
 }
 
-// Fills `t` from the media; first uses come from the placed tracks. Runs on
+// Fills `t` from the media, in `media_items`' order (the Watch's). Runs on
 // the worker; image thumbnails are reserved and filled in later steps by
 // media_table_thumbs.
-media_table_build :: proc(t: ^Media_Table, m: ^om.Media, placed: []om.Placed_Track, fps: int) {
+media_table_build :: proc(t: ^Media_Table, m: ^om.Media) {
 	clear(&t.rows)
 	clear(&t.text)
 	clear(&t.pixels)
 	t.thumbs_ready = 0
-	first_use :: proc(placed: []om.Placed_Track, name: string, fps: int) -> int {
-		best := -1
-		for p in placed {
-			if p.track.src == name {
-				f := int(i64(p.start) * i64(fps) / om.MIX_RATE)
-				best = f if best < 0 else min(best, f)
-			}
-		}
-		return best
-	}
 	// Images come first (`media_items` goes by kind).
 	for it in media_items(m) {
-		row := Media_Row{kind = it.kind, name = text_push(&t.text, it.name), detail = text_push(&t.text, it.detail), first_frame = -1}
-		#partial switch it.kind {
-		case .Image:
+		row := Media_Row{kind = it.kind, name = text_push(&t.text, it.name)}
+		if it.kind == .Image {
 			img := m.images[it.name]
 			tw, th := img.width, img.height
 			if tw > MEDIA_THUMB || th > MEDIA_THUMB {
@@ -565,8 +511,6 @@ media_table_build :: proc(t: ^Media_Table, m: ^om.Media, placed: []om.Placed_Tra
 			row.thumb = u32(len(t.pixels))
 			row.thumb_size = {u16(tw), u16(th)}
 			resize(&t.pixels, len(t.pixels) + tw * th * 4)
-		case .Video, .Audio:
-			row.first_frame = first_use(placed, it.name, fps)
 		}
 		append(&t.rows, row)
 	}
@@ -622,6 +566,160 @@ thumb_filter :: proc(dst: []u8, dw, dh: int, src: []u8, sw, sh: int) {
 			n := u32(nx * ny)
 			o := (y * dw + x) * 4
 			dst[o], dst[o + 1], dst[o + 2], dst[o + 3] = u8(sum[0] / n), u8(sum[1] / n), u8(sum[2] / n), u8(sum[3] / n)
+		}
+	}
+}
+
+// ---- the Watch --------------------------------------------------------------------------
+
+Watch_Section :: enum u8 {
+	Scenes,
+	Cues,
+	Problems,
+	Media,
+}
+
+Watch_Status :: enum u8 {
+	Ok,
+	Info,
+	Warning,
+	Error,
+}
+
+Watch_Row :: struct {
+	section:       Watch_Section,
+	status:        Watch_Status,
+	// The frame a click goes to (-1: none).
+	frame:         int,
+	// Media rows: the media table's row, with its thumbnail (-1: none).
+	media:         i32,
+	label, detail: Text_Span,
+}
+
+// A section's rows (rows are in section order) and its worst status.
+Watch_Group :: struct {
+	first, count: int,
+	worst:        Watch_Status,
+}
+
+Watch_Table :: struct {
+	rows:     [dynamic]Watch_Row,
+	text:     [dynamic]u8,
+	sections: [Watch_Section]Watch_Group,
+}
+
+watch_table_destroy :: proc(t: ^Watch_Table) {
+	delete(t.rows)
+	delete(t.text)
+}
+
+watch_table_copy :: proc(dst: ^Watch_Table, src: ^Watch_Table) {
+	table_copy(&dst.rows, src.rows[:])
+	table_copy(&dst.text, src.text[:])
+	dst.sections = src.sections
+}
+
+// What the Watch's rows are made from: the worker's load.
+Watch_Sources :: struct {
+	// The scenes (nil when the timeline does not resolve).
+	timeline:   ^om.Timeline,
+	fps:        int,
+	findings:   ^Finding_Table,
+	cues:       []script.Cue,
+	// The sync findings (`sync_check`); nil while sounds are being built.
+	sync:       []om.Diagnostic,
+	media:      ^om.Media,
+	placed:     []om.Placed_Track,
+	// Why the last load failed ("" after a good one).
+	load_error: string,
+}
+
+// Fills `t`: the scenes with the problems seen in each, the cues with
+// their sync findings, the problems most severe first, the media with
+// their first use. Every row is worded by items.odin.
+watch_table_build :: proc(t: ^Watch_Table, src: Watch_Sources) {
+	clear(&t.rows)
+	clear(&t.text)
+	t.sections = {}
+	add :: proc(t: ^Watch_Table, section: Watch_Section, status: Watch_Status, frame: int, label, detail: string, media := -1) {
+		g := &t.sections[section]
+		if g.count == 0 {
+			g.first = len(t.rows)
+		}
+		g.count += 1
+		g.worst = max(g.worst, status)
+		append(&t.rows, Watch_Row{section, status, frame, i32(media), text_push(&t.text, label), text_push(&t.text, detail)})
+	}
+	status_of :: proc(s: om.Severity) -> Watch_Status {
+		switch s {
+		case .Info:
+			return .Info
+		case .Warning:
+			return .Warning
+		case .Error:
+			return .Error
+		}
+		return .Ok
+	}
+	fps := max(src.fps, 1)
+	empty: om.Timeline
+	tl := src.timeline if src.timeline != nil else &empty
+
+	// Scenes: the problems seen in each (pairs of finding and scene).
+	problems := make([]int, len(tl.scenes), context.temp_allocator)
+	worst := make([]Watch_Status, len(tl.scenes), context.temp_allocator)
+	for pair in src.findings.scenes {
+		if k := int(pair[1]); k < len(tl.scenes) {
+			problems[k] += 1
+			worst[k] = max(worst[k], status_of(src.findings.rows[pair[0]].diagnostic.severity))
+		}
+	}
+	for sc, k in tl.scenes {
+		label, detail := scene_watch(sc, fps, problems[k])
+		add(t, .Scenes, worst[k], sc.start_frame, label, detail)
+	}
+
+	// Cues: a sync finding names the cue, or its family (`beat[*]`).
+	for c in src.cues {
+		finding: string
+		status := Watch_Status.Ok
+		for d in src.sync {
+			family := strings.trim_suffix(d.name, "[*]")
+			if d.name == c.name || (family != d.name && family_of(c.name) == family) {
+				finding = om.diagnostic_message(d, context.temp_allocator)
+				status = status_of(d.severity)
+				break
+			}
+		}
+		label, detail := cue_watch(c, fps, finding)
+		add(t, .Cues, status, om.frame_at(c.seconds, fps), label, detail)
+	}
+
+	// Problems: a failed reload first (its lines), then the findings as
+	// `inspect` orders them.
+	if src.load_error != "" {
+		for line, i in strings.split_lines(src.load_error, context.temp_allocator) {
+			add(t, .Problems, .Error, -1, line, "the script failed to load; the last good version plays" if i == 0 else "")
+		}
+	}
+	order := findings_order(src.findings)
+	for f, i in findings_report(src.findings, tl, fps) {
+		label, detail := finding_watch(f)
+		add(t, .Problems, status_of(src.findings.rows[order[i]].diagnostic.severity), f.first_frame if f.frames > 0 else -1, label, detail)
+	}
+
+	// Media, in the media table's order (its row k has item k's thumbnail).
+	if src.media != nil {
+		for it, k in media_items(src.media) {
+			first := media_first_frame(src.placed, it.name, fps)
+			status := Watch_Status.Ok
+			if it.failed {
+				status = .Error
+			} else if it.kind == .Audio && first < 0 {
+				status = .Info
+			}
+			label, detail := media_watch(it, first, fps)
+			add(t, .Media, status, first, label, detail, k)
 		}
 	}
 }

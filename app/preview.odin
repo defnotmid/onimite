@@ -20,7 +20,10 @@ import sdl "vendor:sdl3"
 // The preview window, after paf: platform events and ui widgets publish
 // command rows, `dispatch` applies them, and views only read state. Playback,
 // the timeline following the playhead and the file watch are updates of
-// state the clock owns, as paf's source update is.
+// state the clock owns, as paf's source update is. The views (the video,
+// the timeline, Watch views) are tabs in a workspace of panels
+// (preview_workspace.odin) above the transport controls and the status
+// line.
 
 Preview_State :: struct {
 	// Set by Preview_Open; `run` opens the window when it is.
@@ -58,11 +61,18 @@ Preview_State :: struct {
 	rows_scroll:        int,
 	// The press on the timeline began on a group's name (no scrubbing).
 	press_on_name:      bool,
+	// Points the timeline's rows below the scenes get in its panel (from
+	// the last layout).
+	rows_room:          f32,
+	// The panels and their views, laid out each window frame at `dpi`.
+	workspace:          Workspace,
+	dpi:                f32,
+	// A tab being dragged (gesture state, not a command): its view, where
+	// the press began and whether it has moved far enough to be a drag.
+	drag_view:          View_Id,
+	drag_start:         [2]f32,
+	drag_active:        bool,
 	fullscreen:         bool,
-	show_diagnostics:   bool,
-	show_media:         bool,
-	media_grid:         bool,
-	media_scroll:       int,
 	quit:               bool,
 	// File_Dialog asked for the open-file dialog (the loop opens it).
 	file_dialog:        bool,
@@ -86,7 +96,7 @@ Preview_State :: struct {
 	// What the UI took from the mailbox (owned copies).
 	seen_publish:       u64,
 	seen_timeline:      u64,
-	seen_problems:      u64,
+	seen_watch:         u64,
 	seen_waves:         u64,
 	seen_media:         u64,
 	seen_thumbs:        u64,
@@ -97,6 +107,10 @@ Preview_State :: struct {
 	latency_ms:         f64,
 	// Frames published per second, counted over the last second.
 	worker_fps:         f64,
+	// The audio position last heard and the seconds since it last moved
+	// (preview_playback_advance runs the clock on between audio blocks).
+	heard:              f64,
+	since_heard:        f64,
 	fps_count:          int,
 	fps_since:          f64,
 	// Seconds from the window opening to the first frame shown.
@@ -107,7 +121,7 @@ Preview_State :: struct {
 	load_phase:         Load_Phase,
 	load_files:         int,
 	load_seconds:       f64,
-	problems:           Problem_Table,
+	watch:              Watch_Table,
 	waves:              Wave_Table,
 	media:              Media_Table,
 	media_images:       [dynamic]render.Image, // parallel to media.rows (image thumbnails)
@@ -137,8 +151,8 @@ UI_FONT :: vg.DEFAULT_FONT_DATA
 PREVIEW_BG :: [4]f32{0.07, 0.078, 0.102, 1}
 CONTROLS_HEIGHT :: 40
 STATUS_HEIGHT :: 26
-DIAGNOSTICS_HEIGHT :: 160
-MEDIA_WIDTH :: 340
+// Points a Watch opened beside the video takes (at most 45% of it).
+WATCH_WIDTH :: 360
 VOLUME_STEP :: 0.1
 
 // Preview_Open: remembers the request; `run` opens the window after the
@@ -204,6 +218,8 @@ preview_run :: proc(app: ^App_State) -> Error {
 	pv.sent_bookmark = -1
 	pv.bookmark_unread = true
 	pv.zoom = 1
+	pv.rows_room = ROWS_AREA_MAX
+	workspace_init(&pv.workspace)
 	defer preview_state_destroy(pv)
 	// Scripted input for measurements is pushed as command rows (see
 	// preview_drive).
@@ -315,6 +331,7 @@ preview_run :: proc(app: ^App_State) -> Error {
 		preview_playback_advance(app, dt)
 		preview_take_published(app, &r, now)
 		preview_view_follow(app)
+		preview_layout(app, &p)
 		preview_request(app, &p)
 		if pv.quit {
 			break
@@ -389,7 +406,7 @@ preview_report :: proc(app: ^App_State) {
 	wm, wp, ww, wo := stats(pv.ui_ms[min(SKIP, len(pv.ui_ms)):])
 	im, ip, iw, io := stats(pv.interval_ms[min(SKIP, len(pv.interval_ms)):])
 	fmt.eprintfln(
-		"preview: %d frames, first frame at %.2f s; UI work median %.2f / p95 %.2f / max %.2f ms (%d over budget); interval median %.2f / p95 %.2f / max %.2f ms (%d over budget); last video render %.2f ms, latency %.2f ms on %s; frame %d shown %d; %d thumbnails, %d lanes, %d media, %d problems%s%s",
+		"preview: %d frames, first frame at %.2f s; UI work median %.2f / p95 %.2f / max %.2f ms (%d over budget); interval median %.2f / p95 %.2f / max %.2f ms (%d over budget); last video render %.2f ms, latency %.2f ms, %.0f video fps on %s; frame %d shown %d; %d thumbnails, %d lanes, %d media, %d problems%s%s",
 		len(pv.ui_ms),
 		pv.first_frame_at,
 		wm,
@@ -402,13 +419,14 @@ preview_report :: proc(app: ^App_State) {
 		io,
 		pv.render_ms,
 		pv.latency_ms,
+		pv.worker_fps,
 		pv.device_name,
 		pv.frame,
 		pv.shown_frame,
 		len(pv.thumbs),
 		len(pv.waves.lanes),
 		len(pv.media.rows),
-		len(pv.problems.rows),
+		pv.watch.sections[.Problems].count,
 		", rendering" if pv.rendering else "",
 		fmt.tprintf(", reload error: %s", pv.reload_error) if pv.reload_error != "" else "",
 	)
@@ -418,10 +436,16 @@ preview_report :: proc(app: ^App_State) {
 // widgets would push. "scrub" sweeps the playhead back and forth over the
 // whole video as a drag, "slowscrub" two frames per window frame;
 // "zoom" zooms in and out around the playhead; "pause" pauses first (so
-// thumbnails render); "media" opens the media panel; "mark" toggles the
-// bookmark at frame 42; "reload" reloads at window frame 60; "lanes" shows
-// every audio lane; "seek" jumps to frame 130, 75 and 340, then back to
-// the start frame (40 window frames apart; feedback buffers' checkpoints).
+// thumbnails render); "mark" toggles the bookmark at frame 42; "reload"
+// reloads at window frame 60; "lanes" shows every audio lane; "seek" jumps
+// to frame 130, 75 and 340, then back to the start frame (40 window frames
+// apart; feedback buffers' checkpoints). The workspace: "watch" opens the
+// Watch on its cues (window frame 2), "media" on the media (as I does),
+// "split" splits the video's panel to
+// the right (10), "move" moves the timeline into the empty panel (20),
+// "drag" drops the timeline's tab on the left edge of the video's panel
+// (30), "pick" clicks the Watch's third row (40), "next" goes to the next
+// warning or error (45), "close" closes the Watch (50).
 @(private)
 preview_drive :: proc(app: ^App_State, drive: string, frames: int) {
 	c := &app.commands
@@ -441,9 +465,7 @@ preview_drive :: proc(app: ^App_State, drive: string, frames: int) {
 	if frames == 2 && strings.contains(drive, "pause") {
 		command_push(c, .Playback_Set, {flag = false})
 	}
-	if frames == 2 && strings.contains(drive, "media") {
-		command_push(c, .Media_Toggle)
-	}
+	preview_drive_workspace(app, drive, frames)
 	if frames == 90 && strings.contains(drive, "lanes") {
 		for it in app.preview.waves.items {
 			if it.kind == .Group {
@@ -476,6 +498,50 @@ preview_drive :: proc(app: ^App_State, drive: string, frames: int) {
 	}
 }
 
+// The drive's workspace steps: what clicks, tabs dragged and dropped push.
+@(private = "file")
+preview_drive_workspace :: proc(app: ^App_State, drive: string, frames: int) {
+	c := &app.commands
+	ws := &app.preview.workspace
+	video := workspace_view(ws, workspace_find(ws, .Video))
+	timeline := workspace_find(ws, .Timeline)
+	if frames == 2 && strings.contains(drive, "watch") {
+		command_push(c, .Watch_Show, {section = .Cues})
+	}
+	if frames == 2 && strings.contains(drive, "media") {
+		command_push(c, .Watch_Show, {section = .Media})
+	}
+	if frames == 10 && strings.contains(drive, "split") && video != nil {
+		command_push(c, .Panel_Split, {panel = video.panel, direction = .Right})
+	}
+	if frames == 20 && strings.contains(drive, "move") {
+		for p, i in ws.panels {
+			if p.live && p.children[0] == 0 && p.first == 0 {
+				command_push(c, .View_Move, {view = timeline, panel = Panel_Id(i + 1)})
+			}
+		}
+	}
+	if frames == 30 && strings.contains(drive, "drag") && video != nil {
+		if row, ok := workspace_drop_command(ws, timeline, {kind = .Panel_Split, panel = video.panel, direction = .Left}); ok {
+			command_push(c, row.kind, row.regs)
+		}
+	}
+	if frames == 40 && strings.contains(drive, "pick") {
+		if v := workspace_view(ws, workspace_find(ws, .Watch)); v != nil {
+			g := app.preview.watch.sections[v.section]
+			if g.count > 0 {
+				watch_row_click(app, app.preview.watch.rows[g.first + min(2, g.count - 1)])
+			}
+		}
+	}
+	if frames == 45 && strings.contains(drive, "next") {
+		command_push(c, .Problem_Step, {count = 1})
+	}
+	if frames == 50 && strings.contains(drive, "close") {
+		command_push(c, .View_Close, {view = workspace_find(ws, .Watch)})
+	}
+}
+
 @(private)
 preview_state_destroy :: proc(pv: ^Preview_State) {
 	delete(pv.script_path)
@@ -484,7 +550,8 @@ preview_state_destroy :: proc(pv: ^Preview_State) {
 	delete(pv.media_dir)
 	delete(pv.reload_error)
 	delete(pv.device_name)
-	problem_table_destroy(&pv.problems)
+	watch_table_destroy(&pv.watch)
+	workspace_destroy(&pv.workspace)
 	wave_table_destroy(&pv.waves)
 	media_table_destroy(&pv.media)
 	delete(pv.media_images)
@@ -665,15 +732,19 @@ preview_apply :: proc(app: ^App_State, kind: Command_Kind, regs: Command_Regs) {
 		timeline_rows_clamp(app)
 	case .Fullscreen_Toggle:
 		pv.fullscreen = !pv.fullscreen
-	case .Media_Toggle:
-		pv.show_media = !pv.show_media
-	case .Media_Layout_Toggle:
-		pv.media_grid = !pv.media_grid
-		pv.media_scroll = 0
-	case .Media_Scroll:
-		pv.media_scroll = clamp(pv.media_scroll + regs.count, 0, max(len(pv.media.rows) - 1, 0))
-	case .Diagnostics_Toggle:
-		pv.show_diagnostics = !pv.show_diagnostics
+	case .Watch_Show:
+		watch_show(app, regs.section)
+	case .Watch_Section_Set:
+		if v := workspace_view(&pv.workspace, regs.view); v != nil && v.kind == .Watch {
+			v.section = regs.section
+			v.scroll = 0
+		}
+	case .Watch_Scroll:
+		if v := workspace_view(&pv.workspace, regs.view); v != nil && v.kind == .Watch {
+			v.scroll = clamp(v.scroll + regs.count, 0, max(pv.watch.sections[v.section].count - 1, 0))
+		}
+	case .Problem_Step:
+		preview_seek(app, problem_step_target(app, regs.count))
 	case .Cursor_Hover:
 		pv.hover_frame = regs.count
 		pv.hover_valid = true
@@ -713,6 +784,67 @@ scene_step_target :: proc(app: ^App_State, steps: int) -> int {
 		}
 	}
 	return target
+}
+
+// Shows the Watch on `section`: the open one, else a new one beside the
+// video (WATCH_WIDTH wide), else in the focused panel.
+@(private)
+watch_show :: proc(app: ^App_State, section: Watch_Section) {
+	pv := &app.preview
+	ws := &pv.workspace
+	id := workspace_find(ws, .Watch)
+	if id == 0 {
+		if video := workspace_view(ws, workspace_find(ws, .Video)); video != nil {
+			ratio: f32 = 0.55
+			if int(video.panel) <= len(ws.areas) {
+				if width := ws.areas[video.panel - 1].rect.width; width > 0 {
+					ratio = clamp(1 - WATCH_WIDTH * pv.dpi / width, 0.55, 0.8)
+				}
+			}
+			id = workspace_open(ws, video.panel, .Watch, .Right, ratio, section = section)
+		} else {
+			id = workspace_open(ws, ws.focused, .Watch, section = section)
+		}
+	}
+	if v := workspace_view(ws, id); v != nil {
+		workspace_select(ws, id)
+		v.section = section
+		v.scroll = 0
+	}
+}
+
+// The frame of the next (`steps` > 0) or previous Watch row with a warning
+// or an error after (before) the playhead, wrapping around; the playhead
+// when there is none.
+@(private)
+problem_step_target :: proc(app: ^App_State, steps: int) -> int {
+	pv := &app.preview
+	near, wrap := -1, -1
+	for row in pv.watch.rows {
+		if row.status < .Warning || row.frame < 0 {
+			continue
+		}
+		f := row.frame
+		if steps > 0 {
+			if f > pv.frame && (near < 0 || f < near) {
+				near = f
+			}
+			if wrap < 0 || f < wrap {
+				wrap = f
+			}
+		} else {
+			if f < pv.frame && (near < 0 || f > near) {
+				near = f
+			}
+			if wrap < 0 || f > wrap {
+				wrap = f
+			}
+		}
+	}
+	if near >= 0 {
+		return near
+	}
+	return wrap if wrap >= 0 else pv.frame
 }
 
 // Home / 0 / Shift+Left: the bookmark when there is one and the playhead
@@ -795,6 +927,12 @@ preview_watch_files :: proc(app: ^App_State, now: f64) {
 	}
 }
 
+// The share of the gap to the heard position the clock closes each window
+// frame: small enough to stay smooth, enough to follow the sound within a
+// few frames.
+@(private = "file")
+CLOCK_STEER :: 0.1
+
 // The clock: the audio thread's play position when there is a device,
 // else real time.
 @(private)
@@ -807,7 +945,26 @@ preview_playback_advance :: proc(app: ^App_State, dt: f64) {
 	total := f64(preview_duration(app)) / fps
 	if pv.audio_stream != nil {
 		pos, playing, _ := audio_position(pv.audio)
-		pv.clock = f64(pos) / om.MIX_RATE
+		// The heard position moves a device block at a time (about 21 ms at
+		// 48 kHz). The clock runs on real time instead, steered toward what is
+		// being heard (the last heard position plus the time since, at most a
+		// block): every window frame gets its own video frame, and the picture
+		// stays with the sound. More than two blocks apart (a seek, a loop,
+		// playing again) it jumps.
+		heard := f64(pos) / om.MIX_RATE
+		if heard != pv.heard {
+			pv.heard, pv.since_heard = heard, 0
+		} else {
+			pv.since_heard += dt
+		}
+		block := f64(pv.audio.device_frames) / om.MIX_RATE if pv.audio.device_frames > 0 else 0.05
+		hearing := heard + min(pv.since_heard, block)
+		pv.clock += dt
+		if off := hearing - pv.clock; abs(off) > 2 * block {
+			pv.clock = hearing
+		} else {
+			pv.clock += off * CLOCK_STEER
+		}
 		if !playing && pv.clock >= total - 1.5 / fps {
 			// The audio stopped at the end (not looping).
 			pv.playing = false
@@ -875,9 +1032,9 @@ preview_take_published :: proc(app: ^App_State, r: ^render.Renderer, now: f64) {
 		bookmark_loaded = mb.bookmark_loaded
 		timeline_changed = true
 	}
-	if mb.problems_seq != pv.seen_problems {
-		pv.seen_problems = mb.problems_seq
-		problem_table_copy(&pv.problems, &mb.problems)
+	if mb.watch_seq != pv.seen_watch {
+		pv.seen_watch = mb.watch_seq
+		watch_table_copy(&pv.watch, &mb.watch)
 	}
 	if mb.waves_seq != pv.seen_waves {
 		pv.seen_waves = mb.waves_seq
@@ -978,10 +1135,10 @@ preview_request :: proc(app: ^App_State, p: ^platform.Platform) {
 		table_copy(&pv.sent_thumbs, wanted)
 	}
 
-	scale: f32 = 1
-	if pv.timeline.width > 0 {
-		aw, ah := preview_video_area(app, p)
-		fit := min(aw / f32(pv.timeline.width), ah / f32(pv.timeline.height))
+	// The scale that fits the video's panel (kept while it is hidden).
+	scale := pv.asked_scale if pv.asked_scale > 0 else 1
+	if area, shown := view_area(app, .Video); shown && pv.timeline.width > 0 {
+		fit := min(max(area.width, 16) / f32(pv.timeline.width), max(area.height, 16) / f32(pv.timeline.height))
 		// Quantized, so a window drag doesn't rebuild the renderer every pixel.
 		scale = clamp(math.ceil(fit * 32) / 32, 1.0 / 32, 2)
 	}
@@ -999,26 +1156,37 @@ preview_request :: proc(app: ^App_State, p: ^platform.Platform) {
 	pv.reload_media = false
 }
 
-// The area above the transport (left of the media panel).
+// Lays the workspace out above the controls and the status line: the
+// timeline's panel, while fitted, at the timeline's natural height. The
+// timeline's rows get what its panel leaves them.
 @(private)
-preview_video_area :: proc(app: ^App_State, p: ^platform.Platform) -> (w, h: f32) {
+preview_layout :: proc(app: ^App_State, p: ^platform.Platform) {
 	pv := &app.preview
-	dpi := p.dpi_scale
-	h = f32(p.height) - (transport_height(app) + STATUS_HEIGHT) * dpi
-	if pv.show_diagnostics {
-		h -= DIAGNOSTICS_HEIGHT * dpi
+	pv.dpi = p.dpi_scale
+	natural := [View_Kind]f32{.Video = -1, .Timeline = timeline_height(app) * pv.dpi, .Watch = -1}
+	workspace_measure(&pv.workspace, workspace_rect(p), pv.dpi, natural)
+	pv.rows_room = ROWS_AREA_MAX
+	if area, shown := view_area(app, .Timeline); shown {
+		pv.rows_room = max(area.height / pv.dpi - (TIMELINE_GAP * 2 + RULER_HEIGHT + SCENE_HEIGHT), 0)
 	}
-	w = f32(p.width)
-	if pv.show_media {
-		w -= media_width(p)
-	}
-	return max(w, 16), max(h, 16)
 }
 
-// The media panel's width in pixels: MEDIA_WIDTH, at most 45% of the window.
+// The window above the controls and the status line, in pixels.
 @(private)
-media_width :: proc(p: ^platform.Platform) -> f32 {
-	return min(MEDIA_WIDTH * p.dpi_scale, f32(p.width) * 0.45)
+workspace_rect :: proc(p: ^platform.Platform) -> Workspace_Rect {
+	h := f32(p.height) - (CONTROLS_HEIGHT + STATUS_HEIGHT) * p.dpi_scale
+	return {0, 0, f32(p.width), max(h, 0)}
+}
+
+// Where the view of `kind` draws, in pixels, when its panel shows it.
+@(private)
+view_area :: proc(app: ^App_State, kind: View_Kind) -> (area: Workspace_Rect, shown: bool) {
+	ws := &app.preview.workspace
+	v := workspace_view(ws, workspace_shown(ws, kind))
+	if v == nil || int(v.panel) > len(ws.areas) || !ws.areas[v.panel - 1].visible {
+		return
+	}
+	return ws.areas[v.panel - 1].content, true
 }
 
 // ---- views ---------------------------------------------------------------------------
@@ -1027,14 +1195,16 @@ media_width :: proc(p: ^platform.Platform) -> f32 {
 preview_global_actions :: proc(app: ^App_State, s: ^ui.State, p: ^platform.Platform) {
 	pv := &app.preview
 	c := &app.commands
+	ws := &pv.workspace
 	preview_keys(app, p)
 	if ui.action_pressed(s, .Cancel) {
-		// Escape closes the panels first, then leaves fullscreen, then the window.
+		// Escape closes a list of views, then the Watch, then leaves
+		// fullscreen, then the window.
 		switch {
-		case pv.show_diagnostics:
-			command_push(c, .Diagnostics_Toggle)
-		case pv.show_media:
-			command_push(c, .Media_Toggle)
+		case ws.picker != 0:
+			command_push(c, .View_Picker_Toggle, {panel = ws.picker})
+		case workspace_find(ws, .Watch) != 0:
+			command_push(c, .View_Close, {view = workspace_find(ws, .Watch)})
 		case pv.fullscreen:
 			command_push(c, .Fullscreen_Toggle)
 		case:
@@ -1053,38 +1223,38 @@ COLOR_TRACK :: [4]u8{30, 33, 41, 255}
 // Scene segments and audio lanes cycle through these.
 SCENE_COLORS := [?][4]u8{{58, 96, 160, 255}, {92, 70, 150, 255}, {48, 120, 110, 255}, {140, 90, 60, 255}, {120, 60, 100, 255}}
 
+// The workspace's panels, then the controls and the status line.
 @(private)
 preview_views :: proc(app: ^App_State, s: ^ui.State, p: ^platform.Platform) {
-	pv := &app.preview
-	c := &app.commands
 	dpi := p.dpi_scale
-	video_w, video_h := preview_video_area(app, p)
-
 	ui.set_next_pref_width(s, ui.fill())
 	ui.set_next_pref_height(s, ui.fill())
 	ui.column(s, "preview")
 	defer ui.pop_parent(s)
 
+	// The panels place their boxes in window pixels: this box is at the origin.
 	ui.set_next_pref_width(s, ui.fill())
-	ui.set_next_pref_height(s, ui.px(video_h))
-	ui.set_next_child_layout_axis(s, .X)
-	top := ui.build_box(s, {}, "###top")
-	ui.push_parent(s, top)
+	ui.set_next_pref_height(s, ui.px(workspace_rect(p).height))
+	ui.push_parent(s, ui.build_box(s, {}, "###workspace"))
+	panels_view(app, s, dpi)
+	ui.pop_parent(s)
 
-	// The video, letterboxed; a click toggles playback.
-	ui.set_next_pref_width(s, ui.px(video_w))
-	ui.set_next_pref_height(s, ui.px(video_h))
-	ui.set_next_bg_color(s, {12, 13, 17, 255})
-	ui.set_next_corner_radius(s, 0)
+	controls_view(app, s, dpi)
+	status_view(app, s, dpi)
+}
+
+// The video, letterboxed in `area`; a click toggles playback. Over it, what
+// the worker is doing until the first frame shows, and a failed reload.
+@(private)
+video_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32, area: Workspace_Rect) {
+	pv := &app.preview
 	// No background: paf's box drawing paints the image before the background.
-	video := ui.build_box(s, {.Clickable, .Draw_Image}, "###video")
+	video := place_box(s, area, {.Clickable, .Draw_Image}, "###video")
 	video.image = &pv.video_image if render.image_loaded(&pv.video_image) else nil
 	if ui.clicked(ui.signal_from_box(s, video)) {
-		command_push(c, .Playback_Toggle)
+		command_push(&app.commands, .Playback_Toggle)
 	}
 	if pv.loading || !render.image_loaded(&pv.video_image) {
-		// What the worker is doing until the first frame is on screen (and
-		// over the last frame during a reload).
 		label := "Rendering the first frame…"
 		if pv.loading {
 			phase := "running the script"
@@ -1099,7 +1269,7 @@ preview_views :: proc(app: ^App_State, s: ^ui.State, p: ^platform.Platform) {
 		}
 		ui.push_parent(s, video)
 		ui.set_next_fixed_x(s, 12 * dpi)
-		ui.set_next_fixed_y(s, 12 * dpi if render.image_loaded(&pv.video_image) else video_h * 0.5 - 16 * dpi)
+		ui.set_next_fixed_y(s, 12 * dpi if render.image_loaded(&pv.video_image) else area.height * 0.5 - 16 * dpi)
 		ui.set_next_bg_color(s, {30, 34, 44, 235})
 		ui.set_next_text_color(s, {225, 230, 240, 255})
 		ui.set_next_pref_width(s, ui.text_content(12 * dpi))
@@ -1122,52 +1292,22 @@ preview_views :: proc(app: ^App_State, s: ^ui.State, p: ^platform.Platform) {
 		ui.build_box(s, {.Draw_Background, .Draw_Text}, fmt.tprintf("reload failed: %s###reload_error", first_line))
 		ui.pop_parent(s)
 	}
-	if pv.show_media {
-		media_view(app, s, dpi, media_width(p), video_h)
-	}
-	ui.pop_parent(s)
-
-	transport_view(app, s, dpi)
-	status_view(app, s, dpi)
-	if pv.show_diagnostics {
-		diagnostics_view(app, s, dpi)
-	}
 }
 
-// The timeline across the full width (unless collapsed), the controls
-// below it.
+// The transport controls across the window, under the panels.
 @(private)
-transport_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32) {
+controls_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32) {
 	pv := &app.preview
 	c := &app.commands
 	ui.set_next_pref_width(s, ui.fill())
-	ui.set_next_pref_height(s, ui.px(transport_height(app) * dpi))
-	ui.set_next_bg_color(s, s.theme.background)
-	ui.set_next_child_layout_axis(s, .Y)
-	ui.set_next_corner_radius(s, 0)
-	bar := ui.build_box(s, {.Draw_Background}, "###transport")
-	ui.push_parent(s, bar)
-	defer ui.pop_parent(s)
-	pad := ui.px(TRACK_PAD * dpi)
-
-	if !pv.timeline_collapsed {
-		ui.set_next_pref_width(s, ui.fill())
-		ui.set_next_pref_height(s, ui.px(timeline_height(app) * dpi))
-		ui.set_next_child_layout_axis(s, .X)
-		timeline_row := ui.build_box(s, {}, "###timeline_row")
-		ui.push_parent(s, timeline_row)
-		ui.spacer(s, pad)
-		timeline_view(app, s, dpi)
-		ui.spacer(s, pad)
-		ui.pop_parent(s)
-	}
-
-	ui.set_next_pref_width(s, ui.fill())
 	ui.set_next_pref_height(s, ui.px(CONTROLS_HEIGHT * dpi))
+	ui.set_next_bg_color(s, s.theme.background)
 	ui.set_next_child_layout_axis(s, .X)
-	controls := ui.build_box(s, {}, "###controls")
+	ui.set_next_corner_radius(s, 0)
+	controls := ui.build_box(s, {.Draw_Background}, "###controls")
 	ui.push_parent(s, controls)
 	defer ui.pop_parent(s)
+	pad := ui.px(TRACK_PAD * dpi)
 
 	button_h := (CONTROLS_HEIGHT - 10) * dpi
 	button :: proc(s: ^ui.State, text: string, width, h, dpi: f32, on := false) -> bool {
@@ -1180,7 +1320,7 @@ transport_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32) {
 		return ui.clicked(ui.button(s, text))
 	}
 	gap :: proc(s: ^ui.State, dpi: f32) {ui.spacer(s, ui.px(4 * dpi))}
-	// A narrow window drops the buttons that have keys (I, R) and the scene
+	// A narrow window drops the buttons that have keys (D, R) and the scene
 	// from the time.
 	narrow := f32(s.p.width) / dpi < 1000
 
@@ -1230,8 +1370,14 @@ transport_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32) {
 	}
 	ui.spacer(s, pad)
 	if !narrow {
-		if button(s, "Media###media", 64, button_h, dpi, pv.show_media) {
-			command_push(c, .Media_Toggle)
+		// The Watch opens on the problems, or closes.
+		watch := workspace_find(&pv.workspace, .Watch)
+		if button(s, "Watch###watch", 64, button_h, dpi, watch != 0) {
+			if watch != 0 {
+				command_push(c, .View_Close, {view = watch})
+			} else {
+				command_push(c, .Watch_Show, {section = .Problems})
+			}
 		}
 		gap(s, dpi)
 		if button(s, "Reload###reload", 72, button_h, dpi) {
@@ -1263,25 +1409,16 @@ time_label :: proc(app: ^App_State, f: int) -> string {
 }
 
 @(private)
-problem_counts :: proc(pv: ^Preview_State) -> (errors, warnings: int) {
-	for row in pv.problems.rows {
-		switch row.severity {
-		case .Error:
-			errors += 1
-		case .Warning:
-			warnings += 1
-		case .Info:
-		}
-	}
-	return
-}
-
-@(private)
 status_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32) {
 	pv := &app.preview
 	// Problems since the load, not per frame: the line holds still while
 	// frames with and without findings alternate.
-	errors, warnings := problem_counts(pv)
+	errors, warnings := 0, 0
+	g := pv.watch.sections[.Problems]
+	for row in pv.watch.rows[g.first:][:g.count] {
+		errors += int(row.status == .Error)
+		warnings += int(row.status == .Warning)
+	}
 	problems := "no problems"
 	if errors + warnings > 0 {
 		problems = fmt.tprintf("%d errors, %d warnings", errors, warnings)
@@ -1324,53 +1461,6 @@ status_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32) {
 	)
 	b := ui.build_box(s, {.Clickable, .Draw_Background, .Draw_Text, .Draw_Hot_Effects}, text)
 	if ui.clicked(ui.signal_from_box(s, b)) {
-		command_push(&app.commands, .Diagnostics_Toggle)
-	}
-}
-
-// Problems since the last load, grouped by key, with the frames they were
-// seen in; a click goes to the first.
-@(private)
-diagnostics_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32) {
-	pv := &app.preview
-	ui.set_next_pref_width(s, ui.fill())
-	ui.set_next_pref_height(s, ui.px(DIAGNOSTICS_HEIGHT * dpi))
-	ui.scroll_list_begin(s, "###diagnostics")
-	defer ui.scroll_list_end(s)
-	line :: proc(s: ^ui.State, dpi: f32, color: [4]u8, text: string, clickable := false) -> bool {
-		ui.set_next_pref_width(s, ui.fill())
-		ui.set_next_pref_height(s, ui.px(20 * dpi))
-		ui.set_next_text_color(s, color)
-		ui.set_next_font_size(s, 13 * dpi)
-		if !clickable {
-			ui.build_box(s, {.Draw_Text}, text)
-			return false
-		}
-		ui.set_next_bg_color(s, {0, 0, 0, 0})
-		b := ui.build_box(s, {.Clickable, .Draw_Text, .Draw_Background, .Draw_Hot_Effects}, text)
-		return ui.clicked(ui.signal_from_box(s, b))
-	}
-	if pv.reload_error != "" {
-		for l, i in strings.split_lines(pv.reload_error, context.temp_allocator) {
-			line(s, dpi, COLOR_ERROR, fmt.tprintf("%s###reload%d", l, i))
-		}
-	}
-	if len(pv.problems.rows) == 0 && pv.reload_error == "" {
-		line(s, dpi, COLOR_TEXT_DIM, "No problems at load or in the frames shown since.###none")
-	}
-	text := pv.problems.text[:]
-	for d, i in pv.problems.rows {
-		scene := text_of(text, d.scene)
-		where_ := scene if scene != "" else "video"
-		color := COLOR_ERROR if d.severity == .Error else (COLOR_WARNING if d.severity == .Warning else COLOR_TEXT_DIM)
-		if d.first == LOAD_FRAME {
-			line(s, dpi, color, fmt.tprintf("%s [load] %s###diag%d", severity_name(d.severity), text_of(text, d.message), i))
-			continue
-		}
-		frames := fmt.tprintf("f %d", d.first) if d.first == d.last else fmt.tprintf("f %d–%d", d.first, d.last)
-		label := fmt.tprintf("%s [%s] %s (%s, %s)###diag%d", severity_name(d.severity), where_, text_of(text, d.message), frames, clock_label(app, d.first), i)
-		if line(s, dpi, color, label, true) {
-			command_push(&app.commands, .Frame_Set, {count = d.first})
-		}
+		command_push(&app.commands, .Watch_Show, {section = .Problems})
 	}
 }

@@ -55,11 +55,20 @@ Command_Kind :: enum u8 {
 	Timeline_Row_Toggle, // regs.spec a timeline group's path ("bus/sfx"): open or close it
 	Timeline_Rows_Scroll, // regs.count rows, signed: the timeline's rows below the scenes
 	Fullscreen_Toggle,
-	Media_Toggle, // the media panel
-	Media_Layout_Toggle, // the media panel as a list or a grid
-	Media_Scroll, // regs.count rows, signed
-	Diagnostics_Toggle,
 	Cursor_Hover, // regs.count the frame under the mouse on the timeline; lasts one frame
+	// The preview's workspace (preview_workspace.odin): panels and their views.
+	Panel_Split, // regs.panel a leaf, regs.direction the side an empty panel opens on, regs.ratio the first side's share (0: half)
+	Panel_Close, // regs.panel a leaf, with its views
+	Panel_Resize, // regs.panel a split, regs.ratio its first side's share
+	View_Open, // regs.view_kind (a Watch on regs.section) in regs.panel after regs.previous, or with regs.direction in a new panel on that side (regs.ratio as Panel_Split); an open video or timeline moves there instead
+	View_Close, // regs.view; a panel it leaves empty closes
+	View_Select, // regs.view: the tab its panel shows
+	View_Move, // regs.view into regs.panel after regs.previous (0: first), or with regs.direction into a new panel on that side; what a tab dropped somewhere pushes
+	View_Picker_Toggle, // regs.panel: the list of views to open in it
+	Watch_Show, // regs.section: the Watch on that section, opened beside the video when none is
+	Watch_Section_Set, // regs.view a Watch, regs.section
+	Watch_Scroll, // regs.view a Watch, regs.count rows, signed
+	Problem_Step, // regs.count: to the next (-1: previous) Watch row with a warning or error after the playhead, wrapping around
 	Quit,
 }
 
@@ -114,6 +123,13 @@ Command_Regs :: struct {
 	ratio:      f64,
 	flag:       bool,
 	flags:      Command_Flags,
+	// The preview's workspace commands.
+	panel:      Panel_Id,
+	view:       View_Id,
+	previous:   View_Id,
+	direction:  Direction,
+	view_kind:  View_Kind,
+	section:    Watch_Section,
 }
 
 Command_Row :: struct {

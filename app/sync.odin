@@ -5,6 +5,7 @@ import "core:math"
 import "core:slice"
 import "core:strings"
 import om "../onimite"
+import script "../script"
 
 // Sync points: everything a script tags with the same `id` (cues, scenes,
 // audio tracks, animate keys) should happen at the same moment. The anchors
@@ -36,7 +37,6 @@ SYNC_AUDIO_TOLERANCE :: 0.03
 // Every sync point of the loaded script on the video clock, by id. Animate
 // keys are the ones the frames rendered so far reached.
 sync_anchors :: proc(app: ^App_State, r: ^om.Renderer) -> (anchors: []Anchor, err: Error) {
-	out := make([dynamic]Anchor, context.temp_allocator)
 	// Tracks with ids and `hit` cues measure sound: build deferred clips.
 	needs_sound := tracks_have_ids(r)
 	for c in app.script.cues {
@@ -45,26 +45,32 @@ sync_anchors :: proc(app: ^App_State, r: ^om.Renderer) -> (anchors: []Anchor, er
 	if needs_sound {
 		build_audio(app) or_return
 	}
-	fps := f64(r.video.fps)
-	for c in app.script.cues {
+	return video_anchors(&app.script, &app.media, r.timeline.scenes[:], om.placed_audio(&r.ctx).tracks[:], r.video.fps), nil
+}
+
+// The sync points of script `s` with its scenes and placed tracks, by id
+// (temp memory): what `sync_anchors` gives once the sound is built, and
+// what the preview's worker reads from its own load.
+video_anchors :: proc(s: ^script.Script, m: ^om.Media, scenes: []om.Scene_Info, placed: []om.Placed_Track, fps: int) -> []Anchor {
+	out := make([dynamic]Anchor, context.temp_allocator)
+	for c in s.cues {
 		append(&out, Anchor{c.name, c.seconds, .Cue, fmt.tprintf("cue (%s)", c.at), c.hit})
 	}
-	for s in r.timeline.scenes {
-		if s.scene.cue != "" {
-			append(&out, Anchor{s.scene.cue, f64(s.start_frame) / fps, .Scene, fmt.tprintf("scene %s", s.scene.name), ""})
+	for sc in scenes {
+		if sc.scene.cue != "" {
+			append(&out, Anchor{sc.scene.cue, f64(sc.start_frame) / f64(fps), .Scene, fmt.tprintf("scene %s", sc.scene.name), ""})
 		}
 	}
-	placed := om.placed_audio(&r.ctx).tracks[:]
 	for p in placed {
 		if p.track.cue != "" {
-			append(&out, Anchor{p.track.cue, track_sound_start(&app.media, p), .Track, fmt.tprintf("audio %s", p.track.src), ""})
+			append(&out, Anchor{p.track.cue, track_sound_start(m, p), .Track, fmt.tprintf("audio %s", p.track.src), ""})
 		}
 	}
-	for k in app.script.key_anchors {
+	for k in s.key_anchors {
 		append(&out, Anchor{k.id, k.seconds, .Key, fmt.tprintf("animate key (%s)", k.at), ""})
 	}
 	slice.stable_sort_by(out[:], proc(a, b: Anchor) -> bool {return a.id < b.id})
-	return out[:], nil
+	return out[:]
 }
 
 // A placed track's onset on the video clock.
@@ -108,10 +114,10 @@ track_sound_start :: proc(m: ^om.Media, p: om.Placed_Track) -> f64 {
 }
 
 // The sync problems of `anchors` as diagnostics (frame: where the row that
-// is off happens).
-sync_check :: proc(app: ^App_State, r: ^om.Renderer, anchors: []Anchor) -> []om.Diagnostic {
+// is off happens); `placed` are the tracks a cue's `hit` is looked for in.
+sync_check :: proc(m: ^om.Media, placed: []om.Placed_Track, video_fps: int, anchors: []Anchor) -> []om.Diagnostic {
 	out := make([dynamic]om.Diagnostic, context.temp_allocator)
-	fps := f64(r.video.fps)
+	fps := f64(video_fps)
 
 	// One drift per row first; families are summarised below.
 	Drift :: struct {
@@ -130,7 +136,7 @@ sync_check :: proc(app: ^App_State, r: ^om.Renderer, anchors: []Anchor) -> []om.
 		i = j
 		if len(group) == 1 {
 			if group[0].kind != .Cue {
-				append(&out, om.Diagnostic{severity = .Warning, code = .Cue_Alone, frame = om.frame_at(group[0].seconds, r.video.fps), name = group[0].id, a = group[0].label})
+				append(&out, om.Diagnostic{severity = .Warning, code = .Cue_Alone, frame = om.frame_at(group[0].seconds, video_fps), name = group[0].id, a = group[0].label})
 			}
 		} else {
 			ref := group[0]
@@ -156,7 +162,7 @@ sync_check :: proc(app: ^App_State, r: ^om.Renderer, anchors: []Anchor) -> []om.
 		}
 		for c in group {
 			if c.kind == .Cue && c.hit != "" {
-				if d, problem := cue_hit(app, r, c); problem {
+				if d, problem := cue_hit(m, placed, video_fps, c); problem {
 					append(&out, d)
 				}
 			}
@@ -191,7 +197,7 @@ sync_check :: proc(app: ^App_State, r: ^om.Renderer, anchors: []Anchor) -> []om.
 			append(&out, om.Diagnostic {
 				severity = .Warning,
 				code = .Cue_Drift,
-				frame = om.frame_at(d.a.seconds, r.video.fps),
+				frame = om.frame_at(d.a.seconds, video_fps),
 				name = fmt.tprintf("%s[*]", d.family),
 				a = fmt.tprintf("%d of %d %ss", len(same), total, kind_name(d.a.kind)),
 				b = fmt.tprintf("their %ss", kind_name(d.ref.kind)),
@@ -203,7 +209,7 @@ sync_check :: proc(app: ^App_State, r: ^om.Renderer, anchors: []Anchor) -> []om.
 		append(&out, om.Diagnostic {
 			severity = .Warning,
 			code = .Cue_Drift,
-			frame = om.frame_at(d.a.seconds, r.video.fps),
+			frame = om.frame_at(d.a.seconds, video_fps),
 			name = d.a.id,
 			a = fmt.tprintf("%s at %.3fs", d.a.label, d.a.seconds),
 			b = fmt.tprintf("%s at %.3fs", d.ref.label, d.ref.seconds),
@@ -242,14 +248,13 @@ family_of :: proc(id: string) -> string {
 // A cue's `hit`: some sound of that track (strength 0.1 or more) starts
 // within SYNC_AUDIO_TOLERANCE of it.
 @(private)
-cue_hit :: proc(app: ^App_State, r: ^om.Renderer, c: Anchor) -> (d: om.Diagnostic, problem: bool) {
-	placed := om.placed_audio(&r.ctx).tracks[:]
+cue_hit :: proc(m: ^om.Media, placed: []om.Placed_Track, fps: int, c: Anchor) -> (d: om.Diagnostic, problem: bool) {
 	nearest := math.INF_F64
 	for p in placed {
 		if p.track.src != c.hit {
 			continue
 		}
-		for o in placed_onsets(&app.media, p, 0.1) {
+		for o in placed_onsets(m, p, 0.1) {
 			if abs(o.seconds - c.seconds) < abs(nearest - c.seconds) {
 				nearest = o.seconds
 			}
@@ -262,7 +267,7 @@ cue_hit :: proc(app: ^App_State, r: ^om.Renderer, c: Anchor) -> (d: om.Diagnosti
 	return {
 			severity = .Warning,
 			code = .Cue_No_Hit,
-			frame = om.frame_at(c.seconds, r.video.fps),
+			frame = om.frame_at(c.seconds, fps),
 			name = c.id,
 			a = near,
 			b = c.hit,

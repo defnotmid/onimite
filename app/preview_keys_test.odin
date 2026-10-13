@@ -26,4 +26,8 @@ test_preview_keys :: proc(t: ^testing.T) {
 	testing.expect_value(t, press(&app, .S, shift = true).regs.count, -1)
 	testing.expect_value(t, press(&app, .O, ctrl = true).kind, Command_Kind.File_Dialog)
 	testing.expect_value(t, press(&app, .Q, ctrl = true).kind, Command_Kind.None)
+	testing.expect_value(t, press(&app, .D).regs.section, Watch_Section.Problems)
+	testing.expect_value(t, press(&app, .I).regs.section, Watch_Section.Media)
+	testing.expect_value(t, press(&app, .N).kind, Command_Kind.Problem_Step)
+	testing.expect_value(t, press(&app, .N, shift = true).regs.count, -1)
 }

@@ -27,8 +27,8 @@ import sdl "vendor:sdl3"
 // between two renders.
 //
 // When no request is waiting the worker does idle work in small steps, so a
-// new request waits at most one step: waveform pyramids, the media table,
-// then timeline thumbnails (only while the UI is not playing or scrubbing,
+// new request waits at most one step: waveform pyramids, the Watch's rows,
+// the media table, then timeline thumbnails (only while the UI is not playing or scrubbing,
 // or while frames leave slack), see worker_idle.
 
 SLOT_COUNT :: 3
@@ -148,8 +148,8 @@ Mailbox :: struct {
 	reload_failure:   script.Failure,
 	reload_seq:       u64,
 	device_name:      string, // owned
-	problems_seq:     u64,
-	problems:         Problem_Table,
+	watch_seq:        u64,
+	watch:            Watch_Table,
 	waves_seq:        u64,
 	waves:            Wave_Table,
 	media_seq:        u64,
@@ -167,7 +167,7 @@ mailbox_destroy :: proc(mb: ^Mailbox) {
 	script.failure_destroy(&mb.reload_failure)
 	delete(mb.device_name)
 	delete(mb.thumb_wanted)
-	problem_table_destroy(&mb.problems)
+	watch_table_destroy(&mb.watch)
 	wave_table_destroy(&mb.waves)
 	media_table_destroy(&mb.media)
 	delete(mb.thumbs)
@@ -236,9 +236,14 @@ Render_Worker :: struct {
 	timeline_ok:    bool,
 	placed:         om.Placed_Audio,
 	// Idle work (worker_idle), all reset by a load.
-	// Problems since the load, and the panel's rows made from them.
+	// Problems since the load, and the Watch's rows, made again when they
+	// change (`watch_dirty`) or the frames reach more animate keys.
 	findings:       Finding_Table,
-	problems:       Problem_Table,
+	watch:          Watch_Table,
+	watch_dirty:    bool,
+	watch_keys:     int,
+	// Why the last load failed (owned; "" after a good one).
+	load_error:     string,
 	waves:          Wave_Builder,
 	media_table:    Media_Table,
 	media_dirty:    bool,
@@ -384,6 +389,7 @@ worker_place_audio :: proc(w: ^Render_Worker) {
 	om.placed_audio_update(&w.placed, &w.script.video, w.timeline, w.media)
 	worker_lanes(w)
 	w.media_dirty = true
+	w.watch_dirty = true
 	worker_publish_audio(w)
 }
 
@@ -532,18 +538,14 @@ worker_clips :: proc(w: ^Render_Worker) -> bool {
 	return landed > 0
 }
 
-// A clip the script builds failed: a script error in the problems panel
-// (the clip stays silent), as a command would fail with it.
+// A clip the script builds failed: a script error among the problems (the
+// clip stays silent), as a command would fail with it.
 @(private = "file")
 worker_build_failed :: proc(w: ^Render_Worker, f: script.Failure) {
 	message := script.error_message(f, context.temp_allocator)
 	warn("%s", message)
 	finding_add(&w.findings, nil, LOAD_FRAME, {severity = .Error, code = .Script_Error, a = message})
-	problem_table_set(&w.problems, &w.findings, &w.renderer.timeline if w.renderer_ok else nil)
-	sync.mutex_lock(&w.mb.mutex)
-	problem_table_copy(&w.mb.problems, &w.problems)
-	w.mb.problems_seq += 1
-	sync.mutex_unlock(&w.mb.mutex)
+	w.watch_dirty = true
 }
 
 // Clip frames still decoding were drawn from the nearest decoded frame: draw
@@ -586,13 +588,41 @@ worker_idle_ready :: proc(w: ^Render_Worker) -> (ready: bool, retry: time.Durati
 		append(&w.thumb_free, ..w.thumb_retired[:])
 		clear(&w.thumb_retired)
 	}
-	if w.mb.clips_landed || clips_built_here(w) || wave_builder_pending(&w.waves) || media_pending(w) {
+	if w.mb.clips_landed || clips_built_here(w) || wave_builder_pending(&w.waves) || watch_pending(w) || media_pending(w) {
 		return true, 0
 	}
 	if thumb_next(w) < 0 {
 		return
 	}
 	return thumbs_allowed(w, w.mb.busy)
+}
+
+@(private = "file")
+watch_pending :: proc(w: ^Render_Worker) -> bool {
+	return w.watch_dirty || (w.script != nil && len(w.script.key_anchors) != w.watch_keys)
+}
+
+// The Watch's rows from the load, published. The sync findings wait for
+// the script's sounds (a cue's hit needs its track built).
+@(private = "file")
+worker_watch :: proc(w: ^Render_Worker) {
+	w.watch_dirty = false
+	src := Watch_Sources{fps = 1, findings = &w.findings, media = w.media, load_error = w.load_error}
+	if s := w.script; s != nil {
+		w.watch_keys = len(s.key_anchors)
+		src.fps, src.cues, src.placed = s.video.fps, s.cues[:], w.placed.tracks[:]
+		if w.timeline_ok {
+			src.timeline = &w.timeline
+			if w.clips == nil {
+				src.sync = sync_check(w.media, src.placed, src.fps, video_anchors(s, w.media, w.timeline.scenes[:], src.placed, src.fps))
+			}
+		}
+	}
+	watch_table_build(&w.watch, src)
+	sync.mutex_lock(&w.mb.mutex)
+	watch_table_copy(&w.mb.watch, &w.watch)
+	w.mb.watch_seq += 1
+	sync.mutex_unlock(&w.mb.mutex)
 }
 
 @(private = "file")
@@ -633,13 +663,17 @@ worker_idle :: proc(w: ^Render_Worker, busy: bool) {
 		}
 		return
 	}
+	if watch_pending(w) {
+		worker_watch(w)
+		return
+	}
 	if media_pending(w) {
 		// The rows first (published at once), then the image thumbnails a few
 		// per step, published when all are done.
 		publish := w.media_dirty
 		if w.media_dirty {
 			w.media_dirty = false
-			media_table_build(&w.media_table, w.media, w.placed.tracks[:], w.script.video.fps)
+			media_table_build(&w.media_table, w.media)
 		} else {
 			publish = media_table_thumbs(&w.media_table, w.media, MEDIA_THUMBS_PER_STEP * om.pool_count(w.pool), w.pool)
 			// Their decodes count against the image budget too.
@@ -699,7 +733,10 @@ worker_load :: proc(w: ^Render_Worker, reload_media: bool) {
 	// Lines an edit added are synthesized by the load.
 	loaded := script.load(next, w.script_path, w.script_args, media, nil, w.script_props)
 	if loaded != nil {
-		// The problems panel shows it.
+		// The Watch's problems and the video show it.
+		delete(w.load_error)
+		w.load_error = strings.clone(script.error_message(next.failure, context.temp_allocator))
+		w.watch_dirty = true
 		sync.mutex_lock(&w.mb.mutex)
 		script.failure_destroy(&w.mb.reload_failure)
 		w.mb.reload_failure = script.failure_clone(next.failure)
@@ -714,6 +751,8 @@ worker_load :: proc(w: ^Render_Worker, reload_media: bool) {
 		}
 		if w.script != nil {
 			worker_place_audio(w)
+		} else {
+			worker_watch(w) // no idle work without a script
 		}
 		return
 	}
@@ -760,7 +799,9 @@ worker_load :: proc(w: ^Render_Worker, reload_media: bool) {
 	for d in load_diagnostics(next, media) {
 		finding_add(&w.findings, nil, LOAD_FRAME, d)
 	}
-	problem_table_set(&w.problems, &w.findings, nil)
+	delete(w.load_error)
+	w.load_error = ""
+	w.watch_dirty = true
 	for t in w.thumbs {
 		append(&w.thumb_retired, t.texture)
 	}
@@ -807,8 +848,6 @@ worker_load :: proc(w: ^Render_Worker, reload_media: bool) {
 		script.failure_destroy(&w.mb.reload_failure)
 		w.mb.reload_seq += 1
 	}
-	problem_table_copy(&w.mb.problems, &w.problems)
-	w.mb.problems_seq += 1
 	wave_table_copy(&w.mb.waves, &w.waves.table)
 	w.mb.waves_seq += 1
 	clear(&w.mb.thumbs)
@@ -936,12 +975,8 @@ worker_render :: proc(w: ^Render_Worker, req: Render_Request) {
 		}
 	}
 	// Problems accumulate per load; a frame without findings changes nothing.
-	problems_changed := false
 	for d in r.ctx.diagnostics {
-		problems_changed |= finding_add(&w.findings, &r.timeline, frame, d)
-	}
-	if problems_changed {
-		problem_table_set(&w.problems, &w.findings, &r.timeline)
+		w.watch_dirty |= finding_add(&w.findings, &r.timeline, frame, d)
 	}
 	om.diagnostics_clear(&r.ctx)
 
@@ -953,10 +988,6 @@ worker_render :: proc(w: ^Render_Worker, req: Render_Request) {
 	w.mb.render_ms = ms
 	w.mb.latency_ms = time.duration_milliseconds(time.tick_since(req.asked))
 	w.mb.rendering = false
-	if problems_changed {
-		problem_table_copy(&w.mb.problems, &w.problems)
-		w.mb.problems_seq += 1
-	}
 	w.mb.published_seq += 1
 	sync.mutex_unlock(&w.mb.mutex)
 	w.last_slot = slot
@@ -1172,7 +1203,8 @@ worker_release :: proc(w: ^Render_Worker) {
 	om.timeline_destroy(&w.timeline)
 	om.placed_audio_destroy(&w.placed)
 	finding_table_destroy(&w.findings)
-	problem_table_destroy(&w.problems)
+	watch_table_destroy(&w.watch)
+	delete(w.load_error)
 	wave_builder_destroy(&w.waves)
 	media_table_destroy(&w.media_table)
 	if w.script != nil {

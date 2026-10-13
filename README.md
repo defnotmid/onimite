@@ -335,7 +335,16 @@ Saving any file in the script's folder reloads it within a quarter second
 (changes in `media/` reload the media); an edit that fails to load is shown
 while the last good version keeps playing. The status line shows the GPU,
 the preview resolution, render time, latency and the problems found in the
-frames shown; a click lists them.
+frames shown; a click opens them in the Watch.
+
+The video, the timeline and Watch views are tabs in panels, as in oasic:
+drag a tab onto another panel's tab strip, centre or edge to move it there
+or split the panel; drag a splitter to resize; `x` closes a tab; `+` opens
+a view or splits the panel. The **Watch** lists the video's scenes (with
+the problems seen in each), cues (with their sync findings: drift, a `hit`
+with no sound near it), problems and media (thumbnails; failed files, sounds
+no track plays), each row coloured by its status; a click goes to its
+frame, and N jumps to the next row with a warning or an error.
 
 The window never waits on Lua, a fence or a file: a render worker owns the
 script, the media and the canvas and publishes frames through a mailbox
@@ -356,12 +365,12 @@ callback is the playback clock, and the UI thread only draws.
 | = / - | zoom the timeline (also Ctrl+wheel); Ctrl+0 fits the video |
 | T | collapse / expand the timeline |
 | F | fullscreen |
-| I | media panel |
+| D / I | the Watch on the problems / the media (the Watch button: open / close it) |
+| N / Shift+N | next / previous scene, cue, problem or media row with a warning or an error |
 | Shift+L | loop |
 | R | reload |
-| D | problems list |
 | Ctrl+O | open a script (or drop a `.lua` file) |
-| Esc / Q | close the open panel, leave fullscreen, then the window |
+| Esc / Q | close a view list, then the Watch, leave fullscreen, then the window |
 
 `--exit-after N` closes after N window frames and prints frame timings;
 `ONIMITE_PREVIEW_CAPTURE=out.png` also writes the last frame.

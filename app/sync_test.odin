@@ -8,9 +8,6 @@ import om "../onimite"
 // row carries is reported, a lone cue is not.
 @(test)
 test_sync_check :: proc(t: ^testing.T) {
-	video := om.Video{fps = 30}
-	r := om.Renderer{video = &video}
-	app: App_State
 	anchors := []Anchor {
 		{"beat[0]", 1.0, .Cue, "cue", ""},
 		{"beat[0]", 0.5, .Key, "animate key (a.lua:3)", ""},
@@ -25,7 +22,7 @@ test_sync_check :: proc(t: ^testing.T) {
 		{"lonely", 6.0, .Scene, "scene Lonely", ""},
 		{"solo", 7.0, .Cue, "cue", ""},
 	}
-	got := sync_check(&app, &r, anchors)
+	got := sync_check(nil, nil, 30, anchors)
 	testing.expect_value(t, len(got), 3)
 	if len(got) != 3 {
 		return

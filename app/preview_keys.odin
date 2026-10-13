@@ -57,11 +57,13 @@ PREVIEW_KEYS := [?]Key_Binding {
 	{key = .Equals, ctrl = .Up, repeat = true, kind = .Timeline_Zoom, regs = {scalar = 1.5, count = -1}},
 	{key = .Minus, ctrl = .Up, repeat = true, kind = .Timeline_Zoom, regs = {scalar = 1 / 1.5, count = -1}},
 	{key = .R, kind = .Script_Reload, regs = {flag = true}},
-	{key = .D, ctrl = .Up, kind = .Diagnostics_Toggle},
+	{key = .D, ctrl = .Up, kind = .Watch_Show, regs = {section = .Problems}},
+	{key = .N, ctrl = .Up, shift = .Down, repeat = true, kind = .Problem_Step, regs = {count = -1}},
+	{key = .N, ctrl = .Up, repeat = true, kind = .Problem_Step, regs = {count = 1}},
 	{key = .M, ctrl = .Up, kind = .Bookmark_Toggle},
 	{key = .F, ctrl = .Up, kind = .Fullscreen_Toggle},
 	{key = .T, ctrl = .Up, kind = .Timeline_Toggle},
-	{key = .I, ctrl = .Up, kind = .Media_Toggle},
+	{key = .I, ctrl = .Up, kind = .Watch_Show, regs = {section = .Media}},
 	{key = .Q, ctrl = .Up, kind = .Quit},
 }
 

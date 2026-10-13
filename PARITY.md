@@ -119,7 +119,7 @@ Every fframes feature and where onimite stands. ✅ done · 🔨 in progress ·
 | Diagnostics: missing media/font/glyph, text clipped / off canvas, NaN, empty frame, panic | ✅ (+ invalid path data, zero-size shapes) | ✅ |
 | `snapshot specs --dir --update --threshold --max-diff` | ✅ `.actual.png`, `.diff.png`, exit 2 | ✅ |
 | `audio render [--float] / analyze --waveform / at` | ✅ | ✅ |
-| `preview [at] --paused --no-loop --mute` | ✅ window with sound, scrub, hot reload, threaded; editor timeline (ruler, zoom/pan/follow, scene thumbnails, audio lanes with waveforms), bookmark (magnet, persisted), volume, Dock keys, fullscreen, collapsible timeline, media panel (list/grid), resolution/latency/fps in the status | ✅ |
+| `preview [at] --paused --no-loop --mute` | ✅ window with sound, scrub, hot reload, threaded; editor timeline (ruler, zoom/pan/follow, scene thumbnails, audio lanes with waveforms), bookmark (magnet, persisted), volume, Dock keys, fullscreen, collapsible timeline, panels with draggable tabs (oasic's workspace), a Watch of scenes, cues, problems and media (thumbnails) that jumps to the broken ones, resolution/latency/fps in the status | ✅ |
 | `--json`, `--scale` | ✅ | ✅ |
 | Time specs (frames, s, m:ss, %, start/end, scenes, `@`, `Name[n]`, `all`, ranges) | ✅ | ✅ |
 

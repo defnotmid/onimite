@@ -226,15 +226,9 @@ show_scenes :: proc(sh: ^Show, _: string) -> Error {
 	sh.res.kind = show_kind(.List)
 	sh.res.summary = fmt.tprintf("%d scenes", len(sh.r.timeline.scenes))
 	for s in sh.r.timeline.scenes {
-		child(sh, fmt.tprintf("scene/%s", s.scene.name), .Scene, scene_summary(sh, s))
+		child(sh, fmt.tprintf("scene/%s", s.scene.name), .Scene, scene_summary(s, sh.fps))
 	}
 	return nil
-}
-
-@(private = "file")
-scene_summary :: proc(sh: ^Show, s: om.Scene_Info) -> string {
-	cue := fmt.tprintf("  cue %s", s.scene.cue) if s.scene.cue != "" else ""
-	return fmt.tprintf("frames %d..%d (%.2fs..%.2fs)%s  %s", s.start_frame, s.end_frame, f64(s.start_frame) / sh.fps, f64(s.end_frame) / sh.fps, cue, s.scene.source)
 }
 
 @(private = "file")
@@ -282,7 +276,7 @@ show_scene :: proc(sh: ^Show, rest: string) -> Error {
 		return show_unknown(sh, sh.res.path)
 	}
 	sh.res.kind = show_kind(.Scene)
-	sh.res.summary = scene_summary(sh, s)
+	sh.res.summary = scene_summary(s, sh.fps)
 	sh.res.source = s.scene.source
 	sh.res.fields = reflect_object(s.scene^, 0)
 	sounds := om.tracks_placed_by(sh.r.video, s.index)
@@ -306,7 +300,7 @@ show_cues :: proc(sh: ^Show, _: string) -> Error {
 	sh.res.kind = show_kind(.List)
 	sh.res.summary = fmt.tprintf("%d cues", len(sh.app.script.cues))
 	for c in sh.app.script.cues {
-		child(sh, fmt.tprintf("cue/%s", c.name), .Cue, fmt.tprintf("%.3fs (frame %d)  %s", c.seconds, om.frame_at(c.seconds, sh.r.video.fps), c.at))
+		child(sh, fmt.tprintf("cue/%s", c.name), .Cue, cue_summary(c, sh.r.video.fps))
 	}
 	return nil
 }

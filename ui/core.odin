@@ -130,6 +130,7 @@ Box_Flag :: enum u32 {
 	Floating_Y,
 	Fixed_Width, // fixed_size.x is authoritative (bypasses pref_size)
 	Fixed_Height,
+	Drop_Site, // may become the drop-hot box while a drag is active
 }
 
 Box_Flags :: bit_set[Box_Flag;u32]
@@ -246,6 +247,7 @@ State :: struct {
 	// interaction
 	hot:             Key,
 	middle_active:   Key, // the box the middle button pressed on, while held
+	drop_hot:        Key, // the Drop_Site box under the mouse this frame (raddbg's drop_hot_box_key)
 	active:          Key, // left-button active (the pressed widget)
 	drag_start:      [2]f32,
 	actions:         Action_Storage,
@@ -351,6 +353,8 @@ build_begin :: proc(s: ^State) {
 	if s.active == Key(0) {
 		s.hot = Key(0)
 	}
+	// Drop-hot is re-derived every frame from the drop sites' signals.
+	s.drop_hot = Key(0)
 
 	// root box: fills the framebuffer, lays children along X by default.
 	fbw := f32(s.p.width)
@@ -715,6 +719,13 @@ signal_from_box :: proc(s: ^State, box: ^Box) -> Signal {
 	// the admitted scroll row. Sibling widgets and the camera cannot replay it.
 	sig.scroll = action_scroll_consume(s, false, r_min, r_max, true)
 	sig.scroll_x = action_scroll_consume(s, false, r_min, r_max, true, horizontal = true)
+
+	// Drop sites: the first site under the mouse this frame owns the drop-hot
+	// key, so a site built earlier (a panel's edge) wins over one built later
+	// around it (the panel's centre).
+	if .Drop_Site in box.flags && box.key != Key(0) && in_bounds && s.drop_hot == Key(0) {
+		s.drop_hot = box.key
+	}
 
 	if .Clickable not_in box.flags {
 		return sig

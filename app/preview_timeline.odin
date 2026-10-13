@@ -31,7 +31,8 @@ SCENE_HEIGHT :: 48
 CUE_HEIGHT :: 14
 LANE_HEIGHT :: 24
 TRACK_HEIGHT :: 18
-// The rows below the scenes scroll past this many points.
+// The rows below the scenes take at most this many points at the
+// timeline's natural height; past what its panel gives them, they scroll.
 ROWS_AREA_MAX :: 12 * LANE_HEIGHT
 // Clicks this far into a group's row open or close it.
 ROW_NAME_WIDTH :: 160
@@ -79,13 +80,14 @@ timeline_rows :: proc(app: ^App_State) -> []int {
 	return rows[:]
 }
 
-// Points of the rows below the scenes: all of them, and what shows.
+// Points of the rows below the scenes: all of them, and what shows in the
+// timeline's panel.
 @(private = "file")
 rows_points :: proc(app: ^App_State, rows: []int) -> (total, shown: f32) {
 	for i in rows {
 		total += row_height(app.preview.waves.items[i].kind)
 	}
-	return total, min(total, ROWS_AREA_MAX)
+	return total, min(total, app.preview.rows_room)
 }
 
 // Keeps the scroll inside the rows (after a group opens or closes).
@@ -101,17 +103,14 @@ timeline_rows_clamp :: proc(app: ^App_State) {
 	pv.rows_scroll = clamp(pv.rows_scroll, 0, last if total > shown else 0)
 }
 
-// Points (before dpi scaling).
+// The timeline's natural height in points (before dpi scaling): the
+// ruler, the scenes and up to ROWS_AREA_MAX of rows.
 timeline_height :: proc(app: ^App_State) -> f32 {
 	if app.preview.timeline_collapsed {
 		return 0
 	}
-	_, shown := rows_points(app, timeline_rows(app))
-	return TIMELINE_GAP * 2 + RULER_HEIGHT + SCENE_HEIGHT + shown
-}
-
-transport_height :: proc(app: ^App_State) -> f32 {
-	return timeline_height(app) + CONTROLS_HEIGHT
+	total, _ := rows_points(app, timeline_rows(app))
+	return TIMELINE_GAP * 2 + RULER_HEIGHT + SCENE_HEIGHT + min(total, ROWS_AREA_MAX)
 }
 
 // The scene segments; a video without scenes is one segment.
@@ -168,11 +167,12 @@ thumb_grid :: proc(app: ^App_State, ppf: f64, dpi: f32) -> Thumb_Grid {
 // nearest the view's centre first: what the worker renders when idle.
 thumbs_wanted :: proc(app: ^App_State, p: ^platform.Platform) -> []int {
 	pv := &app.preview
-	if pv.timeline_collapsed || pv.timeline.frames <= 0 {
+	area, shown := view_area(app, .Timeline)
+	if !shown || pv.timeline_collapsed || pv.timeline.frames <= 0 {
 		return nil
 	}
 	dpi := p.dpi_scale
-	w := f64(p.width) - 2 * TRACK_PAD * f64(dpi)
+	w := f64(area.width) - 2 * TRACK_PAD * f64(dpi)
 	first, visible := pv.view_first, view_frames(app)
 	g := thumb_grid(app, w / visible, dpi)
 	out := make([dynamic]int, 0, THUMBS_WANTED_MAX, context.temp_allocator)
@@ -203,15 +203,17 @@ Timeline_Draw :: struct {
 	head: f32, // the playhead frame, eased
 }
 
-timeline_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32) {
+// The timeline in `area` (pixels), inset by TRACK_PAD and TIMELINE_GAP.
+timeline_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32, area: Workspace_Rect) {
 	pv := &app.preview
 	c := &app.commands
-	ui.set_next_fixed_y(s, TIMELINE_GAP * dpi)
-	ui.set_next_pref_width(s, ui.fill())
-	ui.set_next_pref_height(s, ui.px((timeline_height(app) - TIMELINE_GAP * 2) * dpi))
+	if pv.timeline_collapsed {
+		return
+	}
+	pad, gap := TRACK_PAD * dpi, TIMELINE_GAP * dpi
 	ui.set_next_bg_color(s, COLOR_TRACK)
 	ui.set_next_corner_radius(s, 4 * dpi)
-	track := ui.build_box(s, {.Clickable, .Draw_Background, .Clip}, "###timeline")
+	track := place_box(s, {area.x + pad, area.y + gap, max(area.width - 2 * pad, 0), max(area.height - 2 * gap, 0)}, {.Clickable, .Draw_Background, .Clip}, "###timeline")
 	sig := ui.signal_from_box(s, track)
 
 	// Last frame's rect (immediate-mode): what the pointer maps onto.
