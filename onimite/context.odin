@@ -17,7 +17,7 @@ Context :: struct {
 	frame:       Frame,
 	// Compiled shaders, kept across frames (shader.odin).
 	shaders:     Shader_Library,
-	// Per multipass program, its layers so far in the frame being built
+	// Per shader program, its layers so far in the frame being built
 	// (their feedback instances); cleared by `build_frame`.
 	shader_uses: [dynamic]u32,
 	// SVG markup parsed by this context, kept across frames (svg.odin).

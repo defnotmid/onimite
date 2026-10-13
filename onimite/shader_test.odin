@@ -69,7 +69,7 @@ test_shader_layers :: proc(t: ^testing.T) {
 	// Compiled once per source, across frames.
 	px = render_frame(&r, 1)
 	testing.expect_value(t, at(px, 290, 130), [4]u8{1, 0, 0, 255})
-	testing.expect_value(t, len(r.ctx.shaders.modules), 4)
+	testing.expect_value(t, len(r.ctx.shaders.graphs), 4)
 	// Four layers draw per frame (at three sizes); their images are reused.
 	testing.expect_value(t, len(r.shader_state.image), 4)
 }

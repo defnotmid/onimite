@@ -851,11 +851,9 @@ worker_renderer :: proc(w: ^Render_Worker, scale: f32) -> ^om.Renderer {
 		w.renderer_ok = false
 	}
 	if !w.renderer_ok {
-		backend := worker_backend(w, &w.gpu, &w.gpu_ok)
-		if om.renderer_init(&w.renderer, &w.script.video, w.media, scale, backend) != nil {
+		if !renderer_open(w, &w.renderer, &w.gpu, &w.gpu_ok, scale) {
 			return nil
 		}
-		w.renderer.pool = w.pool
 		// Seeks restore the nearest earlier checkpoint of feedback buffers.
 		om.feedback_checkpoints(&w.renderer, om.FEEDBACK_CHECKPOINT_EVERY)
 		w.renderer_ok = true
@@ -863,11 +861,24 @@ worker_renderer :: proc(w: ^Render_Worker, scale: f32) -> ^om.Renderer {
 	return &w.renderer
 }
 
-// Draws frame `frame` of `r` into `tex` (GPU canvas, or CPU pixels
-// uploaded), never waiting on video decode threads: the nearest decoded
-// clip frame now, the exact one on a later pass.
+// Renderer `r` for the script at `scale`, drawing with `gpu` (set up on
+// first use) or on the CPU, on the worker's pool.
 @(private = "file")
-draw_into :: proc(w: ^Render_Worker, r: ^om.Renderer, gpu_ok: bool, frame: int, tex: ^sdl.GPUTexture) {
+renderer_open :: proc(w: ^Render_Worker, r: ^om.Renderer, gpu: ^vgsdl.SDL_Backend, gpu_ok: ^bool, scale: f32) -> bool {
+	if om.renderer_init(r, &w.script.video, w.media, scale, worker_backend(w, gpu, gpu_ok)) != nil {
+		return false
+	}
+	r.pool = w.pool
+	return true
+}
+
+// Draws the video's frame nearest `frame` with `r` into `tex` (GPU canvas,
+// or CPU pixels uploaded) and returns it, never waiting on video decode
+// threads: the nearest decoded clip frame now, the exact one on a later
+// pass.
+@(private = "file")
+draw_into :: proc(w: ^Render_Worker, r: ^om.Renderer, gpu_ok: bool, frame: int, tex: ^sdl.GPUTexture) -> int {
+	frame := clamp(frame, 0, max(r.timeline.duration_frames - 1, 0))
 	r.video_images.wait = .Nearest
 	r.video_images.pending = 0
 	size := [2]u32{r.width, r.height}
@@ -878,6 +889,7 @@ draw_into :: proc(w: ^Render_Worker, r: ^om.Renderer, gpu_ok: bool, frame: int, 
 		out := vgsdl.Output{texture = tex, format = .R8G8B8A8_UNORM, width = size.x, height = size.y}
 		om.render_frame(r, frame, vgsdl.output(&out), readback = false)
 	}
+	return frame
 }
 
 @(private = "file")
@@ -917,9 +929,8 @@ worker_render :: proc(w: ^Render_Worker, req: Render_Request) {
 		s.texture = make_target(w.device, size)
 		s.size = size
 	}
-	frame := clamp(req.frame, 0, max(r.timeline.duration_frames - 1, 0))
 	began := time.tick_now()
-	draw_into(w, r, w.gpu_ok, frame, s.texture)
+	frame := draw_into(w, r, w.gpu_ok, req.frame, s.texture)
 	ms := time.duration_milliseconds(time.tick_since(began))
 	w.last_request = req
 	w.last_ms = ms
@@ -1020,13 +1031,11 @@ thumb_clips_release :: proc(w: ^Render_Worker) {
 thumb_render :: proc(w: ^Render_Worker, frame: int) {
 	if !w.thumb_ok {
 		thumb_clips_update(w)
-		backend := worker_backend(w, &w.thumb_gpu, &w.thumb_gpu_ok)
 		scale := f32(w.thumb_size.y) / f32(max(w.script.video.height, 1))
-		if om.renderer_init(&w.thumb, &w.script.video, w.media, scale, backend) != nil {
+		if !renderer_open(w, &w.thumb, &w.thumb_gpu, &w.thumb_gpu_ok, scale) {
 			w.thumb_size = {}
 			return
 		}
-		w.thumb.pool = w.pool
 		w.thumb.ctx.videos = &w.thumb_videos
 		// Thumbnails warm feedback buffers up for a second instead of
 		// catching up exactly.
@@ -1067,7 +1076,7 @@ thumb_render :: proc(w: ^Render_Worker, frame: int) {
 		inject_at(&w.thumbs, j, Thumb_Entry{frame = frame, texture = tex})
 	}
 	e := &w.thumbs[j]
-	draw_into(w, r, w.thumb_gpu_ok, clamp(frame, 0, max(r.timeline.duration_frames - 1, 0)), e.texture)
+	draw_into(w, r, w.thumb_gpu_ok, frame, e.texture)
 	om.diagnostics_clear(&r.ctx)
 	e.audio = r.ctx.audio_pending > 0
 	e.exact = r.video_images.pending == 0 && !e.audio

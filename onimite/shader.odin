@@ -3,6 +3,7 @@ package onimite
 import "base:runtime"
 import "core:hash"
 import "core:math"
+import "core:mem/virtual"
 import "core:strings"
 import "core:sync"
 import "core:thread"
@@ -35,12 +36,14 @@ import "deps:oksl"
 // `.eval(coord)` shows the group where it was drawn. The image is rendered
 // at the box's on-screen pixel size, so it stays sharp.
 //
-// Multipass Shadertoy programs (Common + Buffer A-D + Image) compile with
-// oksl's `compile_program` into a pass table and an edge array; a node
-// carries a uniform block and the external channels per pass. Drawing runs
-// the buffer passes into half-float feedback buffers, then the Image pass
-// like a single-pass shader (feedback.odin: the buffers, their catch-up when
-// frames are not drawn in order, and the preview's checkpoints).
+// Every program is a pass graph: a single source is one pass whose
+// channels read the host's inputs; a multipass Shadertoy program (Common +
+// Buffer A-D + Image, oksl's `compile_program`) adds buffer passes, with an
+// edge array saying what each channel reads. A node carries a uniform block
+// and the external channels per pass. Drawing runs the buffer passes into
+// half-float feedback buffers (feedback.odin: the buffers, their catch-up
+// when frames are not drawn in order, and the preview's checkpoints), then
+// the Image pass into the box.
 
 // An image or a synced video clip from the media bound to a channel, or a
 // group of nodes.
@@ -89,7 +92,8 @@ Shader_Params :: struct {
 	sksl:       string,
 	shadertoy:  string,
 	// A multipass Shadertoy program instead (`multipass`): Common's source
-	// and the passes. Uniforms are set in every pass that declares them.
+	// and the passes, which bind their inputs in their channels. Uniforms
+	// are set in every pass that declares them.
 	multipass:  bool,
 	common:     string,
 	passes:     [oksl.Pass_Kind]Shader_Pass,
@@ -119,30 +123,26 @@ Shader_Channel :: struct {
 	w, h:    f32,
 }
 
-// The node. `block` is the uniform block (frame arena) with everything but
-// the children's sizes, which drawing fills in.
+// The node: per pass of its program (the graph's order, the Image pass
+// last), the uniform block (frame arena; drawing fills in the channels'
+// sizes) and the external channels; its feedback instance (the program and
+// its occurrence in the frame) and iFrame.
 Shader :: struct {
-	program:  int,
+	program:    int,
 	x, y, w, h: f32,
-	block:    []u8,
-	channels: [oksl.CHANNEL_COUNT]Shader_Channel,
-	opacity:  Maybe(f32),
-	// A multipass program: per pass (the graph's order), its block and
-	// external channels (frame arena); its feedback instance (the program
-	// and its occurrence in the frame) and iFrame.
-	pass_blocks:   [][]u8,
-	pass_channels: [][oksl.CHANNEL_COUNT]Shader_Channel,
-	instance:      u64,
-	frame:         int,
+	opacity:    Maybe(f32),
+	blocks:     [][]u8,
+	channels:   [][oksl.CHANNEL_COUNT]Shader_Channel,
+	instance:   u64,
+	frame:      int,
 }
 
-// Compiled shaders by source hash: parallel arrays indexed by program.
+// Compiled shaders by source hash: parallel arrays indexed by program. On
+// failure the graph holds no passes to draw, `errors` lists the problems
+// and `ok` is false.
 Shader_Library :: struct {
 	hashes:  [dynamic]u64,
 	labels:  [dynamic]string,
-	// The module, or the pass graph of a multipass program (the other is
-	// nil); on failure it holds the errors and `ok` is false.
-	modules: [dynamic]^oksl.Module,
 	graphs:  [dynamic]^oksl.Pass_Graph,
 	errors:  [dynamic][]oksl.Error,
 	ok:      [dynamic]bool,
@@ -150,9 +150,6 @@ Shader_Library :: struct {
 }
 
 shader_library_destroy :: proc(l: ^Shader_Library) {
-	for m in l.modules {
-		oksl.destroy(m)
-	}
 	for g in l.graphs {
 		oksl.destroy_program(g)
 	}
@@ -161,7 +158,6 @@ shader_library_destroy :: proc(l: ^Shader_Library) {
 	}
 	delete(l.hashes)
 	delete(l.labels)
-	delete(l.modules)
 	delete(l.graphs)
 	delete(l.errors)
 	delete(l.ok)
@@ -184,7 +180,7 @@ shader_library_get :: proc(l: ^Shader_Library, source, label: string, shadertoy 
 	} else {
 		m, errors, ok = oksl.compile(source)
 	}
-	return shader_library_add(l, h, label, m, nil, errors, ok)
+	return shader_library_add(l, h, label, one_pass_graph(m, ok), errors, ok)
 }
 
 // The program for a multipass Shadertoy program, compiling it on first use.
@@ -199,15 +195,14 @@ shader_library_get_program :: proc(l: ^Shader_Library, desc: oksl.Program_Desc, 
 		return i
 	}
 	g, errors, ok := oksl.compile_program(desc)
-	return shader_library_add(l, h, label, nil, g, errors, ok)
+	return shader_library_add(l, h, label, g, errors, ok)
 }
 
 @(private = "file")
-shader_library_add :: proc(l: ^Shader_Library, h: u64, label: string, m: ^oksl.Module, g: ^oksl.Pass_Graph, errors: []oksl.Error, ok: bool) -> int {
+shader_library_add :: proc(l: ^Shader_Library, h: u64, label: string, g: ^oksl.Pass_Graph, errors: []oksl.Error, ok: bool) -> int {
 	i := len(l.hashes)
 	append(&l.hashes, h)
 	append(&l.labels, strings.clone(label))
-	append(&l.modules, m)
 	append(&l.graphs, g)
 	append(&l.errors, errors)
 	append(&l.ok, ok)
@@ -215,104 +210,48 @@ shader_library_add :: proc(l: ^Shader_Library, h: u64, label: string, m: ^oksl.M
 	return i
 }
 
-// Adds a shader layer for frame `f` (its time is the frame's, so scene
-// frames give scene-relative `iTime`). Compile errors are reported (with
-// file:line:col) and the layer is skipped; returns false then.
-shader :: proc(ctx: ^Context, f: Frame, p: Shader_Params) -> bool {
-	if p.multipass {
-		return shader_multipass(ctx, f, p)
+// Module `m` as a program of one pass, the Image pass, every channel it
+// samples reading one of the host's inputs. The graph owns `m` (and the
+// errors in it when `ok` is false).
+@(private = "file")
+one_pass_graph :: proc(m: ^oksl.Module, ok: bool) -> ^oksl.Pass_Graph {
+	g := new(oksl.Pass_Graph)
+	g.index = {.Buffer_A = -1, .Buffer_B = -1, .Buffer_C = -1, .Buffer_D = -1, .Image = 0}
+	allocator := virtual.arena_allocator(&g.arena)
+	g.passes = make([]oksl.Pass, 1, allocator)
+	g.passes[0] = {kind = .Image, module = m}
+	if !ok {
+		return g
 	}
-	source, shadertoy := p.sksl, false
-	if source == "" && p.shadertoy != "" {
-		source, shadertoy = p.shadertoy, true
+	edges := make([dynamic]oksl.Edge, allocator)
+	for ch in m.channels_used {
+		append(&edges, oksl.Edge{0, u8(ch), .External, u8(ch)})
 	}
-	label := p.src if p.src != "" else "<inline>"
-	if source == "" {
-		ok: bool
-		source, ok = ctx.media.shaders[p.src]
-		if !ok {
-			report(ctx, .Error, {code = .Missing_Shader, name = p.src})
-			return false
-		}
-		shadertoy = strings.has_suffix(p.src, ".glsl")
-	}
-	lib := &ctx.shaders
-	prog := shader_library_get(lib, source, label, shadertoy)
-	if !lib.ok[prog] {
-		shader_report_errors(ctx, lib, prog)
-		return false
-	}
-	if p.w <= 0 || p.h <= 0 {
-		report(ctx, .Warning, {code = .Shader_Zero_Size, name = label, x = p.x, y = p.y})
-		return true
-	}
-	m := lib.modules[prog]
-	n := Shader {
-		program = prog,
-		x       = p.x,
-		y       = p.y,
-		w       = p.w,
-		h       = p.h,
-		opacity = p.opacity,
-	}
-	n.block = make([]u8, m.block_size, ctx.tree.arena)
-	shader_write_builtins(m, n.block, f, p)
-	for u in p.uniforms {
-		if input, is_input := u.input.?; is_input {
-			ch := -1
-			for name, k in m.channel_names {
-				if name == u.name {
-					ch = k
-				}
-			}
-			if ch < 0 {
-				report(ctx, .Warning, {code = .Shader_No_Channel if shadertoy else .Shader_No_Child, name = label, a = u.name})
-				continue
-			}
-			n.channels[ch] = shader_channel(ctx, f, label, input)
-			if n.channels[ch].kind == .Video {
-				oksl.write_input(n.block, .Channel_Time, {f32(n.channels[ch].seconds)}, ch)
-			}
-			continue
-		}
-		if !shader_write_uniform(ctx, m, n.block, label, u) {
-			report(ctx, .Warning, {code = .Shader_Undeclared_Uniform, name = label, a = u.name})
-		}
-	}
-	shader_report_unset(ctx, m, label, p.uniforms)
-	for name, ch in m.channel_names {
-		if name != "" && n.channels[ch].kind == .None {
-			report(ctx, .Warning, {code = .Shader_Unbound_Channel, name = label, a = name})
-		}
-	}
-	tree_add(&ctx.tree, n)
-	return true
+	g.edges = edges[:]
+	g.passes[0].edges = {0, u32(len(edges))}
+	return g
 }
 
-// A multipass program: compiled as a pass graph; every pass gets its block
-// (the same built-ins and uniforms) and its external channels.
-@(private = "file")
-shader_multipass :: proc(ctx: ^Context, f: Frame, p: Shader_Params) -> bool {
+// Buffer passes of program `prog` (Shadertoy's Buffer A-D; none for a
+// single source).
+shader_buffers :: proc(lib: ^Shader_Library, prog: int) -> int {
+	return len(lib.graphs[prog].passes) - 1
+}
+
+// Adds a shader layer for frame `f` (its time is the frame's, so scene
+// frames give scene-relative `iTime`). Compile errors are reported (with
+// file:line:col) and the layer is skipped; returns false then. Every pass
+// gets its block (the same built-ins and uniforms) and its external
+// channels.
+shader :: proc(ctx: ^Context, f: Frame, p: Shader_Params) -> bool {
+	p := p
 	label := p.src if p.src != "" else "<inline>"
-	desc := oksl.Program_Desc {
-		common = p.common,
-	}
-	for kind in oksl.Pass_Kind {
-		desc.sources[kind] = p.passes[kind].source
-		for ch, i in p.passes[kind].channels {
-			switch ch.kind {
-			case .None:
-			case .Buffer:
-				desc.channels[kind][i] = {.Buffer, u8(ch.buffer)}
-			case .External:
-				desc.channels[kind][i] = {.External, u8(int(kind) * oksl.CHANNEL_COUNT + i)}
-			}
-		}
-	}
+	prog, shadertoy := shader_compile(ctx, p, label) or_return
 	lib := &ctx.shaders
-	prog := shader_library_get_program(lib, desc, label)
 	if !lib.ok[prog] {
-		shader_report_errors(ctx, lib, prog)
+		for e in lib.errors[prog] {
+			report(ctx, .Error, {code = .Shader_Compile, name = lib.labels[prog], shader = e})
+		}
 		return false
 	}
 	if p.w <= 0 || p.h <= 0 {
@@ -320,18 +259,19 @@ shader_multipass :: proc(ctx: ^Context, f: Frame, p: Shader_Params) -> bool {
 		return true
 	}
 	g := lib.graphs[prog]
+	shader_bind_inputs(ctx, &p, g.passes[len(g.passes) - 1].module, label, shadertoy)
 	arena := ctx.tree.arena
 	n := Shader {
-		program       = prog,
-		x             = p.x,
-		y             = p.y,
-		w             = p.w,
-		h             = p.h,
-		opacity       = p.opacity,
-		pass_blocks   = make([][]u8, len(g.passes), arena),
-		pass_channels = make([][oksl.CHANNEL_COUNT]Shader_Channel, len(g.passes), arena),
-		instance      = shader_instance(ctx, prog),
-		frame         = f.index,
+		program  = prog,
+		x        = p.x,
+		y        = p.y,
+		w        = p.w,
+		h        = p.h,
+		opacity  = p.opacity,
+		blocks   = make([][]u8, len(g.passes), arena),
+		channels = make([][oksl.CHANNEL_COUNT]Shader_Channel, len(g.passes), arena),
+		instance = shader_instance(ctx, prog),
+		frame    = f.index,
 	}
 	declared := make([]bool, len(p.uniforms), context.temp_allocator)
 	for pass, pi in g.passes {
@@ -339,30 +279,35 @@ shader_multipass :: proc(ctx: ^Context, f: Frame, p: Shader_Params) -> bool {
 		block := make([]u8, m.block_size, arena)
 		shader_write_builtins(m, block, f, p)
 		for u, k in p.uniforms {
-			if u.input != nil {
-				report(ctx, .Warning, {code = .Shader_Pass_Input, name = label, a = u.name})
-				continue
+			if u.input == nil {
+				declared[k] |= shader_write_uniform(ctx, m, block, label, u)
 			}
-			declared[k] |= shader_write_uniform(ctx, m, block, label, u)
 		}
 		shader_report_unset(ctx, m, label, p.uniforms)
+		// Channels reading a buffer, or an input that shows this frame.
 		bound: bit_set[0 ..< oksl.CHANNEL_COUNT]
 		for e in g.edges[pass.edges.start:][:pass.edges.count] {
+			if e.source == .External {
+				ch := shader_channel(ctx, f, label, p.passes[pass.kind].channels[e.channel].input)
+				n.channels[pi][e.channel] = ch
+				if ch.kind == .None {
+					continue
+				}
+				if ch.kind == .Video {
+					oksl.write_input(block, .Channel_Time, {f32(ch.seconds)}, int(e.channel))
+				}
+			}
 			bound += {int(e.channel)}
-			if e.source != .External {
-				continue
-			}
-			ch := shader_channel(ctx, f, label, p.passes[pass.kind].channels[e.channel].input)
-			n.pass_channels[pi][e.channel] = ch
-			if ch.kind == .Video {
-				oksl.write_input(block, .Channel_Time, {f32(ch.seconds)}, int(e.channel))
-			}
 		}
 		for ch in m.channels_used - bound {
-			name := oksl.SOURCE_NAMES[oksl.pass_source(pass.kind)]
-			report(ctx, .Warning, {code = .Shader_Pass_Unbound, name = label, a = m.channel_names[ch], b = name, n = i64(ch)})
+			if p.multipass {
+				name := oksl.SOURCE_NAMES[oksl.pass_source(pass.kind)]
+				report(ctx, .Warning, {code = .Shader_Pass_Unbound, name = label, a = m.channel_names[ch], b = name, n = i64(ch)})
+			} else {
+				report(ctx, .Warning, {code = .Shader_Unbound_Channel, name = label, a = m.channel_names[ch]})
+			}
 		}
-		n.pass_blocks[pi] = block
+		n.blocks[pi] = block
 	}
 	for u, k in p.uniforms {
 		if u.input == nil && !declared[k] {
@@ -373,9 +318,74 @@ shader_multipass :: proc(ctx: ^Context, f: Frame, p: Shader_Params) -> bool {
 	return true
 }
 
-// A multipass program's instance in this frame: the program and how many
-// times the frame used it before (so two layers of one program keep their
-// own feedback buffers).
+// The program `p` names, compiled on first use: its one source (inline, or
+// a shader file in the media; Shadertoy GLSL when inline as `shadertoy` or
+// a `.glsl` file, else SkSL), or its multipass program.
+@(private = "file")
+shader_compile :: proc(ctx: ^Context, p: Shader_Params, label: string) -> (prog: int, shadertoy, ok: bool) {
+	lib := &ctx.shaders
+	if p.multipass {
+		desc := oksl.Program_Desc {
+			common = p.common,
+		}
+		for kind in oksl.Pass_Kind {
+			desc.sources[kind] = p.passes[kind].source
+			for ch, i in p.passes[kind].channels {
+				switch ch.kind {
+				case .None:
+				case .Buffer:
+					desc.channels[kind][i] = {.Buffer, u8(ch.buffer)}
+				case .External:
+					desc.channels[kind][i] = {.External, u8(int(kind) * oksl.CHANNEL_COUNT + i)}
+				}
+			}
+		}
+		return shader_library_get_program(lib, desc, label), true, true
+	}
+	source := p.sksl
+	if source == "" && p.shadertoy != "" {
+		source, shadertoy = p.shadertoy, true
+	}
+	if source == "" {
+		source, ok = ctx.media.shaders[p.src]
+		if !ok {
+			report(ctx, .Error, {code = .Missing_Shader, name = p.src})
+			return
+		}
+		shadertoy = strings.has_suffix(p.src, ".glsl")
+	}
+	return shader_library_get(lib, source, label, shadertoy), shadertoy, true
+}
+
+// Binds the uniforms that name an input to the Image pass's channels in
+// `p`'s pass table, by channel name (a `uniform shader` child, or
+// iChannelN in `m`, the Image pass); a multipass program binds inputs in
+// its passes' channels instead.
+@(private = "file")
+shader_bind_inputs :: proc(ctx: ^Context, p: ^Shader_Params, m: ^oksl.Module, label: string, shadertoy: bool) {
+	for u in p.uniforms {
+		input := u.input.? or_continue
+		if p.multipass {
+			report(ctx, .Warning, {code = .Shader_Pass_Input, name = label, a = u.name})
+			continue
+		}
+		ch := -1
+		for name, k in m.channel_names {
+			if name == u.name {
+				ch = k
+			}
+		}
+		if ch < 0 {
+			report(ctx, .Warning, {code = .Shader_No_Channel if shadertoy else .Shader_No_Child, name = label, a = u.name})
+			continue
+		}
+		p.passes[.Image].channels[ch] = {kind = .External, input = input}
+	}
+}
+
+// A program's instance in this frame: the program and how many times the
+// frame used it before (so two layers of one program keep their own
+// feedback buffers).
 @(private = "file")
 shader_instance :: proc(ctx: ^Context, prog: int) -> u64 {
 	for len(ctx.shader_uses) <= prog {
@@ -384,13 +394,6 @@ shader_instance :: proc(ctx: ^Context, prog: int) -> u64 {
 	k := ctx.shader_uses[prog]
 	ctx.shader_uses[prog] += 1
 	return u64(prog) << 32 | u64(k)
-}
-
-@(private = "file")
-shader_report_errors :: proc(ctx: ^Context, lib: ^Shader_Library, prog: int) {
-	for e in lib.errors[prog] {
-		report(ctx, .Error, {code = .Shader_Compile, name = lib.labels[prog], shader = e})
-	}
 }
 
 // The built-in inputs of frame `f` (the block's start), and the built-in
@@ -503,7 +506,7 @@ shader_channel :: proc(ctx: ^Context, f: Frame, label: string, in_: Shader_Input
 
 // ---- drawing ----------------------------------------------------------------------
 
-// Programs per library entry: one, or one per pass of a multipass program.
+// Programs per library entry: one per pass.
 SHADER_PASS_MAX :: oksl.BUFFER_COUNT + 1
 
 // Renderer-side shader state: ovg programs per library entry (and pass),
@@ -566,17 +569,21 @@ shader_state_destroy :: proc(s: ^Shader_State, c: ^vg.Canvas) {
 	s^ = {}
 }
 
-draw_shader :: proc(r: ^Renderer, n: Shader) {
-	if r.ctx.shaders.graphs[n.program] != nil {
-		draw_multipass(r, n)
+// A shader: its buffer passes (unless they ran for this frame already),
+// then, unless `sim`, the Image pass into the box at its on-screen pixel
+// size.
+draw_shader :: proc(r: ^Renderer, n: Shader, sim := false) {
+	g := r.ctx.shaders.graphs[n.program]
+	r.shader_state.pool = r.pool
+	fb, ran := feedback_passes(r, n, g, sim)
+	if !ran || sim {
 		return
 	}
-	lib := &r.ctx.shaders
-	prog, ok := shader_program(r, n.program, 0, lib.modules[n.program])
+	out := len(g.passes) - 1
+	prog, ok := shader_program(r, n.program, out, g.passes[out].module)
 	if !ok {
 		return
 	}
-	r.shader_state.pool = r.pool
 	c := &r.canvas
 	xf := vg.current_transform(c)
 	sx := math.hypot(xf[0], xf[1])
@@ -584,40 +591,35 @@ draw_shader :: proc(r: ^Renderer, n: Shader) {
 	if !(sx > 0) || !(sy > 0) {
 		return
 	}
-	pw := u32(clamp(math.ceil(n.w * sx), 1, 8192))
-	ph := u32(clamp(math.ceil(n.h * sy), 1, 8192))
-	target := shader_image(r, pw, ph)
+	target := shader_image(r, u32(clamp(math.ceil(n.w * sx), 1, 8192)), u32(clamp(math.ceil(n.h * sy), 1, 8192)))
 	if !vg.image_id_valid(target) {
 		return
 	}
-	// Children, and their sizes for `.eval` and texelFetch.
+	// Channels, and their sizes for `.eval` and texelFetch.
 	channels: [oksl.CHANNEL_COUNT]vg.Image_Id
 	res: [oksl.CHANNEL_COUNT][3]f32
-	for ch, i in n.channels {
-		channels[i], res[i] = shader_channel_image(r, ch, n.w, n.h, sx, sy)
+	pass := g.passes[out]
+	for e in g.edges[pass.edges.start:][:pass.edges.count] {
+		ch := int(e.channel)
+		if e.source == .External {
+			channels[ch], res[ch] = shader_channel_image(r, n.channels[out][ch], n.w, n.h, sx, sy)
+		} else {
+			channels[ch], res[ch] = feedback_output(r, fb, int(e.id))
+		}
 	}
-	shader_run_into(r, n, prog, target, n.block, channels, res)
-}
-
-// Runs a program into `target` at the box's on-screen size and fills the
-// box with it.
-@(private)
-shader_run_into :: proc(r: ^Renderer, n: Shader, prog: vg.Program_Id, target: vg.Image_Id, block: []u8, channels: [oksl.CHANNEL_COUNT]vg.Image_Id, res: [oksl.CHANNEL_COUNT][3]f32) {
-	c := &r.canvas
 	// The block lives in the frame arena; finish it in place.
-	res := res
-	channels := channels
-	for i in 0 ..< oksl.CHANNEL_COUNT {
-		oksl.write_input(block, .Channel_Resolution, res[i][:], i)
+	block := n.blocks[out]
+	for k in 0 ..< oksl.CHANNEL_COUNT {
+		oksl.write_input(block, .Channel_Resolution, res[k][:], k)
 	}
 	if err := vg.run_program(c, prog, target, block, channels[:]); err != nil {
 		report(&r.ctx, .Error, {code = .Shader_Run, name = r.ctx.shaders.labels[n.program], gpu = err})
 		return
 	}
-	p := vg.paint_image(target, n.x, n.y, n.w, n.h, 0, n.opacity.? or_else 1)
+	paint := vg.paint_image(target, n.x, n.y, n.w, n.h, 0, n.opacity.? or_else 1)
 	vg.path_reset(&r.path)
 	vg.path_rect(&r.path, n.x, n.y, n.w, n.h)
-	vg.fill_path(c, &r.path, p)
+	vg.fill_path(c, &r.path, paint)
 }
 
 // The image a channel binds and its size for `.eval` and texelFetch, for a

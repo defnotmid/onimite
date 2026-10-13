@@ -11,7 +11,7 @@ import "deps:oksl"
 // resolution (its box in its own units, so the buffers do not depend on the
 // output scale), and runs its passes in the graph's order: buffers first,
 // each rendering into one image of its pair while the other holds the
-// previous frame's output, then the Image pass like a single-pass shader.
+// previous frame's output; the Image pass (`draw_shader`) reads them last.
 // A pass reads this frame's output of an earlier buffer, and the previous
 // frame's of itself or a later one.
 //
@@ -160,7 +160,7 @@ frame_has_feedback :: proc(r: ^Renderer, index: int) -> bool {
 	build_frame(r, index)
 	diagnostics_clear(&r.ctx)
 	for node in r.ctx.tree.nodes {
-		if n, is_shader := node.kind.(Shader); is_shader && n.pass_blocks != nil {
+		if n, is_shader := node.kind.(Shader); is_shader && shader_buffers(&r.ctx.shaders, n.program) > 0 {
 			return true
 		}
 	}
@@ -169,98 +169,73 @@ frame_has_feedback :: proc(r: ^Renderer, index: int) -> bool {
 
 // ---- drawing ----------------------------------------------------------------------
 
-// A multipass shader: its buffer passes (unless they ran for this frame
-// already), then, unless `sim`, the Image pass into the box.
+// Runs shader `n`'s buffer passes for this frame, unless they ran already,
+// and returns its feedback instance (-1 for a program without buffers);
+// false when they can not run.
 @(private)
-draw_multipass :: proc(r: ^Renderer, n: Shader, sim := false) {
-	g := r.ctx.shaders.graphs[n.program]
-	s := &r.shader_state
-	s.pool = r.pool
-	fb := &s.feedback
+feedback_passes :: proc(r: ^Renderer, n: Shader, g: ^oksl.Pass_Graph, sim: bool) -> (i: int, ok: bool) {
+	nb := len(g.passes) - 1
+	if nb == 0 {
+		return -1, true
+	}
+	fb := &r.shader_state.feedback
 	frame := r.ctx.frame.global_index
 	bw := u32(clamp(math.round(n.w), 1, 8192))
 	bh := u32(clamp(math.round(n.h), 1, 8192))
-	nb := len(g.passes) - 1
-	i := feedback_instance(r, n.instance, nb, bw, bh)
+	i = feedback_instance(r, n.instance, nb, bw, bh)
 	if i < 0 {
-		return
+		return -1, false
 	}
 	if !sim {
 		fb.drew = true
 	}
-	c := &r.canvas
-	if fb.frame[i] != frame {
-		fresh := n.frame == 0 || fb.frame[i] != frame - 1
-		prev := int(fb.current[i])
-		next := 1 - prev
-		size := [3]f32{f32(bw), f32(bh), 1}
-		for pi in 0 ..< nb {
-			pass := g.passes[pi]
-			prog, ok := shader_program(r, n.program, pi, pass.module)
-			if !ok {
-				return
-			}
-			channels: [oksl.CHANNEL_COUNT]vg.Image_Id
-			res: [oksl.CHANNEL_COUNT][3]f32
-			for e in g.edges[pass.edges.start:][:pass.edges.count] {
-				ch := int(e.channel)
-				switch e.source {
-				case .External:
-					// Drawn at the buffer's resolution, like the buffer.
-					channels[ch], res[ch] = shader_channel_image(r, n.pass_channels[pi][ch], n.w, n.h, f32(bw) / n.w, f32(bh) / n.h)
-				case .Buffer:
-					channels[ch], res[ch] = fb.images[i][e.id][next], size
-				case .Previous:
-					if !fresh {
-						channels[ch] = fb.images[i][e.id][prev]
-					}
-					res[ch] = size
+	if fb.frame[i] == frame {
+		return i, true
+	}
+	fresh := n.frame == 0 || fb.frame[i] != frame - 1
+	prev := int(fb.current[i])
+	next := 1 - prev
+	size := [3]f32{f32(bw), f32(bh), 1}
+	for pi in 0 ..< nb {
+		pass := g.passes[pi]
+		prog := shader_program(r, n.program, pi, pass.module) or_return
+		channels: [oksl.CHANNEL_COUNT]vg.Image_Id
+		res: [oksl.CHANNEL_COUNT][3]f32
+		for e in g.edges[pass.edges.start:][:pass.edges.count] {
+			ch := int(e.channel)
+			switch e.source {
+			case .External:
+				// Drawn at the buffer's resolution, like the buffer.
+				channels[ch], res[ch] = shader_channel_image(r, n.channels[pi][ch], n.w, n.h, f32(bw) / n.w, f32(bh) / n.h)
+			case .Buffer:
+				channels[ch], res[ch] = fb.images[i][e.id][next], size
+			case .Previous:
+				if !fresh {
+					channels[ch] = fb.images[i][e.id][prev]
 				}
-			}
-			block := n.pass_blocks[pi]
-			for k in 0 ..< oksl.CHANNEL_COUNT {
-				oksl.write_input(block, .Channel_Resolution, res[k][:], k)
-			}
-			if err := vg.run_program(c, prog, fb.images[i][pi][next], block, channels[:]); err != nil {
-				report(&r.ctx, .Error, {code = .Shader_Run, name = r.ctx.shaders.labels[n.program], gpu = err})
-				return
+				res[ch] = size
 			}
 		}
-		fb.current[i] = u8(next)
-		fb.frame[i] = frame
-		checkpoint_capture(r, i, frame)
-	}
-	if sim {
-		return
-	}
-	// The Image pass at the box's on-screen pixel size.
-	pi := nb
-	prog, ok := shader_program(r, n.program, pi, g.passes[pi].module)
-	if !ok {
-		return
-	}
-	xf := vg.current_transform(c)
-	sx := math.hypot(xf[0], xf[1])
-	sy := math.hypot(xf[2], xf[3])
-	if !(sx > 0) || !(sy > 0) {
-		return
-	}
-	target := shader_image(r, u32(clamp(math.ceil(n.w * sx), 1, 8192)), u32(clamp(math.ceil(n.h * sy), 1, 8192)))
-	if !vg.image_id_valid(target) {
-		return
-	}
-	channels: [oksl.CHANNEL_COUNT]vg.Image_Id
-	res: [oksl.CHANNEL_COUNT][3]f32
-	pass := g.passes[pi]
-	for e in g.edges[pass.edges.start:][:pass.edges.count] {
-		ch := int(e.channel)
-		if e.source == .External {
-			channels[ch], res[ch] = shader_channel_image(r, n.pass_channels[pi][ch], n.w, n.h, sx, sy)
-		} else {
-			channels[ch], res[ch] = fb.images[i][e.id][fb.current[i]], {f32(bw), f32(bh), 1}
+		block := n.blocks[pi]
+		for k in 0 ..< oksl.CHANNEL_COUNT {
+			oksl.write_input(block, .Channel_Resolution, res[k][:], k)
+		}
+		if err := vg.run_program(&r.canvas, prog, fb.images[i][pi][next], block, channels[:]); err != nil {
+			report(&r.ctx, .Error, {code = .Shader_Run, name = r.ctx.shaders.labels[n.program], gpu = err})
+			return -1, false
 		}
 	}
-	shader_run_into(r, n, prog, target, n.pass_blocks[pi], channels, res)
+	fb.current[i] = u8(next)
+	fb.frame[i] = frame
+	checkpoint_capture(r, i, frame)
+	return i, true
+}
+
+// This frame's output of buffer `b` of feedback instance `i`, and its size.
+@(private)
+feedback_output :: proc(r: ^Renderer, i, b: int) -> (vg.Image_Id, [3]f32) {
+	fb := &r.shader_state.feedback
+	return fb.images[i][b][fb.current[i]], {f32(fb.width[i]), f32(fb.height[i]), 1}
 }
 
 // The instance `key` with `nb` buffers of `w x h`, made or resized (which
@@ -399,7 +374,7 @@ feedback_catch_up :: proc(r: ^Renderer, index: int, rec: ^Frame_Record = nil) {
 	start := index
 	for node in r.ctx.tree.nodes {
 		n, is_shader := node.kind.(Shader)
-		if !is_shader || n.program >= len(lib.graphs) || lib.graphs[n.program] == nil || n.frame <= 0 {
+		if !is_shader || shader_buffers(lib, n.program) == 0 || n.frame <= 0 {
 			continue
 		}
 		i := -1
@@ -420,7 +395,7 @@ feedback_catch_up :: proc(r: ^Renderer, index: int, rec: ^Frame_Record = nil) {
 		}
 		if i >= 0 && fb.frame[i] >= from && fb.frame[i] < index {
 			from = fb.frame[i] + 1
-		} else if c := checkpoint_find(fb, n.instance, from, index - 1); c >= 0 && checkpoint_restore(r, c, len(lib.graphs[n.program].passes) - 1) {
+		} else if c := checkpoint_find(fb, n.instance, from, index - 1); c >= 0 && checkpoint_restore(r, c, shader_buffers(lib, n.program)) {
 			from = fb.checkpoints.frame[c] + 1
 		}
 		append(&fb.sim_keys, n.instance)
@@ -465,12 +440,12 @@ draw_sim :: proc(r: ^Renderer) {
 	vg.layer_stack_begin(&r.layers, c, r.width, r.height)
 	for node in r.ctx.tree.nodes {
 		n, is_shader := node.kind.(Shader)
-		if !is_shader || lib.graphs[n.program] == nil {
+		if !is_shader || shader_buffers(lib, n.program) == 0 {
 			continue
 		}
 		for k, j in fb.sim_keys {
 			if k == n.instance && fb.sim_from[j] <= frame {
-				draw_multipass(r, n, sim = true)
+				draw_shader(r, n, sim = true)
 			}
 		}
 	}

@@ -78,12 +78,7 @@ prefetch_frame_images :: proc(r: ^Renderer, index: int) {
 		case Image:
 			media_image(r.media, k.src, index)
 		case Shader:
-			for ch in k.channels {
-				if ch.kind == .Image {
-					media_image(r.media, ch.image, index)
-				}
-			}
-			for chs in k.pass_channels {
+			for chs in k.channels {
 				for ch in chs {
 					if ch.kind == .Image {
 						media_image(r.media, ch.image, index)
