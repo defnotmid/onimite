@@ -224,7 +224,7 @@ default branches of ovg, oksl, odecs and ottis, with the tag as their
 | `onimite-vX.Y.Z-linux-x86_64.tar.gz` | built on Ubuntu 22.04 (runs on glibc 2.35+), `libSDL3.so.0` beside the binary (rpath `$ORIGIN`); needs the system libcurl (`libcurl.so.4`) |
 | `onimite-vX.Y.Z-macos-arm64.tar.gz` | macOS 11+, `libSDL3.0.dylib` beside the binary (rpath `@executable_path`) |
 | `onimite-vX.Y.Z-windows-x86_64.zip` | best effort (unsigned, tested only in CI), left out if the Windows build fails; `SDL3.dll` and `lua54.dll` beside the binary |
-| `onimite-video-skill-vX.Y.Z.tar.gz` | the agent skill as of the tag (`onimite-video/` with `SKILL.md` and `references/`), matching the binaries |
+| `onimite-video-skill-vX.Y.Z.tar.gz` | the agent skill as of the tag (`onimite-video/` with `SKILL.md`, `references/` and `LICENSE`), matching the binaries |
 | `SHA256SUMS` | checksums of the archives |
 
 Each archive holds `LICENSE`, `LICENSES/` and `THIRD_PARTY_NOTICES.md` too.
@@ -288,6 +288,8 @@ onimite update   [--check]                                # replace this release
   more than `--threshold` (16) in more than `--max-diff` (0.1%) of pixels
   fails with `name.actual.png` and `name.diff.png`; `--update` (or
   `ONIMITE_UPDATE_SNAPSHOTS=1`, `FFRAMES_UPDATE_SNAPSHOTS=1`) accepts it.
+  A snapshot of another size than the frame (checked at another `--scale`)
+  is an error naming both sizes (`snapshot_size`).
 - With `--json`, every diagnostic and finding has a stable `code` and the
   `fields` its message is made from, and a failed command prints
   `{"error": ..., "code": ...}`. The codes are listed in

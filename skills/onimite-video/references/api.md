@@ -638,4 +638,6 @@ Mistakes that would read as nothing are reported instead:
 - An option a call does not use is a warning with the script line
   (``video.lua:12: `rect.fil` is not used (did you mean `fill`?)``): on nodes, groups,
   gradients, spans, filter primitives, animate keys, audio tracks, `video{}`, `scene{}` and the
-  standard library's options. Load-time ones print on stderr; the rest are `inspect` findings.
+  standard library's options, and the option tables inside them, named by their key
+  (`` `ducked.dept_db` ``, `` `light.elevaton` ``, `` `time.frmes` `` for a `{ seconds, frames, audio, ... }`
+  time). Load-time ones print on stderr; the rest are `inspect` findings.

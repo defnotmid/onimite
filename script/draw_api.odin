@@ -302,10 +302,12 @@ read_filter :: proc(L: ^lua.State, t: c.int) -> (f: vg.Filter, images: []string,
 	field(L, t, "shadow")
 	if lua.istable(L, -1) {
 		e := lua.absindex(L, -1)
+		group_fields := fields_push(L, e)
 		col := read_color_field(L, e, "color", om.rgba(0, 0, 0, 128))
 		col.a *= get_num(L, e, "opacity", 1)
 		std := get_num(L, e, "blur", get_num(L, e, "std", 2))
 		append(&prims, vg.Filter_Primitive{op = .Drop_Shadow, std = {std, std}, dx = get_num(L, e, "dx", 2), dy = get_num(L, e, "dy", 2), color = col})
+		fields_pop(L, host(L), e, "shadow", group_fields)
 	}
 	lua.pop(L, 1)
 
@@ -313,6 +315,9 @@ read_filter :: proc(L: ^lua.State, t: c.int) -> (f: vg.Filter, images: []string,
 	field(L, t, "filter")
 	if lua.istable(L, -1) {
 		list := lua.absindex(L, -1)
+		group_fields := fields_push(L, list)
+		defer fields_pop(L, host(L), list, "filter", group_fields)
+		field_used("srgb")
 		region = read_filter_region(L, list)
 		n := int(lua.rawlen(L, list))
 		for i in 0 ..< n {
@@ -386,7 +391,9 @@ read_filter :: proc(L: ^lua.State, t: c.int) -> (f: vg.Filter, images: []string,
 				for key, k in ([4]cstring{"r", "g", "b", "a"}) {
 					field(L, e, key)
 					if lua.istable(L, -1) {
+						primitive_fields := fields_push(L, -1)
 						p.transfer[k] = read_transfer(L, lua.absindex(L, -1), &values)
+						fields_pop(L, host(L), -1, "transfer", primitive_fields)
 					}
 					lua.pop(L, 1)
 				}
@@ -420,7 +427,9 @@ read_filter :: proc(L: ^lua.State, t: c.int) -> (f: vg.Filter, images: []string,
 				p.specular_exponent = clamp(get_num(L, e, "exponent", 1), 1, 128)
 				field(L, e, "light")
 				if lua.istable(L, -1) {
+					primitive_fields := fields_push(L, -1)
 					p.light = read_light(L, lua.absindex(L, -1))
+					fields_pop(L, host(L), -1, "light", primitive_fields)
 				} else {
 					p.light = {kind = .Distant, elevation = 45}
 				}
@@ -469,7 +478,9 @@ read_filter :: proc(L: ^lua.State, t: c.int) -> (f: vg.Filter, images: []string,
 			field(L, e, "subregion")
 			if lua.istable(L, -1) {
 				r := lua.absindex(L, -1)
+				primitive_fields := fields_push(L, r)
 				sub := [4]f32{get_num(L, r, "x", 0), get_num(L, r, "y", 0), get_num(L, r, "w", 0), get_num(L, r, "h", 0)}
+				fields_pop(L, host(L), r, "subregion", primitive_fields)
 				for k in 0 ..< 4 {
 					lua.rawgeti(L, r, lua.Integer(k + 1))
 					if lua.isnumber(L, -1) {
@@ -642,6 +653,8 @@ read_filter_region :: proc(L: ^lua.State, list: c.int) -> (r: vg.Filter_Region) 
 		return
 	}
 	e := lua.absindex(L, -1)
+	filter_fields := fields_push(L, e)
+	defer fields_pop(L, host(L), e, "region", filter_fields)
 	r = vg.FILTER_REGION_DEFAULT
 	switch units := get_str(L, e, "units", "objectBoundingBox"); units {
 	case "userSpaceOnUse", "user":

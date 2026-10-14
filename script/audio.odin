@@ -73,6 +73,7 @@ read_audio :: proc(s: ^Script, L: ^lua.State, t: c.int, scene: Maybe(int)) {
 		lua.pop(L, 1)
 		field(L, e, "ducked")
 		if lua.istable(L, -1) {
+			track_fields := fields_push(L, -1)
 			tr.ducked = true
 			tr.duck = {
 				depth_db  = get_num(L, -1, "depth_db", 0),
@@ -81,6 +82,7 @@ read_audio :: proc(s: ^Script, L: ^lua.State, t: c.int, scene: Maybe(int)) {
 				release   = get_num(L, -1, "release", 0),
 				merge_gap = get_num(L, -1, "merge_gap", 0),
 			}
+			fields_pop(L, s, -1, "ducked", track_fields)
 		} else {
 			tr.ducked = bool(lua.toboolean(L, -1))
 		}

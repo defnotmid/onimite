@@ -106,7 +106,9 @@ A command that fails prints `error: message` on stderr, or with `--json` the doc
 duration, bad props), `renderer`, `spec_unknown_scene`, `spec_unknown_name` (neither a scene nor a cue; the
 message lists both), `spec_no_scenes`, `spec_ambiguous`, `spec_past_scene`,
 `spec_out_of_range` (the message names the valid frames, `frames 0..N-1`), `spec_invalid`,
-`create_dir`, `write`, `png_many_frames` (`frame -o x.png` with more than one frame), `onion_range`, `no_sheet_frames`, `encoder` (the MP4 writer:
+`create_dir`, `write`, `png_many_frames` (`frame -o x.png` with more than one frame), `onion_range`, `no_sheet_frames`, `snapshot_size` (`snapshot`: an approved PNG has
+another size than the frame, e.g. checked at another `--scale`; the message gives both
+sizes; `--update` accepts the new size), `encoder` (the MP4 writer:
 odd dimensions, the file, a frame, the GPU conversion), `read_back` (a frame could not be
 read back from the GPU), `batch_read`,
 `batch_json`, `batch_not_array`, `batch_not_object`, `batch_csv`, `batch_no_header`,

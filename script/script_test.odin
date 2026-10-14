@@ -1,8 +1,10 @@
 package onimite_script
 
 import "core:encoding/json"
+import "core:fmt"
 import "core:os"
 import "core:path/filepath"
+import "core:slice"
 import "core:testing"
 import om "../onimite"
 import "../speech"
@@ -493,6 +495,93 @@ end }
 	}
 }
 
+// The calls that set the video up (scenes, tracks, cues, media) raise a Lua
+// error while rendering instead of changing what the render reads.
+@(test)
+test_load_only_while_rendering :: proc(t: ^testing.T) {
+	dir, derr := os.make_directory_temp("", "onimite_script_test_*", context.temp_allocator)
+	testing.expect(t, derr == nil)
+	defer os.remove_all(dir)
+	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
+	src := `
+video { width = 40, height = 40, fps = 10 }
+scene { "S", duration = 1, render = function(f)
+  local calls = {
+    video = function() video { width = 80, height = 80, fps = 30 } end,
+    scene = function() scene { "A", duration = 1 } end,
+    cue = function() cue("x", 0.5) end,
+    physics = function() physics { duration = 1, bodies = {} } end,
+    audio_add = function() audio_add("n", { { 0, 0 } }) end,
+    captions_load = function() captions_load("c", { { text = "a", start = 0, stop = 1 } }) end,
+    say = function() say("a", "hi") end,
+  }
+  for name, call in pairs(calls) do
+    local ok, err = pcall(call)
+    assert(not ok and err:find(name .. "() works at load, not while rendering a frame", 1, true), name)
+    assert(err:find("^video%.lua:%d+: "), err) -- the script's line, not std.lua's
+  end
+  rect { x = 0, y = 0, width = 40, height = 40, fill = "#fff" }
+end }
+`
+	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
+	media: om.Media
+	om.media_init(&media)
+	defer om.media_destroy(&media)
+	s: Script
+	defer unload(&s)
+	testing.expectf(t, load(&s, path, nil, &media) == nil, "load failed: %s", error_message(s.failure, context.temp_allocator))
+	r: om.Renderer
+	testing.expect_value(t, om.renderer_init(&r, &s.video, &media), om.Error.None)
+	defer om.renderer_destroy(&r)
+	om.render_frame(&r, 3)
+	// The render ran to its rect: no Lua error, no empty frame.
+	for d in r.ctx.diagnostics {
+		testing.expectf(t, false, "unexpected: %s", om.diagnostic_message(d, context.temp_allocator))
+	}
+	testing.expect_value(t, len(s.scenes), 1)
+	testing.expect_value(t, len(s.cues), 0)
+	testing.expect_value(t, s.video.width, 40)
+	testing.expect(t, "n" not_in media.audio && "c" not_in media.captions)
+}
+
+// Script lines are named from the script's folder, cleaned, however the
+// script's path is spelled: a scene made in a required file, a cue in a
+// dofile'd one, and the files' own source names.
+@(test)
+test_source_names :: proc(t: ^testing.T) {
+	dir, derr := os.make_directory_temp("", "onimite_script_test_*", context.temp_allocator)
+	testing.expect(t, derr == nil)
+	defer os.remove_all(dir)
+	scenes, _ := filepath.join({dir, "scenes"}, context.temp_allocator)
+	testing.expect(t, os.make_directory(scenes) == nil)
+	files := [?][2]string {
+		{"video.lua", `video { width = 40, height = 40, fps = 10 }
+require("scenes.a")
+local b = dofile("scenes/../scenes/b.lua")
+assert(b.source == "@scenes/b.lua", b.source)
+`},
+		{"scenes/a.lua", `scene { "A", duration = 1 }`},
+		{"scenes/b.lua", `cue("b", 0.5)
+return { source = debug.getinfo(1, "S").source }`},
+	}
+	for f in files {
+		path, _ := filepath.join({dir, f[0]}, context.temp_allocator)
+		testing.expect(t, os.write_entire_file(path, transmute([]u8)f[1]) == nil)
+	}
+	for spelled in ([?]string{"video.lua", "scenes/../video.lua", "./scenes/./../video.lua"}) {
+		path := fmt.tprintf("%s/%s", dir, spelled)
+		s: Script
+		defer unload(&s)
+		testing.expectf(t, load(&s, path) == nil, "load %s failed: %s", spelled, error_message(s.failure, context.temp_allocator))
+		testing.expect_value(t, len(s.scenes), 1)
+		testing.expect_value(t, len(s.cues), 1)
+		if len(s.scenes) == 1 && len(s.cues) == 1 {
+			testing.expect_value(t, s.scenes[0].source, "scenes/a.lua:1")
+			testing.expect_value(t, s.cues[0].at, "scenes/b.lua:1")
+		}
+	}
+}
+
 // The SVG 1.1 filter primitives from Lua: a dilated square grows, a
 // component transfer zeroes red, turbulence fills its region, lighting
 // lights a flat surface fully, and every primitive parses without errors.
@@ -604,6 +693,70 @@ scene { "A", duraton = 1, duration = 1 }
 		if i < len(want) {
 			testing.expect_value(t, om.diagnostic_message(d, context.temp_allocator), want[i])
 		}
+	}
+}
+
+// Option tables nested in a checked one are checked too: a track's ducking
+// and start time, the limiter, a scene's overlap and duration, caption
+// words at load; a filter's shadow, list, region and its primitives'
+// light, transfer and subregion tables while rendering.
+@(test)
+test_nested_option_checks :: proc(t: ^testing.T) {
+	dir, derr := os.make_directory_temp("", "onimite_script_test_*", context.temp_allocator)
+	testing.expect(t, derr == nil)
+	defer os.remove_all(dir)
+	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
+	src := `
+captions_load("w", { { text = "x", start = 0, stpo = 0.5 } })
+video { width = 40, height = 40, fps = 10, limiter = { ceiling = -1 },
+  audio = { { "a.wav", ducked = { dept_db = -9 }, start = { seconds = 1, frmes = 2 } } } }
+scene { "A", duration = { frames = 10, secs = 1 }, overlap = { previous = 0.5, nxt = 0 }, render = function(f)
+  group({ shadow = { dx = 1, blurr = 2 }, srgb = true,
+    filter = { { "diffuse_lighting", light = { "distant", elevaton = 90 } },
+      { "component_transfer", r = { type = "linear", slop = 0 }, subregion = { x = 0, y = 0, w = 10, hh = 10 } },
+      region = { x = 0, y = 0, w = 40, h = 40, unit = "user" }, srgbb = true } }, function()
+    rect { x = 0, y = 0, w = 40, h = 40, fill = "#fff" }
+  end)
+end }
+`
+	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
+	media: om.Media
+	om.media_init(&media)
+	defer om.media_destroy(&media)
+	s: Script
+	defer unload(&s)
+	testing.expectf(t, load(&s, path, nil, &media) == nil, "load failed: %s", error_message(s.failure, context.temp_allocator))
+	want := [?]string {
+		"video.lua:2: `captions_load word.stpo` is not used (did you mean `stop`?)",
+		"video.lua:3: `time.frmes` is not used (did you mean `frames`?)",
+		"video.lua:3: `ducked.dept_db` is not used (did you mean `depth_db`?)",
+		"video.lua:3: `limiter.ceiling` is not used (did you mean `ceiling_db`?)",
+		"video.lua:5: `duration.secs` is not used",
+		"video.lua:5: `overlap.nxt` is not used (did you mean `next`?)",
+	}
+	testing.expect_value(t, len(s.load_problems), len(want))
+	for d, i in s.load_problems {
+		got := om.diagnostic_message(d, context.temp_allocator)
+		testing.expectf(t, i < len(want) && got == want[i], "load problem %d: %s", i, got)
+	}
+	r: om.Renderer
+	testing.expect_value(t, om.renderer_init(&r, &s.video, &media), om.Error.None)
+	defer om.renderer_destroy(&r)
+	om.render_frame(&r, 0)
+	frame_want := [?]string {
+		"video.lua:6: `shadow.blurr` is not used (did you mean `blur`?)",
+		"video.lua:6: `filter.srgbb` is not used (did you mean `srgb`?)",
+		"video.lua:6: `region.unit` is not used (did you mean `units`?)",
+		"video.lua:6: `light.elevaton` is not used (did you mean `elevation`?)",
+		"video.lua:6: `transfer.slop` is not used (did you mean `slope`?)",
+		"video.lua:6: `subregion.hh` is not used (did you mean `h`?)",
+	}
+	got := make([dynamic]string, context.temp_allocator)
+	for d in r.ctx.diagnostics {
+		append(&got, om.diagnostic_message(d, context.temp_allocator))
+	}
+	for w in frame_want {
+		testing.expectf(t, slice.contains(got[:], w), "missing %q in %v", w, got[:])
 	}
 }
 

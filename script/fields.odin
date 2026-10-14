@@ -181,7 +181,6 @@ caller_where :: proc(L: ^lua.State) -> string {
 caller_where_via :: proc(L: ^lua.State) -> (at, via: string) {
 	ar: lua.Debug
 	first, at_file := "", ""
-	s := host_of_state(L)
 	for level: c.int = 1; lua.getstack(L, level, &ar) != 0; level += 1 {
 		lua.getinfo(L, "Sl", &ar)
 		if ar.currentline <= 0 || ar.source == nil {
@@ -198,9 +197,6 @@ caller_where_via :: proc(L: ^lua.State) -> (at, via: string) {
 			continue
 		}
 		pos := fmt.tprintf("%s:%d", src, ar.currentline)
-		if s != nil {
-			pos = script_relative(s, pos)
-		}
 		if at == "" {
 			at, at_file = pos, src
 		} else if src != at_file {

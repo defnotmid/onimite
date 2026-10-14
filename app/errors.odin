@@ -43,6 +43,8 @@ Error :: enum u8 {
 	// Commands.
 	Onion_Range,
 	No_Sheet_Frames,
+	// snapshot: an approved PNG of another size than the frame.
+	Snapshot_Size,
 	Encoder,
 	Read_Back,
 	// Batches.
@@ -87,6 +89,8 @@ Failure :: struct {
 	names:       []string,
 	indices:     []int,
 	n, m, count: int,
+	// The rendered frame's width and height.
+	frame_size:  [2]int,
 	os:          os.Error,
 	json:        json.Error,
 	csv:         csv.Error,
@@ -117,6 +121,7 @@ FAILURE_TEXT := [Error]string {
 	.Write              = "can not write {path}",
 	.Onion_Range        = "onion needs a range, e.g. `Intro@0..Intro@1s`",
 	.No_Sheet_Frames    = "no frames for the contact sheet",
+	.Snapshot_Size      = "snapshot {path} is {n}x{m} but frame {spec} renders at {frame_size}: check it at the --scale it was approved at, or accept the new size with --update",
 	.Encoder            = "{encoder}",
 	.Read_Back          = "can not read frame {n} back from the GPU ({gpu})",
 	.Batch_Read         = "can not read the batch rows {path}: {os}",
@@ -197,6 +202,8 @@ failure_message :: proc(f: Failure, allocator := context.allocator) -> string {
 			fmt.sbprintf(b, "%d", f.m)
 		case "count":
 			fmt.sbprintf(b, "%d", f.count)
+		case "frame_size":
+			fmt.sbprintf(b, "%dx%d", f.frame_size.x, f.frame_size.y)
 		case "os":
 			fmt.sbprintf(b, "%v", f.os)
 		case "json":

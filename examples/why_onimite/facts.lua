@@ -5,7 +5,8 @@
 
 local M = {}
 
--- Wall seconds of the same video: fframes, then onimite (GPU).
+-- Wall seconds of the same video: fframes, then onimite (GPU), and the
+-- speedup. The six biggest wins, then fframes' two: hello_world and podcast.
 M.RACE = {
   { "tiktok", 28.7, 6.34, "4.5×" },
   { "made_of_motion", 7.29, 2.13, "3.4×" },
@@ -13,6 +14,8 @@ M.RACE = {
   { "fframes_intro", 38.0, 19.3, "2.0×" },
   { "audio_announce", 9.49, 4.82, "2.0×" },
   { "shader_mode", 4.11, 3.04, "1.4×" },
+  { "hello_world", 1.53, 1.93, "0.79×" },
+  { "podcast", 7.19, 7.44, "0.97×" },
 }
 
 -- The same rows: CPU seconds (user + sys) of tiktok, peak RSS of beta.
@@ -40,10 +43,10 @@ for _, s in ipairs(M.SETUP) do
   s.mb = 0
   for _, p in ipairs(s.parts) do s.mb = s.mb + p[2] end
 end
--- onimite: the release as it ships, the stripped binary (odin build
--- -o:speed) and libSDL3 next to it, in MiB (the .tar.gz is 7.6). Nothing
--- else to install.
-M.ONIMITE_MB = 17.6
+-- onimite: the v0.0.7 Linux release as it ships, the stripped binary (odin
+-- build -o:speed) and libSDL3 next to it, in MiB (the .tar.gz is 8.3).
+-- Nothing else to install.
+M.ONIMITE_MB = 19.7
 
 -- "3.4 GB", "682 MB": a size in MiB as the film prints it.
 function M.size(mb)

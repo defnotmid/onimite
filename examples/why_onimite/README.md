@@ -10,9 +10,9 @@ onimite render examples/why_onimite/video.lua -o why_onimite.mp4
 | bars | scene | what |
 | --- | --- | --- |
 | 1-4 | Title | "ONIMITE vs FFRAMES" drawn into a text group that an SkSL shader reads as its `uniform shader` child: glitch slices and colour split, a ripple ring from the slam |
-| 5-8 | Race | six videos rendering side by side at their measured relative speeds; DONE pops on the beat |
+| 5-8 | Race | eight videos rendering side by side at their measured relative speeds, onimite's six biggest wins and fframes' two (hello_world, and narrowly podcast); DONE pops on the beat |
 | 9-12 | Bill | CPU seconds (tiktok) and peak memory (beta), counters ticking on the beat |
-| 13-16 | Shipping | what each installs before the first frame, measured and to scale: fframes' Rust toolchain, its 311 crates (a falling grain each) and the 2.5 GB first build pour into a bin (`physics{}`), onimite's 17.6 MB is one block; an edit in each |
+| 13-16 | Shipping | what each installs before the first frame, measured and to scale: fframes' Rust toolchain, its 311 crates (a falling grain each) and the 2.5 GB first build pour into a bin (`physics{}`), onimite's 19.7 MB (the v0.0.7 Linux binary and libSDL3) is one block; an edit in each |
 | 17-20 | Built for agents | a real `inspect` session on the saga, replayed: the Bill scene's booms off the beat (`off_beat`), the one number fixed, the re-run clean |
 | 21-24 | Tricks | `svg{}` bird flapping by id override, ligatures (Instrument Serif "office affluent"), Arabic joining (Noto Sans Arabic), Pip, the mascot, as a ProRes 4444 alpha clip with a glow |
 | 25-29 | Outro | "One binary. Lua scripts. All your cores." over the soundtrack's spectrum, then the wordmark |

@@ -51,13 +51,14 @@ register_media_api :: proc(s: ^Script) {
 //     needed (rendering with sound, the audio commands, `timeline`, the
 //     preview, or a script reading the clip) and once per render: frames,
 //     strips and inspections of a video don't pay for its music.
-// Raises a Lua error when bytes can't be decoded.
+// Works at load only; raises a Lua error when bytes can't be decoded.
 @(private = "file")
 l_audio_add :: proc "c" (L: ^lua.State) -> c.int {
 	s := host(L)
 	context = s.odin_context
+	load_only(L, s, "audio_add")
 	name := string(lua.L_checkstring(L, 1))
-	m := s.ctx.media if s.ctx != nil else s.media
+	m := s.media
 	if m == nil {
 		lua.L_error(L, "audio_add() needs the media: the script was loaded without it")
 	}
@@ -555,12 +556,13 @@ l_caption_pages :: proc "c" (L: ^lua.State) -> c.int {
 // (WebVTT, SRT or JSON, by shape), or a list of words { { text, start,
 // stop }, ... } in seconds; without it, the file `name` beside the script
 // (or absolute), else in the media directory. The words become captions
-// `name` for caption_words / caption_pages / captions{}. Call it at load;
+// `name` for caption_words / caption_pages / captions{}. Works at load only;
 // raises a Lua error when the source doesn't parse.
 @(private = "file")
 l_captions_load :: proc "c" (L: ^lua.State) -> c.int {
 	s := host(L)
 	context = s.odin_context
+	load_only(L, s, "captions_load")
 	m := measure_media(L, s, "captions_load")
 	cname := lua.L_checkstring(L, 1)
 	name := string(cname)
@@ -577,9 +579,11 @@ l_captions_load :: proc "c" (L: ^lua.State) -> c.int {
 			if !lua.istable(L, -1) {
 				lua.L_error(L, "captions_load(%s): word %d is not a table { text, start, stop }", cname, c.int(i + 1))
 			}
+			captions_fields := fields_push(L, -1)
 			texts[i] = strings.clone(get_str(L, -1, "text", ""), context.temp_allocator)
 			starts[i] = get_num(L, -1, "start", 0)
 			stops[i] = get_num(L, -1, "stop", get_num(L, -1, "end", starts[i]))
+			fields_pop(L, s, -1, "captions_load word", captions_fields)
 			lua.pop(L, 1)
 		}
 		caps, ok = om.captions_from_words(texts, starts, stops), true
@@ -808,16 +812,25 @@ read_time_terms :: proc(s: ^Script, L: ^lua.State, at: c.int, sign: f32, out: ^[
 		}
 		return
 	}
+	// Checked before a clip's build function runs Lua.
+	owner_fields := fields_push(L, idx)
 	secs := get_num(L, idx, "seconds", 0) + get_num(L, idx, "minutes", 0) * 60
+	frames := get_num(L, idx, "frames", get_num(L, idx, "frame", 0))
+	clips := #partial [om.Time_Term_Kind]string {
+		.Audio = get_str(L, idx, "audio", ""),
+		.Video = get_str(L, idx, "video", ""),
+	}
+	field_used("plus")
+	field_used("minus")
+	fields_pop(L, s, idx, "time", owner_fields)
 	if secs != 0 {
 		append(out, om.Time_Term{.Seconds, sign, secs, ""})
 	}
-	frames := get_num(L, idx, "frames", get_num(L, idx, "frame", 0))
 	if frames != 0 {
 		append(out, om.Time_Term{.Frames, sign, frames, ""})
 	}
 	for kind in ([2]om.Time_Term_Kind{.Audio, .Video}) {
-		name := get_str(L, idx, "audio" if kind == .Audio else "video", "")
+		name := clips[kind]
 		if name != "" && kind == .Audio {
 			build_pending(L, s, name) // its length is needed now
 		}

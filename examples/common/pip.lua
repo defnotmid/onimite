@@ -12,9 +12,9 @@
 
 local P = {}
 
--- pip.svg sits next to this file, wherever the script that loads it is.
+-- pip.svg sits next to this file (a source name is a path from SCRIPT_DIR).
 local here = debug.getinfo(1, "S").source:match("^@(.*[/\\])") or ""
-local file = assert(io.open(here .. "pip.svg"), "pip.lua: pip.svg is missing next to it")
+local file = assert(io.open(SCRIPT_DIR .. "/" .. here .. "pip.svg"), "pip.lua: pip.svg is missing next to it")
 P.MARKUP = file:read("a")
 file:close()
 

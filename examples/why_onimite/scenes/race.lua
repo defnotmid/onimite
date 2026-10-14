@@ -1,7 +1,8 @@
--- Six renders side by side: each lane's bars are the progress of the same
+-- Eight renders side by side: each lane's bars are the progress of the same
 -- video in fframes and in onimite, at their measured relative speeds.
 -- fframes' bars all take two bars of music; onimite' finish on the nearest
--- half beat of their share, with a DONE.
+-- half beat of their share, with a DONE. The speedup pops once both are
+-- done, in the winner's colour: the last two lanes are fframes' wins.
 
 local beat = require("beat")
 local ui = require("ui")
@@ -9,7 +10,7 @@ local T = require("timeline")
 local facts = require("facts")
 local snap, soft = beat.snap, beat.soft
 
-local TRACK_X, TRACK_W, LANE_Y, LANE_H = 520, 940, 300, 108
+local TRACK_X, TRACK_W, LANE_Y, LANE_H = 520, 940, 272, 84
 local GO, STOP = T.RACE_GO, T.RACE_GO + T.RACE_BEATS
 
 local function bar(x, y, w, p, color)
@@ -20,11 +21,13 @@ end
 local function lane(i, r, lb)
   local name, fsec, osec, ratio = r[1], r[2], r[3], r[4]
   local done = T.RACE_DONE[i]
+  local both = math.max(done, STOP)
   local y = LANE_Y + (i - 1) * LANE_H
-  local appear = snap(lb - 0.5 * i)
+  local at = 0.4 * i
+  local appear = snap(lb - at)
   local pf = progress(lb, GO, STOP)
   local po = progress(lb, GO, done)
-  group({ opacity = progress(lb, 0.5 * i, 0.5 * i + 0.1), transform = translate((1 - appear) * 200, 0) }, function()
+  group({ opacity = progress(lb, at, at + 0.1), transform = translate((1 - appear) * 200, 0) }, function()
     text { name, x = 120, y = y + 52, font = ui.MONO, size = 32, fill = ui.TEXT }
     bar(TRACK_X, y + 10, TRACK_W, pf, ui.F)
     bar(TRACK_X, y + 46, TRACK_W, po, ui.O)
@@ -42,10 +45,11 @@ local function lane(i, r, lb)
       ui.check(TRACK_X + TRACK_W - 50, y + 47, 24, ui.BG, 5)
     end)
   end
-  if lb >= STOP then
-    local s = soft(lb - STOP)
+  if lb >= both then
+    local s = soft(lb - both)
     group({ transform = { scale = s, origin = { 1760, y + 46 } } }, function()
-      text { ratio, x = 1820, y = y + 72, align = "right", font = ui.DISPLAY, size = 72, fill = ui.O }
+      text { ratio, x = 1820, y = y + 72, align = "right", font = ui.DISPLAY, size = 72,
+        fill = osec < fsec and ui.O or ui.F }
     end)
   end
 end

@@ -133,7 +133,9 @@ end }
   reads those folders itself, so the video renders the same everywhere. `show video.lua fonts`
   lists the families text can use.
 - `require("name")` and `dofile` resolve beside the script; `SCRIPT_DIR` is its directory
-  (for `io.open` on data files). Data comes in as `props` (`--props file.json`, `--batch`
+  (for `io.open` on data files). Script lines in errors, `inspect` and `show` (and a file's
+  `debug.getinfo` source) are paths from the script's folder (`scenes/race.lua:23`), whatever
+  the working directory. Data comes in as `props` (`--props file.json`, `--batch`
   rows, `--set key=value`); `arg.key` holds the raw `--set` string.
 - Everything outside `render` runs once when the script loads: put data, layouts and text
   measurements there. Drawing calls (`rect`, `text`, `group`, ...) only work inside `render`.
@@ -289,7 +291,7 @@ with commas.
 | `preview [AT] [--paused] [--no-loop] [--mute] [--exit-after N]` | real-time window with sound and hot reload, for the user (`--exit-after N`: close after N window frames) |
 | `render [RANGE] [-o out.mp4 \| dir] [--draft] [--h265] [--qp N] [--native]` | encode the video or a part, or write PNGs |
 | `render --batch rows.json\|rows.csv [-o out/{name}.mp4] [--rows a..b \| --only N]` | one video per data row, the row as `props` |
-| `snapshot SPECS [--update] [--dir _frame_snapshots] [--threshold 16] [--max-diff 0.001]` | compare frames with approved PNGs; writes `.actual.png`/`.diff.png`, exit 2 on a difference |
+| `snapshot SPECS [--update] [--dir _frame_snapshots] [--threshold 16] [--max-diff 0.001]` | compare frames with approved PNGs; writes `.actual.png`/`.diff.png`, exit 2 on a difference; a PNG of another size (another `--scale`) is the error `snapshot_size` |
 | `audio analyze [RANGE] [--waveform w.png]` | loudness (LUFS, LRA), true peak, clipping, silence, per scene |
 | `audio at SPECS` | which tracks play at a moment, where in their file, how loud, ducking |
 | `audio render [RANGE] [-o audio.wav] [--float]` | the mix as a stereo WAV |
@@ -516,6 +518,9 @@ video { ..., buses = { music = {}, voice = {}, sfx = {} },
   document with `--json`, the MCP server's messages).
 - `rect`/`text`/`group` at load: "can only be called while rendering a frame". Draw inside
   `render`; measure (`text_width` & co) anywhere.
+- `video{}`, `scene{}`, `cue`, `physics{}`, `audio_add`, `captions_load` and `say` inside
+  `render`: "works at load, not while rendering a frame". They set the video up; call them at
+  the top level of the script.
 - A video needs scenes or a `duration` ("the video has no scenes and no duration").
 - `animate` picks its value type from the first key's `from`: number, colour string, `{x, y}`
   or transform. Keep every key of one call the same type.

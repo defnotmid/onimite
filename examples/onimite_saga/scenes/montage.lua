@@ -139,7 +139,7 @@ local function montage(f, lb, gb)
     c[7](f, cb, gb)
   end)
   -- what this is (Hush promised it), top left; the counter, bottom left
-  look.chip(100, 110, string.format("all of this · one %.1f MB download", facts.ONIMITE_MB), look.INK, look.NIGHT, 28,
+  look.chip(100, 110, string.format("all of this · %.1f MB on disk", facts.ONIMITE_MB), look.INK, look.NIGHT, 28,
     snap(lb))
   text { string.format("%02d / %02d", idx, #CARDS), x = 98, y = 1020, font = look.MONO, size = 26, fill = look.INK, opacity = 0.7 }
 end

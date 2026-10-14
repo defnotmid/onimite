@@ -526,6 +526,9 @@ snapshot_check :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 		expected, ew, eh, read_ok := read_png(snap)
 		ratio: f64 = 1
 		diff: []u8
+		if read_ok && (ew != r.width || eh != r.height) && !update {
+			return fail(app, {code = .Snapshot_Size, path = snap, spec = specs[i], n = int(ew), m = int(eh), frame_size = {int(r.width), int(r.height)}})
+		}
 		if read_ok && ew == r.width && eh == r.height {
 			ratio, diff = diff_frames(expected, actual, threshold)
 		}

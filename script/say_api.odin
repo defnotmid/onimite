@@ -83,9 +83,7 @@ say_unload :: proc(s: ^Script) {
 l_say :: proc "c" (L: ^lua.State) -> c.int {
 	s := host(L)
 	context = s.odin_context
-	if s.ctx != nil {
-		lua.L_error(L, "say() works at load, not while rendering a frame")
-	}
+	load_only(L, s, "say")
 	name := strings.clone(string(lua.L_checkstring(L, 1)), context.temp_allocator)
 	text := strings.clone(string(lua.L_checkstring(L, 2)), context.temp_allocator)
 	cname := strings.clone_to_cstring(name, context.temp_allocator)

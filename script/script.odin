@@ -172,8 +172,7 @@ load :: proc(s: ^Script, path: string, args: []string = nil, media: ^om.Media = 
 	if lua.L_loadbuffer(L, raw_data(STD_LUA), c.size_t(len(STD_LUA)), "=std.lua") != .OK || lua.pcall(L, 0, 0, -2) != 0 {
 		return set_error(s, {code = .Lua, lua = string(lua.tostring(L, -1))})
 	}
-	name := strings.clone_to_cstring(strings.concatenate({"@", filepath.base(path)}, context.temp_allocator), context.temp_allocator)
-	if lua.L_loadbuffer(L, raw_data(data), c.size_t(len(data)), name) != .OK {
+	if !load_chunk(L, s, path, data) {
 		return set_error(s, {code = .Lua, lua = string(lua.tostring(L, -1))})
 	}
 	if lua.pcall(L, 0, 0, -2) != 0 {
@@ -300,9 +299,16 @@ set_script_environment :: proc(s: ^Script) {
 	lua.pop(L, 1)
 	lua.pushstring(L, strings.clone_to_cstring(pp, context.temp_allocator))
 	lua.setfield(L, -2, "path")
-	lua.pop(L, 1)
-	// dofile relative to the script directory.
-	lua.L_dostring(L, strings.clone_to_cstring(fmt.tprintf("local base, dofile0 = %q, dofile\ndofile = function(p) if p and p:sub(1, 1) ~= '/' then p = base .. '/' .. p end return dofile0(p) end", dir), context.temp_allocator))
+	// Lua files load through `load_chunk`: package.searchers[2] (require's
+	// file searcher) and dofile.
+	lua.getfield(L, -1, "searchers")
+	lua.pushlightuserdata(L, s)
+	lua.pushcclosure(L, l_search_file, 1)
+	lua.rawseti(L, -2, 2)
+	lua.pop(L, 2)
+	lua.pushlightuserdata(L, s)
+	lua.pushcclosure(L, l_dofile, 1)
+	lua.setglobal(L, "dofile")
 
 	lua.createtable(L, i32(len(s.args)), 0)
 	n := 0
@@ -539,6 +545,74 @@ set_num :: proc(L: ^lua.State, key: cstring, v: f32) {
 	lua.setfield(L, -2, key)
 }
 
+// ---- Lua files ---------------------------------------------------------------------
+
+// Loads the Lua source `data` read from `path` as a chunk named by the
+// file's path relative to the script's folder, cleaned ("scenes/race.lua",
+// "../common/pip.lua"), whatever the working directory: the name every
+// script position (Lua's errors, `caller_where`, node sources) goes by.
+// False with Lua's message on the stack when it doesn't parse.
+@(private)
+load_chunk :: proc(L: ^lua.State, s: ^Script, path: string, data: []u8) -> bool {
+	script, _ := filepath.abs(s.path, context.temp_allocator)
+	file, _ := filepath.abs(path, context.temp_allocator)
+	name, err := filepath.rel(filepath.dir(script), file, context.temp_allocator)
+	if err != nil {
+		name = file // on another volume
+	}
+	chunk := strings.clone_to_cstring(strings.concatenate({"@", name}, context.temp_allocator), context.temp_allocator)
+	return lua.L_loadbuffer(L, raw_data(data), c.size_t(len(data)), chunk) == .OK
+}
+
+// package.searchers[2]: finds module `name` on package.path as Lua's own
+// file searcher does and loads it with `load_chunk`.
+@(private)
+l_search_file :: proc "c" (L: ^lua.State) -> c.int {
+	s := host(L)
+	context = s.odin_context
+	name := lua.L_checkstring(L, 1)
+	lua.getglobal(L, "package")
+	lua.getfield(L, -1, "searchpath")
+	lua.pushvalue(L, 1)
+	lua.getfield(L, -3, "path")
+	lua.call(L, 2, 2)
+	if lua.isnil(L, -2) {
+		return 1 // the files tried
+	}
+	file := lua.tostring(L, -2)
+	data, err := os.read_entire_file(string(file), context.temp_allocator)
+	if err != nil {
+		lua.L_error(L, "error loading module '%s' from file '%s'", name, file)
+	}
+	if !load_chunk(L, s, string(file), data) {
+		lua.L_error(L, "error loading module '%s' from file '%s':\n\t%s", name, file, lua.tostring(L, -1))
+	}
+	lua.pushstring(L, file)
+	return 2
+}
+
+// dofile(path) -> what the file returns: runs the Lua file at `path`,
+// beside the script when relative.
+@(private)
+l_dofile :: proc "c" (L: ^lua.State) -> c.int {
+	s := host(L)
+	context = s.odin_context
+	path := string(lua.L_checkstring(L, 1))
+	if !filepath.is_abs(path) {
+		path, _ = filepath.join({filepath.dir(s.path), path}, context.temp_allocator)
+	}
+	lua.settop(L, 1)
+	data, err := os.read_entire_file(path, context.temp_allocator)
+	if err != nil {
+		lua.L_error(L, "cannot open %s", lua.tostring(L, 1))
+	}
+	if !load_chunk(L, s, path, data) {
+		lua.error(L)
+	}
+	lua.call(L, 0, lua.MULTRET)
+	return lua.gettop(L) - 1
+}
+
 // ---- API registration --------------------------------------------------------------
 
 @(private)
@@ -630,6 +704,17 @@ host_of_state :: proc "c" (L: ^lua.State) -> ^Script {
 @(private)
 host :: #force_inline proc "c" (L: ^lua.State) -> ^Script {
 	return (^Script)(lua.touserdata(L, lua.REGISTRYINDEX - 1))
+}
+
+// Raises a Lua error while rendering: `fn` sets the video up (its scenes,
+// tracks, cues, media), so it works at load only. The error names the
+// script's line, also through the standard library's wrappers (`scene`).
+@(private)
+load_only :: proc(L: ^lua.State, s: ^Script, fn: cstring) {
+	if s.ctx != nil {
+		lua.pushstring(L, fmt.ctprintf("%s: %s() works at load, not while rendering a frame", caller_where(L), fn))
+		lua.error(L)
+	}
 }
 
 // The context of the render in progress; raises a Lua error outside one.
@@ -726,6 +811,7 @@ node_sources_reset :: proc(s: ^Script) {
 l_video :: proc "c" (L: ^lua.State) -> c.int {
 	s := host(L)
 	context = s.odin_context
+	load_only(L, s, "video")
 	lua.L_checktype(L, 1, i32(lua.Type.TABLE))
 	fields_begin(L, 1)
 	v := &s.video
@@ -746,7 +832,9 @@ l_video :: proc "c" (L: ^lua.State) -> c.int {
 	v.mix.master_gain_db = get_num(L, 1, "master_gain_db", 0)
 	field(L, 1, "limiter")
 	if lua.istable(L, -1) {
+		video_fields := fields_push(L, -1)
 		v.mix.ceiling_db = get_num(L, -1, "ceiling_db", 0)
+		fields_pop(L, s, -1, "limiter", video_fields)
 	} else if lua.isboolean(L, -1) && !lua.toboolean(L, -1) {
 		v.mix.no_limiter = true
 	}
@@ -766,6 +854,7 @@ l_video :: proc "c" (L: ^lua.State) -> c.int {
 l_scene :: proc "c" (L: ^lua.State) -> c.int {
 	s := host(L)
 	context = s.odin_context
+	load_only(L, s, "scene")
 	lua.L_checktype(L, 1, i32(lua.Type.TABLE))
 	fields_begin(L, 1)
 	sc: om.Scene
@@ -783,7 +872,7 @@ l_scene :: proc "c" (L: ^lua.State) -> c.int {
 	if at, ok := get_opt_num(L, 1, "start"); ok {
 		sc.start = at
 	}
-	sc.source = strings.clone(script_relative(s, caller_where(L)))
+	sc.source = strings.clone(caller_where(L))
 	if sc.duration == nil && sc.start == nil {
 		delete(sc.name)
 		delete(sc.cue)
@@ -793,7 +882,9 @@ l_scene :: proc "c" (L: ^lua.State) -> c.int {
 	read_audio(s, L, 1, len(s.scenes))
 	field(L, 1, "overlap")
 	if lua.istable(L, -1) {
+		scene_fields := fields_push(L, -1)
 		sc.overlap = {get_num(L, -1, "previous", 0), get_num(L, -1, "next", 0)}
+		fields_pop(L, s, -1, "overlap", scene_fields)
 	}
 	lua.pop(L, 1)
 	ref: c.int = lua.NOREF
@@ -820,10 +911,13 @@ read_duration :: proc(s: ^Script, L: ^lua.State, t: c.int) -> om.Duration {
 		return om.Seconds(lua.tonumber(L, -1))
 	}
 	if lua.istable(L, -1) {
-		if frames := get_num(L, -1, "frames", -1); frames >= 0 {
+		owner_fields := fields_push(L, -1)
+		frames, secs := get_num(L, -1, "frames", -1), get_num(L, -1, "seconds", -1)
+		fields_pop(L, s, -1, "duration", owner_fields)
+		if frames >= 0 {
 			return om.Frames(int(frames))
 		}
-		if secs := get_num(L, -1, "seconds", -1); secs >= 0 {
+		if secs >= 0 {
 			return om.Seconds(secs)
 		}
 	}
@@ -840,6 +934,7 @@ read_duration :: proc(s: ^Script, L: ^lua.State, t: c.int) -> om.Duration {
 l_cue :: proc "c" (L: ^lua.State) -> c.int {
 	s := host(L)
 	context = s.odin_context
+	load_only(L, s, "cue")
 	id := string(lua.L_checkstring(L, 1))
 	hit := ""
 	if lua.istable(L, 3) {
@@ -1377,17 +1472,6 @@ read_key :: proc(L: ^lua.State, s: ^Script, i: int, $T: typeid, read: proc(L: ^l
 		key_anchor(L, s, cue, f64(k.start) + clock_offset)
 	}
 	return
-}
-
-// A script position ("examples/x/scenes/race.lua:42") relative to the
-// script's directory ("scenes/race.lua:42"), in temp memory.
-@(private)
-script_relative :: proc(s: ^Script, pos: string) -> string {
-	dir := filepath.dir(s.path)
-	if dir != "" && dir != "." && strings.has_prefix(pos, dir) && len(pos) > len(dir) && pos[len(dir)] == '/' {
-		return pos[len(dir) + 1:]
-	}
-	return pos
 }
 
 // Notes where a tagged key starts (once per id and script line).
