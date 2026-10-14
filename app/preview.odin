@@ -166,9 +166,8 @@ preview_open :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 		if err != nil {
 			// The script was loaded without its media (the worker loads it);
 			// a timeline that needs it (audio lengths) loads it here.
-			dir := regs.media if regs.media != "" else default_media_dir(app.script.path)
-			if os.is_dir(dir) {
-				om.media_load_dir(&app.media, dir, app.pool)
+			if os.is_dir(app.media_dir) {
+				om.media_load_dir(&app.media, app.media_dir, app.pool)
 			}
 			tl, err = om.resolve_timeline(&app.script.video, &app.media, context.temp_allocator)
 		}
@@ -182,7 +181,7 @@ preview_open :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 		}
 	}
 	pv.script_path = strings.clone(app.script.path)
-	pv.media_dir = strings.clone(regs.media if regs.media != "" else default_media_dir(app.script.path))
+	pv.media_dir = strings.clone(app.media_dir)
 	return preview_run(app, capture = regs.path, drive = regs.args)
 }
 

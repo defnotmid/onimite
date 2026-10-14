@@ -22,6 +22,9 @@ App_State :: struct {
 	script_path:    string,
 	script_args:    []string,
 	props_text:     string,
+	// The media folder: --media, else media/ beside the script (owned);
+	// the preview's worker loads it too.
+	media_dir:      string,
 	media:          om.Media,
 	// Script_Load loaded the media (not with .No_Media).
 	media_loaded:   bool,
@@ -256,12 +259,10 @@ script_load :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 		app.props_text = string(data)
 	}
 	// The media first: scripts measure text with its fonts at load.
+	app.media_dir = strings.clone(regs.media if regs.media != "" else default_media_dir(regs.path))
 	app.media_loaded = .No_Media not_in regs.flags
 	if app.media_loaded {
-		dir := regs.media
-		if dir == "" {
-			dir = filepath.join({filepath.dir(regs.path), "media"}, context.temp_allocator) or_else "media"
-		}
+		dir := app.media_dir
 		if os.is_dir(dir) {
 			if om.media_load_dir(&app.media, dir, app.pool) != nil {
 				fmt.eprintfln("can not read media directory %s", dir)
@@ -318,7 +319,8 @@ script_inputs_clear :: proc(app: ^App_State) {
 	}
 	delete(app.script_args)
 	delete(app.props_text)
-	app.script_path, app.script_args, app.props_text = "", nil, ""
+	delete(app.media_dir)
+	app.script_path, app.script_args, app.props_text, app.media_dir = "", nil, "", ""
 }
 
 // The renderer at the current scale, rebuilt when the scale changes.
