@@ -50,7 +50,7 @@ onimite is built from sibling Odin projects and Odin's vendor packages:
 | [`odecs`](https://github.com/defnotmid/odecs) | H.264 / H.265 / AAC codecs (native Odin, Vulkan Video when available), MP4, WebP, clip decoding |
 | [`oksl`](https://github.com/defnotmid/oksl) | shader compiler for SkSL, Shadertoy and GLSL: SPIR-V, MSL and a CPU interpreter |
 | [`ottis`](https://github.com/defnotmid/ottis) | text to speech with word timings (Kyutai's Pocket TTS through ONNX Runtime, loaded at run time; models downloaded on first use) |
-| [`o3d`](https://github.com/defnotmid/o3d) | 3D in three.js's vocabulary: an SDL_GPU renderer and a software one drawing the same pixels, glTF 2.0 import |
+| [`o3d`](https://github.com/defnotmid/o3d) | 3D in three.js's vocabulary: an SDL_GPU renderer and a software one drawing the same pixels, glTF 2.0 import (skins, morph targets, animations) |
 | `vendor:lua/5.4` | the script runtime |
 | `vendor:sdl3` | GPU device and the preview window |
 | `vendor:stb`, `vendor:kb_text_shape`, `vendor:miniaudio`, `vendor:cgltf` | fonts, images, PNG output; text shaping; ogg / mp3 / flac decoding; glTF parsing (o3d) |
@@ -85,8 +85,9 @@ onimite is built from sibling Odin projects and Odin's vendor packages:
   directional lights with PCF shadows; box, sphere, plane, cylinder and
   torus meshes; MeshStandardMaterial and MeshBasicMaterial with texture
   maps, and GLSL ES ShaderMaterial; an equirectangular environment and
-  background; glTF 2.0 models, including skinned characters, posed at a
-  time of their animations with optional material overrides) into a box
+  background; glTF 2.0 models, including skinned characters and morph
+  targets, posed at a time of their animations with optional `morphs` and
+  `material` overrides) into a box
   composited like any layer, on the GPU or, the same picture, on the CPU.
 - **Sound**: tracks on the video or scenes with gain, pan, fades, voice
   ducking and a master limiter; audio synthesized by the script

@@ -170,8 +170,10 @@ test_view3d_geometry_growth :: proc(t: ^testing.T) {
 }
 
 // A glTF model of the media folder (a triangle moving along x over one
-// second, its "Slide" animation): loaded with the media, posed at a time,
-// its errors reported; a file that is not glTF is a media problem.
+// second, its "Slide" animation, and a "Shift" morph target): loaded with
+// the media, posed at a time or with morph overrides, its errors reported;
+// a file that is not glTF or requires an unsupported extension is a media
+// problem.
 @(test)
 test_view3d_gltf :: proc(t: ^testing.T) {
 	dir, derr := os.make_directory_temp("", "onimite_view3d_test_*", context.temp_allocator)
@@ -183,18 +185,33 @@ test_view3d_gltf :: proc(t: ^testing.T) {
 	}
 	testing.expect(t, write(dir, "tri.gltf", test_gltf()))
 	testing.expect(t, write(dir, "broken.glb", "not a model"))
+	testing.expect(t, write(dir, "draco.gltf", `{"asset":{"version":"2.0"},"extensionsUsed":["KHR_draco_mesh_compression"],"extensionsRequired":["KHR_draco_mesh_compression"]}`))
 	media: Media
 	media_init(&media)
 	defer media_destroy(&media)
 	testing.expect_value(t, media_load_dir(&media, dir), Error.None)
-	_, loaded := media.view3d.models["tri.gltf"]
+	model, loaded := &media.view3d.models["tri.gltf"]
 	testing.expect(t, loaded)
+	if loaded {
+		testing.expect_value(t, o3d.gltf_morph_target(model, "Shift"), 0)
+	}
 	kind, _ := media_kind_of("tri.gltf")
 	testing.expect_value(t, kind, Media_Kind.Model)
-	testing.expect_value(t, len(media.problems), 1)
-	if len(media.problems) == 1 {
-		testing.expect_value(t, diagnostic_message(media.problems[0], context.temp_allocator), `media file "broken.glb" can not be decoded as a glTF 2.0 model (the data ends early)`)
+	testing.expect_value(t, len(media.problems), 2)
+	problems := make([dynamic]string, context.temp_allocator)
+	for p in media.problems {
+		append(&problems, diagnostic_message(p, context.temp_allocator))
 	}
+	broken_ok, draco_ok := false, false
+	for msg in problems {
+		if msg == `media file "broken.glb" can not be decoded as a glTF 2.0 model (the data ends early)` {
+			broken_ok = true
+		}
+		if msg == `media file "draco.gltf" can not be decoded as a glTF 2.0 model (requires an unsupported glTF extension: KHR_draco_mesh_compression)` {
+			draco_ok = true
+		}
+	}
+	testing.expectf(t, broken_ok && draco_ok, "media problems: %v", problems[:])
 
 	@(static) scenes: [1]Scene
 	scenes = [1]Scene{{name = "Only", duration = Frames(1), render = proc(f: Frame, ctx: ^Context) {
@@ -205,7 +222,7 @@ test_view3d_gltf :: proc(t: ^testing.T) {
 			camera = at,
 			lights = {{kind = .Ambient, color = {1, 1, 1}, intensity = 3}},
 			models = {
-				{src = "tri.gltf", scale = {1, 1, 1}, animation = "Slide", animation_index = -1, time = 0.5, loop = true},
+				{src = "tri.gltf", scale = {1, 1, 1}, animation = "Slide", animation_index = -1, time = 0.5, loop = true, morphs = {{name = "Shift", weight = 1}, {name = "Wink", weight = 0.5}, {index = 4, weight = 0.2}}},
 				{src = "tri.gltf", scale = {1, 1, 1}, animation = "Jump", animation_index = -1},
 				{src = "missing.glb", scale = {1, 1, 1}, animation_index = -1},
 			},
@@ -220,22 +237,36 @@ test_view3d_gltf :: proc(t: ^testing.T) {
 	for d in r.ctx.diagnostics {
 		append(&got, diagnostic_message(d, context.temp_allocator))
 	}
-	testing.expectf(t, len(got) == 2 && got[0] == `glTF model "tri.gltf" has no animation "Jump"` && got[1] == `no glTF model "missing.glb" in the media`, "diagnostics: %v", got[:])
-	// Halfway through "Slide" the triangle is at x = 0, drawn twice (the
-	// second at rest, x = -1, in the left half); the right edge is empty.
-	lit := 0
+	testing.expectf(
+		t,
+		len(got) == 4 &&
+		got[0] == `glTF model "tri.gltf" has no morph target "Wink"` &&
+		got[1] == `glTF model "tri.gltf" has no morph target "5"` &&
+		got[2] == `glTF model "tri.gltf" has no animation "Jump"` &&
+		got[3] == `no glTF model "missing.glb" in the media`,
+		"diagnostics: %v",
+		got[:],
+	)
+	// Halfway through "Slide" the node is at x = 0, and morph target "Shift"
+	// (+0.8 in x) shifts the first triangle into the right half (around x = 29);
+	// the second model draws at rest (x = -1, in the left half).
+	lit_mid, lit_right := 0, 0
 	for y in 0 ..< 40 {
 		if pixel(px, 40, 20, y).r > 50 {
-			lit += 1
+			lit_mid += 1
+		}
+		if pixel(px, 40, 29, y).r > 50 {
+			lit_right += 1
 		}
 	}
-	testing.expectf(t, lit > 4, "triangle at the middle: %d lit rows", lit)
+	testing.expectf(t, lit_right > 4 && lit_mid == 0, "morphed triangle on right: right=%d mid=%d", lit_right, lit_mid)
 	testing.expect_value(t, pixel(px, 40, 39, 20), [4]u8{0, 0, 0, 255})
 }
 
 // A self-contained glTF 2.0 file: one red triangle (positions, normals,
-// indices) and an animation "Slide" moving its node from x = -1 to 1 over
-// one second, the buffer embedded as base64.
+// indices), a morph target "Shift" (+0.8 along x), and an animation "Slide"
+// moving its node from x = -1 to 1 over one second, the buffer embedded as
+// base64.
 @(private = "file")
 test_gltf :: proc() -> string {
 	Bin :: struct #packed {
@@ -245,35 +276,43 @@ test_gltf :: proc() -> string {
 		_:     u16,
 		times: [2]f32,
 		trans: [2][3]f32,
+		dpos:  [3][3]f32,
 	}
-	#assert(size_of(Bin) == 112)
+	#assert(size_of(Bin) == 148)
 	b := Bin {
 		pos   = {{-0.5, -0.5, 0}, {0.5, -0.5, 0}, {0, 0.5, 0}},
 		norm  = {{0, 0, 1}, {0, 0, 1}, {0, 0, 1}},
 		idx   = {0, 1, 2},
 		times = {0, 1},
 		trans = {{-1, 0, 0}, {1, 0, 0}},
+		dpos  = {{0.8, 0, 0}, {0.8, 0, 0}, {0.8, 0, 0}},
 	}
 	data, _ := base64.encode(([^]u8)(&b)[:size_of(Bin)], allocator = context.temp_allocator)
 	return fmt.tprintf(`{{
   "asset": {{"version": "2.0"}},
-  "buffers": [{{"uri": "data:application/octet-stream;base64,%s", "byteLength": 112}}],
+  "buffers": [{{"uri": "data:application/octet-stream;base64,%s", "byteLength": 148}}],
   "bufferViews": [
     {{"buffer": 0, "byteOffset": 0, "byteLength": 36}},
     {{"buffer": 0, "byteOffset": 36, "byteLength": 36}},
     {{"buffer": 0, "byteOffset": 72, "byteLength": 6}},
     {{"buffer": 0, "byteOffset": 80, "byteLength": 8}},
-    {{"buffer": 0, "byteOffset": 88, "byteLength": 24}}
+    {{"buffer": 0, "byteOffset": 88, "byteLength": 24}},
+    {{"buffer": 0, "byteOffset": 112, "byteLength": 36}}
   ],
   "accessors": [
     {{"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3", "min": [-0.5, -0.5, 0], "max": [0.5, 0.5, 0]}},
     {{"bufferView": 1, "componentType": 5126, "count": 3, "type": "VEC3"}},
     {{"bufferView": 2, "componentType": 5123, "count": 3, "type": "SCALAR"}},
     {{"bufferView": 3, "componentType": 5126, "count": 2, "type": "SCALAR", "min": [0], "max": [1]}},
-    {{"bufferView": 4, "componentType": 5126, "count": 2, "type": "VEC3"}}
+    {{"bufferView": 4, "componentType": 5126, "count": 2, "type": "VEC3"}},
+    {{"bufferView": 5, "componentType": 5126, "count": 3, "type": "VEC3", "min": [0.8, 0, 0], "max": [0.8, 0, 0]}}
   ],
   "materials": [{{"pbrMetallicRoughness": {{"baseColorFactor": [1, 0, 0, 1], "metallicFactor": 0, "roughnessFactor": 1}}, "doubleSided": true}}],
-  "meshes": [{{"primitives": [{{"attributes": {{"POSITION": 0, "NORMAL": 1}}, "indices": 2, "material": 0}}]}}],
+  "meshes": [{{
+    "primitives": [{{"attributes": {{"POSITION": 0, "NORMAL": 1}}, "indices": 2, "material": 0, "targets": [{{"POSITION": 5}}]}}],
+    "weights": [0],
+    "extras": {{"targetNames": ["Shift"]}}
+  }}],
   "nodes": [{{"name": "tri", "mesh": 0, "translation": [-1, 0, 0]}}],
   "scenes": [{{"nodes": [0]}}],
   "scene": 0,

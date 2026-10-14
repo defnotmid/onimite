@@ -103,6 +103,7 @@ Diagnostic_Code :: enum u8 {
 	// 3D layers (`view3d{}`).
 	Missing_Model,
 	Missing_Animation,
+	Missing_Morph_Target,
 	View3d_Zero_Size,
 	Geometry_Growth,
 	View3d_Render,
@@ -208,6 +209,7 @@ DIAGNOSTIC_TEXT := [Diagnostic_Code]string {
 	.Video_Frame_Image         = "video frame image: {gpu}",
 	.Missing_Model             = "no glTF model {q:name} in the media",
 	.Missing_Animation         = "glTF model {q:name} has no animation {q:animation}",
+	.Missing_Morph_Target      = "glTF model {q:name} has no morph target {q:target}",
 	.View3d_Zero_Size          = "view3d with zero size at ({x}, {y}) is skipped",
 	.Geometry_Growth           = "{kind} made again with other parameters on a later frame of its scene: each new set of geometry parameters makes and keeps a mesh, so change a size through the mesh's `scale`, not its geometry's parameters",
 	.View3d_Render             = "view3d could not be drawn: {o3d}",
@@ -284,6 +286,7 @@ DIAGNOSTIC_KEY := [Diagnostic_Code]string {
 	.Video_Frame_Image         = "",
 	.Missing_Model             = "missing_media:{name}",
 	.Missing_Animation         = "model_animation:{name}:{animation}",
+	.Missing_Morph_Target      = "model_morph:{name}:{target}",
 	.View3d_Zero_Size          = "",
 	.Geometry_Growth           = "geometry_growth:{kind}",
 	.View3d_Render             = "",
@@ -398,6 +401,7 @@ OPERAND_NAMES := [?]struct {
 	{"reason", .B},
 	{"voice", .B},
 	{"animation", .A},
+	{"target", .A},
 	{"o3d", .O3d},
 }
 

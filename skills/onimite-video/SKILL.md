@@ -72,7 +72,7 @@ it (no system SDL3 needed; on Windows `lua54.dll` too). Keep them together, and 
 
 ### From source
 
-onimite is built with the [Odin](https://odin-lang.org) compiler from five sibling
+onimite is built with the [Odin](https://odin-lang.org) compiler from six sibling
 repositories (the build's `deps` collection is their parent directory):
 
 ```bash
@@ -81,6 +81,7 @@ git clone https://github.com/defnotmid/ovg     # 2D vector canvas: software + SD
 git clone https://github.com/defnotmid/oksl    # shader compiler: SkSL, Shadertoy and GLSL to SPIR-V, MSL, CPU
 git clone https://github.com/defnotmid/odecs   # H.264/H.265/AAC codecs, MP4, WebP, clip decoding
 git clone https://github.com/defnotmid/ottis   # text to speech with word timings (say)
+git clone https://github.com/defnotmid/o3d     # 3D in three.js's vocabulary: SDL_GPU + software, glTF 2.0 (skins, morphs)
 cd onimite
 mkdir -p build
 odin build . -collection:deps=.. -o:speed -out:build/onimite

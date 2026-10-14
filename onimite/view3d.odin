@@ -114,8 +114,9 @@ material_map :: proc "contextless" (m: ^o3d.Material, k: Texture_Map) -> ^o3d.Te
 }
 
 // A glTF model of the media, posed at `time` seconds of an animation (by
-// name, else by index; neither: its rest pose), placed by a transform, its
-// materials given `flags` (shadows) or replaced by `material`.
+// name, else by index; neither: its rest pose) with optional `morphs`
+// weight overrides, placed by a transform, its materials given `flags`
+// (shadows) or replaced by `material`.
 Model_Pose :: struct {
 	src:             string,
 	position:        o3d.Vec3,
@@ -125,6 +126,7 @@ Model_Pose :: struct {
 	animation_index: int,
 	time:            f32,
 	loop:            bool,
+	morphs:          []o3d.Morph_Weight,
 	flags:           o3d.Material_Flags,
 	material:        Maybe(Model_Material),
 }
@@ -174,6 +176,10 @@ view3d :: proc(ctx: ^Context, f: Frame, v: View3d) {
 	for &m in v.models {
 		m.src = strings.clone(m.src, arena)
 		m.animation = strings.clone(m.animation, arena)
+		m.morphs = clone_slice(m.morphs, arena)
+		for &mw in m.morphs {
+			mw.name = strings.clone(mw.name, arena)
+		}
 		if over, ok := &m.material.?; ok {
 			for &name in over.maps {
 				name = strings.clone(name, arena)
@@ -262,14 +268,17 @@ view3d_media_destroy :: proc(v: ^View3d_Media) {
 
 // Loads glTF 2.0 file `path` (.glb, or .gltf with its files beside it) as
 // model `name`: its meshes and images join the tables. Why it did not load
-// otherwise.
+// (and, for `.Unsupported_Extension`, the extension's name) otherwise.
 @(private)
-view3d_add_model :: proc(v: ^View3d_Media, name, path: string) -> o3d.Gltf_Error {
+view3d_add_model :: proc(v: ^View3d_Media, name, path: string) -> (err: o3d.Gltf_Error, ext: string) {
 	context.allocator = v.allocator
 	sync.guard(&v.lock)
-	model, err := o3d.gltf_load(path, &v.geometries, &v.textures)
+	model: o3d.Model
+	model, err = o3d.gltf_load(path, &v.geometries, &v.textures)
 	if err != .None {
-		return err
+		ext = strings.clone(model.unsupported_extension, context.temp_allocator)
+		o3d.model_destroy(&model)
+		return err, ext
 	}
 	if old, exists := &v.models[name]; exists {
 		o3d.model_destroy(old)
@@ -277,7 +286,7 @@ view3d_add_model :: proc(v: ^View3d_Media, name, path: string) -> o3d.Gltf_Error
 	} else {
 		v.models[strings.clone(name)] = model
 	}
-	return .None
+	return .None, ""
 }
 
 // Makes the meshes of node `n` that the tables lack; returns the geometry
@@ -527,8 +536,17 @@ view3d_scene :: proc(r: ^Renderer, n: View3d, scene: ^o3d.Scene) {
 			named := pose.animation if pose.animation != "" else fmt.tprint(pose.animation_index)
 			report(&r.ctx, .Error, {code = .Missing_Animation, name = pose.src, a = named})
 		}
+		for mw in pose.morphs {
+			if mw.name != "" {
+				if o3d.gltf_morph_target(model, mw.name) < 0 {
+					report(&r.ctx, .Error, {code = .Missing_Morph_Target, name = pose.src, a = mw.name})
+				}
+			} else if mw.index < 0 || mw.index >= o3d.gltf_morph_count(model) {
+				report(&r.ctx, .Error, {code = .Missing_Morph_Target, name = pose.src, a = fmt.tprint(mw.index + 1)})
+			}
+		}
 		first := len(scene.draws)
-		o3d.gltf_draw(scene, model, o3d.compose(pose.position, pose.rotation, pose.scale), anim, pose.time, pose.loop, pose.flags, &r.view3d.pose)
+		o3d.gltf_draw(scene, model, o3d.compose(pose.position, pose.rotation, pose.scale), anim, pose.time, pose.loop, pose.flags, &r.view3d.pose, morphs = pose.morphs)
 		if over, ok := pose.material.?; ok {
 			mat := view3d_material(r, scene, over.material, over.maps, over.shader)
 			mat.flags += pose.flags

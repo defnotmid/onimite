@@ -12,7 +12,7 @@ The rest is in topic files; read one when the video needs it:
 | [media.md](media.md) | SVG documents, Lottie, video clips, subtitles, word-level captions |
 | [shaders.md](shaders.md) | SkSL, Shadertoy and GLSL shaders, multipass passes in any dialect |
 | [filters.md](filters.md) | SVG filter primitives on groups |
-| [3d.md](3d.md) | 3D scenes in three.js's terms (`view3d{}`): cameras, lights, shadows, meshes, materials, glTF models |
+| [3d.md](3d.md) | 3D scenes in three.js's terms (`view3d{}`): cameras, lights, shadows, meshes, materials, glTF models (skins, morphs, animations) |
 | [problems.md](problems.md) | every problem code and `--json` field |
 
 ## Video and scenes
@@ -622,9 +622,9 @@ drawn into the box and composited like an image: transparent where nothing is dr
 `opacity`, under the groups' transforms, masks and blends. Lights with shadows,
 `MeshStandardMaterial` and `MeshBasicMaterial` with texture maps from `media/`, custom
 GLSL ES `ShaderMaterial`s, glTF models (`.glb`/`.gltf` in `media/`, including skinned
-characters) at a time of their animation with optional `material` overrides, an environment
-map: read [3d.md](3d.md). Animate sizes through a mesh's `scale`, not its geometry's
-parameters.
+characters and morph targets) at a time of their animation with optional `morphs` and
+`material` overrides, an environment map: read [3d.md](3d.md). Animate sizes through a
+mesh's `scale`, not its geometry's parameters.
 
 ## Script environment
 

@@ -43,7 +43,7 @@ output puts it before the message. Match on `code` and `fields`, not on the mess
 | `missing_font` | warning | `No match for '"{name}"' font-family.` |
 | `missing_glyph` | error | `No fonts with a glyph for "{glyph}" (U+{X4:codepoint}) in text "{text}"` |
 | `unreadable_media` | warning | `can not read media file {q:name} ({reason})`: found when the media folder loads; the rest still loads |
-| `undecodable_media` | warning | `media file {q:name} can not be decoded as {what}` (audio, a font, an image, SVG, Lottie, subtitles, a glTF 2.0 model: a `.glb` or `.gltf` that cgltf rejects, or whose buffers or images beside it are missing): found when the media folder loads; a `.json` file that is neither Lottie nor captions is the script's own data, not a problem |
+| `undecodable_media` | warning | `media file {q:name} can not be decoded as {what}` (audio, a font, an image, SVG, Lottie, subtitles, a glTF 2.0 model: a `.glb` or `.gltf` that cgltf rejects, requires an unsupported extension in `extensionsRequired`, or whose buffers or images beside it are missing): found when the media folder loads; a `.json` file that is neither Lottie nor captions is the script's own data, not a problem |
 | `svg_markup` | error | `SVG markup does not parse ({svg})` |
 | `svg_warning` | warning | `SVG {q:name}: {warning}` |
 | `svg_missing_id` | warning | `SVG {q:name} has no element with id {q:id}` |
@@ -68,6 +68,7 @@ output puts it before the message. Match on `code` and `fields`, not on the mess
 | `video_frame_image` | error | `video frame image: {gpu}` |
 | `missing_model` | error | `no glTF model {q:name} in the media`: a `view3d` model's `src` (`.glb`/`.gltf` files of the media folder); a texture, `environment` or `background` image the media lacks is `missing_image` |
 | `missing_animation` | error | `glTF model {q:name} has no animation {q:animation}`: a model's `animation` names none of its clips (or its index is past them); the model is drawn in its rest pose |
+| `missing_morph_target` | error | `glTF model {q:name} has no morph target {q:target}`: a model's `morphs` names a target the model lacks (or an index outside `1..N`); that override is ignored |
 | `view3d_zero_size` | warning | `view3d with zero size at ({x}, {y}) is skipped` |
 | `geometry_growth` | warning | ``{kind} made again with other parameters on a later frame of its scene: each new set of geometry parameters makes and keeps a mesh, so change a size through the mesh's `scale`, not its geometry's parameters``: a `view3d` mesh's geometry parameters (`radius`, `width`, segment counts) change from frame to frame, so every frame makes a mesh that stays for the whole render; `{kind}` is the three.js type (`SphereGeometry`). Animate `scale` (and `position`, `rotation`) instead (3d.md) |
 | `view3d_render` | error | `view3d could not be drawn: {o3d}`: the 3D renderer failed (`{o3d}`: `Device`, no GPU device that can draw it; `Out_Of_Memory`; `Shader`) |

@@ -2,6 +2,7 @@ package onimite_script
 
 import "core:c"
 import "core:math"
+import "core:slice"
 import "deps:o3d"
 import om "../onimite"
 import lua "vendor:lua/5.4"
@@ -349,7 +350,8 @@ read_shader_floats :: proc(L: ^lua.State, at: c.int, out: ^[dynamic]f32) {
 // A glTF model of the media (`src`), placed by position, rotation and
 // scale, posed at `time` seconds (default the frame's) of `animation` (a
 // name or an index; none: its rest pose), looping unless `loop = false`,
-// with optional shadow flags or a `material` override.
+// with optional `morphs` weight overrides, shadow flags or a `material`
+// override.
 @(private = "file")
 read_model :: proc(L: ^lua.State, s: ^Script, t: c.int) -> (p: om.Model_Pose, ok: bool) {
 	outer := fields_push(L, t)
@@ -374,6 +376,36 @@ read_model :: proc(L: ^lua.State, s: ^Script, t: c.int) -> (p: om.Model_Pose, ok
 	lua.pop(L, 1)
 	p.time = get_num(L, t, "time", om.frame_seconds(s.frame))
 	p.loop = get_bool(L, t, "loop", true)
+	field(L, t, "morphs")
+	if lua.istable(L, -1) {
+		mt := lua.absindex(L, -1)
+		morphs := make([dynamic]o3d.Morph_Weight, context.temp_allocator)
+		indices := make([dynamic]int, context.temp_allocator)
+		lua.pushnil(L)
+		for lua.next(L, mt) != 0 {
+			if lua.isinteger(L, -2) {
+				append(&indices, int(lua.tointeger(L, -2)))
+			}
+			lua.pop(L, 1)
+		}
+		slice.sort(indices[:])
+		for k in indices {
+			lua.rawgeti(L, mt, lua.Integer(k))
+			if lua.type(L, -1) == .NUMBER {
+				append(&morphs, o3d.Morph_Weight{index = k - 1, weight = f32(lua.tonumber(L, -1))})
+			}
+			lua.pop(L, 1)
+		}
+		for key in sorted_keys(L, mt) {
+			push_key(L, mt, key)
+			if lua.type(L, -1) == .NUMBER {
+				append(&morphs, o3d.Morph_Weight{name = key, weight = f32(lua.tonumber(L, -1))})
+			}
+			lua.pop(L, 1)
+		}
+		p.morphs = morphs[:]
+	}
+	lua.pop(L, 1)
 	field(L, t, "material")
 	if lua.istable(L, -1) {
 		over := om.Model_Material{material = o3d.MATERIAL_DEFAULT}

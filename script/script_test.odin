@@ -968,7 +968,7 @@ scene { "A", duration = 1, render = function(f)
         } },
     },
     models = {
-      { src = "duck.glb", material = { type = "MeshBasicMaterial", color = "#00ff00", side = "back", metalness = 1 } },
+      { src = "duck.glb", morphs = { Smile = 0.8, [1] = 0.5 }, material = { type = "MeshBasicMaterial", color = "#00ff00", side = "back", metalness = 1 } },
     },
   }
 end }
@@ -1018,6 +1018,11 @@ end }
 		testing.expect_value(t, over.material.flags, bit_set[o3d.Material_Flag; u8]{.Basic})
 		testing.expect_value(t, over.material.side, o3d.Side.Back)
 		testing.expect_value(t, over.material.color, [3]f32{0, 1, 0})
+		testing.expect_value(t, len(v.models[0].morphs), 2)
+		if len(v.models[0].morphs) == 2 {
+			testing.expect_value(t, v.models[0].morphs[0], o3d.Morph_Weight{index = 0, weight = 0.5})
+			testing.expect_value(t, v.models[0].morphs[1], o3d.Morph_Weight{name = "Smile", weight = 0.8})
+		}
 	}
 	want := [?]string {
 		"video.lua:4: `material.roughness` is not used",

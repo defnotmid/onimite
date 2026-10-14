@@ -665,8 +665,9 @@ media_load_dir :: proc(m: ^Media, dir: string, pool: ^thread.Pool = nil) -> Erro
 		case .Image:
 			add_image_file(m, fi.name, fi.fullpath)
 		case .Model:
-			if err := view3d_add_model(&m.view3d, fi.name, fi.fullpath); err != .None {
-				media_problem(m, {code = .Undecodable_Media, name = fi.name, a = fmt.tprintf("%s (%s)", MEDIA_KINDS[.Model].undecodable, o3d.GLTF_ERROR_TEXT[err])})
+			if err, ext := view3d_add_model(&m.view3d, fi.name, fi.fullpath); err != .None {
+				why := fmt.tprintf("%s: %s", o3d.GLTF_ERROR_TEXT[err], ext) if ext != "" else o3d.GLTF_ERROR_TEXT[err]
+				media_problem(m, {code = .Undecodable_Media, name = fi.name, a = fmt.tprintf("%s (%s)", MEDIA_KINDS[.Model].undecodable, why)})
 			}
 		case .Font, .Shader, .Subtitles:
 			data, read_err := os.read_entire_file(fi.fullpath, context.allocator)
