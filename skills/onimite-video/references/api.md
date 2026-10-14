@@ -10,7 +10,7 @@ The rest is in topic files; read one when the video needs it:
 | --- | --- |
 | [audio.md](audio.md) | tracks, mixing, loudness, onsets and the beat, spectra, generated audio |
 | [media.md](media.md) | SVG documents, Lottie, video clips, subtitles, word-level captions |
-| [shaders.md](shaders.md) | SkSL and Shadertoy shaders, multipass |
+| [shaders.md](shaders.md) | SkSL, Shadertoy and GLSL shaders, multipass passes in any dialect |
 | [filters.md](filters.md) | SVG filter primitives on groups |
 | [problems.md](problems.md) | every problem code and `--json` field |
 

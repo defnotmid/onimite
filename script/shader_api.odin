@@ -1,6 +1,7 @@
 package onimite_script
 
 import "core:c"
+import "core:fmt"
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
@@ -10,7 +11,8 @@ import lua "vendor:lua/5.4"
 
 // Shader layers (fframes' `Shader::sksl` / `Shader::shadertoy`):
 //
-//     shader(f, { sksl = [[...]] | shadertoy = [[...]] | src = "aurora.sksl" | "torus.glsl",
+//     shader(f, { sksl = [[...]] | shadertoy = [[...]] | glsl = [[...]]
+//                 | src = "aurora.sksl" | "torus.glsl" | "wave.frag",
 //                 x, y, w, h,
 //                 uniforms = { uSpeed = 0.6, uTint = "#f472b6", uOffset = {1, 2},
 //                              uPhoto = "photo.jpg",                    -- a `uniform shader` child
@@ -23,15 +25,32 @@ import lua "vendor:lua/5.4"
 // `f` is the frame whose clock drives iTime/iFrame (pass the scene's frame
 // for scene-relative time, as fframes does); `shader{...}` uses the video
 // frame. `src` is a shader file in the media, or a path relative to the
-// script: `.glsl` is Shadertoy code, anything else SkSL.
+// script: `.glsl` is Shadertoy code, `.frag` a GLSL ES fragment shader,
+// anything else SkSL.
 //
 // A group child's nodes are drawn in its own pixel space: the shader box's
 // units (or `w x h`), origin at the box's top-left, so `uScene.eval(coord)`
 // shows the group where it was drawn. It renders offscreen at the box's
 // on-screen pixel size before the shader runs.
 //
+// A program of passes, in any dialects, in place of the source:
+//
+//     passes = { { name = "trail", sksl = [[...]], inputs = { uLast = "trail", uDots = function() ... end } },
+//                { name = "show", src = "show.frag", inputs = { "trail", { previous = "show" } } } },
+//     output = "show",                -- the pass drawn; default the last
+//     common = [[...]] | "common.glsl",   -- every pass starts with it
+//
+// A pass has a name, a source as above and inputs: by channel name (a
+// `uniform shader` child, `iChannelN`, a `sampler2D`) or in channel order
+// (the list). An input naming a pass reads its output: this frame's when
+// that pass runs earlier, else the last frame's (feedback); `{ previous =
+// "name" }` reads the last frame's always. Anything else is an input as
+// uniforms bind them (a media image or video clip, or a group child, drawn
+// at the pass's resolution).
+//
 // A multipass Shadertoy program (Common + Buffer A-D + Image) is a table
-// in place of the `shadertoy` source:
+// in place of the `shadertoy` source, read as passes "Buffer A".."Buffer D"
+// and "Image" (the output):
 //
 //     shadertoy = { common = [[...]] | "common.glsl",
 //                   buffer_a = { source = [[...]] | src = "trail.glsl",
@@ -39,17 +58,23 @@ import lua "vendor:lua/5.4"
 //                   image = { src = "image.glsl", channels = { "buffer_a" } } }
 //
 // A pass is a table, or just its source ("x.glsl" names a file). Channel
-// n (iChannel0..3) is a buffer ("buffer_a".."buffer_d": this frame's
-// output of an earlier buffer, the previous frame's of itself or a later
-// one) or an input as uniforms bind them (a media image or video clip, or
-// a group child, drawn at the buffer's resolution). Uniforms are set in
-// every pass that declares them.
+// n (iChannel0..3) is a buffer ("buffer_a".."buffer_d") or an input. In
+// both forms uniforms are set in every pass that declares them, and inputs
+// are bound in the passes.
 
 @(private)
 register_shader_api :: proc(s: ^Script) {
 	lua.pushlightuserdata(s.L, s)
 	lua.pushcclosure(s.L, l_shader, 1)
 	lua.setglobal(s.L, "shader")
+}
+
+// The keys of inline sources, by dialect.
+@(private = "file")
+SOURCE_KEYS := [oksl.Profile]cstring {
+	.Sksl      = "sksl",
+	.Shadertoy = "shadertoy",
+	.Glsl      = "glsl",
 }
 
 @(private = "file")
@@ -68,34 +93,38 @@ l_shader :: proc "c" (L: ^lua.State) -> c.int {
 	arena := ctx.tree.arena
 
 	p := om.Shader_Params {
-		src       = get_str(L, t, "src", ""),
-		sksl      = get_str(L, t, "sksl", ""),
-		shadertoy = get_str(L, t, "shadertoy", ""),
-		x         = get_num(L, t, "x", 0),
-		y         = get_num(L, t, "y", 0),
-		w         = get_num(L, t, "w", get_num(L, t, "width", 0)),
-		h         = get_num(L, t, "h", get_num(L, t, "height", 0)),
-		time      = get_maybe(L, t, "time"),
-		opacity   = get_maybe(L, t, "opacity"),
+		src     = get_str(L, t, "src", ""),
+		output  = get_str(L, t, "output", ""),
+		x       = get_num(L, t, "x", 0),
+		y       = get_num(L, t, "y", 0),
+		w       = get_num(L, t, "w", get_num(L, t, "width", 0)),
+		h       = get_num(L, t, "h", get_num(L, t, "height", 0)),
+		time    = get_maybe(L, t, "time"),
+		opacity = get_maybe(L, t, "opacity"),
 	}
+	p.source, p.profile = read_inline_source(L, t)
 	// Checked before the inputs are read: group inputs call back into Lua.
 	field_used("uniforms")
+	field_used("passes")
+	field_used("common")
 	fields_end(L, s, t, "shader")
+	field(L, t, "passes")
+	passes := lua.gettop(L)
 	field(L, t, "shadertoy")
-	if lua.istable(L, -1) {
-		if status := read_program(L, s, ctx, lua.gettop(L), &p); status != 0 {
-			return c.int(lua.error(L))
-		}
+	status: c.int
+	if lua.istable(L, passes) {
+		status = read_passes(L, s, ctx, t, passes, &p)
+	} else if lua.istable(L, -1) {
+		status = read_shadertoy_program(L, s, ctx, lua.gettop(L), &p)
 	}
-	lua.pop(L, 1)
-	if !p.multipass && p.sksl == "" && p.shadertoy == "" && p.src != "" {
+	if status != 0 {
+		return c.int(lua.error(L))
+	}
+	lua.pop(L, 2)
+	if len(p.passes) == 0 && p.source == "" && p.src != "" {
 		if _, in_media := ctx.media.shaders[p.src]; !in_media {
 			if src, ok := script_shader_file(s, p.src); ok {
-				if strings.has_suffix(p.src, ".glsl") {
-					p.shadertoy = src
-				} else {
-					p.sksl = src
-				}
+				p.source, p.profile = src, om.shader_profile(p.src)
 			}
 		}
 	}
@@ -131,6 +160,142 @@ l_shader :: proc "c" (L: ^lua.State) -> c.int {
 	return 0
 }
 
+// The inline source of the table at `t` under its dialect's key, the
+// first of `sksl`, `shadertoy`, `glsl` that is a string.
+@(private = "file")
+read_inline_source :: proc(L: ^lua.State, t: c.int) -> (source: string, profile: oksl.Profile) {
+	for key, dialect in SOURCE_KEYS {
+		if text := get_str(L, t, key, ""); text != "" {
+			return text, dialect
+		}
+	}
+	return "", .Sksl
+}
+
+// The passes form (the list at `list` in the shader table at `t`, see the
+// top of the file) into `p`: names and sources first, as an input may name
+// any pass, then the inputs. Messages name the program after the output's
+// file, else the first file. On a Lua error in a group input the error is
+// left on the stack (status != 0).
+@(private = "file")
+read_passes :: proc(L: ^lua.State, s: ^Script, ctx: ^om.Context, t, list: c.int, p: ^om.Shader_Params) -> (status: c.int) {
+	arena := ctx.tree.arena
+	passes := make([]om.Shader_Pass, int(lua.rawlen(L, list)), arena)
+	files := make([]string, len(passes), context.temp_allocator)
+	for &pass, k in passes {
+		lua.rawgeti(L, list, lua.Integer(k + 1))
+		at := lua.gettop(L)
+		pass.name = fmt.aprintf("pass %d", k + 1, allocator = arena)
+		if lua.istable(L, at) {
+			fields_begin(L, at)
+			pass.name = strings.clone(get_str(L, at, "name", pass.name), arena)
+			pass.source, pass.profile = read_inline_source(L, at)
+			if pass.source == "" {
+				files[k] = get_str(L, at, "src", "")
+				pass.source, pass.profile = shader_source_file(s, ctx, files[k]), om.shader_profile(files[k])
+			}
+			field_used("inputs")
+			fields_end(L, s, at, "shader pass")
+		}
+		lua.pop(L, 1)
+	}
+	for &pass, k in passes {
+		lua.rawgeti(L, list, lua.Integer(k + 1))
+		if lua.istable(L, -1) {
+			field(L, -1, "inputs")
+		} else {
+			lua.pushnil(L)
+		}
+		if lua.istable(L, -1) {
+			pass.inputs, status = read_pass_inputs(L, ctx, lua.gettop(L), passes)
+			if status != 0 {
+				return status
+			}
+		}
+		lua.pop(L, 2)
+	}
+	p.passes = passes
+	field(L, t, "common")
+	p.common, _ = read_pass_source(L, s, ctx, -1)
+	lua.pop(L, 1)
+	output := len(passes) - 1
+	for pass, k in passes {
+		if pass.name == p.output {
+			output = k
+		}
+	}
+	p.src = files[output] if output >= 0 && files[output] != "" else p.src
+	for file in files {
+		if p.src == "" {
+			p.src = file
+		}
+	}
+	return 0
+}
+
+// A pass's inputs (the table at `idx`): in channel order (the list), then
+// by channel name. A string naming one of `passes` reads that pass, `{
+// previous = "name" }` its last frame; anything else is an input.
+@(private = "file")
+read_pass_inputs :: proc(L: ^lua.State, ctx: ^om.Context, idx: c.int, passes: []om.Shader_Pass) -> (inputs: []om.Shader_Pass_Input, status: c.int) {
+	list := make([dynamic]om.Shader_Pass_Input, ctx.tree.arena)
+	for k in 0 ..< oksl.CHANNEL_COUNT {
+		lua.rawgeti(L, idx, lua.Integer(k + 1))
+		if !lua.isnil(L, -1) {
+			in_ := om.Shader_Pass_Input {
+				index = k,
+			}
+			if status = read_pass_input(L, ctx, -1, passes, &in_); status != 0 {
+				return
+			}
+			append(&list, in_)
+		}
+		lua.pop(L, 1)
+	}
+	for key in sorted_keys(L, idx) {
+		push_key(L, idx, key)
+		in_ := om.Shader_Pass_Input {
+			channel = strings.clone(key, ctx.tree.arena),
+		}
+		if status = read_pass_input(L, ctx, -1, passes, &in_); status != 0 {
+			return
+		}
+		append(&list, in_)
+		lua.pop(L, 1)
+	}
+	return list[:], 0
+}
+
+// What the value at `at` makes input `in_` read (see read_pass_inputs).
+// On a Lua error in a group input the error is left on the stack (status
+// != 0).
+@(private = "file")
+read_pass_input :: proc(L: ^lua.State, ctx: ^om.Context, at: c.int, passes: []om.Shader_Pass, in_: ^om.Shader_Pass_Input) -> (status: c.int) {
+	idx := lua.absindex(L, at)
+	if lua.type(L, idx) == .STRING {
+		name := string(lua.tostring(L, idx))
+		for pass in passes {
+			if pass.name == name {
+				in_.pass = pass.name
+				return 0
+			}
+		}
+	}
+	if lua.istable(L, idx) && has_field(L, idx, "previous") {
+		in_.pass = strings.clone(get_str(L, idx, "previous", ""), ctx.tree.arena)
+		in_.previous = true
+		return 0
+	}
+	if group, is_group, st := read_group_input(L, ctx, idx); st != 0 {
+		return st
+	} else if is_group {
+		in_.input = group
+	} else if input, is_input := read_input(L, idx, ctx.tree.arena); is_input {
+		in_.input = input
+	}
+	return 0
+}
+
 @(private = "file")
 PASS_FIELDS := [oksl.Pass_Kind]cstring {
 	.Buffer_A = "buffer_a",
@@ -140,70 +305,92 @@ PASS_FIELDS := [oksl.Pass_Kind]cstring {
 	.Image    = "image",
 }
 
-// A multipass program's table into `p` (see the top of the file). On a Lua
-// error in a group child the error is left on the stack (status != 0).
+// A multipass Shadertoy program's table into `p`, as passes "Buffer
+// A".."Buffer D" (those present) and "Image", the output (see the top of
+// the file). On a Lua error in a group child the error is left on the
+// stack (status != 0).
 @(private = "file")
-read_program :: proc(L: ^lua.State, s: ^Script, ctx: ^om.Context, idx: c.int, p: ^om.Shader_Params) -> (status: c.int) {
-	p.multipass = true
+read_shadertoy_program :: proc(L: ^lua.State, s: ^Script, ctx: ^om.Context, idx: c.int, p: ^om.Shader_Params) -> (status: c.int) {
 	arena := ctx.tree.arena
 	field(L, idx, "common")
 	p.common, _ = read_pass_source(L, s, ctx, -1)
 	lua.pop(L, 1)
+	passes := make([dynamic]om.Shader_Pass, arena)
 	for kind in oksl.Pass_Kind {
 		field(L, idx, PASS_FIELDS[kind])
 		pi := lua.gettop(L)
-		file: string
-		p.passes[kind].source, file = read_pass_source(L, s, ctx, pi)
+		source, file := read_pass_source(L, s, ctx, pi)
 		if file != "" && (p.src == "" || kind == .Image) {
 			// Messages name the program after its Image pass's file.
 			p.src = file
 		}
-		if lua.istable(L, pi) {
-			field(L, pi, "channels")
-		} else {
-			lua.pushnil(L)
-		}
-		if lua.istable(L, -1) {
-			list := lua.gettop(L)
-			for k in 0 ..< oksl.CHANNEL_COUNT {
-				lua.rawgeti(L, list, lua.Integer(k + 1))
-				ch := &p.passes[kind].channels[k]
-				if lua.type(L, -1) == .STRING {
-					name := string(lua.tostring(L, -1))
-					for b in oksl.Pass_Kind.Buffer_A ..= oksl.Pass_Kind.Buffer_D {
-						if name == string(PASS_FIELDS[b]) {
-							ch^ = {kind = .Buffer, buffer = b}
-						}
-					}
-				}
-				if ch.kind == .None {
-					if group, is_group, st := read_group_input(L, ctx, -1); st != 0 {
-						return st
-					} else if is_group {
-						ch^ = {kind = .External, input = group}
-					} else if input, is_input := read_input(L, -1, arena); is_input {
-						ch^ = {kind = .External, input = input}
-					}
-				}
-				lua.pop(L, 1)
+		if source != "" {
+			pass := om.Shader_Pass {
+				name    = oksl.SOURCE_NAMES[oksl.pass_source(kind)],
+				source  = source,
+				profile = .Shadertoy,
 			}
+			if lua.istable(L, pi) {
+				field(L, pi, "channels")
+			} else {
+				lua.pushnil(L)
+			}
+			if lua.istable(L, -1) {
+				pass.inputs, status = read_shadertoy_channels(L, ctx, lua.gettop(L))
+				if status != 0 {
+					return status
+				}
+			}
+			lua.pop(L, 1)
+			append(&passes, pass)
 		}
-		lua.pop(L, 2)
+		lua.pop(L, 1)
 	}
+	p.passes = passes[:]
+	p.output = oksl.SOURCE_NAMES[.Image]
 	return 0
 }
 
-// A pass's (or Common's) source at `at`: a string (a file name when it ends
-// in `.glsl` on one line), or a table with `source` or `src` (a shader in
-// the media or a file beside the script). `file` is the file's name.
+// A Shadertoy pass's channels (the list at `list`): iChannelN reads a
+// buffer ("buffer_a".."buffer_d", the pass of that name) or an input.
+@(private = "file")
+read_shadertoy_channels :: proc(L: ^lua.State, ctx: ^om.Context, list: c.int) -> (inputs: []om.Shader_Pass_Input, status: c.int) {
+	channels := make([]om.Shader_Pass_Input, oksl.CHANNEL_COUNT, ctx.tree.arena)
+	for &in_, k in channels {
+		in_.index = k
+		lua.rawgeti(L, list, lua.Integer(k + 1))
+		if lua.type(L, -1) == .STRING {
+			name := string(lua.tostring(L, -1))
+			for b in oksl.Pass_Kind.Buffer_A ..= oksl.Pass_Kind.Buffer_D {
+				if name == string(PASS_FIELDS[b]) {
+					in_.pass = oksl.SOURCE_NAMES[oksl.pass_source(b)]
+				}
+			}
+		}
+		if in_.pass == "" {
+			if group, is_group, st := read_group_input(L, ctx, -1); st != 0 {
+				return nil, st
+			} else if is_group {
+				in_.input = group
+			} else if input, is_input := read_input(L, -1, ctx.tree.arena); is_input {
+				in_.input = input
+			}
+		}
+		lua.pop(L, 1)
+	}
+	return channels, 0
+}
+
+// A source at `at` that may name a file: a string (a file name when it is
+// one line ending in a shader extension), or a table with `source` or
+// `src`. `file` is the file's name.
 @(private = "file")
 read_pass_source :: proc(L: ^lua.State, s: ^Script, ctx: ^om.Context, at: c.int) -> (source, file: string) {
 	idx := lua.absindex(L, at)
-	text: string
 	#partial switch lua.type(L, idx) {
 	case .STRING:
-		text = string(lua.tostring(L, idx))
-		if !strings.has_suffix(text, ".glsl") || strings.contains_rune(text, '\n') {
+		text := string(lua.tostring(L, idx))
+		if _, is_file := oksl.options_of_path(text); !is_file || strings.contains_rune(text, '\n') {
 			return text, ""
 		}
 		file = text
@@ -213,17 +400,24 @@ read_pass_source :: proc(L: ^lua.State, s: ^Script, ctx: ^om.Context, at: c.int)
 		}
 		file = get_str(L, idx, "src", "")
 	}
+	return shader_source_file(s, ctx, file), file
+}
+
+// The source of shader file `file`: in the media, else beside the script;
+// "" when it is neither (reported) or `file` is "".
+@(private = "file")
+shader_source_file :: proc(s: ^Script, ctx: ^om.Context, file: string) -> string {
 	if file == "" {
-		return "", ""
+		return ""
 	}
 	if src, in_media := ctx.media.shaders[file]; in_media {
-		return src, file
+		return src
 	}
 	if src, ok := script_shader_file(s, file); ok {
-		return src, file
+		return src
 	}
 	om.report(ctx, .Error, {code = .Missing_Shader, name = file})
-	return "", file
+	return ""
 }
 
 // The frame table (`f`) or a time in seconds.

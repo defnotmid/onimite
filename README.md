@@ -72,10 +72,11 @@ onimite is built from sibling Odin projects and Odin's vendor packages:
   animations with per-id / per-layer overrides, video clips (.mp4, .mov,
   .webm, ProRes 4444 and VP9 alpha), subtitles and word-level captions
   (Whisper JSON, VTT, SRT; TikTok-style `captions{}`), audio spectra.
-- **Shaders** (oksl): SkSL as in fframes, and Shadertoy code compiled as
-  GLSL (a real preprocessor, `texture`, `switch`, `discard`), including
-  multipass programs (Common, Buffer A-D, feedback). Images, clips and
-  groups of nodes bind as inputs. The software backend runs the same
+- **Shaders** (oksl): SkSL as in fframes, Shadertoy code and GLSL ES
+  fragment shaders (a real preprocessor, `texture`, `switch`, `discard`),
+  and multipass programs mixing them (`passes`: feedback, any pass's last
+  frame; Shadertoy's Common + Buffer A-D + Image is one spelling). Images,
+  clips and groups of nodes bind as inputs. The software backend runs the same
   shaders on oksl's CPU interpreter.
 - **Sound**: tracks on the video or scenes with gain, pan, fades, voice
   ducking and a master limiter; audio synthesized by the script
@@ -316,7 +317,7 @@ scene { "Outro", duration = 3, overlap = { previous = 0.5 }, render = function(f
 ```
 
 A video is a `video.lua` with a `media/` folder beside it (fonts, images,
-SVG, Lottie and caption files, audio, clips, `.sksl` / `.glsl` shaders).
+SVG, Lottie and caption files, audio, clips, `.sksl` / `.glsl` / `.frag` shaders).
 `require` and `dofile` resolve beside the script and `SCRIPT_DIR` is its
 directory. Everything outside `render` runs once when the script loads, so
 layouts, measured text and data belong there; `shared(name, fn)` computes
@@ -402,6 +403,7 @@ Each folder in `examples/` is a `video.lua` with its `media/`.
 | `social_clip_kit` | one promo in 9:16, 1:1 and 16:9 through `--batch`: adaptive layout, word captions, an alpha clip |
 | `designer_handoff` | design tokens through `json_decode`, an SVG drawn on from its own paths, a recoloured Lottie badge |
 | `shadertoy_multipass` | Common + two feedback buffers + Image, a group channel feeding a buffer |
+| `shader_passes` | `passes` in two dialects: an SkSL trail reading its own last frame, coloured by a GLSL pass |
 | `captions_demo` | word-level TikTok captions from Whisper-style JSON, two highlight styles |
 | `lottie_demo` | four Lottie files with text and shapes, one with a text-layer override |
 | `svg_demo` | an SVG bird animated by element id |

@@ -37,7 +37,8 @@ Media :: struct {
 	// Timed text by name: subtitle files (their cues and their words),
 	// caption .json files and the script's `captions_load`.
 	captions:  map[string]Captions,
-	// Shader sources by file name: SkSL (.sksl) and Shadertoy GLSL (.glsl).
+	// Shader sources by file name: SkSL (.sksl), Shadertoy GLSL (.glsl) and
+	// GLSL ES fragment shaders (.frag).
 	shaders:  map[string]string,
 	// Parsed SVG documents and their laid out text by file name (.svg).
 	svgs:     map[string]^Svg_Asset,
@@ -93,7 +94,7 @@ MEDIA_KINDS := [Media_Kind]Media_Kind_Info {
 	.Font      = {"font", "FNT", {".ttf", ".otf", ".ttc"}, "a font"},
 	.Svg       = {"SVG", "SVG", {".svg"}, "SVG"},
 	.Lottie    = {"Lottie", "LOT", {".json"}, "Lottie"},
-	.Shader    = {"shader", "SHD", {".sksl", ".glsl"}, ""},
+	.Shader    = {"shader", "SHD", {".sksl", ".glsl", ".frag"}, ""},
 	.Subtitles = {"subtitles", "SUB", {".vtt", ".srt"}, "subtitles (WebVTT or SRT)"},
 	.Captions  = {"captions", "CAP", {".json"}, ""},
 }

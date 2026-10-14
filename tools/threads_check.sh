@@ -18,7 +18,7 @@ OUT="$(mktemp -d)"
 trap 'rm -rf "$OUT"' EXIT
 export PIXEL_SONG="${PIXEL_SONG:-The_Farewell.mp3}"
 EXAMPLES=("$@")
-[ ${#EXAMPLES[@]} -eq 0 ] && EXAMPLES=(why_onimite suite data_story motion_poster social_clip_kit designer_handoff shadertoy_multipass captions_demo lottie_demo media_demo transitions audio_demo voiceover)
+[ ${#EXAMPLES[@]} -eq 0 ] && EXAMPLES=(why_onimite suite data_story motion_poster social_clip_kit designer_handoff shadertoy_multipass shader_passes captions_demo lottie_demo media_demo transitions audio_demo voiceover)
 
 frames() { ffmpeg -v error -i "$1" -an -f framemd5 - | grep -v '^#'; }
 sound() { ffmpeg -v error -i "$1" -vn -f md5 - 2>/dev/null; }

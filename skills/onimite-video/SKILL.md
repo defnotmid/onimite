@@ -75,7 +75,7 @@ repositories (the build's `deps` collection is their parent directory):
 ```bash
 git clone https://github.com/defnotmid/onimite
 git clone https://github.com/defnotmid/ovg     # 2D vector canvas: software + SDL_GPU (Vulkan / Metal / D3D12)
-git clone https://github.com/defnotmid/oksl    # shader compiler: SkSL and Shadertoy GLSL to SPIR-V, MSL, CPU
+git clone https://github.com/defnotmid/oksl    # shader compiler: SkSL, Shadertoy and GLSL to SPIR-V, MSL, CPU
 git clone https://github.com/defnotmid/odecs   # H.264/H.265/AAC codecs, MP4, WebP, clip decoding
 git clone https://github.com/defnotmid/ottis   # text to speech with word timings (say)
 cd onimite
@@ -98,7 +98,7 @@ command and option.
 my-video/
   video.lua          # the video
   scenes/intro.lua   # optional modules: require("scenes.intro")
-  media/             # fonts (.ttf/.otf/.ttc), images, .svg, Lottie / caption .json, audio, clips, .vtt/.srt, .sksl/.glsl
+  media/             # fonts (.ttf/.otf/.ttc), images, .svg, Lottie / caption .json, audio, clips, .vtt/.srt, .sksl/.glsl/.frag
 ```
 
 ```lua
@@ -148,6 +148,7 @@ The examples in the onimite repository are working patterns to read and borrow f
 | `examples/social_clip_kit` | one promo in 9:16, 1:1 and 16:9 from `--batch` rows: layout computed from the canvas at load, text fitted with `text_width`, word captions from generated WebVTT, an alpha clip, beat-synced cuts, story-style progress bar |
 | `examples/designer_handoff` | designer files in: `tokens.json` via `json_decode` (colours, type, spacing, copy), an SVG drawn on from its own paths (`shared` + `path_data`) then shown with `svg{}` overrides, a Lottie badge recoloured from the tokens |
 | `examples/shadertoy_multipass` | Shadertoy multipass: Common + two feedback buffers + Image, a group channel feeding a buffer, buffers at half resolution |
+| `examples/shader_passes` | `passes` in two dialects: an SkSL trail reading its own last frame (feedback) and a group input, coloured by a GLSL pass |
 | `examples/captions_demo` | word-level TikTok captions from a Whisper-style JSON: `captions{}` with a sliding box and a colour pop, `max_duration` / `combine_ms` paging, synthesized beat |
 | `examples/lottie_demo` | `lottie{}`: After Effects (Lottie) animations at the scene clock, a speed / offset, a script-picked frame, a per-layer override; `lottie_info` |
 | `examples/svg_demo` | `svg{}` with per-id overrides (a flapping bird) |

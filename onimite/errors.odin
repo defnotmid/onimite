@@ -190,7 +190,7 @@ DIAGNOSTIC_TEXT := [Diagnostic_Code]string {
 	.Shader_Uniform_Count      = "shader {name}: uniform `{uniform}` takes {count} values, got {got}",
 	.Shader_Unset_Uniform      = "shader {name}: uniform `{uniform}` is not set",
 	.Shader_Unbound_Channel    = "shader {name}: `{channel}` has no image bound",
-	.Shader_Pass_Input         = "shader {name}: `{uniform}` binds an input; a multipass program binds them in its passes' channels",
+	.Shader_Pass_Input         = "shader {name}: `{uniform}` binds an input; a program of passes binds inputs in its passes",
 	.Shader_Pass_Unbound       = "shader {name}: {pass}'s `{channel}` has nothing bound",
 	.Shader_Load               = "shader {name} can not be loaded by the renderer: {gpu}",
 	.Shader_Run                = "shader {name}: {gpu}",
@@ -599,11 +599,11 @@ write_field :: proc(b: ^strings.Builder, field: string, mode: string, d: Diagnos
 		}
 		return true
 	case .At:
-		// `name:line:col`, with the pass of a multipass program
-		// (`name: Buffer A:line:col`).
+		// `name:line:col`, with the pass of a program of passes
+		// (`name: Buffer A:line:col`; the pass is `b`).
 		pos := d.shader.pos
-		if src := oksl.SOURCE_NAMES[pos.src]; src != "" {
-			fmt.sbprintf(b, "%s: %s:%d:%d", d.name, src, pos.line, pos.col)
+		if d.b != "" {
+			fmt.sbprintf(b, "%s: %s:%d:%d", d.name, d.b, pos.line, pos.col)
 		} else {
 			fmt.sbprintf(b, "%s:%d:%d", d.name, pos.line, pos.col)
 		}

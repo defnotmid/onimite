@@ -48,8 +48,9 @@ end }
 ```
 
 - `shader(f, {...})` or `shader{...}` (video clock). Source: `sksl = [[...]]`,
-  `shadertoy = [[...]]`, or `src = "glow.sksl"` / `"tunnel.glsl"` (in `media/` or relative to
-  the script; `.glsl` means Shadertoy).
+  `shadertoy = [[...]]`, `glsl = [[...]]`, or `src = "glow.sksl"` / `"tunnel.glsl"` /
+  `"wave.frag"` (in `media/` or relative to the script; `.glsl` means Shadertoy, `.frag` GLSL,
+  anything else SkSL).
 - SkSL as in fframes' `Shader::sksl`: `half4 main(float2 coord)`, `coord` from the box's
   top-left, premultiplied output. Declared `iResolution` (float3, the box size), `iTime`,
   `iFrame` (from `f`: scene-relative in a scene), `iTimeDelta`, `iFrameRate` are filled for
@@ -63,18 +64,21 @@ end }
   `iChannel0..3` in `uniforms` like children (`iChannel0 = "photo.jpg"`, a clip table or a
   group) and sample with `texture(iChannelN, uv)`, uv 0..1 (also `textureLod`, `texelFetch`,
   `textureSize`). `uniform shader` and `.eval` are SkSL only.
-- Shadertoy multipass (Common + Buffer A-D + Image) is a table in place of the source:
-  `shadertoy = { common = "common.glsl", buffer_a = { src = "a.glsl", channels = { "buffer_a",
-  "photo.jpg" } }, image = { source = [[...]], channels = { "buffer_a" } } }`. A pass is
-  `{ source = [[...]] | src = "x.glsl", channels }` or just its source; Common's `#define`s and
-  functions are visible in every pass. Channel n (`iChannelN`) is `"buffer_a".."buffer_d"`
-  (this frame's output of an earlier buffer; itself or a later buffer gives the previous
-  frame: feedback) or an input like a uniform child (image, clip table, group function).
-  Buffers run A..D then Image; they are RGBA16F (unclamped) at the box's size in its own
-  units (a 960x540 box drawn with `scale(2, 2)` halves the cost) and start black at iFrame 0.
-  Seeking is exact (`frame 300` runs the buffers for frames 0..299 first), so keep effects a
-  function of iFrame/iTime, not of wall time. Uniforms go to every pass that declares them.
-  Errors read `shader image.glsl: Buffer A:3:9: ...`. See `examples/shadertoy_multipass`.
+- GLSL (`glsl = [[...]]`, `.frag`) is a GLSL ES 3.0 fragment shader: `void main()` reading
+  the layer's uv, `layout(location = 0) in vec2 uv` (0..1 from the box's top-left), and
+  writing premultiplied colour to `layout(location = 0) out vec4 color`. Nothing is declared
+  for you: declare `uniform float iTime;` (also `iResolution`, `iTimeDelta`, `iFrame`,
+  `iFrameRate`) to get the clock, and `uniform sampler2D`s for inputs, sampled with
+  `texture(s, uv)`. `texelFetch`, `textureSize` and `iChannelResolution` are not available
+  in GLSL yet (they need channel sizes the dialect does not declare); scale uv instead.
+- Multipass (feedback, blurs, simulations) in any dialect: `passes` in place of the source
+  (see below). Shadertoy's own layout is one spelling of it, a table in place of the
+  `shadertoy` source: `shadertoy = { common = "common.glsl", buffer_a = { src = "a.glsl",
+  channels = { "buffer_a", "photo.jpg" } }, image = { source = [[...]], channels = {
+  "buffer_a" } } }`. A pass there is `{ source = [[...]] | src = "x.glsl", channels }` or just
+  its source; channel n (`iChannelN`) is `"buffer_a".."buffer_d"` or an input. It runs as the
+  passes "Buffer A".."Buffer D" (those present) and "Image", the output. See
+  `examples/shadertoy_multipass`.
 - Uniform values: numbers, booleans, lists (vectors, matrices column by column, arrays),
   colours (`"#rrggbb"`, `rgb()`, animated). Up to four `uniform shader` children: a media
   image name, a clip `{ src = "clip.mp4", looping = true, start_from = 0, clip_start = 0 }`,
@@ -86,3 +90,43 @@ end }
   inspect does not prove it looks right.
 - A shader layer composes like an image (transforms, clips, masks, filters, opacity) and runs
   at its on-screen pixel size; `--software` runs oksl's CPU interpreter.
+
+## Passes: multipass in any dialect
+
+```lua
+-- examples/shader_passes: an SkSL trail reading its own last frame, coloured by a GLSL pass
+shader(f, { x = 0, y = 0, w = 1280, h = 720,
+  passes = {
+    { name = "trail", src = "shaders/trail.sksl",              -- SkSL: `uniform shader` children
+      inputs = { uLast = "trail",                              -- itself: its last frame (feedback)
+                 uDots = function() dots(t) end } },           -- a group, drawn every frame
+    { name = "show", src = "shaders/show.frag",                -- GLSL: `uniform sampler2D uTrail`
+      inputs = { uTrail = "trail" } },                         -- runs earlier: this frame's output
+  },
+  uniforms = { uFade = 0.965 } })                              -- set in every pass declaring it
+```
+
+- A pass is `{ name, sksl | shadertoy | glsl = [[...]] | src = "file", inputs }`; passes mix
+  dialects freely. `name` defaults to `"pass N"`. Up to 8 passes; they run in list order.
+- `inputs` binds the pass's channels: by name (`uLast = ...` for `uniform shader uLast`,
+  `iChannel0 = ...`, a `sampler2D`'s name) or in channel order (`inputs = { "trail", "photo.jpg" }`:
+  declaration order for children and samplers, `iChannelN` for Shadertoy). Bind by name in
+  SkSL and GLSL so reordering declarations changes nothing.
+- An input is another pass's name (its output this frame when that pass runs earlier, else
+  its last frame: feedback), `{ previous = "name" }` (always the last frame, also of an
+  earlier pass), or anything a uniform child takes (media image, clip table, group
+  function). On iFrame 0 a last frame reads transparent black.
+- The last pass is drawn, or the one named by `output = "name"`. `common = [[...]]` or
+  `common = "common.glsl"` starts every pass's source (Shadertoy's Common; one dialect).
+- Passes read as feedback, and every pass but the output, render into RGBA16F buffers at the
+  box's size in its own units (a 960x540 box drawn with `scale(2, 2)` halves the cost);
+  Shadertoy passes other than the output return their colour unclamped. The output pass runs
+  at the box's on-screen pixel size, unless a pass reads it: then its buffer is drawn.
+- Seeking is exact in every dialect (`frame 300` runs the feedback passes for frames 0..299
+  first; the preview keeps checkpoints), so keep effects a function of iFrame/iTime, not of
+  wall time.
+- Uniform values go to every pass that declares them; inputs go in the passes (`uniforms`
+  naming an input warns `shader_pass_input`). Errors name the pass: `shader trail.sksl:
+  blur:3:9: ...`, `Common:2:1` for the common source; an input naming a pass the program
+  lacks is an error at the channel's first use (`uLast reads trial, which the program does
+  not have`), an unknown `output` is `invalid_value`.

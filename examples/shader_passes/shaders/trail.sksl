@@ -1,0 +1,20 @@
+// The trail: its own last frame, turned by a slow swirl, spread a little
+// and faded, under this frame's dots (the script's group).
+uniform float3 iResolution;
+uniform float iTime;
+uniform shader uLast;
+uniform shader uDots;
+uniform float uFade;
+
+half4 main(float2 p) {
+  float2 c = iResolution.xy * 0.5;
+  float2 d = p - c;
+  float a = 0.004 * sin(iTime * 0.7);
+  float2 q = c + float2(d.x * cos(a) - d.y * sin(a), d.x * sin(a) + d.y * cos(a)) * 0.992;
+  q += float2(sin(p.y * 0.013 + iTime), cos(p.x * 0.011 - iTime)) * 0.8;
+  half4 last = 0.25 * (uLast.eval(q + float2(1.2, 0)) + uLast.eval(q - float2(1.2, 0))
+                    + uLast.eval(q + float2(0, 1.2)) + uLast.eval(q - float2(0, 1.2)));
+  last *= half(uFade);
+  half4 dots = uDots.eval(p);
+  return dots + last * (1.0 - dots.a);
+}

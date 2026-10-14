@@ -384,6 +384,75 @@ end }
 	testing.expect(t, bad)
 }
 
+// The passes form: an SkSL pass reading an earlier one, an SkSL pass
+// reading its own last frame (a seek runs the frames before; the output is
+// read, so the box shows its buffer), SkSL feeding a GLSL pass by sampler
+// name, and a reference to a pass the program lacks (an error at the
+// channel's use) or an output it lacks.
+@(test)
+test_shader_passes_api :: proc(t: ^testing.T) {
+	dir, derr := os.make_directory_temp("", "onimite_script_test_*", context.temp_allocator)
+	testing.expect(t, derr == nil)
+	defer os.remove_all(dir)
+	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
+	frag_path, _ := filepath.join({dir, "show.frag"}, context.temp_allocator)
+	src := `
+local HALF = "half4 main(float2 p) { return half4(0.25, 0.0, 0.0, 1.0); }"
+local DOUBLE = "uniform shader uIn;\nhalf4 main(float2 p) { return uIn.eval(p) * 2.0; }"
+local ACC = "uniform shader uLast;\nuniform float uStep;\nhalf4 main(float2 p) { return uLast.eval(p) + half4(uStep, 0.0, 0.0, 0.0) + half4(0.0, 0.0, 0.0, 0.1); }"
+local LEFT = "uniform float3 iResolution;\nhalf4 main(float2 p) { return p.x < iResolution.x * 0.5 ? half4(0.0, 1.0, 0.0, 1.0) : half4(0.0, 0.0, 0.0, 1.0); }"
+video { width = 20, height = 40, fps = 10, duration = 2, background = "#000", render = function(f)
+  shader(f, { x = 0, y = 0, w = 20, h = 10, passes = {
+    { name = "half", sksl = HALF },
+    { name = "double", sksl = DOUBLE, inputs = { uIn = "half" } } } })
+  shader(f, { x = 0, y = 10, w = 20, h = 10, uniforms = { uStep = 0.1 }, passes = {
+    { name = "acc", sksl = ACC, inputs = { uLast = { previous = "acc" } } } } })
+  shader(f, { x = 0, y = 20, w = 20, h = 10, output = "show", passes = {
+    { name = "left", sksl = LEFT },
+    { name = "show", src = "show.frag", inputs = { uSrc = "left" } } } })
+  shader(f, { x = 0, y = 30, w = 1, h = 1, passes = {
+    { name = "a", sksl = DOUBLE, inputs = { uIn = { previous = "nope" } } } } })
+  shader(f, { x = 0, y = 30, w = 1, h = 1, output = "nope", passes = { { name = "a", sksl = HALF } } })
+end }
+`
+	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
+	frag := "#version 300 es\nprecision highp float;\nlayout(location = 0) in vec2 uv;\nlayout(location = 0) out vec4 color;\nuniform sampler2D uSrc;\nvoid main() { color = texture(uSrc, uv); }\n"
+	testing.expect(t, os.write_entire_file(frag_path, transmute([]u8)frag) == nil)
+	media: om.Media
+	om.media_init(&media)
+	defer om.media_destroy(&media)
+	s: Script
+	defer unload(&s)
+	testing.expectf(t, load(&s, path, nil, &media) == nil, "load failed: %s", error_message(s.failure, context.temp_allocator))
+	r: om.Renderer
+	testing.expect_value(t, om.renderer_init(&r, &s.video, &media), om.Error.None)
+	defer om.renderer_destroy(&r)
+	at :: proc(px: []u8, x, y: int) -> [4]u8 {
+		i := (y * 20 + x) * 4
+		return {px[i], px[i + 1], px[i + 2], px[i + 3]}
+	}
+	// Frame 3, a seek: frames 0..2 run first, so the accumulator has
+	// four steps of 0.1 in red.
+	px := om.render_frame(&r, 3)
+	testing.expect_value(t, at(px, 10, 5), [4]u8{128, 0, 0, 255})
+	testing.expect_value(t, at(px, 10, 15), [4]u8{102, 0, 0, 255})
+	testing.expect_value(t, at(px, 2, 25), [4]u8{0, 255, 0, 255})
+	testing.expect_value(t, at(px, 17, 25), [4]u8{0, 0, 0, 255})
+	no_pass, no_output := false, false
+	for d in r.ctx.diagnostics {
+		msg := om.diagnostic_message(d, context.temp_allocator)
+		switch msg {
+		case "shader <inline>: a:2:31: uIn reads nope, which the program does not have":
+			no_pass = true
+		case `invalid shader output "nope" (want a)`:
+			no_output = true
+		case:
+			testing.expectf(t, d.severity < .Error, "unexpected: %s", msg)
+		}
+	}
+	testing.expect(t, no_pass && no_output)
+}
+
 // captions_load (text and word lists) and caption_pages at load,
 // caption_words while rendering.
 @(test)

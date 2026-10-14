@@ -19,14 +19,14 @@ half4 main(float2 c) {
 render_shader_scene :: proc(f: Frame, ctx: ^Context) {
 	// Drawn at 2x: iResolution stays in user units.
 	group(ctx, {transform = scale(2, 2)})
-	shader(ctx, f, {sksl = SPLIT, x = 10, y = 10, w = 100, h = 40, uniforms = {{name = "uLeft", values = {1, 0, 0, 1}}, {name = "uGain", values = {0.5}}}})
+	shader(ctx, f, {source = SPLIT, x = 10, y = 10, w = 100, h = 40, uniforms = {{name = "uLeft", values = {1, 0, 0, 1}}, {name = "uGain", values = {0.5}}}})
 	// Shadertoy code: opaque output whatever alpha it writes; iFrame
 	// declared as a float is still filled.
-	shader(ctx, f, {shadertoy = "void mainImage(out vec4 o, in vec2 c) { o = vec4(0.0, 1.0, 0.0, 0.0); }", x = 10, y = 60, w = 20, h = 20})
+	shader(ctx, f, {source = "void mainImage(out vec4 o, in vec2 c) { o = vec4(0.0, 1.0, 0.0, 0.0); }", profile = .Shadertoy, x = 10, y = 60, w = 20, h = 20})
 	// Errors are reported (lines of the original source), the layer skipped.
-	shader(ctx, f, {src = "broken.glsl", shadertoy = "void mainImage(out vec4 o, in vec2 c) {\n  o = nope;\n}", x = 0, y = 0, w = 10, h = 10})
-	shader(ctx, f, {sksl = SPLIT, x = 0, y = 0, w = 10, h = 10, uniforms = {{name = "uTypo", values = {1}}}})
-	shader(ctx, f, {sksl = "uniform float iFrame;\nhalf4 main(float2 c) { return half4(iFrame / 255.0, 0, 0, 1); }", x = 140, y = 60, w = 10, h = 10})
+	shader(ctx, f, {src = "broken.glsl", source = "void mainImage(out vec4 o, in vec2 c) {\n  o = nope;\n}", profile = .Shadertoy, x = 0, y = 0, w = 10, h = 10})
+	shader(ctx, f, {source = SPLIT, x = 0, y = 0, w = 10, h = 10, uniforms = {{name = "uTypo", values = {1}}}})
+	shader(ctx, f, {source = "uniform float iFrame;\nhalf4 main(float2 c) { return half4(iFrame / 255.0, 0, 0, 1); }", x = 140, y = 60, w = 10, h = 10})
 }
 
 @(test)
@@ -94,9 +94,9 @@ render_group_child_scene :: proc(f: Frame, ctx: ^Context) {
 	inner := shader_content_begin(ctx)
 	rect(ctx, {x = 0, y = 0, w = 5, h = 10, fill = Color{0, 1, 0, 1}})
 	group_end(ctx)
-	shader(ctx, f, {sksl = MIRROR, x = 60, y = 10, w = 20, h = 20, uniforms = {{name = "uScene", input = Shader_Input{content = inner, w = 10, h = 10}}}})
+	shader(ctx, f, {source = MIRROR, x = 60, y = 10, w = 20, h = 20, uniforms = {{name = "uScene", input = Shader_Input{content = inner, w = 10, h = 10}}}})
 	group_end(ctx)
-	shader(ctx, f, {sksl = MIRROR, x = 10, y = 10, w = 100, h = 40, uniforms = {{name = "uScene", input = Shader_Input{content = scene}}}})
+	shader(ctx, f, {source = MIRROR, x = 10, y = 10, w = 100, h = 40, uniforms = {{name = "uScene", input = Shader_Input{content = scene}}}})
 }
 
 @(test)
@@ -138,7 +138,7 @@ render_shadertoy_channel_scene :: proc(f: Frame, ctx: ^Context) {
 	rect(ctx, {x = 0, y = 0, w = 100, h = 20, fill = Color{1, 0, 0, 1}})
 	group_end(ctx)
 	src := "void mainImage(out vec4 c, in vec2 p) { c = texture(iChannel0, p / iResolution.xy); }"
-	shader(ctx, f, {shadertoy = src, x = 10, y = 10, w = 100, h = 40, uniforms = {{name = "iChannel0", input = Shader_Input{content = content}}}})
+	shader(ctx, f, {source = src, profile = .Shadertoy, x = 10, y = 10, w = 100, h = 40, uniforms = {{name = "iChannel0", input = Shader_Input{content = content}}}})
 }
 
 @(test)
@@ -166,24 +166,30 @@ test_shadertoy_channel :: proc(t: ^testing.T) {
 
 @(private = "file")
 render_multipass_scene :: proc(f: Frame, ctx: ^Context) {
-	p := Shader_Params {
-		multipass = true,
-		common = "#define STEP 0.01\nfloat wobble(float t) { return 1.0 + 0.5 * sin(t * 1.7); }",
-		x = 0,
-		y = 0,
-		w = 16,
-		h = 8,
-	}
 	// Buffer A accumulates into itself; Buffer B averages this frame's A
 	// with its own previous frame; the Image pass shows B.
-	p.passes[.Buffer_A].source = "void mainImage(out vec4 o, in vec2 c) { vec2 uv = c / iResolution.xy; o = texture(iChannel0, uv) + vec4(STEP * wobble(float(iFrame)), STEP * uv.x, 0.0, 0.0); }"
-	p.passes[.Buffer_A].channels[0] = {kind = .Buffer, buffer = .Buffer_A}
-	p.passes[.Buffer_B].source = "void mainImage(out vec4 o, in vec2 c) { vec2 uv = c / iResolution.xy; o = 0.5 * (texture(iChannel0, uv) + texture(iChannel1, uv)); }"
-	p.passes[.Buffer_B].channels[0] = {kind = .Buffer, buffer = .Buffer_A}
-	p.passes[.Buffer_B].channels[1] = {kind = .Buffer, buffer = .Buffer_B}
-	p.passes[.Image].source = "void mainImage(out vec4 o, in vec2 c) { o = vec4(texture(iChannel0, c / iResolution.xy).rgb * 4.0, 1.0); }"
-	p.passes[.Image].channels[0] = {kind = .Buffer, buffer = .Buffer_B}
-	shader(ctx, f, p)
+	passes := []Shader_Pass {
+		{
+			name = "Buffer A",
+			profile = .Shadertoy,
+			source = "void mainImage(out vec4 o, in vec2 c) { vec2 uv = c / iResolution.xy; o = texture(iChannel0, uv) + vec4(STEP * wobble(float(iFrame)), STEP * uv.x, 0.0, 0.0); }",
+			inputs = {{index = 0, pass = "Buffer A"}},
+		},
+		{
+			name = "Buffer B",
+			profile = .Shadertoy,
+			source = "void mainImage(out vec4 o, in vec2 c) { vec2 uv = c / iResolution.xy; o = 0.5 * (texture(iChannel0, uv) + texture(iChannel1, uv)); }",
+			inputs = {{index = 0, pass = "Buffer A"}, {index = 1, pass = "Buffer B"}},
+		},
+		{
+			name = "Image",
+			profile = .Shadertoy,
+			source = "void mainImage(out vec4 o, in vec2 c) { o = vec4(texture(iChannel0, c / iResolution.xy).rgb * 4.0, 1.0); }",
+			inputs = {{index = 0, pass = "Buffer B"}},
+		},
+	}
+	common := "#define STEP 0.01\nfloat wobble(float t) { return 1.0 + 0.5 * sin(t * 1.7); }"
+	shader(ctx, f, {passes = passes, common = common, x = 0, y = 0, w = 16, h = 8})
 }
 
 @(test)
