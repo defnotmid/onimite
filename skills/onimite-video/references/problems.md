@@ -43,7 +43,7 @@ output puts it before the message. Match on `code` and `fields`, not on the mess
 | `missing_font` | warning | `No match for '"{name}"' font-family.` |
 | `missing_glyph` | error | `No fonts with a glyph for "{glyph}" (U+{X4:codepoint}) in text "{text}"` |
 | `unreadable_media` | warning | `can not read media file {q:name} ({reason})`: found when the media folder loads; the rest still loads |
-| `undecodable_media` | warning | `media file {q:name} can not be decoded as {what}` (audio, a font, an image, SVG, Lottie, subtitles): found when the media folder loads; a `.json` file that is neither Lottie nor captions is the script's own data, not a problem |
+| `undecodable_media` | warning | `media file {q:name} can not be decoded as {what}` (audio, a font, an image, SVG, Lottie, subtitles, a glTF 2.0 model: a `.glb` or `.gltf` that cgltf rejects, or whose buffers or images beside it are missing): found when the media folder loads; a `.json` file that is neither Lottie nor captions is the script's own data, not a problem |
 | `svg_markup` | error | `SVG markup does not parse ({svg})` |
 | `svg_warning` | warning | `SVG {q:name}: {warning}` |
 | `svg_missing_id` | warning | `SVG {q:name} has no element with id {q:id}` |
@@ -66,6 +66,11 @@ output puts it before the message. Match on `code` and `fields`, not on the mess
 | `shader_buffer` | error | `shader buffer {width}x{height}: {gpu}` |
 | `image_upload` | error | `image {q:name} could not be uploaded: {gpu}` |
 | `video_frame_image` | error | `video frame image: {gpu}` |
+| `missing_model` | error | `no glTF model {q:name} in the media`: a `view3d` model's `src` (`.glb`/`.gltf` files of the media folder); a texture, `environment` or `background` image the media lacks is `missing_image` |
+| `missing_animation` | error | `glTF model {q:name} has no animation {q:animation}`: a model's `animation` names none of its clips (or its index is past them); the model is drawn in its rest pose |
+| `view3d_zero_size` | warning | `view3d with zero size at ({x}, {y}) is skipped` |
+| `geometry_growth` | warning | ``{kind} made again with other parameters on a later frame of its scene: each new set of geometry parameters makes and keeps a mesh, so change a size through the mesh's `scale`, not its geometry's parameters``: a `view3d` mesh's geometry parameters (`radius`, `width`, segment counts) change from frame to frame, so every frame makes a mesh that stays for the whole render; `{kind}` is the three.js type (`SphereGeometry`). Animate `scale` (and `position`, `rotation`) instead (3d.md) |
+| `view3d_render` | error | `view3d could not be drawn: {o3d}`: the 3D renderer failed (`{o3d}`: `Device`, no GPU device that can draw it; `Out_Of_Memory`; `Shader`) |
 | `rect_zero_size` | warning | `rect with zero size at ({x}, {y}) is skipped` |
 | `circle_zero_radius` | warning | `circle with zero radius at ({x}, {y}) is skipped` |
 | `ellipse_zero_radius` | warning | `ellipse with zero radius at ({x}, {y}) is skipped` |
@@ -95,7 +100,7 @@ output puts it before the message. Match on `code` and `fields`, not on the mess
 `{q:...}` is the value quoted, `{r:...}` rounded, `{s:...}` seconds to the millisecond,
 `{ds:...}` the same with a sign, `{X4:...}` four hex digits; `{video}` is
 the decoder's reason (`no video track`, or odecs' error and detail), `{gpu}`, `{svg}` and
-`{lottie}` the renderer's or parser's error name, `{where}` the script line (`video.lua:12`), `{error}` and `{at}` the shader compiler's
+`{lottie}` the renderer's or parser's error name, `{o3d}` the 3D renderer's, `{where}` the script line (`video.lua:12`), `{error}` and `{at}` the shader compiler's
 message and `name:line:col` (`name: pass:line:col` in a program of passes: `trail.sksl: blur:3:9`,
 `image.glsl: Buffer A:3:9`, `Common` for the common source); `{warning}` is
 the SVG or Lottie parser's own note.

@@ -20,9 +20,10 @@ build)
 	odin build . -collection:deps=.. -o:speed -define:ONIMITE_VERSION=v0.0.0-ci -out:"build/onimite$exe" ${ONIMITE_TEST_LDFLAGS:+"-extra-linker-flags:$ONIMITE_TEST_LDFLAGS"}
 	;;
 test)
-	# macOS: the GPU test in encode skips (SDL's Metal driver needs Cocoa,
-	# which starts only on the main thread; tests run on worker threads).
-	# Every other test is CPU-only.
+	# macOS: the GPU tests in encode and onimite (view3d's GPU half) skip
+	# (SDL's Metal driver needs Cocoa, which starts only on the main thread;
+	# tests run on worker threads). Every other test is CPU-only, and none
+	# of o3d's own tests runs here (no O3D_NO_GPU needed).
 	for pkg in onimite script app encode speech; do
 		echo "::group::odin test $pkg"
 		odin test "$pkg" -collection:deps=.. -out:"build/test_$pkg$exe" ${ONIMITE_TEST_LDFLAGS:+"-extra-linker-flags:$ONIMITE_TEST_LDFLAGS"}

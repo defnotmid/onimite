@@ -20,6 +20,7 @@
 #   examples/why_onimite/media  transparent.mov
 #   examples/onimite_saga/media transparent.mov
 #   examples/social_clip_kit/media  mascot.webm
+#   examples/three_d/media      sky.png, checker.png (three_d.lua)
 #   testdata                    clip_baseline.mp4 (H.264 Constrained Baseline + mono AAC),
 #                               clip_high.mp4 (H.264 High, B-frames, no audio): clip.lua's
 #                               first 3 s at 320x240, a keyframe every 15 frames, for the
@@ -81,5 +82,10 @@ $FF -framerate 30 -i "$TMP/clip/%06d.png" -c:v libx264 -profile:v high -bf 2 $GO
 echo "canyon"
 "$OF" frame "$HERE/canyon.lua" 0 -o "$TMP/canyon"
 $FF -i "$TMP/canyon/0.png" -c:v libwebp -quality 75 -compression_level 6 "$EX/suite/media/canyon.webp"
+
+echo "three_d textures"
+for t in sky checker; do
+	"$OF" frame "$HERE/three_d.lua" 0 --set texture=$t -o "$EX/three_d/media/$t.png"
+done
 
 echo "done"

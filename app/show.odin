@@ -646,6 +646,16 @@ show_media_file :: proc(sh: ^Show, name: string) -> Error {
 		sh.res.fields["layers"] = json.Integer(len(doc.layers))
 	case .Shader:
 		sh.res.fields["bytes"] = json.Integer(len(m.shaders[name]))
+	case .Model:
+		// The animations by name and length: what `animation =` picks.
+		model := &m.view3d.models[name]
+		clips := make(json.Array, 0, len(model.animations), context.temp_allocator)
+		for a in model.animations {
+			append(&clips, json.String(fmt.tprintf("%s (%.3fs)", a.name, a.duration)))
+		}
+		sh.res.fields["meshes"] = json.Integer(len(model.meshes))
+		sh.res.fields["nodes"] = json.Integer(len(model.nodes))
+		sh.res.fields["animations"] = clips
 	case .Subtitles, .Captions:
 		c := &m.captions[name]
 		n := om.caption_count(c)

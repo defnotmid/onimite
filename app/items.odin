@@ -128,6 +128,9 @@ media_items :: proc(m: ^om.Media) -> []Media_Item {
 	for name, doc in m.lotties {
 		append(&items, Media_Item{kind = .Lottie, name = name, detail = fmt.tprintf("%.0fx%.0f, %.3fs at %.0f fps", doc.width, doc.height, lottie_seconds(doc), doc.fps)})
 	}
+	for name, &model in m.view3d.models {
+		append(&items, Media_Item{kind = .Model, name = name, detail = fmt.tprintf("%d meshes, %d animations", len(model.meshes), len(model.animations))})
+	}
 	for name, src in m.shaders {
 		append(&items, Media_Item{kind = .Shader, name = name, detail = fmt.tprintf("%d lines", strings.count(src, "\n") + 1)})
 	}

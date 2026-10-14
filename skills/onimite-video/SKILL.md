@@ -17,13 +17,13 @@ description: >-
 onimite renders video from a Lua script. A video is one `video.lua` (plus `media/` beside it
 for fonts, images, SVGs, Lottie files, audio, clips and shaders) that calls `video{...}` and
 `scene{...}`. Each scene's `render(f)` function draws the frame `f` with nodes (`rect`, `text`,
-`path`, `group`, `image`, `svg`, `lottie`, `shader`, ...); `animate` and springs move values; an `audio` list
+`path`, `group`, `image`, `svg`, `lottie`, `shader`, `view3d`, ...); `animate` and springs move values; an `audio` list
 places sound; `captions{}` draws word-timed (Whisper JSON, VTT, SRT) TikTok-style captions. One prebuilt `onimite` binary renders, previews and inspects every script:
 there is no project to generate and no build step per video.
 
 Read `references/design.md` before designing, `references/api.md` while writing the script
 and `references/audio.md` for sound; `api.md` lists the topic files (media, shaders, filters,
-problem codes) to read when the video needs them. When matching a supplied reference video, follow the
+3D in three.js's terms, problem codes) to read when the video needs them. When matching a supplied reference video, follow the
 reference-analysis section of `references/design.md` first: its cuts and pacing win over the
 defaults below.
 
@@ -102,7 +102,7 @@ command and option.
 my-video/
   video.lua          # the video
   scenes/intro.lua   # optional modules: require("scenes.intro")
-  media/             # fonts (.ttf/.otf/.ttc), images, .svg, Lottie / caption .json, audio, clips, .vtt/.srt, .sksl/.glsl/.frag
+  media/             # fonts (.ttf/.otf/.ttc), images, .svg, Lottie / caption .json, audio, clips, .vtt/.srt, .sksl/.glsl/.frag, .glb/.gltf
 ```
 
 ```lua
@@ -158,6 +158,7 @@ The examples in the onimite repository are working patterns to read and borrow f
 | `examples/captions_demo` | word-level TikTok captions from a Whisper-style JSON: `captions{}` with a sliding box and a colour pop, `max_duration` / `combine_ms` paging, synthesized beat |
 | `examples/lottie_demo` | `lottie{}`: After Effects (Lottie) animations at the scene clock, a speed / offset, a script-picked frame, a per-layer override; `lottie_info` |
 | `examples/svg_demo` | `svg{}` with per-id overrides (a flapping bird) |
+| `examples/three_d` | `view3d{}`: a 3D scene in three.js's terms (an orbiting camera, a shadow-casting light, standard, metal and basic materials, a textured floor, a generated sky as the environment) under a 2D title card |
 | `examples/pip_demo` | Pip, the mascot (`examples/common/pip.lua`): a pixel-art SVG whose `display="none"` parts (blink, moods, spark frames) are swapped with `visible` overrides, a squash on the beat |
 | `examples/transitions` | every `transition` kind between scenes (`scene{ transition = ... }`), `stagger`, `loop`, `sequence` |
 | `examples/physics_demo` | rigid bodies: `physics{}` simulated once at load (in `shared`), tiles dropped into a word with `start` staggers, `physics_at` per frame, a pop per impact from `sim.contacts` (the saga's NotNeeded scene: a wrecking ball on a rope; why_onimite's Ship: 311 grains poured) |

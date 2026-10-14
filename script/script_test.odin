@@ -6,6 +6,7 @@ import "core:os"
 import "core:path/filepath"
 import "core:slice"
 import "core:testing"
+import "deps:o3d"
 import om "../onimite"
 import "../speech"
 
@@ -848,4 +849,96 @@ test_line_captions :: proc(t: ^testing.T) {
 	testing.expect_value(t, c.cues[1], 0)
 	testing.expect_value(t, c.cues[2], 1)
 	testing.expect(t, c.segmented)
+}
+
+// view3d{} in three.js's names: the tables become the node's camera,
+// lights, meshes (geometry parameters in constructor order, least counts)
+// and materials; misspelled or misplaced keys warn in every nested table,
+// unknown types are invalid values and leave their entry out; the frame
+// draws the lit red box.
+@(test)
+test_view3d_api :: proc(t: ^testing.T) {
+	dir, derr := os.make_directory_temp("", "onimite_script_test_*", context.temp_allocator)
+	testing.expect(t, derr == nil)
+	defer os.remove_all(dir)
+	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
+	src := `
+video { width = 64, height = 48, fps = 10, background = "#000000" }
+scene { "A", duration = 1, render = function(f)
+  view3d {
+    camera = { position = { 0, 0, 4 }, fov = 45, fvo = 1 },
+    lights = {
+      { type = "AmbientLight", intensity = 0.5, ground_color = "#fff" },
+      { type = "DirectionalLight", color = 0xffffff, intensity = 3, position = { 1, 2, 3 }, cast_shadow = true,
+        shadow = { map_size = 256, baias = 0 } },
+      { type = "SpotLight", color = "#fff" },
+    },
+    meshes = {
+      { geometry = { type = "BoxGeometry", width = 2, height = 1.5, width_segments = 0 },
+        material = { color = "#ff0000", roughness = 0.5, metalnes = 1 }, rotation = { 0.1, 0.2, 0 }, scale = 1.5, cast_shdow = true },
+      { geometry = { type = "SphereGeometry", radius = 0.5, radial = 3 }, position = { 1, 0, 0 },
+        material = { type = "MeshBasicMaterial", color = "#00ff00", roughness = 1 } },
+      { geometry = { type = "Cube" } },
+    },
+    models = { { src = "duck.glb", animaton = "Walk" } },
+  }
+end }
+`
+	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
+	media: om.Media
+	om.media_init(&media)
+	defer om.media_destroy(&media)
+	s: Script
+	defer unload(&s)
+	testing.expectf(t, load(&s, path, nil, &media) == nil, "load failed: %s", error_message(s.failure, context.temp_allocator))
+	r: om.Renderer
+	testing.expect_value(t, om.renderer_init(&r, &s.video, &media), om.Error.None)
+	defer om.renderer_destroy(&r)
+	px := om.render_frame(&r, 0)
+
+	v: om.View3d
+	for n in r.ctx.tree.nodes {
+		if node, ok := n.kind.(om.View3d); ok {
+			v = node
+		}
+	}
+	testing.expect_value(t, v.w, 64)
+	testing.expect_value(t, v.camera.fov, 45)
+	testing.expect_value(t, len(v.lights), 2)
+	testing.expect_value(t, len(v.meshes), 2)
+	if len(v.lights) == 2 && len(v.meshes) == 2 {
+		testing.expect_value(t, v.lights[1].color, [3]f32{1, 1, 1})
+		testing.expect(t, v.lights[1].cast_shadow && v.lights[1].shadow.map_size == 256)
+		testing.expect_value(t, v.lights[0].decay, 2)
+		box := v.meshes[0]
+		testing.expect_value(t, box.geometry.kind, .Box)
+		testing.expect_value(t, box.geometry.params, [7]f32{2, 1.5, 1, 1, 1, 1, 0})
+		testing.expect_value(t, box.scale, [3]f32{1.5, 1.5, 1.5})
+		testing.expect_value(t, box.material.color, [3]f32{1, 0, 0})
+		testing.expect_value(t, box.material.flags, bit_set[o3d.Material_Flag; u8]{})
+		testing.expect_value(t, v.meshes[1].material.flags, bit_set[o3d.Material_Flag; u8]{.Basic})
+	}
+	want := [?]string {
+		"video.lua:4: `camera.fvo` is not used (did you mean `fov`?)",
+		"video.lua:4: `light.ground_color` is not used",
+		"video.lua:4: `shadow.baias` is not used (did you mean `bias`?)",
+		`invalid light type "SpotLight" (want AmbientLight, HemisphereLight, DirectionalLight or PointLight)`,
+		"video.lua:4: `material.metalnes` is not used (did you mean `metalness`?)",
+		"video.lua:4: `mesh.cast_shdow` is not used (did you mean `cast_shadow`?)",
+		"video.lua:4: `geometry.radial` is not used (did you mean `radius`?)",
+		"video.lua:4: `material.roughness` is not used",
+		`invalid geometry type "Cube" (want BoxGeometry, SphereGeometry, PlaneGeometry, CylinderGeometry or TorusGeometry)`,
+		"video.lua:4: `model.animaton` is not used (did you mean `animation`?)",
+		`no glTF model "duck.glb" in the media`,
+	}
+	got := make([dynamic]string, context.temp_allocator)
+	for d in r.ctx.diagnostics {
+		append(&got, om.diagnostic_message(d, context.temp_allocator))
+	}
+	testing.expectf(t, len(got) == len(want), "diagnostics: %v", got[:])
+	for w in want {
+		testing.expectf(t, slice.contains(got[:], w), "missing %q in %v", w, got[:])
+	}
+	mid := px[(24 * 64 + 32) * 4:][:4]
+	testing.expectf(t, mid[0] > 100 && mid[1] < 60, "the box: %v", mid)
 }

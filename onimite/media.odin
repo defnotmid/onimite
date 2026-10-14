@@ -44,6 +44,9 @@ Media :: struct {
 	svgs:     map[string]^Svg_Asset,
 	// Parsed Lottie documents by file name (.json files that are Lottie).
 	lotties:  map[string]^vg.Lottie_Document,
+	// What 3D layers draw from: glTF models by file name (.glb, .gltf),
+	// their geometry and textures, media images used as textures.
+	view3d:   View3d_Media,
 	// The directory `media_load_dir` read (SVG <image> files resolve
 	// against it).
 	dir:      string,
@@ -71,6 +74,7 @@ Media_Kind :: enum u8 {
 	Shader,
 	Subtitles,
 	Captions,
+	Model,
 }
 
 Media_Kind_Info :: struct {
@@ -97,6 +101,7 @@ MEDIA_KINDS := [Media_Kind]Media_Kind_Info {
 	.Shader    = {"shader", "SHD", {".sksl", ".glsl", ".frag"}, ""},
 	.Subtitles = {"subtitles", "SUB", {".vtt", ".srt"}, "subtitles (WebVTT or SRT)"},
 	.Captions  = {"captions", "CAP", {".json"}, ""},
+	.Model     = {"glTF model", "MDL", {".glb", ".gltf"}, "a glTF 2.0 model"},
 }
 
 // The kind file `name` loads as, by its extension (a .json file as Lottie
@@ -196,6 +201,7 @@ media_init :: proc(m: ^Media) {
 	m.shaders = make(map[string]string)
 	m.svgs = make(map[string]^Svg_Asset)
 	m.lotties = make(map[string]^vg.Lottie_Document)
+	view3d_media_init(&m.view3d)
 	m.blobs = make([dynamic][]u8)
 	m.added_audio = make(map[string]u64)
 }
@@ -245,6 +251,7 @@ media_destroy :: proc(m: ^Media) {
 		free(doc)
 	}
 	delete(m.lotties)
+	view3d_media_destroy(&m.view3d)
 	for name in m.added_audio {
 		delete(name)
 	}
@@ -626,8 +633,8 @@ put_audio :: proc(m: ^Media, name: string, clip: Audio_Clip) {
 	m.audio_gen += 1
 }
 
-// Loads every font, image, SVG, Lottie, audio, video and subtitle file in
-// `dir` (not recursive); everything but fonts is named by file name.
+// Loads every font, image, SVG, Lottie, audio, video, subtitle and glTF
+// file in `dir` (not recursive); everything but fonts is named by file name.
 // Touches only `m` (and the thread-safe video source), so it can run on a
 // loader thread for a Media no other thread uses, handed over when done.
 // Images only read their size here and decode on first use
@@ -656,6 +663,10 @@ media_load_dir :: proc(m: ^Media, dir: string, pool: ^thread.Pool = nil) -> Erro
 		switch kind {
 		case .Image:
 			add_image_file(m, fi.name, fi.fullpath)
+		case .Model:
+			if !view3d_add_model(&m.view3d, fi.name, fi.fullpath) {
+				media_problem(m, {code = .Undecodable_Media, name = fi.name, a = MEDIA_KINDS[.Model].undecodable})
+			}
 		case .Font, .Shader, .Subtitles:
 			data, read_err := os.read_entire_file(fi.fullpath, context.allocator)
 			if read_err != nil {

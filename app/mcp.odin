@@ -30,7 +30,7 @@ MCP_PROTOCOL :: "2025-06-18"
 // What a client is told when it connects: read the guide before making a
 // video, and where relative paths go.
 @(private = "file")
-MCP_INSTRUCTIONS :: `onimite makes videos from Lua scripts: a video is a video.lua file (plus a media/ folder beside it for fonts, images, sounds, clips and shaders) that this server renders, checks and previews. Before writing or changing a video, call the guide tool (topic "skill") and follow it; it names further topics (api, audio, design, media, shaders, filters, problems) to read when the video needs them. Write video.lua and its media with your file tools. Check your work without watching it: inspect, frame, strip, onion, audio_analyze. Open preview to show the user (it reloads when the files change), and render for the final MP4. Relative paths in every tool, the script's included, are relative to the working folder: %s`
+MCP_INSTRUCTIONS :: `onimite makes videos from Lua scripts: a video is a video.lua file (plus a media/ folder beside it for fonts, images, sounds, clips, shaders and 3D models) that this server renders, checks and previews. Before writing or changing a video, call the guide tool (topic "skill") and follow it; it names further topics (api, audio, design, media, shaders, filters, 3d, problems) to read when the video needs them. Write video.lua and its media with your file tools. Check your work without watching it: inspect, frame, strip, onion, audio_analyze. Open preview to show the user (it reloads when the files change), and render for the final MP4. Relative paths in every tool, the script's included, are relative to the working folder: %s`
 
 // The work folder when the client gives none: Documents/onimite in the
 // user's home (made when the server starts).

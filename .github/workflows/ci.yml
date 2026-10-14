@@ -12,15 +12,15 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-# The build reads ovg, oksl, odecs and ottis through `-collection:deps=..`, so
-# every job checks the five repositories out side by side:
-#   $GITHUB_WORKSPACE/{onimite,ovg,oksl,odecs,ottis}
+# The build reads ovg, oksl, odecs, ottis and o3d through `-collection:deps=..`,
+# so every job checks the six repositories out side by side:
+#   $GITHUB_WORKSPACE/{onimite,ovg,oksl,odecs,ottis,o3d}
 # The siblings come from their default branches. The build, test and smoke
 # steps are .github/ci.sh, the same on every OS.
 #
 # third_party/fetch.sh is not run: it fetches only the fframes reference
 # checkout for tools/bench.sh. Nothing in the build or the tests reads
-# third_party/; Lua, stb, kb_text_shape, miniaudio and SDL3 come from Odin's
+# third_party/; Lua, stb, kb_text_shape, miniaudio, cgltf and SDL3 come from Odin's
 # vendor packages (set up by .github/actions/setup-toolchain).
 
 jobs:
@@ -57,6 +57,12 @@ jobs:
           # Pinned: ottis is released on its own; a new tag is taken on purpose.
           ref: v0.0.1
           path: ottis
+      - uses: actions/checkout@v4
+        with:
+          repository: defnotmid/o3d
+          # Pinned like ottis: o3d is released on its own (v0.0.2: a1874865).
+          ref: v0.0.2
+          path: o3d
 
       - uses: ./onimite/.github/actions/setup-toolchain
 
@@ -100,6 +106,12 @@ jobs:
           # Pinned: ottis is released on its own; a new tag is taken on purpose.
           ref: v0.0.1
           path: ottis
+      - uses: actions/checkout@v4
+        with:
+          repository: defnotmid/o3d
+          # Pinned like ottis: o3d is released on its own (v0.0.2: a1874865).
+          ref: v0.0.2
+          path: o3d
 
       - uses: ./onimite/.github/actions/setup-toolchain
 

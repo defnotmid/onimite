@@ -28,6 +28,8 @@ Frame_Record :: struct {
 	frame:       int,
 	canvas:      vg.Recorded_Frame,
 	video:       [dynamic]Video_Upload,
+	// The 3D layers' renders, run on the GPU before the frame is drawn.
+	view3d:      View3d_Jobs,
 	// What building and drawing the frame reported.
 	diagnostics: [dynamic]Diagnostic,
 	// Earlier frames' feedback buffer passes to play first, when the
@@ -45,6 +47,7 @@ frame_record_destroy :: proc(f: ^Frame_Record) {
 	delete(f.sims)
 	vg.recorded_frame_destroy(&f.canvas)
 	delete(f.video)
+	view3d_jobs_destroy(&f.view3d)
 	diagnostics_free(f.diagnostics[:])
 	delete(f.diagnostics)
 	f^ = {}
@@ -64,12 +67,14 @@ record_frame :: proc(r: ^Renderer, index: int, out: ^Frame_Record) {
 	out.frame = index
 	r.video_uploads, out.video = out.video, r.video_uploads
 	clear(&r.video_uploads)
+	r.view3d.jobs, out.view3d = out.view3d, r.view3d.jobs
+	r.view3d.jobs.count = 0
 	r.ctx.diagnostics, out.diagnostics = out.diagnostics, r.ctx.diagnostics
 }
 
 // Builds frame `index` (nothing is drawn or kept) and decodes the media
-// images it shows, so that renderers recording it later find them decoded:
-// a render's look-ahead. The images count as used by that frame, so
+// images it shows (and makes what its 3D layers need), so that renderers
+// recording it later find them ready: a render's look-ahead. The images count as used by that frame, so
 // evictions before it is played spare them.
 prefetch_frame_images :: proc(r: ^Renderer, index: int) {
 	build_frame(r, index)
@@ -85,6 +90,8 @@ prefetch_frame_images :: proc(r: ^Renderer, index: int) {
 					}
 				}
 			}
+		case View3d:
+			view3d_make_textures(r.media, k, index)
 		}
 	}
 	diagnostics_clear(&r.ctx)
@@ -101,6 +108,9 @@ frame_record_clear_diagnostics :: proc(f: ^Frame_Record) {
 Frame_Player :: struct {
 	player: vg.Player,
 	media:  ^Media,
+	// The GPU the records' 3D layers render on (set by the owner after
+	// `frame_player_init`; nil on the CPU, where they come drawn).
+	gpu3d:  ^View3d_Gpu,
 	// The clip frame index each video image shows (parallel arrays), so an
 	// unchanged frame is not uploaded again.
 	images: [dynamic]vg.Image_Id,
@@ -139,6 +149,11 @@ play_frame_images :: proc(p: ^Frame_Player, f: ^Frame_Record) {
 	vg.player_apply(&p.player, &f.canvas)
 	for up in f.video {
 		play_video_upload(p, up)
+	}
+	if jobs := &f.view3d; jobs.count > 0 && p.gpu3d != nil {
+		if err := view3d_gpu_render(p.gpu3d, &p.media.view3d, jobs.list[:jobs.count], &p.player.images); err != nil {
+			append(&f.diagnostics, Diagnostic{severity = .Error, code = .View3d_Render, frame = f.frame, o3d = err})
+		}
 	}
 }
 

@@ -88,6 +88,8 @@ Build_Run :: struct {
 	media:        ^om.Media,
 	scale:        f32,
 	software:     bool,
+	// The GPU the players render 3D layers on (nil: the builders draw them).
+	gpu3d:        ^om.View3d_Gpu,
 	// PNG output directory ("" for MP4).
 	png_dir:      string,
 	// CPU renders with video clips: frames past `start` whose clip frames
@@ -342,6 +344,7 @@ builder_setup :: proc(b: ^Builder) -> bool {
 		return false
 	}
 	b.renderer.plays_on_gpu = !run.software
+	b.renderer.gpu3d = run.gpu3d
 	if run.software {
 		vg.software_backend_init(&b.software)
 		om.frame_player_init(&b.player, vg.software_backend(&b.software), run.media, nil)

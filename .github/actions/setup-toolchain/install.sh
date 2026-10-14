@@ -3,7 +3,7 @@
 # subcommand per cached piece:
 #
 #   install.sh odin    Odin release + the vendor C libraries that ship as source
-#                      (Box2D's is fetched from GitHub on Linux)
+#                      (Box2D's is fetched from GitHub on Linux; cgltf for o3d)
 #   install.sh sdl3    SDL3 shared library built from source (Linux, macOS)
 #   install.sh lua     Lua static library built from source (macOS)
 #   install.sh env     exports ODIN_ROOT, PATH and the linker flags
@@ -66,9 +66,9 @@ install_odin() {
 	extract_into "$dl/$asset" "$odin_dir"
 	rm -rf "${dl:?}"
 
-	# vendor:kb_text_shape, vendor:miniaudio and (on Linux) vendor:stb ship as
-	# C source on Linux and macOS; the Windows release has them prebuilt, and
-	# the macOS one has prebuilt stb. ODIN_ROOT must point here: the scripts
+	# vendor:kb_text_shape, vendor:miniaudio, vendor:cgltf (o3d's glTF import)
+	# and (on Linux) vendor:stb ship as C source on Linux and macOS; the
+	# Windows release has them prebuilt, and the macOS one has prebuilt stb. ODIN_ROOT must point here: the scripts
 	# otherwise build into whatever ODIN_ROOT the environment already has.
 	if [ "$platform" != windows ]; then
 		export ODIN_ROOT="$odin_dir"
@@ -80,6 +80,7 @@ install_odin() {
 		fi
 		sh "$odin_dir/vendor/kb_text_shape/src/build_unix.sh"
 		sh "$odin_dir/vendor/miniaudio/src/build_miniaudio.sh"
+		sh "$odin_dir/vendor/cgltf/src/build_cgltf.sh"
 	fi
 	"$odin_dir/odin" version
 }

@@ -814,6 +814,7 @@ video_render_to :: proc(app: ^App_State, regs: Command_Regs, fa: mem.Allocator) 
 		media        = &app.media,
 		scale        = r.scale,
 		software     = r.is_software,
+		gpu3d        = r.gpu3d,
 		png_dir      = out if as_png else "",
 	}
 	// No frame is in flight yet: pins left by an earlier render go.
@@ -835,6 +836,7 @@ video_render_to :: proc(app: ^App_State, regs: Command_Regs, fa: mem.Allocator) 
 		players = make([]om.Frame_Player, len(builders.builders))
 		for &p in players {
 			om.frame_player_init(&p, backend, &app.media, &shared)
+			p.gpu3d = &app.gpu3d
 		}
 		gpu_yuv = !as_png && enc.gpu_nv12_init(&yuv, app.gpu.device, int(r.width), int(r.height)) == nil
 		if as_png {
@@ -867,12 +869,6 @@ video_render_to :: proc(app: ^App_State, regs: Command_Regs, fa: mem.Allocator) 
 			failed = builders.builders[k].failure
 			break
 		}
-		for d in done.record.diagnostics {
-			if d.severity != .Info {
-				finding_add(&findings, &r.timeline, f, d)
-			}
-		}
-		om.frame_record_clear_diagnostics(&done.record)
 		switch {
 		case r.is_software && as_png:
 			if done.png_failed {
@@ -928,6 +924,13 @@ video_render_to :: proc(app: ^App_State, regs: Command_Regs, fa: mem.Allocator) 
 				failed = encoder_failure(&e, werr, f)
 			}
 		}
+		// What building, drawing and (GPU) playing the frame reported.
+		for d in done.record.diagnostics {
+			if d.severity != .Info {
+				finding_add(&findings, &r.timeline, f, d)
+			}
+		}
+		om.frame_record_clear_diagnostics(&done.record)
 		// Frames up to `f` are played (GPU) or drawn (CPU): images used
 		// only by them may go, their shared textures with them.
 		clear(&evicted)

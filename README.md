@@ -50,9 +50,10 @@ onimite is built from sibling Odin projects and Odin's vendor packages:
 | [`odecs`](https://github.com/defnotmid/odecs) | H.264 / H.265 / AAC codecs (native Odin, Vulkan Video when available), MP4, WebP, clip decoding |
 | [`oksl`](https://github.com/defnotmid/oksl) | shader compiler for SkSL, Shadertoy and GLSL: SPIR-V, MSL and a CPU interpreter |
 | [`ottis`](https://github.com/defnotmid/ottis) | text to speech with word timings (Kyutai's Pocket TTS through ONNX Runtime, loaded at run time; models downloaded on first use) |
+| [`o3d`](https://github.com/defnotmid/o3d) | 3D in three.js's vocabulary: an SDL_GPU renderer and a software one drawing the same pixels, glTF 2.0 import |
 | `vendor:lua/5.4` | the script runtime |
 | `vendor:sdl3` | GPU device and the preview window |
-| `vendor:stb`, `vendor:kb_text_shape`, `vendor:miniaudio` | fonts, images, PNG output; text shaping; ogg / mp3 / flac decoding |
+| `vendor:stb`, `vendor:kb_text_shape`, `vendor:miniaudio`, `vendor:cgltf` | fonts, images, PNG output; text shaping; ogg / mp3 / flac decoding; glTF parsing (o3d) |
 
 ## Features
 
@@ -71,13 +72,21 @@ onimite is built from sibling Odin projects and Odin's vendor packages:
   first use, kept within `--image-cache MB`), SVG documents and Lottie
   animations with per-id / per-layer overrides, video clips (.mp4, .mov,
   .webm, ProRes 4444 and VP9 alpha), subtitles and word-level captions
-  (Whisper JSON, VTT, SRT; TikTok-style `captions{}`), audio spectra.
+  (Whisper JSON, VTT, SRT; TikTok-style `captions{}`), audio spectra, glTF
+  models (.glb, .gltf).
 - **Shaders** (oksl): SkSL as in fframes, Shadertoy code and GLSL ES
   fragment shaders (a real preprocessor, `texture`, `switch`, `discard`),
   and multipass programs mixing them (`passes`: feedback, any pass's last
   frame; Shadertoy's Common + Buffer A-D + Image is one spelling). Images,
   clips and groups of nodes bind as inputs. The software backend runs the same
   shaders on oksl's CPU interpreter.
+- **3D** (o3d): `view3d{}` draws a scene described in three.js's terms
+  (perspective and orthographic cameras; ambient, hemisphere, point and
+  directional lights with PCF shadows; box, sphere, plane, cylinder and
+  torus meshes; MeshStandardMaterial and MeshBasicMaterial with texture
+  maps; an equirectangular environment and background; glTF 2.0 models
+  posed at a time of their animations) into a box composited like any
+  layer, on the GPU or, the same picture, on the CPU.
 - **Sound**: tracks on the video or scenes with gain, pan, fades, voice
   ducking and a master limiter; audio synthesized by the script
   (`audio_add`); onsets and the beat of any clip (`audio_onsets`); AAC in
@@ -115,12 +124,13 @@ git clone https://github.com/defnotmid/ovg
 git clone https://github.com/defnotmid/oksl
 git clone https://github.com/defnotmid/odecs
 git clone https://github.com/defnotmid/ottis
+git clone https://github.com/defnotmid/o3d
 cd onimite
 mkdir -p build    # a fresh clone has no build/ (gitignored); Odin will not create it
 odin build . -collection:deps=.. -o:speed -out:build/onimite
 ```
 
-`deps` is the parent directory holding `ovg`, `oksl`, `odecs` and `ottis`. Use
+`deps` is the parent directory holding `ovg`, `oksl`, `odecs`, `ottis` and `o3d`. Use
 `-o:speed`: unoptimized builds are many times slower. On Linux the binary
 links the system SDL3 (`pacman -S sdl3`, `apt install libsdl3-dev` on Ubuntu
 25.04+, otherwise build SDL 3 from source as `.github/actions/setup-toolchain`
@@ -133,6 +143,7 @@ as source; build them once:
 sh "$(odin root)/vendor/stb/src/build_stb.sh"
 sh "$(odin root)/vendor/kb_text_shape/src/build_unix.sh"
 sh "$(odin root)/vendor/miniaudio/src/build_miniaudio.sh"
+sh "$(odin root)/vendor/cgltf/src/build_cgltf.sh"
 bash "$(odin root)/vendor/box2d/build_box2d.sh"   # needs cmake; fetches Box2D 3.1.1 (its WASM step may fail: harmless)
 ```
 
@@ -152,14 +163,15 @@ brew install sdl3 lua@5.4        # lua@5.4 is keg-only; `lua` is 5.5
 # Odin's vendor C libraries that ship as source (the stb darwin libs are prebuilt):
 sh "$(odin root)/vendor/miniaudio/src/build_miniaudio.sh"
 sh "$(odin root)/vendor/kb_text_shape/src/build_unix.sh"
+sh "$(odin root)/vendor/cgltf/src/build_cgltf.sh"
 # vendor:lua links `lua5.4`; point the linker at the keg:
 odin build . -collection:deps=.. -o:speed -out:build/onimite \
     -extra-linker-flags:"-L$(brew --prefix lua@5.4)/lib"
 ```
 
 Tests take the same flag. SDL's Metal driver needs Cocoa, which starts only
-on the main thread, so the GPU test in `encode` skips under the test runner
-on macOS. There is no Vulkan Video on macOS: `render` encodes with odecs'
+on the main thread, so the GPU tests in `encode` and `onimite` (view3d's GPU
+half) skip under the test runner on macOS. There is no Vulkan Video on macOS: `render` encodes with odecs'
 native encoder.
 
 ## Use it with an AI agent
@@ -216,7 +228,8 @@ does that check once as it starts (off with `--update-check false` or
 Push a tag `vX.Y.Z` (`git tag v0.1.0 && git push origin v0.1.0`; a tag with
 a `-`, like `v0.2.0-rc1`, makes a prerelease, which the installers skip).
 `.github/workflows/release.yml` builds `-o:speed` stripped binaries against the
-default branches of ovg, oksl, odecs and ottis, with the tag as their
+default branches of ovg, oksl and odecs, and ottis and o3d at their pinned
+tags, with the tag as their
 `--version`, and publishes a GitHub release:
 
 | asset | |
@@ -414,6 +427,7 @@ Each folder in `examples/` is a `video.lua` with its `media/`.
 | `captions_demo` | word-level TikTok captions from Whisper-style JSON, two highlight styles |
 | `lottie_demo` | four Lottie files with text and shapes, one with a text-layer override |
 | `svg_demo` | an SVG bird animated by element id |
+| `three_d` | `view3d{}`: an orbiting camera, shadows, metal, standard and basic materials, a 2D title over the 3D |
 | `pip_demo` | Pip, the mascot, in each mood: one pixel-art SVG with parts shown and hidden by id |
 | `transitions` | every standard-library transition between scenes |
 | `physics_demo` | rigid bodies (`physics{}`) simulated at load: tiles dropped into a word, a pop per impact |
@@ -427,7 +441,7 @@ Each folder in `examples/` is a `video.lua` with its `media/`.
 `examples/common/synth.lua` holds the instruments the synthesized soundtracks
 share (plain Lua, not part of onimite).
 
-Every sound, voice line, clip and photo in them, and the decoder test clips
+Every sound, voice line, clip, photo and texture in them, and the decoder test clips
 in `testdata/`, are generated by `tools/gen_media/gen.sh` (onimite renders
 and synthesizes them; ffmpeg and espeak-ng convert and speak). Fonts and
 other third-party files are listed in THIRD_PARTY_NOTICES.md. The exception
@@ -452,7 +466,7 @@ fframes and their media, then `tools/bench.sh all` reproduces the run.
 
 | path | package | |
 | --- | --- | --- |
-| `onimite/` | `onimite` | core: timeline and easing, scenes, node tree, drawing, text, media, captions, time specs, SVG export |
+| `onimite/` | `onimite` | core: timeline and easing, scenes, node tree, drawing, text, media, captions, 3D layers, time specs, SVG export |
 | `script/` | `onimite_script` | the Lua host: the script API bound to the core builders; `std.lua`, the standard library |
 | `encode/` | `onimite_encode` | RGBA to BT.709 I420 (GPU compute or CPU), odecs H.264 / H.265, MP4; clip and audio decoding |
 | `app/` | `onimite_app` | command rows and one dispatch (after paf / raddbg): the commands, their output, batches, the preview |

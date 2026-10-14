@@ -27,6 +27,7 @@ KIND_COLORS := [om.Media_Kind][4]u8 {
 	.Shader    = {90, 100, 60, 255},
 	.Subtitles = {120, 60, 100, 255},
 	.Captions  = {150, 70, 90, 255},
+	.Model     = {70, 130, 90, 255},
 }
 
 @(private = "file")

@@ -170,6 +170,10 @@ export_node :: proc(e: ^Svg_Export, i: i32, m: vg.Transform2D) {
 		note_begin(b, n, e.r.ctx.shaders.labels[n.program])
 		strings.write_string(b, ", drawn to a PNG -->\n")
 		export_raster(e, i, node_bbox(e.r, i), m)
+	case View3d:
+		note_begin(b, n, view3d_contents(n))
+		strings.write_string(b, ", drawn to a PNG -->\n")
+		export_raster(e, i, node_bbox(e.r, i), m)
 	case Svg:
 		export_svg_node(e, i, n, m)
 	case Lottie:

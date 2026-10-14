@@ -188,6 +188,8 @@ Render_Worker :: struct {
 	renderer_ok:    bool,
 	gpu:            vgsdl.SDL_Backend,
 	gpu_ok:         bool,
+	// The GPU both renderers' 3D layers render on (on the window's device).
+	gpu3d:          om.View3d_Gpu,
 	slots:          [SLOT_COUNT]Slot,
 	loaded:         u64, // reload generation of the script in use
 	ever_loaded:    bool,
@@ -865,8 +867,13 @@ worker_renderer :: proc(w: ^Render_Worker, scale: f32) -> ^om.Renderer {
 // first use) or on the CPU, on the worker's pool.
 @(private = "file")
 renderer_open :: proc(w: ^Render_Worker, r: ^om.Renderer, gpu: ^vgsdl.SDL_Backend, gpu_ok: ^bool, scale: f32) -> bool {
-	if om.renderer_init(r, &w.script.video, w.media, scale, worker_backend(w, gpu, gpu_ok)) != nil {
+	backend := worker_backend(w, gpu, gpu_ok)
+	if om.renderer_init(r, &w.script.video, w.media, scale, backend) != nil {
 		return false
+	}
+	if backend != nil {
+		w.gpu3d.device = w.device
+		r.gpu3d = &w.gpu3d
 	}
 	r.pool = w.pool
 	return true
@@ -1145,6 +1152,7 @@ worker_release :: proc(w: ^Render_Worker) {
 	if w.thumb_ok {
 		om.renderer_destroy(&w.thumb)
 	}
+	om.view3d_gpu_destroy(&w.gpu3d)
 	if w.gpu_ok {
 		vgsdl.destroy(&w.gpu)
 	}

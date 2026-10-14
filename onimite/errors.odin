@@ -3,6 +3,7 @@ package onimite
 import "core:encoding/json"
 import "core:fmt"
 import "core:strings"
+import "deps:o3d"
 import vg "deps:ovg"
 import "deps:oksl"
 
@@ -99,6 +100,12 @@ Diagnostic_Code :: enum u8 {
 	Shader_Buffer,
 	Image_Upload,
 	Video_Frame_Image,
+	// 3D layers (`view3d{}`).
+	Missing_Model,
+	Missing_Animation,
+	View3d_Zero_Size,
+	Geometry_Growth,
+	View3d_Render,
 	// Nodes.
 	Rect_Zero_Size,
 	Circle_Zero_Radius,
@@ -151,6 +158,7 @@ Diagnostic :: struct {
 	lottie:     vg.Lottie_Error,
 	video:      Video_Failure,
 	shader:     oksl.Error,
+	o3d:        o3d.Error,
 	// The node of the frame's tree it is about, index + 1 (0: none); a
 	// script's `node_source` names the line that made it.
 	node:       i32,
@@ -198,6 +206,11 @@ DIAGNOSTIC_TEXT := [Diagnostic_Code]string {
 	.Shader_Buffer             = "shader buffer {width}x{height}: {gpu}",
 	.Image_Upload              = "image {q:name} could not be uploaded: {gpu}",
 	.Video_Frame_Image         = "video frame image: {gpu}",
+	.Missing_Model             = "no glTF model {q:name} in the media",
+	.Missing_Animation         = "glTF model {q:name} has no animation {q:animation}",
+	.View3d_Zero_Size          = "view3d with zero size at ({x}, {y}) is skipped",
+	.Geometry_Growth           = "{kind} made again with other parameters on a later frame of its scene: each new set of geometry parameters makes and keeps a mesh, so change a size through the mesh's `scale`, not its geometry's parameters",
+	.View3d_Render             = "view3d could not be drawn: {o3d}",
 	.Rect_Zero_Size            = "rect with zero size at ({x}, {y}) is skipped",
 	.Circle_Zero_Radius        = "circle with zero radius at ({x}, {y}) is skipped",
 	.Ellipse_Zero_Radius       = "ellipse with zero radius at ({x}, {y}) is skipped",
@@ -269,6 +282,11 @@ DIAGNOSTIC_KEY := [Diagnostic_Code]string {
 	.Shader_Buffer             = "",
 	.Image_Upload              = "",
 	.Video_Frame_Image         = "",
+	.Missing_Model             = "missing_media:{name}",
+	.Missing_Animation         = "model_animation:{name}:{animation}",
+	.View3d_Zero_Size          = "",
+	.Geometry_Growth           = "geometry_growth:{kind}",
+	.View3d_Render             = "",
 	.Rect_Zero_Size            = "",
 	.Circle_Zero_Radius        = "",
 	.Ellipse_Zero_Radius       = "",
@@ -313,6 +331,7 @@ Operand :: enum u8 {
 	Lottie,
 	Video,
 	Shader,
+	O3d,
 	// Where a compile error is: the shader's name and the error's position.
 	At,
 	// " (did you mean `b`?)" when `b` is set; not a --json field.
@@ -378,6 +397,8 @@ OPERAND_NAMES := [?]struct {
 	{"line", .A},
 	{"reason", .B},
 	{"voice", .B},
+	{"animation", .A},
+	{"o3d", .O3d},
 }
 
 @(private)
@@ -592,6 +613,9 @@ write_field :: proc(b: ^strings.Builder, field: string, mode: string, d: Diagnos
 		return true
 	case .Shader:
 		strings.write_string(b, oksl.error_message(d.shader, context.temp_allocator))
+		return true
+	case .O3d:
+		fmt.sbprintf(b, "%v", d.o3d)
 		return true
 	case .Hint:
 		if d.b != "" {

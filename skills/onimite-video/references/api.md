@@ -12,6 +12,7 @@ The rest is in topic files; read one when the video needs it:
 | [media.md](media.md) | SVG documents, Lottie, video clips, subtitles, word-level captions |
 | [shaders.md](shaders.md) | SkSL, Shadertoy and GLSL shaders, multipass passes in any dialect |
 | [filters.md](filters.md) | SVG filter primitives on groups |
+| [3d.md](3d.md) | 3D scenes in three.js's terms (`view3d{}`): cameras, lights, shadows, meshes, materials, glTF models |
 | [problems.md](problems.md) | every problem code and `--json` field |
 
 ## Video and scenes
@@ -603,6 +604,25 @@ memory only for the ones the video shows. Decoded images stay within a budget
 decode again when a later frame (or a seek back in the preview) shows them; images the
 frames being built use are kept. Rounded images: wrap in a group with
 `clip_path` (e.g. a rounded-rect path) or a `mask`.
+
+## 3D
+
+```lua
+view3d { x = 0, y = 0, w = 1920, h = 1080,                -- default: the whole video
+  camera = { type = "PerspectiveCamera", fov = 40, position = { 0, 2, 6 }, target = { 0, 0.5, 0 } },
+  lights = { { type = "DirectionalLight", intensity = 2.5, position = { 3, 5, 2 } },
+    { type = "AmbientLight", intensity = 0.4 } },
+  meshes = { { geometry = { type = "BoxGeometry", width = 1, height = 1, depth = 1 },
+    material = { color = "#ff5a4d", roughness = 0.4 }, rotation = { 0, f.seconds, 0 } } },
+}
+```
+
+A 3D scene in three.js's names (`type` is the three.js class; properties in snake case),
+drawn into the box and composited like an image: transparent where nothing is drawn, with
+`opacity`, under the groups' transforms, masks and blends. Lights with shadows,
+MeshStandardMaterial and MeshBasicMaterial with texture maps from `media/`, glTF models
+(`.glb`/`.gltf` in `media/`) at a time of their animation, an environment map: read
+[3d.md](3d.md). Animate sizes through a mesh's `scale`, not its geometry's parameters.
 
 ## Script environment
 

@@ -664,6 +664,7 @@ API := [?]Api_Function {
 	{"lottie", l_lottie, .Render},
 	{"lottie_info", l_lottie_info, .Render},
 	{"shader", l_shader, .Render},
+	{"view3d", l_view3d, .Render},
 	{"video_frame", l_video_frame, .Render},
 	{"video_info", l_video_info, .Render},
 	{"subtitle_at", l_subtitle_at, .Render},

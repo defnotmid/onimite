@@ -631,7 +631,8 @@ shader_channel :: proc(ctx: ^Context, f: Frame, label: string, in_: Shader_Input
 Shader_State :: struct {
 	programs:      [dynamic][oksl.PASS_MAX]vg.Program_Id,
 	cpu:           [dynamic][oksl.PASS_MAX]^Shader_Cpu,
-	// Output images: parallel arrays, reused across frames.
+	// Layers' images (shader outputs, 3D renders; `frame_image`):
+	// parallel arrays, reused across frames.
 	image:         [dynamic]vg.Image_Id,
 	width:         [dynamic]u32,
 	height:        [dynamic]u32,
@@ -695,11 +696,8 @@ draw_shader :: proc(r: ^Renderer, n: Shader, sim := false) {
 	if !ran || sim {
 		return
 	}
-	c := &r.canvas
-	xf := vg.current_transform(c)
-	sx := math.hypot(xf[0], xf[1])
-	sy := math.hypot(xf[2], xf[3])
-	if !(sx > 0) || !(sy > 0) {
+	sx, sy, shown := layer_scale(r)
+	if !shown {
 		return
 	}
 	out := g.output
@@ -709,15 +707,12 @@ draw_shader :: proc(r: ^Renderer, n: Shader, sim := false) {
 		if !ok {
 			return
 		}
-		image = shader_image(r, u32(clamp(math.ceil(n.w * sx), 1, 8192)), u32(clamp(math.ceil(n.h * sy), 1, 8192)))
+		image = frame_image(r, layer_pixels(n.w, n.h, sx, sy))
 		if !vg.image_id_valid(image) || !shader_run_pass(r, n, g, out, prog, image, outputs, sx, sy) {
 			return
 		}
 	}
-	paint := vg.paint_image(image, n.x, n.y, n.w, n.h, 0, n.opacity.? or_else 1)
-	vg.path_reset(&r.path)
-	vg.path_rect(&r.path, n.x, n.y, n.w, n.h)
-	vg.fill_path(c, &r.path, paint)
+	fill_layer(r, image, {n.x, n.y, n.w, n.h}, n.opacity)
 }
 
 // Runs pass `pi` of shader `n` (ovg program `prog`) into `target`, its
@@ -834,10 +829,36 @@ shader_register :: proc(r: ^Renderer, m: ^oksl.Module, cpu: ^^Shader_Cpu) -> (vg
 	)
 }
 
-// A `w x h` output image not used yet this frame: one of that size, else
-// a free one resized, else a new one.
+// The pixels per unit a layer drawn now shows at (the canvas's current
+// transform); false when it does not show (scaled to nothing).
 @(private)
-shader_image :: proc(r: ^Renderer, w, h: u32) -> vg.Image_Id {
+layer_scale :: proc(r: ^Renderer) -> (sx, sy: f32, shown: bool) {
+	xf := vg.current_transform(&r.canvas)
+	sx, sy = math.hypot(xf[0], xf[1]), math.hypot(xf[2], xf[3])
+	return sx, sy, sx > 0 && sy > 0
+}
+
+// The pixel size of a `w x h` layer at `sx x sy` pixels per unit, which an
+// image rendered for it has so that it stays sharp.
+@(private)
+layer_pixels :: proc "contextless" (w, h, sx, sy: f32) -> (pw, ph: u32) {
+	return u32(clamp(math.ceil(w * sx), 1, 8192)), u32(clamp(math.ceil(h * sy), 1, 8192))
+}
+
+// Fills a layer's box with its image, rendered at the box's pixel size.
+@(private)
+fill_layer :: proc(r: ^Renderer, image: vg.Image_Id, box: vg.Rect, opacity: Maybe(f32)) {
+	paint := vg.paint_image(image, box.x, box.y, box.w, box.h, 0, opacity.? or_else 1)
+	vg.path_reset(&r.path)
+	vg.path_rect(&r.path, box.x, box.y, box.w, box.h)
+	vg.fill_path(&r.canvas, &r.path, paint)
+}
+
+// A `w x h` image for a layer of this frame (a shader's output, a 3D
+// render) not used yet this frame: one of that size, else a free one
+// resized, else a new one.
+@(private)
+frame_image :: proc(r: ^Renderer, w, h: u32) -> vg.Image_Id {
 	s := &r.shader_state
 	frame_no := r.ctx.frame.global_index
 	free_slot := -1

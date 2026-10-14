@@ -346,6 +346,7 @@ Node_Kind :: union {
 	Shader,
 	Svg,
 	Lottie,
+	View3d,
 }
 
 // The name a node kind goes by in listings and findings.
@@ -375,6 +376,8 @@ node_kind_name :: proc "contextless" (k: Node_Kind) -> string {
 		return "svg"
 	case Lottie:
 		return "lottie"
+	case View3d:
+		return "view3d"
 	}
 	return "node"
 }
@@ -390,6 +393,8 @@ node_label :: proc(tree: ^Tree, i: i32) -> string {
 		return fmt.tprintf("image %s", k.src)
 	case Svg:
 		return fmt.tprintf("svg %s", k.src)
+	case View3d:
+		return fmt.tprintf("view3d of %s", view3d_contents(k))
 	case Group:
 		kids := 0
 		for c := n.first_child; c != NO_NODE; c = tree.nodes[c].next {

@@ -45,6 +45,8 @@ App_State :: struct {
 	image_budget:   int,
 	gpu:            vgsdl.SDL_Backend,
 	gpu_ready:      bool,
+	// The GPU 3D layers render on (on `gpu`'s device).
+	gpu3d:          om.View3d_Gpu,
 	// The GPU could not be set up: renderers draw on the CPU (the choice
 	// in `software` stays the user's).
 	gpu_failed:     bool,
@@ -118,6 +120,7 @@ app_destroy :: proc(app: ^App_State) {
 	if app.renderer_ready {
 		om.renderer_destroy(&app.renderer)
 	}
+	om.view3d_gpu_destroy(&app.gpu3d)
 	if app.gpu_ready {
 		vgsdl.destroy(&app.gpu)
 	}
@@ -333,6 +336,7 @@ renderer :: proc(app: ^App_State, scale: f32) -> (^om.Renderer, Error) {
 				app.gpu_failed = true
 			} else {
 				app.gpu_ready = true
+				app.gpu3d.device = app.gpu.device
 			}
 		}
 		if app.gpu_ready && !app.software {
@@ -342,6 +346,9 @@ renderer :: proc(app: ^App_State, scale: f32) -> (^om.Renderer, Error) {
 			return nil, fail(app, {code = .Renderer, render = err})
 		}
 		app.renderer.pool = app.pool
+		if backend != nil {
+			app.renderer.gpu3d = &app.gpu3d
+		}
 		app.renderer_ready = true
 		app.renderer_scale = scale
 	}

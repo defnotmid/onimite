@@ -73,6 +73,11 @@ Renderer :: struct {
 	video_uploads: [dynamic]Video_Upload,
 	// Shader programs and outputs (shader.odin).
 	shader_state: Shader_State,
+	// 3D layers (view3d.odin), and the GPU they render on: nil for the
+	// CPU; a recording renderer leaves them to its player's (set by the
+	// owner after `renderer_init`).
+	view3d:       View3d_State,
+	gpu3d:        ^View3d_Gpu,
 	// ovg's SVG and Lottie renderers serve one document each (bound to its
 	// images): one per document this renderer has drawn, found by document
 	// (parallel arrays), and the overrides of the node being drawn.
@@ -119,6 +124,7 @@ renderer_destroy :: proc(r: ^Renderer) {
 	vg.layer_stack_destroy(&r.layers, &r.canvas)
 	video_images_destroy(&r.video_images, &r.canvas)
 	shader_state_destroy(&r.shader_state, &r.canvas)
+	view3d_state_destroy(&r.view3d)
 	for &sr in r.svg_renderers {
 		vg.svg_renderer_destroy(&sr, &r.canvas)
 	}
@@ -176,9 +182,8 @@ render_frame :: proc(r: ^Renderer, index: int, output: vg.Render_Output = 0, rea
 	build_frame(r, index)
 	feedback_catch_up(r, index)
 	draw_frame(r)
-	c := &r.canvas
 	r.software.pool = r.pool
-	vg.flush(c, output)
+	flush_frame(r, output)
 	if r.is_software {
 		return r.software.pixels
 	}
@@ -186,7 +191,7 @@ render_frame :: proc(r: ^Renderer, index: int, output: vg.Render_Output = 0, rea
 		return nil
 	}
 	delete(r.readback.pixels)
-	r.readback, _ = vg.screenshot(c)
+	r.readback, _ = vg.screenshot(&r.canvas)
 	return r.readback.pixels
 }
 
@@ -279,13 +284,26 @@ render_node :: proc(r: ^Renderer, i: i32, box: vg.Rect, pw, ph: u32) -> []u8 {
 	vg.layer_stack_begin(&r.layers, c, pw, ph, nil, false)
 	draw_node(r, i)
 	vg.layer_stack_end(&r.layers, c)
-	vg.flush(c, 0)
+	flush_frame(r, 0)
 	if r.is_software {
 		return r.software.pixels
 	}
 	delete(r.readback.pixels)
 	r.readback, _ = vg.screenshot(c)
 	return r.readback.pixels
+}
+
+// Draws the canvas into `output`, after the frame's 3D renders on the GPU,
+// whose images it shows.
+@(private = "file")
+flush_frame :: proc(r: ^Renderer, output: vg.Render_Output) {
+	if jobs := &r.view3d.jobs; jobs.count > 0 {
+		if err := view3d_gpu_render(r.gpu3d, &r.media.view3d, jobs.list[:jobs.count], &r.canvas.images); err != nil {
+			report(&r.ctx, .Error, {code = .View3d_Render, o3d = err})
+		}
+		jobs.count = 0
+	}
+	vg.flush(&r.canvas, output)
 }
 
 @(private = "file")
@@ -390,6 +408,8 @@ draw_node :: proc(r: ^Renderer, i: i32) {
 		draw_svg(r, n)
 	case Lottie:
 		draw_lottie(r, n)
+	case View3d:
+		draw_view3d(r, n)
 	}
 }
 
@@ -982,6 +1002,8 @@ node_bbox :: proc(r: ^Renderer, i: i32) -> vg.Rect {
 		b, _ := fit_box(n.x, n.y, n.w, n.h, fw, fh, n.fit, n.align)
 		return b
 	case Shader:
+		return {n.x, n.y, n.w, n.h}
+	case View3d:
 		return {n.x, n.y, n.w, n.h}
 	}
 	return EMPTY

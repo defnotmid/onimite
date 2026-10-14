@@ -77,12 +77,18 @@ jobs:
           # Pinned: ottis is released on its own; a new tag is taken on purpose.
           ref: v0.0.1
           path: ottis
+      - uses: actions/checkout@v4
+        with:
+          repository: defnotmid/o3d
+          # Pinned like ottis: o3d is released on its own (v0.0.2: a1874865).
+          ref: v0.0.2
+          path: o3d
 
       - uses: ./onimite/.github/actions/setup-toolchain
 
       - name: Record sibling revisions
         run: |
-          for r in ovg oksl odecs ottis; do
+          for r in ovg oksl odecs ottis o3d; do
             echo "$r $(git -C "$r" rev-parse HEAD)"
           done
 
