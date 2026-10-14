@@ -179,15 +179,14 @@ clone_slice :: proc(s: []$T, allocator: runtime.Allocator) -> []T {
 // name (loaded with it), and the media images used as textures by name
 // (added the first time a frame uses them). Frames built on several
 // threads at once read and add to them: `lock` is taken shared to read
-// (filling a scene, rendering it) and exclusive to add. `gltf_draw` poses
-// a model in the model's own scratch, so posing takes `posing`.
+// (filling a scene, rendering it) and exclusive to add. Models are posed in
+// each renderer's own `View3d_State.pose`, so posing only reads them.
 View3d_Media :: struct {
 	lock:        sync.RW_Mutex,
 	geometries:  o3d.Geometries,
 	textures:    o3d.Textures,
 	shaders:     o3d.Shaders,
 	models:      map[string]o3d.Model,
-	posing:      sync.Mutex,
 	textures_of: map[string]o3d.Texture_Id,
 	// What the tables grow in, whichever thread adds to them.
 	allocator:   runtime.Allocator,
@@ -219,20 +218,23 @@ view3d_media_destroy :: proc(v: ^View3d_Media) {
 }
 
 // Loads glTF 2.0 file `path` (.glb, or .gltf with its files beside it) as
-// model `name`: its meshes and images join the tables. False when it does
-// not load.
+// model `name`: its meshes and images join the tables. Why it did not load
+// otherwise.
 @(private)
-view3d_add_model :: proc(v: ^View3d_Media, name, path: string) -> bool {
+view3d_add_model :: proc(v: ^View3d_Media, name, path: string) -> o3d.Gltf_Error {
 	context.allocator = v.allocator
 	sync.guard(&v.lock)
-	model := o3d.gltf_load(path, &v.geometries, &v.textures) or_return
+	model, err := o3d.gltf_load(path, &v.geometries, &v.textures)
+	if err != .None {
+		return err
+	}
 	if old, exists := &v.models[name]; exists {
 		o3d.model_destroy(old)
 		old^ = model
 	} else {
 		v.models[strings.clone(name)] = model
 	}
-	return true
+	return .None
 }
 
 // Makes the meshes of node `n` that the tables lack; returns the geometry
@@ -345,6 +347,8 @@ View3d_State :: struct {
 	software: o3d.Software,
 	jobs:     View3d_Jobs,
 	drawn:    [dynamic]Drawn_Geometry,
+	// Where this renderer poses glTF models (sized on first use).
+	pose:     o3d.Model_Pose,
 }
 
 @(private)
@@ -358,6 +362,7 @@ Drawn_Geometry :: struct {
 @(private)
 view3d_state_destroy :: proc(s: ^View3d_State) {
 	o3d.software_destroy(&s.software)
+	o3d.model_pose_destroy(&s.pose)
 	view3d_jobs_destroy(&s.jobs)
 	delete(s.drawn)
 	s^ = {}
@@ -436,8 +441,7 @@ view3d_scene :: proc(r: ^Renderer, n: View3d, scene: ^o3d.Scene) {
 			named := pose.animation if pose.animation != "" else fmt.tprint(pose.animation_index)
 			report(&r.ctx, .Error, {code = .Missing_Animation, name = pose.src, a = named})
 		}
-		sync.guard(&v.posing)
-		o3d.gltf_draw(scene, model, o3d.compose(pose.position, pose.rotation, pose.scale), anim, pose.time, pose.loop, pose.flags)
+		o3d.gltf_draw(scene, model, o3d.compose(pose.position, pose.rotation, pose.scale), anim, pose.time, pose.loop, pose.flags, &r.view3d.pose)
 	}
 	scene.environment = view3d_texture(r, n.environment)
 	scene.environment_intensity = n.environment_intensity

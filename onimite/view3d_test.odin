@@ -191,7 +191,7 @@ test_view3d_gltf :: proc(t: ^testing.T) {
 	testing.expect_value(t, kind, Media_Kind.Model)
 	testing.expect_value(t, len(media.problems), 1)
 	if len(media.problems) == 1 {
-		testing.expect_value(t, diagnostic_message(media.problems[0], context.temp_allocator), `media file "broken.glb" can not be decoded as a glTF 2.0 model`)
+		testing.expect_value(t, diagnostic_message(media.problems[0], context.temp_allocator), `media file "broken.glb" can not be decoded as a glTF 2.0 model (the data ends early)`)
 	}
 
 	@(static) scenes: [1]Scene

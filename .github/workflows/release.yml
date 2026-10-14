@@ -80,8 +80,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/o3d
-          # Pinned like ottis: o3d is released on its own (v0.0.2: a1874865).
-          ref: v0.0.2
+          # Pinned like ottis: o3d is released on its own (v0.0.3: a1906aab).
+          ref: v0.0.3
           path: o3d
 
       - uses: ./onimite/.github/actions/setup-toolchain

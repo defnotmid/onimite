@@ -9,6 +9,7 @@ import "core:strings"
 import "core:sync"
 import "base:runtime"
 import "core:thread"
+import o3d "deps:o3d"
 import vg "deps:ovg"
 import webp "deps:odecs/codec/webp"
 import stbi "vendor:stb/image"
@@ -664,8 +665,8 @@ media_load_dir :: proc(m: ^Media, dir: string, pool: ^thread.Pool = nil) -> Erro
 		case .Image:
 			add_image_file(m, fi.name, fi.fullpath)
 		case .Model:
-			if !view3d_add_model(&m.view3d, fi.name, fi.fullpath) {
-				media_problem(m, {code = .Undecodable_Media, name = fi.name, a = MEDIA_KINDS[.Model].undecodable})
+			if err := view3d_add_model(&m.view3d, fi.name, fi.fullpath); err != .None {
+				media_problem(m, {code = .Undecodable_Media, name = fi.name, a = fmt.tprintf("%s (%s)", MEDIA_KINDS[.Model].undecodable, o3d.GLTF_ERROR_TEXT[err])})
 			}
 		case .Font, .Shader, .Subtitles:
 			data, read_err := os.read_entire_file(fi.fullpath, context.allocator)
