@@ -84,9 +84,10 @@ onimite is built from sibling Odin projects and Odin's vendor packages:
   (perspective and orthographic cameras; ambient, hemisphere, point and
   directional lights with PCF shadows; box, sphere, plane, cylinder and
   torus meshes; MeshStandardMaterial and MeshBasicMaterial with texture
-  maps; an equirectangular environment and background; glTF 2.0 models
-  posed at a time of their animations) into a box composited like any
-  layer, on the GPU or, the same picture, on the CPU.
+  maps, and GLSL ES ShaderMaterial; an equirectangular environment and
+  background; glTF 2.0 models, including skinned characters, posed at a
+  time of their animations with optional material overrides) into a box
+  composited like any layer, on the GPU or, the same picture, on the CPU.
 - **Sound**: tracks on the video or scenes with gain, pan, fades, voice
   ducking and a master limiter; audio synthesized by the script
   (`audio_add`); onsets and the beat of any clip (`audio_onsets`); AAC in
@@ -427,7 +428,7 @@ Each folder in `examples/` is a `video.lua` with its `media/`.
 | `captions_demo` | word-level TikTok captions from Whisper-style JSON, two highlight styles |
 | `lottie_demo` | four Lottie files with text and shapes, one with a text-layer override |
 | `svg_demo` | an SVG bird animated by element id |
-| `three_d` | `view3d{}`: an orbiting camera, shadows, metal, standard and basic materials, a 2D title over the 3D |
+| `three_d` | `view3d{}`: an orbiting camera, shadows, metal, standard, basic and custom `ShaderMaterial` meshes, a 2D title over the 3D |
 | `pip_demo` | Pip, the mascot, in each mood: one pixel-art SVG with parts shown and hidden by id |
 | `transitions` | every standard-library transition between scenes |
 | `physics_demo` | rigid bodies (`physics{}`) simulated at load: tiles dropped into a word, a pop per impact |

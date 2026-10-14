@@ -612,7 +612,11 @@ write_field :: proc(b: ^strings.Builder, field: string, mode: string, d: Diagnos
 		strings.write_string(b, video_failure_message(d.video, context.temp_allocator))
 		return true
 	case .Shader:
-		strings.write_string(b, oksl.error_message(d.shader, context.temp_allocator))
+		if d.a != "" {
+			strings.write_string(b, d.a)
+		} else {
+			strings.write_string(b, oksl.error_message(d.shader, context.temp_allocator))
+		}
 		return true
 	case .O3d:
 		fmt.sbprintf(b, "%v", d.o3d)
@@ -624,9 +628,16 @@ write_field :: proc(b: ^strings.Builder, field: string, mode: string, d: Diagnos
 		return true
 	case .At:
 		// `name:line:col`, with the pass of a program of passes
-		// (`name: Buffer A:line:col`; the pass is `b`).
+		// (`name: Buffer A:line:col`; the pass is `b`), or a pre-formatted
+		// `Stage:line:col` in `name` when `pos.line == 0`.
 		pos := d.shader.pos
-		if d.b != "" {
+		if pos.line == 0 {
+			if d.b != "" {
+				fmt.sbprintf(b, "%s: %s", d.name, d.b)
+			} else {
+				strings.write_string(b, d.name)
+			}
+		} else if d.b != "" {
 			fmt.sbprintf(b, "%s: %s:%d:%d", d.name, d.b, pos.line, pos.col)
 		} else {
 			fmt.sbprintf(b, "%s:%d:%d", d.name, pos.line, pos.col)

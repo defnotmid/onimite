@@ -158,7 +158,7 @@ The examples in the onimite repository are working patterns to read and borrow f
 | `examples/captions_demo` | word-level TikTok captions from a Whisper-style JSON: `captions{}` with a sliding box and a colour pop, `max_duration` / `combine_ms` paging, synthesized beat |
 | `examples/lottie_demo` | `lottie{}`: After Effects (Lottie) animations at the scene clock, a speed / offset, a script-picked frame, a per-layer override; `lottie_info` |
 | `examples/svg_demo` | `svg{}` with per-id overrides (a flapping bird) |
-| `examples/three_d` | `view3d{}`: a 3D scene in three.js's terms (an orbiting camera, a shadow-casting light, standard, metal and basic materials, a textured floor, a generated sky as the environment) under a 2D title card |
+| `examples/three_d` | `view3d{}`: a 3D scene in three.js's terms (an orbiting camera, a shadow-casting light, standard, metal, basic and custom `ShaderMaterial` meshes, a textured floor, a generated sky as the environment) under a 2D title card |
 | `examples/pip_demo` | Pip, the mascot (`examples/common/pip.lua`): a pixel-art SVG whose `display="none"` parts (blink, moods, spark frames) are swapped with `visible` overrides, a squash on the beat |
 | `examples/transitions` | every `transition` kind between scenes (`scene{ transition = ... }`), `stagger`, `loop`, `sequence` |
 | `examples/physics_demo` | rigid bodies: `physics{}` simulated once at load (in `shared`), tiles dropped into a word with `start` staggers, `physics_at` per frame, a pop per impact from `sim.contacts` (the saga's NotNeeded scene: a wrecking ball on a rope; why_onimite's Ship: 311 grains poured) |

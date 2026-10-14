@@ -202,7 +202,7 @@ read_mesh :: proc(L: ^lua.State, s: ^Script, t: c.int) -> (m: om.Mesh, ok: bool)
 	m.material = o3d.MATERIAL_DEFAULT
 	field(L, t, "material")
 	if lua.istable(L, -1) {
-		read_material(L, s, lua.absindex(L, -1), &m)
+		read_material(L, s, lua.absindex(L, -1), &m.material, &m.maps, &m.shader)
 	}
 	lua.pop(L, 1)
 	if get_bool(L, t, "cast_shadow", false) {
@@ -246,22 +246,22 @@ read_geometry :: proc(L: ^lua.State, s: ^Script, t: c.int) -> (key: o3d.Geometry
 	return key, true
 }
 
-// MeshStandardMaterial, or MeshBasicMaterial (unlit: its colour, opacity
-// and `map`). Texture maps are media images by name.
+// MeshStandardMaterial, MeshBasicMaterial (unlit: its colour, opacity and
+// `map`) or ShaderMaterial (custom GLSL ES vertex and fragment shaders and
+// per-frame uniforms). Texture maps are media images by name.
 @(private = "file")
-read_material :: proc(L: ^lua.State, s: ^Script, t: c.int, mesh: ^om.Mesh) {
+read_material :: proc(L: ^lua.State, s: ^Script, t: c.int, m: ^o3d.Material, maps: ^[om.Texture_Map]string, shader: ^Maybe(om.Shader_Material)) {
 	outer := fields_push(L, t)
 	defer fields_pop(L, s, t, "material", outer)
-	m := &mesh.material
-	switch kind := get_str(L, t, "type", "MeshStandardMaterial"); kind {
+	kind := get_str(L, t, "type", "MeshStandardMaterial")
+	switch kind {
 	case "MeshStandardMaterial":
 	case "MeshBasicMaterial":
 		m.flags += {.Basic}
+	case "ShaderMaterial":
 	case:
-		bad_string(L, "material type", kind, "MeshStandardMaterial or MeshBasicMaterial")
+		bad_string(L, "material type", kind, "MeshStandardMaterial, MeshBasicMaterial or ShaderMaterial")
 	}
-	m.color = read_color3(L, t, "color", m.color)
-	m.opacity = get_num(L, t, "opacity", m.opacity)
 	if get_bool(L, t, "transparent", false) {
 		m.flags += {.Transparent}
 	}
@@ -275,7 +275,32 @@ read_material :: proc(L: ^lua.State, s: ^Script, t: c.int, mesh: ^om.Mesh) {
 	case:
 		bad_string(L, "material side", side, "front, back or double")
 	}
-	mesh.maps[.Color] = get_str(L, t, om.TEXTURE_MAPS[.Color], "")
+	if kind == "ShaderMaterial" {
+		sh := om.Shader_Material {
+			vertex_shader   = get_str(L, t, "vertex_shader", ""),
+			fragment_shader = get_str(L, t, "fragment_shader", ""),
+			glsl3           = get_bool(L, t, "glsl3", false),
+		}
+		field(L, t, "uniforms")
+		if lua.istable(L, -1) {
+			ut := lua.absindex(L, -1)
+			uniforms := make([dynamic]o3d.Uniform, context.temp_allocator)
+			for key in sorted_keys(L, ut) {
+				push_key(L, ut, key)
+				values := make([dynamic]f32, context.temp_allocator)
+				read_shader_floats(L, -1, &values)
+				append(&uniforms, o3d.Uniform{name = key, value = values[:]})
+				lua.pop(L, 1)
+			}
+			sh.uniforms = uniforms[:]
+		}
+		lua.pop(L, 1)
+		shader^ = sh
+		return
+	}
+	m.color = read_color3(L, t, "color", m.color)
+	m.opacity = get_num(L, t, "opacity", m.opacity)
+	maps[.Color] = get_str(L, t, om.TEXTURE_MAPS[.Color], "")
 	if .Basic in m.flags {
 		return
 	}
@@ -288,14 +313,43 @@ read_material :: proc(L: ^lua.State, s: ^Script, t: c.int, mesh: ^om.Mesh) {
 	}
 	for k in om.Texture_Map {
 		if k != .Color {
-			mesh.maps[k] = get_str(L, t, om.TEXTURE_MAPS[k], "")
+			maps[k] = get_str(L, t, om.TEXTURE_MAPS[k], "")
+		}
+	}
+}
+
+// Numbers, booleans, colours (`"#rrggbb"`, `rgb(...)`, `0xff8800`: linear
+// RGBA) and nested lists, flattened.
+@(private = "file")
+read_shader_floats :: proc(L: ^lua.State, at: c.int, out: ^[dynamic]f32) {
+	idx := lua.absindex(L, at)
+	#partial switch lua.type(L, idx) {
+	case .NUMBER:
+		append(out, f32(lua.tonumber(L, idx)))
+	case .BOOLEAN:
+		append(out, f32(1) if lua.toboolean(L, idx) else 0)
+	case .STRING:
+		col := read_color_value(L, idx)
+		append(out, o3d.srgb_to_linear(col.r), o3d.srgb_to_linear(col.g), o3d.srgb_to_linear(col.b), col.a)
+	case .TABLE:
+		if has_field(L, idx, "r") {
+			col := read_color_value(L, idx)
+			append(out, o3d.srgb_to_linear(col.r), o3d.srgb_to_linear(col.g), o3d.srgb_to_linear(col.b), col.a)
+			return
+		}
+		n := int(lua.rawlen(L, idx))
+		for i in 1 ..= n {
+			lua.rawgeti(L, idx, lua.Integer(i))
+			read_shader_floats(L, -1, out)
+			lua.pop(L, 1)
 		}
 	}
 }
 
 // A glTF model of the media (`src`), placed by position, rotation and
 // scale, posed at `time` seconds (default the frame's) of `animation` (a
-// name or an index; none: its rest pose), looping unless `loop = false`.
+// name or an index; none: its rest pose), looping unless `loop = false`,
+// with optional shadow flags or a `material` override.
 @(private = "file")
 read_model :: proc(L: ^lua.State, s: ^Script, t: c.int) -> (p: om.Model_Pose, ok: bool) {
 	outer := fields_push(L, t)
@@ -320,6 +374,13 @@ read_model :: proc(L: ^lua.State, s: ^Script, t: c.int) -> (p: om.Model_Pose, ok
 	lua.pop(L, 1)
 	p.time = get_num(L, t, "time", om.frame_seconds(s.frame))
 	p.loop = get_bool(L, t, "loop", true)
+	field(L, t, "material")
+	if lua.istable(L, -1) {
+		over := om.Model_Material{material = o3d.MATERIAL_DEFAULT}
+		read_material(L, s, lua.absindex(L, -1), &over.material, &over.maps, &over.shader)
+		p.material = over
+	}
+	lua.pop(L, 1)
 	if get_bool(L, t, "cast_shadow", false) {
 		p.flags += {.Cast_Shadow}
 	}

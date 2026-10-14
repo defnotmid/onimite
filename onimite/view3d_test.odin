@@ -7,6 +7,7 @@ import "core:math"
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
+import "core:sync"
 import "core:testing"
 import "deps:o3d"
 import vgsdl "deps:ovg/sdlgpu"
@@ -74,6 +75,7 @@ test_view3d_layer :: proc(t: ^testing.T) {
 	testing.expect(t, green, "the basic sphere is unlit green")
 	cpu := strings.clone(string(px), context.temp_allocator)
 
+	sync.guard(&sdl_lock)
 	if !sdl.Init({.VIDEO}) {
 		sdl.SetHint(sdl.HINT_VIDEO_DRIVER, "offscreen")
 		if !sdl.Init({.VIDEO}) {
@@ -282,3 +284,168 @@ test_gltf :: proc() -> string {
   }}]
 }}`, data)
 }
+
+@(private = "file")
+sdl_lock: sync.Mutex
+
+@(private = "file")
+SHADER_VERT :: `varying vec2 vUv;
+uniform float uShift;
+void main() {
+  vUv = uv;
+  vec3 p = position + vec3(uShift, 0.0, 0.0);
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+}`
+
+@(private = "file")
+SHADER_FRAG :: `varying vec2 vUv;
+uniform vec3 uColor;
+void main() {
+  gl_FragColor = vec4(uColor * (0.5 + 0.5 * vUv.x), 1.0);
+}`
+
+// ShaderMaterial on a mesh and a material override on a glTF model: rendered
+// on the CPU and on the GPU (within 40 dB), compiled once across frames, and
+// reporting compile errors, undeclared uniforms and unset uniforms while
+// skipping failed draws.
+@(test)
+test_view3d_shader_material :: proc(t: ^testing.T) {
+	dir, derr := os.make_directory_temp("", "onimite_view3d_shader_*", context.temp_allocator)
+	testing.expect(t, derr == nil)
+	defer os.remove_all(dir)
+	tri_path, _ := filepath.join({dir, "tri.gltf"}, context.temp_allocator)
+	testing.expect(t, os.write_entire_file(tri_path, transmute([]u8)test_gltf()) == nil)
+
+	media: Media
+	media_init(&media)
+	defer media_destroy(&media)
+	testing.expect_value(t, media_load_dir(&media, dir), Error.None)
+
+	render_clean :: proc(f: Frame, ctx: ^Context) {
+		cam := o3d.CAMERA_DEFAULT
+		cam.position = {0, 0, 3.5}
+		override := Model_Material{material = MATERIAL_GREEN_BASIC}
+		override.material.side = .Double
+		view3d(ctx, f, {
+			w = 80, h = 48,
+			camera = cam,
+			meshes = {{
+				geometry = {.Box, {1, 1, 1, 1, 1, 1, 0}},
+				position = {-0.8, 0, 0},
+				rotation = {0.2, 0.4, 0},
+				scale    = {1, 1, 1},
+				shader   = Shader_Material{
+					vertex_shader   = SHADER_VERT,
+					fragment_shader = SHADER_FRAG,
+					uniforms        = {{name = "uShift", value = {0}}, {name = "uColor", value = {0, 0.5, 1}}},
+				},
+			}},
+			models = {{
+				src             = "tri.gltf",
+				position        = {0.8, 0, 0},
+				scale           = {1.2, 1.2, 1.2},
+				animation       = "Slide",
+				animation_index = -1,
+				time            = 0.5,
+				loop            = true,
+				material        = override,
+			}},
+		})
+	}
+
+	@(static) scenes: [1]Scene
+	scenes = [1]Scene{{name = "Only", duration = Frames(2), render = render_clean}}
+	v := Video{width = 80, height = 48, fps = 30, background = BLACK, scenes = scenes[:]}
+	r: Renderer
+	testing.expect_value(t, renderer_init(&r, &v, &media), Error.None)
+	defer renderer_destroy(&r)
+	px := render_frame(&r, 0)
+	testing.expectf(t, len(r.ctx.diagnostics) == 0, "diagnostics: %v", r.ctx.diagnostics[:])
+	// The ShaderMaterial box on the left is blue, the overridden glTF
+	// triangle on the right is unlit green (its glTF material was red).
+	left := pixel(px, 80, 28, 24)
+	right := pixel(px, 80, 52, 24)
+	testing.expectf(t, left.b > 120 && left.r == 0, "shader box: %v", left)
+	testing.expect_value(t, right, [4]u8{0, 255, 0, 255})
+	cpu := strings.clone(string(px), context.temp_allocator)
+	// Second frame reuses the compiled shader.
+	render_frame(&r, 1)
+	testing.expect_value(t, len(media.view3d.shaders.list), 1)
+
+	{
+		sync.guard(&sdl_lock)
+		if sdl.Init({.VIDEO}) || (sdl.SetHint(sdl.HINT_VIDEO_DRIVER, "offscreen") && sdl.Init({.VIDEO})) {
+			defer sdl.Quit()
+			if device := sdl.CreateGPUDevice({.SPIRV, .MSL}, false, nil); device != nil {
+				defer sdl.DestroyGPUDevice(device)
+				backend: vgsdl.SDL_Backend
+				if testing.expect(t, vgsdl.init(&backend, device) == nil) {
+					defer vgsdl.destroy(&backend)
+					gpu3d := View3d_Gpu{device = device}
+					defer view3d_gpu_destroy(&gpu3d)
+					g: Renderer
+					testing.expect_value(t, renderer_init(&g, &v, &media, 1, vgsdl.backend(&backend)), Error.None)
+					defer renderer_destroy(&g)
+					g.gpu3d = &gpu3d
+					gpx := render_frame(&g, 0)
+					testing.expectf(t, len(g.ctx.diagnostics) == 0, "diagnostics: %v", g.ctx.diagnostics[:])
+					sum: f64
+					for b, i in gpx {
+						d := f64(b) - f64(cpu[i])
+						sum += d * d
+					}
+					mse := sum / f64(len(gpx))
+					psnr := 10 * math.log10(255 * 255 / max(mse, 1e-9))
+					log.infof("ShaderMaterial GPU vs CPU: %.1f dB", psnr)
+					testing.expectf(t, psnr > 40, "ShaderMaterial GPU vs CPU: %.1f dB", psnr)
+				}
+			}
+		}
+	}
+
+	// Diagnostics: a broken shader reports its stage:line:col and skips its
+	// draw; undeclared and unset uniforms warn.
+	render_problems :: proc(f: Frame, ctx: ^Context) {
+		view3d(ctx, f, {
+			w = 80, h = 48,
+			camera = o3d.CAMERA_DEFAULT,
+			meshes = {
+				{
+					geometry = {.Box, {2, 2, 2, 1, 1, 1, 0}},
+					scale    = {1, 1, 1},
+					shader   = Shader_Material{
+						vertex_shader   = SHADER_VERT,
+						fragment_shader = "void main() {\n  gl_FragColor = nope;\n}",
+					},
+				},
+				{
+					geometry = {.Sphere, {0.5, 8, 6, 0, 0, 0, 0}},
+					scale    = {1, 1, 1},
+					shader   = Shader_Material{
+						vertex_shader   = SHADER_VERT,
+						fragment_shader = SHADER_FRAG,
+						uniforms        = {{name = "uColor", value = {1, 0, 0}}, {name = "uExtra", value = {1}}},
+					},
+				},
+			},
+		})
+	}
+	scenes = [1]Scene{{name = "Problems", duration = Frames(1), render = render_problems}}
+	diagnostics_clear(&r.ctx)
+	px = render_frame(&r, 0)
+	compile_err, undeclared, unset := false, false, false
+	for d in r.ctx.diagnostics {
+		msg := diagnostic_message(d, context.temp_allocator)
+		if d.code == .Shader_Compile && strings.has_prefix(msg, "shader Fragment:2:") {
+			compile_err = true
+		}
+		if d.code == .Shader_Undeclared_Uniform && msg == "shader ShaderMaterial: uniform `uExtra` is not declared" {
+			undeclared = true
+		}
+		if d.code == .Shader_Unset_Uniform && msg == "shader ShaderMaterial: uniform `uShift` is not set" {
+			unset = true
+		}
+	}
+	testing.expectf(t, compile_err && undeclared && unset, "diagnostics: %v", r.ctx.diagnostics[:])
+}
+

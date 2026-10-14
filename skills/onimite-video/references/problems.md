@@ -50,13 +50,13 @@ output puts it before the message. Match on `code` and `fields`, not on the mess
 | `lottie_data` | error | `Lottie data does not parse ({lottie})` |
 | `lottie_warning` | warning | `Lottie {q:name}: {warning}` |
 | `lottie_missing_layer` | warning | `Lottie {q:name} has no layer named {q:layer}` |
-| `shader_compile` | error | `shader {at}: {error}` |
+| `shader_compile` | error | `shader {at}: {error}` (a `shader{}` layer or a `view3d` `ShaderMaterial`; a failed shader skips its draw) |
 | `shader_zero_size` | warning | `shader {name} with zero size at ({x}, {y}) is skipped` |
 | `shader_no_channel` | warning | `` shader {name} samples no channel `{channel}` `` |
 | `shader_no_child` | warning | `` shader {name} has no `uniform shader {channel}` `` |
-| `shader_undeclared_uniform` | warning | `` shader {name}: uniform `{uniform}` is not declared `` |
+| `shader_undeclared_uniform` | warning | `` shader {name}: uniform `{uniform}` is not declared `` (`{name}` is `"ShaderMaterial"` for a `view3d` `ShaderMaterial`) |
 | `shader_uniform_count` | warning | `` shader {name}: uniform `{uniform}` takes {count} values, got {got} `` |
-| `shader_unset_uniform` | warning | `` shader {name}: uniform `{uniform}` is not set `` |
+| `shader_unset_uniform` | warning | `` shader {name}: uniform `{uniform}` is not set `` (`{name}` is `"ShaderMaterial"` for a `view3d` `ShaderMaterial`) |
 | `shader_unbound_channel` | warning | `` shader {name}: `{channel}` has no image bound `` |
 | `shader_pass_input` | warning | `` shader {name}: `{uniform}` binds an input; a program of passes binds inputs in its passes `` |
 | `shader_pass_unbound` | warning | `` shader {name}: {pass}'s `{channel}` has nothing bound `` |
@@ -102,7 +102,7 @@ output puts it before the message. Match on `code` and `fields`, not on the mess
 the decoder's reason (`no video track`, or odecs' error and detail), `{gpu}`, `{svg}` and
 `{lottie}` the renderer's or parser's error name, `{o3d}` the 3D renderer's, `{where}` the script line (`video.lua:12`), `{error}` and `{at}` the shader compiler's
 message and `name:line:col` (`name: pass:line:col` in a program of passes: `trail.sksl: blur:3:9`,
-`image.glsl: Buffer A:3:9`, `Common` for the common source); `{warning}` is
+`image.glsl: Buffer A:3:9`, `Common` for the common source; `Vertex:line:col` or `Fragment:line:col` in a `view3d` `ShaderMaterial`); `{warning}` is
 the SVG or Lottie parser's own note.
 
 A command that fails prints `error: message` on stderr, or with `--json` the document

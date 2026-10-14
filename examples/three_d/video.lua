@@ -7,12 +7,60 @@
 -- The camera orbits through `animate`; the cube and the torus spin and the
 -- ball bounces through their transforms (rotation, position), never through
 -- their geometry's parameters: o3d keeps one mesh per set of parameters.
+-- Two meshes use custom GLSL ES `ShaderMaterial`s (one displacing vertices
+-- along their normals, one animating bands in the fragment shader).
 -- media/sky.png (generated) lights the scene as an environment map, so the
 -- metal ball has something to reflect; media/checker.png (generated) is the
 -- floor's texture, the floor a flat cylinder.
 
 local W, H = 1280, 720
 local TAU = 2 * math.pi
+
+local WAVE_VERT = [[
+varying vec3 vNormal;
+varying vec2 vUv;
+uniform float uTime;
+uniform float uAmount;
+void main() {
+  vNormal = normalize(normalMatrix * normal);
+  vUv = uv;
+  vec3 p = position + normal * (uAmount * sin(uTime * 3.0 + position.y * 6.0));
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+}
+]]
+
+local WAVE_FRAG = [[
+varying vec3 vNormal;
+varying vec2 vUv;
+uniform vec3 uColor;
+void main() {
+  float l = 0.35 + 0.65 * max(dot(normalize(vNormal), normalize(vec3(0.4, 0.8, 1.0))), 0.0);
+  gl_FragColor = vec4(uColor * l + vec3(vUv * 0.12, 0.0), 1.0);
+}
+]]
+
+local PULSE_VERT = [[
+varying vec3 vNormal;
+varying vec2 vUv;
+void main() {
+  vNormal = normalize(normalMatrix * normal);
+  vUv = uv;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+]]
+
+local PULSE_FRAG = [[
+varying vec3 vNormal;
+varying vec2 vUv;
+uniform float uTime;
+uniform vec3 uColorA;
+uniform vec3 uColorB;
+void main() {
+  float band = 0.5 + 0.5 * sin(vUv.y * 18.0 - uTime * 4.0);
+  float l = 0.4 + 0.6 * max(dot(normalize(vNormal), normalize(vec3(0.5, 0.9, 0.6))), 0.0);
+  gl_FragColor = vec4(mix(uColorA, uColorB, band) * l, 1.0);
+}
+]]
 
 video { width = W, height = H, fps = 30, background = "#101218", duration = 6,
   render = function(f)
@@ -48,6 +96,16 @@ video { width = W, height = H, fps = 30, background = "#101218", duration = 6,
           material = { color = "#4dd6ff", roughness = 0.4, emissive = "#0a3d55" }, cast_shadow = true, receive_shadow = true },
         { geometry = { type = "CylinderGeometry", radius_top = 0, radius_bottom = 0.45, height = 1.1 },
           position = { -0.6, 0.55, -1.9 }, material = { type = "MeshBasicMaterial", color = "#ffd54d" }, cast_shadow = true },
+        { geometry = { type = "SphereGeometry", radius = 0.5, width_segments = 48, height_segments = 24 },
+          position = { 0.85, 0.5, 1.8 },
+          material = { type = "ShaderMaterial", vertex_shader = WAVE_VERT, fragment_shader = WAVE_FRAG,
+            uniforms = { uTime = t, uColor = "#ff00aa", uAmount = 0.06 } },
+          cast_shadow = true },
+        { geometry = { type = "CylinderGeometry", radius_top = 0.35, radius_bottom = 0.35, height = 1.1 },
+          position = { -1.9, 0.55, -1.2 },
+          material = { type = "ShaderMaterial", vertex_shader = PULSE_VERT, fragment_shader = PULSE_FRAG,
+            uniforms = { uTime = t, uColorA = "#38bdf8", uColorB = "#a855f7" } },
+          cast_shadow = true },
       },
     }
 
@@ -59,3 +117,4 @@ video { width = W, height = H, fps = 30, background = "#101218", duration = 6,
       text { "three.js terms, composited in 2D", x = 76, y = 140, font = "DM Sans", size = 20, fill = "#9aa4b8" }
     end)
   end }
+

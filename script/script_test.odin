@@ -942,3 +942,97 @@ end }
 	mid := px[(24 * 64 + 32) * 4:][:4]
 	testing.expectf(t, mid[0] > 100 && mid[1] < 60, "the box: %v", mid)
 }
+
+@(test)
+test_view3d_shader_material :: proc(t: ^testing.T) {
+	dir, derr := os.make_directory_temp("", "onimite_script_shader_test_*", context.temp_allocator)
+	testing.expect(t, derr == nil)
+	defer os.remove_all(dir)
+	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
+	src := `
+video { width = 64, height = 48, fps = 10, background = "#000000" }
+scene { "A", duration = 1, render = function(f)
+  view3d {
+    meshes = {
+      { geometry = { type = "SphereGeometry", radius = 1 },
+        material = {
+          type = "ShaderMaterial",
+          vertex_shader = "void main() { gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }",
+          fragment_shader = "uniform vec3 uColor; uniform float uAmount; uniform bool uFlag; void main() { gl_FragColor = vec4(uColor * uAmount * (uFlag ? 1.0 : 0.5), 1.0); }",
+          uniforms = { uAmount = 0.5, uColor = "#ff00aa", uFlag = true, uVec = { 1, 2, 3 } },
+          transparent = true,
+          side = "double",
+          glsl3 = false,
+          roughness = 0.5,
+          vertex_shder = "",
+        } },
+    },
+    models = {
+      { src = "duck.glb", material = { type = "MeshBasicMaterial", color = "#00ff00", side = "back", metalness = 1 } },
+    },
+  }
+end }
+`
+	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
+	media: om.Media
+	om.media_init(&media)
+	defer om.media_destroy(&media)
+	s: Script
+	defer unload(&s)
+	testing.expectf(t, load(&s, path, nil, &media) == nil, "load failed: %s", error_message(s.failure, context.temp_allocator))
+	r: om.Renderer
+	testing.expect_value(t, om.renderer_init(&r, &s.video, &media), om.Error.None)
+	defer om.renderer_destroy(&r)
+	om.render_frame(&r, 0)
+
+	v: om.View3d
+	for n in r.ctx.tree.nodes {
+		if node, ok := n.kind.(om.View3d); ok {
+			v = node
+		}
+	}
+	testing.expect_value(t, len(v.meshes), 1)
+	testing.expect_value(t, len(v.models), 1)
+	if len(v.meshes) == 1 {
+		m := v.meshes[0]
+		testing.expect_value(t, m.material.flags, bit_set[o3d.Material_Flag; u8]{.Transparent})
+		testing.expect_value(t, m.material.side, o3d.Side.Double)
+		sh, has_sh := m.shader.?
+		testing.expect(t, has_sh)
+		testing.expect_value(t, sh.glsl3, false)
+		testing.expect_value(t, len(sh.uniforms), 4)
+		if len(sh.uniforms) == 4 {
+			testing.expect_value(t, sh.uniforms[0].name, "uAmount")
+			testing.expect_value(t, sh.uniforms[0].value[0], 0.5)
+			testing.expect_value(t, sh.uniforms[1].name, "uColor")
+			testing.expect(t, abs(sh.uniforms[1].value[0] - 1) < 1e-4 && abs(sh.uniforms[1].value[2] - o3d.srgb_to_linear(f32(0xaa) / 255)) < 1e-4)
+			testing.expect_value(t, sh.uniforms[2].name, "uFlag")
+			testing.expect_value(t, sh.uniforms[2].value[0], 1)
+			testing.expect_value(t, sh.uniforms[3].name, "uVec")
+			testing.expect_value(t, len(sh.uniforms[3].value), 3)
+		}
+	}
+	if len(v.models) == 1 {
+		over, has_over := v.models[0].material.?
+		testing.expect(t, has_over)
+		testing.expect_value(t, over.material.flags, bit_set[o3d.Material_Flag; u8]{.Basic})
+		testing.expect_value(t, over.material.side, o3d.Side.Back)
+		testing.expect_value(t, over.material.color, [3]f32{0, 1, 0})
+	}
+	want := [?]string {
+		"video.lua:4: `material.roughness` is not used",
+		"video.lua:4: `material.vertex_shder` is not used (did you mean `vertex_shader`?)",
+		"video.lua:4: `material.metalness` is not used",
+		"shader ShaderMaterial: uniform `uVec` is not declared",
+		`no glTF model "duck.glb" in the media`,
+	}
+	got := make([dynamic]string, context.temp_allocator)
+	for d in r.ctx.diagnostics {
+		append(&got, om.diagnostic_message(d, context.temp_allocator))
+	}
+	testing.expectf(t, len(got) == len(want), "diagnostics: %v", got[:])
+	for w in want {
+		testing.expectf(t, slice.contains(got[:], w), "missing %q in %v", w, got[:])
+	}
+}
+
