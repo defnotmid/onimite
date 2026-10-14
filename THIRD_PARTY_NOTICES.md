@@ -10,9 +10,15 @@ separate file in [LICENSES/](LICENSES); binary releases ship `LICENSE`,
 | --- | --- | --- |
 | ovg | vector renderer | `LICENSES/ovg-MIT.txt` |
 | femtovg | ovg is a port of it (used under its MIT option) | `LICENSES/femtovg-MIT.txt` |
+| nanovg | femtovg's origin: the tessellation, antialiasing and shader design ovg inherits through it | `LICENSES/nanovg-Zlib.txt` |
 | oksl | SkSL shader compiler | `LICENSES/oksl-MIT.txt` |
 | odecs | codecs and containers | `LICENSES/odecs-MIT.txt` |
-| libwebp | tables in odecs' WebP decoder | `LICENSES/libwebp-BSD-3-Clause.txt` |
+| libwebp | odecs' WebP decoder is a restructured port of libwebp's decoder and copies its tables | `LICENSES/libwebp-BSD-3-Clause.txt` |
+| libopus 1.6.1 | odecs' Opus decoder is a restructured port of it | `LICENSES/libopus-BSD-3-Clause.txt` |
+| gen2brain/h265 | odecs' H.265 decoder began as a port of it | `LICENSES/gen2brain-h265-MIT.txt` |
+| oxideav-h265 | cross-reference for odecs' H.265 decoder and transforms | `LICENSES/oxideav-h265-MIT.txt` |
+| Kvazaar | odecs' H.265 encoder follows it (CABAC, SAO decisions, context tables) | `LICENSES/Kvazaar-BSD-3-Clause.txt` |
+| OpenH264 | the CABAC tables in odecs' H.264 decoder | `LICENSES/OpenH264-BSD-2-Clause.txt` |
 | Lua 5.4 | script runtime | `LICENSES/Lua-MIT.txt` |
 | SDL 3 | window, input, audio, GPU (bundled shared library) | `LICENSES/SDL3-Zlib.txt` |
 | kb_text_shape | text shaping | `LICENSES/kb_text_shape-Zlib.txt` |
@@ -20,14 +26,16 @@ separate file in [LICENSES/](LICENSES); binary releases ship `LICENSE`,
 | miniaudio | audio decoding (used under MIT-0) | `LICENSES/miniaudio-MIT-0.txt` |
 | Box2D 3.1 | rigid-body physics (`physics{}`) | `LICENSES/Box2D-MIT.txt` |
 | ottis | text to speech with word timings (`say()`): runs Pocket TTS and the word aligner through ONNX Runtime | `LICENSES/ottis-MIT.txt` |
+| Pocket TTS (Kyutai, github.com/kyutai-labs/pocket-tts) | ottis ports its text preparation and chunking, the generation loop's end-of-speech rule and the decoder fade-in | `LICENSES/pocket-tts-MIT.txt` |
+| Odin core and vendor packages (Copyright 2016-2025 Ginger Bill) | the runtime and core library every Odin program links, the vendor bindings above, and `vendor:fontstash` (a port of Mikko Mononen's Fontstash, zlib) | `LICENSES/Odin-Zlib.txt` |
 | Noto Color Emoji (COLRv1 build, Copyright 2022 Google Inc.) | the emoji fallback font, embedded via ovg | `LICENSES/OFL-1.1.txt` |
 | Bitstream Vera Sans (Copyright 2003 Bitstream, Inc.) | the preview window's interface font, embedded via ovg | `LICENSES/Bitstream-Vera.txt` |
-| DM Sans (Copyright 2014 The DM Sans Project Authors), Instrument Serif (Copyright 2022 The Instrument Serif Project Authors), Bebas Neue (Copyright 2010 Dharma Type), JetBrains Mono (Copyright 2020 The JetBrains Mono Project Authors) | the built-in fonts (`assets/fonts/`; DM Sans and JetBrains Mono are static instances of the Google Fonts variable fonts) | `LICENSES/OFL-1.1.txt` |
+| DM Sans (Copyright 2014 The DM Sans Project Authors), Instrument Serif (Copyright 2022 The Instrument Serif Project Authors), Bebas Neue (Copyright 2019 The Bebas Neue Project Authors), JetBrains Mono (Copyright 2020 The JetBrains Mono Project Authors) | the built-in fonts (`assets/fonts/`; DM Sans and JetBrains Mono are static instances of the Google Fonts variable fonts) | `LICENSES/OFL-1.1.txt` |
 
 ## Downloaded at run time (`say()`)
 
 The first `say()` that needs synthesis downloads these into ottis's data
-directory (`$OTTIS_DATA`, else `~/.local/share/ottis`; about 830 MB), each
+directory (`$OTTIS_DATA`, else `ottis/` in the user data folder; 835 MB on Linux, 866 MB on macOS), each
 pinned by SHA-256. None of it is in this repository or the binary.
 
 | What | From | License |
@@ -49,6 +57,9 @@ or events. `examples/voiceover` is spoken with the voice `alba`.
 - fframes (https://github.com/dmtrKovalenko/fframes): onimite ports its
   design, command line, examples and its Shadertoy-to-SkSL rewrite.
   `LICENSES/fframes-MIT.txt`.
+- Reimplemented in ottis, not copied: torchaudio's CTC forced alignment
+  (BSD-2-Clause), the formulation of the word aligner's Viterbi pass, and
+  SentencePiece's Unigram Viterbi encoding (Apache-2.0).
 
 ## Example assets (in `examples/`, not in the binary)
 
@@ -69,7 +80,8 @@ or events. `examples/voiceover` is spoken with the voice `alba`.
   Grotesk Project Authors).
 - `examples/lottie_demo`: the dalek animation from lottie-web
   (`LICENSES/lottie-web-MIT.txt`); the spiral and trim animations from Skia's
-  skottie resources (`LICENSES/Skia-BSD-3-Clause.txt`).
+  skottie resources (`LICENSES/Skia-BSD-3-Clause.txt`); the same spiral is in
+  `examples/onimite_saga/media/`.
 - `examples/svg_demo` bird and the ovg demo rocket: CC0, drawn for onimite.
 - Generated media, part of this repository (MIT, like the code): every
   sound, voice line, video clip and photo in `examples/` (music, effects,

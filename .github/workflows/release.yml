@@ -107,9 +107,11 @@ jobs:
         run: |
           stage="$RUNNER_TEMP/$NAME"
           mkdir -p "$stage"
+          # Odin passes its minimum macOS (11.0) to the linker only when it is
+          # given; otherwise the binary needs the runner's SDK version (26).
           # -no-rpath drops Odin's default @loader_path; the binary gets
           # exactly one rpath, @executable_path, where libSDL3.0.dylib sits.
-          odin build . -collection:deps=.. -o:speed -define:ONIMITE_VERSION="$GITHUB_REF_NAME" -no-rpath -out:"$stage/onimite" \
+          odin build . -collection:deps=.. -o:speed -define:ONIMITE_VERSION="$GITHUB_REF_NAME" -minimum-os-version:11.0 -no-rpath -out:"$stage/onimite" \
             -extra-linker-flags:"$ONIMITE_LDFLAGS -Wl,-rpath,@executable_path"
           strip "$stage/onimite"
           cp -L "$SDL3_LIB_DIR/libSDL3.0.dylib" "$stage/"
@@ -122,6 +124,10 @@ jobs:
             exit 1
           fi
           otool -l "$stage/onimite" | grep -A2 LC_RPATH | grep -F '@executable_path'
+          # The README's "macOS 11+": both binaries must say so.
+          for f in "$stage/onimite" "$stage/libSDL3.0.dylib"; do
+            otool -l "$f" | grep -A4 LC_BUILD_VERSION | grep -E '^ *minos 11\.0$' || { echo "::error::$f does not run on macOS 11"; exit 1; }
+          done
           # strip invalidates the linker's ad-hoc signature, which arm64
           # requires to run at all; sign-macos replaces it with the real one.
           codesign --force --sign - "$stage/libSDL3.0.dylib"

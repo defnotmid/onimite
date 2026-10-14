@@ -22,8 +22,8 @@ onimite inspect examples/why_onimite/video.lua      # what is wrong, by script l
   optional 835-866 MB download, made on first use.)
 - **Fast.** Frames are built on every core and drawn on the GPU (Vulkan,
   Metal), with hardware encoding when there is one. On the 18 fframes
-  examples ported 1:1 it is faster on 16, with 1-10% of fframes' CPU time
-  and 1-26% of its memory; fframes wins two
+  examples ported 1:1 it is faster on 16, with 0.4-9.1% of fframes' CPU time
+  and 0.8-26.5% of its memory; fframes wins two
   ([BENCHMARK.md](BENCHMARK.md)).
 - **Checkable.** `inspect`, `show`, `frame`, `strip`, `onion`, `audio
   analyze` and `--json` on every command answer "is it right?" without a
@@ -420,7 +420,7 @@ Each folder in `examples/` is a `video.lua` with its `media/`.
 | `media_demo` | a synced clip, WebVTT subtitles, an audio spectrum, durations from media |
 | `batch` | a title card per row of `rows.json` / `rows.csv` |
 | `scenes` | scene overlaps (cross-fades) |
-| `fframes/` | all 17 fframes examples ported 1:1, the benchmark material (media: `examples/fframes/fetch.sh`) |
+| `fframes/` | all 17 fframes example crates (19 videos) ported 1:1, the benchmark material (media: `examples/fframes/fetch.sh`) |
 
 `examples/common/synth.lua` holds the instruments the synthesized soundtracks
 share (plain Lua, not part of onimite).
@@ -437,7 +437,7 @@ fframes checkout.
 
 On the 18 fframes examples that render on both sides (1920x1080, Ryzen 9
 9900X3D + RX 9070 XT, fframes' main of 2026-10-12), onimite is faster on
-16, using 1-10% of fframes' CPU time and 1-26% of its memory; fframes wins
+16, using 0.4-9.1% of fframes' CPU time and 0.8-26.5% of its memory; fframes wins
 `hello_world` and, narrowly, `podcast`, where the hardware encoder is the
 bottleneck. Numbers, method and caveats are in
 [BENCHMARK.md](BENCHMARK.md). The ports of fframes' examples they were
