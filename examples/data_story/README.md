@@ -32,10 +32,10 @@ Music: `track.lua` synthesizes a C major bed at load with the
 examples' shared instruments (`../common/synth.lua`, `audio_add`). Its hits come from `timeline.lua`
 and the data: a blip per month pitched by the month's value, a blip per
 donut segment, crashes on the section downbeats, ticks under the count.
-`onimite audio analyze`: -13.9 LUFS, -1.2 dBTP.
+`onimite audio analyze`: -14.1 LUFS, -1.2 dBTP.
 
-Render with `build/onimite_speed` (`-o:speed`): 1800 frames in 4.1 s; the
-three-row batch in 14.6 s.
+Render with `build/onimite_speed` (`-o:speed`): 1800 frames in 3.9 s; the
+three-row batch in 11.9 s.
 
 Files: `video.lua` (props, chart geometry at load, the sections),
 `timeline.lua` (the beat clock and every cue), `ui.lua` (palette, fonts,

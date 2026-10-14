@@ -28,9 +28,9 @@ section starts are sync points (`cue()` and each scene's `cue`); `beat.lua` is t
 (the standard library's `beat_clock`) and easing; `scenes/` one file per
 scene (`tricks.lua` plays its four cuts as a `series`).
 
-Mix: `onimite audio analyze` gives -14.3 LUFS integrated, -1.3 dBTP true
-peak. Full render with `build/onimite_speed`: 2571 frames in 5.7 s (7.2 s
-wall including the synthesis, 193 MB peak RSS).
+Mix: `onimite audio analyze` gives -13.9 LUFS integrated, -1.5 dBTP true
+peak. Full render with `build/onimite_speed`: 2983 frames in 6.7 s (8.2 s
+wall including the synthesis, 215 MB peak RSS).
 
 Media: fonts copied from other examples (Bebas Neue, Space Grotesk,
 JetBrains Mono, Instrument Serif; OFL), Noto Sans Arabic Bold (OFL, from

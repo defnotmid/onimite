@@ -678,7 +678,7 @@ usage :: proc() -> string {
 			}
 		}
 	}
-	usage_line(&b, 2, "mcp [--dir PATH]", "serve the commands above as MCP tools on stdin/stdout (JSON-RPC 2.0, one message per line; frames come back as images), plus `guide`, the built-in skill; --dir: the folder relative paths resolve in")
+	usage_line(&b, 2, "mcp [--dir PATH] [--update-check false]", "serve the commands above as MCP tools on stdin/stdout (JSON-RPC 2.0, one message per line; frames come back as images), plus `guide`, the built-in skill; --dir: the folder relative paths resolve in; a release looks for a newer release as it starts (--update-check false or ONIMITE_NO_UPDATE_CHECK=1: it doesn't)")
 	strings.write_string(&b, "\noptions:\n")
 	for o in OPTIONS {
 		if o.cli != "" && shared(o) {

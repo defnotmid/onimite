@@ -56,7 +56,7 @@ Track fields:
 | `voice` | marks a voice track that `ducked` tracks dip under |
 | `ducked` | `true` (fframes' `duck_under_voice`: -12 dB, 0.2 s attack before the voice, 0.3 s hold, 0.8 s release, voice gaps under 0.8 s merged) or `{ depth_db, attack, hold, release, merge_gap }` |
 | `mono` | play a stereo file as mono |
-| `cue` | the cue its first sound lands on (see Cues in api.md) |
+| `cue` | the cue its first sound should land on (`inspect` checks; see Cues in api.md) |
 | `bus` | the bus it is mixed through (below) |
 
 A scene or video length can follow audio: `duration = { audio = "vo.wav" }` or
@@ -124,8 +124,8 @@ video { width = 1920, height = 1080, fps = 30, duration = 5,
 The limiter stops loud overlaps from clipping, but a limiter working hard squashes the mix:
 fix track gains first. To hit a loudness target with a hot synthesized track, raise
 `master_gain_db` and lower `ceiling_db` until `audio analyze` shows the target with true peak
-under -1 dBTP (why_onimite: `master_gain_db = 5.5`, `ceiling_db = -3.4` gives -14.3 LUFS,
--1.3 dBTP).
+under -1 dBTP (why_onimite: `master_gain_db = 5.5`, `ceiling_db = -3.4` gives -13.9 LUFS,
+-1.5 dBTP).
 
 ## Checking without listening
 
@@ -349,19 +349,23 @@ Checking without listening:
 
 Where lines come from and what it costs:
 
-- The first `say` that needs synthesis downloads ottis's files, about 830 MB (ONNX Runtime
-  1.30.0, the Pocket TTS model, the word aligner, the voice), into `$OTTIS_DATA` or
-  `~/.local/share/ottis`, with progress on stderr; then each line takes about a quarter of
+- The first `say` that needs synthesis downloads ottis's files, about 835 MB on Linux and
+  866 MB on macOS (ONNX Runtime 1.30.0, the Pocket TTS model, the word aligner, the voice;
+  each other voice about 4-8 MB when first used), into `$OTTIS_DATA` or `ottis/` in the user
+  data folder (`~/.local/share` or `$XDG_DATA_HOME` on Linux, `~/Library/Application Support`
+  on macOS, `%LOCALAPPDATA%` on Windows), with progress on stderr; then each line takes about a quarter of
   its length to synthesize (one line at a time). The engine takes about 1.4 GB while it
   works and is freed when the script has loaded.
-- Every synthesized line is kept by content in `~/.local/share/onimite/say/` (its key: the
+- Every synthesized line is kept by content in `onimite/say/` in the same user data folder
+  (`~/.local/share/onimite/say/` on Linux; its key: the
   text, voice, seed, temperature and the model versions), so later runs, renders and batch
   rows read it back in milliseconds and only new or changed lines are synthesized.
 - A line is made where the script loads, like a media file is read: a line that was never
   synthesized is synthesized then, and every later load reads it. The preview makes the
   missing lines before its window opens; an edit that adds or changes a line synthesizes it
   in the reload while the last version keeps showing (its picture holds for those seconds).
-- A line that can't be synthesized (no network for the download, an unknown voice, an unsupported platform) is
+- A line that can't be synthesized (no network for the download, ONNX Runtime or a model
+  that doesn't load, an unknown voice) is
   `tts_unavailable`: the script still loads with the line silent, `inspect` lists it, and
   `render` refuses to start (error code `load_errors`) rather than ship silent narration.
 
@@ -369,4 +373,6 @@ Licences: the audio must be credited *Pocket TTS by Kyutai (CC-BY-4.0)* (put it 
 video's credits or description). The voices `cosette` and `jean` come from recordings
 licensed for non-commercial use only: `say` warns (`tts_noncommercial`). Kyutai's terms
 forbid using it to impersonate real people or pass generated speech off as a real recording.
-English only; no voice cloning; Linux x86-64 for now.
+English only; no voice cloning. `say()` works on Linux x86_64 and macOS Apple Silicon; the
+Windows x86_64 build (and a Linux arm64 build from source) has it, untested. Intel Macs and
+Windows on Arm are unsupported: onimite does not build there.

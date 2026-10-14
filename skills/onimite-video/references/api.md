@@ -66,7 +66,8 @@ scene { "Main", duration = 5, overlap = { previous = 0.5 },
 - `scene_info("Main")` (while rendering) returns the same table as `f.scene` for any scene,
   or nil.
 - Scenes are named by their first entry (or `name =`); the CLI addresses them by it.
-- `cue = "drop"` on a scene: its first frame lands on that cue (see Cues).
+- `cue = "drop"` on a scene: its first frame should land on that cue; it does not move the
+  scene (give it `start`), `inspect` reports when it is off (see Cues).
 
 ## Animation
 
@@ -94,7 +95,7 @@ end)
 - `stop` omitted: until the next key's `start`; on the last key a spring runs until it settles
   (an explicit `stop` cuts it), other easings jump to `to` at `start` (`inspect` warns; write
   `stop = start` for a deliberate jump).
-- `cue = "drop"` on a key: its start lands on that cue (see Cues).
+- `cue = "drop"` on a key: its start should land on that cue (`inspect` checks; see Cues).
 - `animate(seconds, keys)` also takes a plain time instead of `f` (e.g. a video-time clock
   inside a scene: `animate(f.global_seconds, keys)`).
 - `animate_loop` repeats the keys' span (first `start` to last `stop`) forever.
@@ -267,7 +268,7 @@ cue("hit", 12.0, { hit = "music.mp3" })        -- also expects a sound of that t
 
 video { width = 1920, height = 1080, fps = 30,
   audio = { { "music.mp3", start = MUSIC_AT }, { "boom.wav", start = DROP, cue = "drop" } } }
-scene { "Title", cue = "drop", duration = 3, render = function(f)
+scene { "Title", start = DROP, cue = "drop", duration = 3, render = function(f)
   local s = animate(f.global_seconds, { { start = DROP, stop = DROP + 0.4, from = 0.8, to = 1, easing = ease_out, cue = "drop" } })
 end }
 ```
@@ -533,10 +534,11 @@ text { "OUTLINE", x = 1100, y = 300, font = "Bebas Neue", size = 160, fill = "no
   stroke = "#f472b6", stroke_width = 3 }
 ```
 
-- Fields: `x`, `y`, `font` (family name of a media font), `size` (16), `weight` (400,
-  nearest available), `italic = true` or `style = "italic"`, `align`, `baseline =
-  alphabetic|middle|central|hanging|top|bottom`, `letter_spacing`, `line_height` (a factor
-  of size), `fill` (default black), `fill_opacity`, `stroke`, `opacity`, `spans`.
+- Fields: `x`, `y`, `font` (a built-in family or a media font's; default DM Sans), `size`
+  (16), `weight` (400, nearest available), `italic = true` or `style = "italic"`, `align`,
+  `baseline = alphabetic|middle|central|hanging|top|bottom`, `letter_spacing`,
+  `line_height` (a factor of size), `fill` (default black), `fill_opacity`, `stroke`,
+  `opacity`, `spans`.
 - Spans: `{ "text", font, size, weight, italic, fill, fill_opacity, letter_spacing, dx, dy }`.
 - Shaped with kb_text_shape: ligatures, kerning, marks, Arabic joining, Indic scripts,
   right-to-left runs. Glyphs missing from a font fall back to other media fonts, then to the

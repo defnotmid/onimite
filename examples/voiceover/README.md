@@ -11,9 +11,10 @@ onimite show examples/voiceover/video.lua say/strike     # the words and their t
 onimite render examples/voiceover/video.lua -o voiceover.mp4
 ```
 
-The first run downloads ottis's files (about 830 MB: ONNX Runtime and the
-models) and synthesizes the three lines (a few seconds); later runs read the
-lines from the store (`~/.local/share/onimite/say/`).
+The first run downloads ottis's files (835 MB on Linux, 866 MB on macOS:
+ONNX Runtime and the models) and synthesizes the three lines (a few
+seconds); later runs read the lines from the store (`onimite/say/` in the
+user data folder: `~/.local/share/onimite/say/` on Linux).
 
 | time | scene | on the words |
 | --- | --- | --- |

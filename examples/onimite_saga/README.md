@@ -59,8 +59,8 @@ onimite timeline video.lua Hush..OVG           # only that stretch
   `onimite audio analyze video.lua --track act2`. `frame`, `strip` and
   `inspect` don't synthesize the music, so they stay fast.
 - Levels: `music/parts.lua` sets one `LEVEL` for every act; `video.lua`'s
-  `master_gain_db` and limiter finish the mix (`audio analyze`: -14.6 LUFS,
-  -1.0 dBTP).
+  `master_gain_db` and limiter finish the mix (`audio analyze`: -14.8 LUFS,
+  -1.2 dBTP).
 
 ## Scenes
 

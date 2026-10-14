@@ -79,20 +79,21 @@ output puts it before the message. Match on `code` and `fields`, not on the mess
 | `invalid_value` | error | `invalid {kind} {q:value} (want {want})` |
 | `unused_field` | warning | `` {where}: `{field}` is not used (did you mean `{suggestion}`?) `` (no suggestion when none is close) |
 | `animate_no_stop` | warning | `` {where}: animate's last key has no stop, so it jumps to its `to` at {start}s `` ... |
-| `cue_drift` | warning | `cue {q:cue}: {what}: {drift}s off {ref}` |
+| `cue_drift` | warning | `cue {q:cue}: {what}: {ds:drift}s off {ref}` |
 | `cue_alone` | warning | `cue {q:cue}: only {what} has this id, nothing meets it` |
 | `outside_box` | warning | `{node} spills {r:w}px out of box {q:box}` |
 | `text_overlap` | warning | `text {q:text} overlaps text {q:other} ({r:w}x{r:h}px)`: two readable texts (opacity 0.3 or more) of one scene whose inked glyphs cover each other by a third of the smaller each way; not a text and its copy (a shadow), not single characters, not inside blurred or filtered groups or shader inputs |
-| `cue_no_hit` | warning | `cue {q:cue}: no sound of {ref} starts within 30 ms of {time}s (nearest: {what})` |
+| `cue_no_hit` | warning | `cue {q:cue}: no sound of {ref} starts within 30 ms of {s:time}s (nearest: {what})` |
 | `off_beat` | warning | `{where}: {count} sounds start off the music's beat, the loudest {q:clip} {ds:drift}s off at {s:time}s (the beat: {s:period}s; hits belong on the beat or half-beat)`: sounds (not on the `voice` bus, not `voice = true`) against the tracks on the `music` bus, more than 30 ms off the half-beat grid measured around each (audio.md, "Checking without listening"); one per placing line |
 | `physics_overlap` | warning | `{where}: physics body {q:body} starts {r:depth}px inside {q:with} at {s:time}s, so they fly apart (move it or give it room)`: found when `physics{}` simulates (at load), more than 3 px deep at the body's first step |
 | `physics_offscreen` | warning | `{where}: physics body {q:body} leaves the canvas at {s:time}s and does not come back`: a dynamic body seen on the canvas and off it at the end; `leaves = true` on the body when that is the point |
-| `tts_unavailable` | error | `{where}: say {q:line} can not be spoken ({reason}): it is silent and its word times are estimates`: found at load; the line can't be synthesized (ottis's download failed, ONNX Runtime didn't load, an unknown voice, an unsupported platform). The script loads with the line silent; `render` refuses to start (error code `load_errors`) |
+| `tts_unavailable` | error | `{where}: say {q:line} can not be spoken ({reason}): it is silent and its word times are estimates`: found at load; the line can't be synthesized (ottis's download failed, ONNX Runtime or a model didn't load, an unknown voice; `say()` is tested on Linux x86_64 and macOS Apple Silicon, untested on Windows x86_64). The script loads with the line silent; `render` refuses to start (error code `load_errors`) |
 | `tts_not_kept` | warning | `{where}: say {q:line} was spoken but could not be kept in the store ({reason}): every run speaks it again`: found at load; the line plays, but the store under the user data folder could not be written |
 | `tts_noncommercial` | warning | `{where}: say {q:line} uses voice {q:voice}, whose recording is licensed for non-commercial use only`: `cosette` and `jean` |
 | `physics_unsettled` | warning | `{where}: physics body {q:body} is still moving at {s:time}s, the end of the simulation: later frames hold it there mid-motion (simulate longer)`: a frame samples (`physics_at`) past the end while the body still moved there |
 
-`{q:...}` is the value quoted, `{r:...}` rounded, `{X4:...}` four hex digits; `{video}` is
+`{q:...}` is the value quoted, `{r:...}` rounded, `{s:...}` seconds to the millisecond,
+`{ds:...}` the same with a sign, `{X4:...}` four hex digits; `{video}` is
 the decoder's reason (`no video track`, or odecs' error and detail), `{gpu}`, `{svg}` and
 `{lottie}` the renderer's or parser's error name, `{where}` the script line (`video.lua:12`), `{error}` and `{at}` the shader compiler's
 message and `name:line:col` (`name: pass:line:col` in a program of passes: `trail.sksl: blur:3:9`,
@@ -105,7 +106,7 @@ A command that fails prints `error: message` on stderr, or with `--json` the doc
 duration, bad props), `renderer`, `spec_unknown_scene`, `spec_unknown_name` (neither a scene nor a cue; the
 message lists both), `spec_no_scenes`, `spec_ambiguous`, `spec_past_scene`,
 `spec_out_of_range` (the message names the valid frames, `frames 0..N-1`), `spec_invalid`,
-`create_dir`, `write`, `onion_range`, `no_sheet_frames`, `encoder` (the MP4 writer:
+`create_dir`, `write`, `png_many_frames` (`frame -o x.png` with more than one frame), `onion_range`, `no_sheet_frames`, `encoder` (the MP4 writer:
 odd dimensions, the file, a frame, the GPU conversion), `read_back` (a frame could not be
 read back from the GPU), `batch_read`,
 `batch_json`, `batch_not_array`, `batch_not_object`, `batch_csv`, `batch_no_header`,
@@ -114,8 +115,12 @@ read back from the GPU), `batch_read`,
 not be synthesized or a track whose sound is missing; the message gives the count and the
 first), `probe` (`probe`: a file odecs can not read), `window` and `window_drawing` (`preview`: the
 window, its GPU device or its drawing could not be set up), `no_path` (`show`: nothing at
-that path; the message lists the paths there are). A `--json` document that can not be
-written is `{"error": ..., "code": "output"}`. A clip whose `audio_add(name, fn)`
+that path; the message lists the paths there are), and `update`'s: `update_dev` (a source
+build), `update_platform` (no release for this platform), `update_fetch`, `update_checksum`
+(the archive does not match `SHA256SUMS`), `update_unpack`, `update_broken` (the new binary
+does not run here), `update_install`. A `--json` document that can not be written is
+`{"error": ..., "code": "output"}`; an MCP tool call with an argument the tool does not
+take (or a bad value) is `usage`. A clip whose `audio_add(name, fn)`
 function fails fails the command as `script`, the message naming the clip
 (`audio_add("name"): the clip's function failed: ...`); the preview lists it as a
 `script_error`. A failing `--batch` row keeps the

@@ -41,9 +41,9 @@ The layers:
 Music: `track.lua` synthesizes Am9 Fmaj7 C G at load with why_onimite'
 instruments plus a sine sub and dotted-eighth plucks with echoes; the kick,
 riser and impact come from `timeline.lua`, which the picture reads too.
-`onimite audio analyze`: -13.9 LUFS, -1.5 dBTP.
+`onimite audio analyze`: -14.0 LUFS, -1.7 dBTP.
 
-Render with `build/onimite_speed` (`-o:speed`): 1200 frames in 4.2 s
+Render with `build/onimite_speed` (`-o:speed`): 1200 frames in 4.6 s
 (16.1 s while turbulence was computed on the CPU every frame).
 
 Media: fonts copied from why_onimite (OFL): Bebas Neue, Instrument Serif

@@ -16,10 +16,10 @@ onimite preview examples/why_onimite/video.lua      # plays with sound, reloads 
 onimite inspect examples/why_onimite/video.lua      # what is wrong, by script line
 ```
 
-- **Small.** One binary and the SDL3 library beside it, 16-19 MB on disk
-  (a 7-8 MB download; v0.0.1). Nothing else to install, no build step per
-  video. (`say()`'s voice models are an optional ~830 MB download, made on
-  first use.)
+- **Small.** One binary and the SDL3 library beside it (and Lua's DLL on
+  Windows), 17.3-20.7 MB on disk (a 7.7-8.7 MB download; v0.0.7). Nothing
+  else to install, no build step per video. (`say()`'s voice models are an
+  optional 835-866 MB download, made on first use.)
 - **Fast.** Frames are built on every core and drawn on the GPU (Vulkan,
   Metal), with hardware encoding when there is one. On the 18 fframes
   examples ported 1:1 it is faster on 16, with 1-10% of fframes' CPU time
@@ -48,7 +48,7 @@ onimite is built from sibling Odin projects and Odin's vendor packages:
 | --- | --- |
 | [`ovg`](https://github.com/defnotmid/ovg) | 2D vector canvas (femtovg lineage): software backend + SDL_GPU (Vulkan / Metal / D3D12) |
 | [`odecs`](https://github.com/defnotmid/odecs) | H.264 / H.265 / AAC codecs (native Odin, Vulkan Video when available), MP4, WebP, clip decoding |
-| [`oksl`](https://github.com/defnotmid/oksl) | shader compiler for SkSL and Shadertoy GLSL: SPIR-V, MSL and a CPU interpreter |
+| [`oksl`](https://github.com/defnotmid/oksl) | shader compiler for SkSL, Shadertoy and GLSL: SPIR-V, MSL and a CPU interpreter |
 | [`ottis`](https://github.com/defnotmid/ottis) | text to speech with word timings (Kyutai's Pocket TTS through ONNX Runtime, loaded at run time; models downloaded on first use) |
 | `vendor:lua/5.4` | the script runtime |
 | `vendor:sdl3` | GPU device and the preview window |
@@ -86,7 +86,8 @@ onimite is built from sibling Odin projects and Odin's vendor packages:
   CC-BY-4.0) with the time of every word, and its captions; `say_cue` puts
   animation keys and sound effects on spoken words, and `inspect` checks
   them against the voice. Lines are kept on disk by content, so only new or
-  changed lines are synthesized, where the script loads.
+  changed lines are synthesized, where the script loads. It works on Linux
+  x86_64 and macOS Apple Silicon (the Windows build has it, untested).
 - **Cues**: `cue(name, t)` names a moment and `cue = "name"` on scenes, tracks
   and animate keys lands them on it; `inspect` reports what drifts off, and
   cues work as times.
@@ -118,8 +119,6 @@ cd onimite
 mkdir -p build    # a fresh clone has no build/ (gitignored); Odin will not create it
 odin build . -collection:deps=.. -o:speed -out:build/onimite
 ```
-
-<!-- TODO: prebuilt binaries at github.com/defnotmid/onimite/releases, once releases exist. -->
 
 `deps` is the parent directory holding `ovg`, `oksl`, `odecs` and `ottis`. Use
 `-o:speed`: unoptimized builds are many times slower. On Linux the binary
@@ -196,8 +195,9 @@ The extension's "Check for updates" setting turns the check off.
 ## Releases
 
 Install the latest release with one command (it checks the archive against
-`SHA256SUMS` and puts an `onimite` launcher in `~/.local/bin`; run it again to
-update, `ONIMITE_VERSION=vX.Y.Z` pins a release):
+`SHA256SUMS` and puts an `onimite` launcher in `~/.local/bin`, on Windows its
+folder on the user `PATH`; run it again to update, `ONIMITE_VERSION=vX.Y.Z`
+pins a release):
 
 ```sh
 curl -fsSL https://defnotmid.com/install.sh | sh          # macOS (Apple Silicon), Linux (x86_64)
@@ -221,9 +221,9 @@ default branches of ovg, oksl, odecs and ottis, with the tag as their
 
 | asset | |
 | --- | --- |
-| `onimite-vX.Y.Z-linux-x86_64.tar.gz` | built on Ubuntu 22.04 (glibc 2.35), `libSDL3.so.0` beside the binary (rpath `$ORIGIN`) |
+| `onimite-vX.Y.Z-linux-x86_64.tar.gz` | built on Ubuntu 22.04 (runs on glibc 2.35+), `libSDL3.so.0` beside the binary (rpath `$ORIGIN`); needs the system libcurl (`libcurl.so.4`) |
 | `onimite-vX.Y.Z-macos-arm64.tar.gz` | macOS 11+, `libSDL3.0.dylib` beside the binary (rpath `@executable_path`) |
-| `onimite-vX.Y.Z-windows-x86_64.zip` | best effort, left out if the Windows build fails; `SDL3.dll` and `lua54.dll` beside the binary |
+| `onimite-vX.Y.Z-windows-x86_64.zip` | best effort (unsigned, tested only in CI), left out if the Windows build fails; `SDL3.dll` and `lua54.dll` beside the binary |
 | `onimite-video-skill-vX.Y.Z.tar.gz` | the agent skill as of the tag (`onimite-video/` with `SKILL.md` and `references/`), matching the binaries |
 | `SHA256SUMS` | checksums of the archives |
 
@@ -261,6 +261,7 @@ onimite audio at      video.lua 3.1s,6.2s                 # what plays: file pos
 onimite audio onsets  video.lua [range] [--min 0.1]       # where sounds start, and the beat
                                                           # (audio commands: --track FILE hears one track)
 onimite preview  video.lua [at] [--paused] [--no-loop] [--mute]
+onimite update   [--check]                                # replace this release with the latest (--check: only say)
 ```
 
 - `render`: `--draft` is half resolution (unless `--scale`), QP 32 and a
@@ -286,7 +287,7 @@ onimite preview  video.lua [at] [--paused] [--no-loop] [--mute]
 - `snapshot`: missing snapshots are created; a frame whose pixels differ by
   more than `--threshold` (16) in more than `--max-diff` (0.1%) of pixels
   fails with `name.actual.png` and `name.diff.png`; `--update` (or
-  `FFRAMES_UPDATE_SNAPSHOTS=1`) accepts it.
+  `ONIMITE_UPDATE_SNAPSHOTS=1`, `FFRAMES_UPDATE_SNAPSHOTS=1`) accepts it.
 - With `--json`, every diagnostic and finding has a stable `code` and the
   `fields` its message is made from, and a failed command prints
   `{"error": ..., "code": ...}`. The codes are listed in
@@ -309,15 +310,19 @@ scene { "Intro", duration = 2, render = function(f)
   local y = animate(f, { { start = 0, stop = 0.4, from = 60, to = 0, easing = ease_out } })
   group({ transform = translate(0, y), opacity = animate(f, { { start = 0, stop = 0.3, from = 0, to = 1 } }) }, function()
     rect { x = 160, y = 240, w = 600, h = 120, rx = 24, fill = "#0ea5e9" }
-    text { "Hello", x = 200, y = 320, font = "Inter", size = 48, weight = 600, fill = "#ffffff" }
+    text { "Hello", x = 200, y = 320, font = "DM Sans", size = 48, weight = 700, fill = "#ffffff" }
   end)
 end }
 
-scene { "Outro", duration = 3, overlap = { previous = 0.5 }, render = function(f) ... end }
+scene { "Outro", duration = 3, overlap = { previous = 0.5 }, render = function(f)
+  text { "Bye", x = 960, y = 560, align = "center", font = "Bebas Neue", size = 160, fill = "#0ea5e9" }
+end }
 ```
 
 A video is a `video.lua` with a `media/` folder beside it (fonts, images,
 SVG, Lottie and caption files, audio, clips, `.sksl` / `.glsl` / `.frag` shaders).
+DM Sans, Instrument Serif, Bebas Neue and JetBrains Mono are built in; any
+other font is a file copied into `media/`.
 `require` and `dofile` resolve beside the script and `SCRIPT_DIR` is its
 directory. Everything outside `render` runs once when the script loads, so
 layouts, measured text and data belong there; `shared(name, fn)` computes
@@ -396,7 +401,7 @@ Each folder in `examples/` is a `video.lua` with its `media/`.
 | example | shows |
 | --- | --- |
 | `onimite_saga` | a 2 min film laid out for agents: a manifest, a file per scene on its cue, a tempo map, a music clip per act |
-| `why_onimite` | a 43 s beat-synced pitch: BPM clock, quick cuts, a soundtrack synthesized in Lua, a shader title |
+| `why_onimite` | a 50 s beat-synced pitch: BPM clock, quick cuts, a soundtrack synthesized in Lua, a shader title |
 | `suite` | onimite, ovg, oksl and odecs in every frame: an SkSL world warping a group, alpha clips, a WebP skyline |
 | `data_story` | a 30 s chart explainer drawn from `props`, one video per `--batch` row |
 | `motion_poster` | a generative poster made of noise: SVG filter primitives, `noise()`, an SkSL warp |
@@ -409,7 +414,9 @@ Each folder in `examples/` is a `video.lua` with its `media/`.
 | `svg_demo` | an SVG bird animated by element id |
 | `pip_demo` | Pip, the mascot, in each mood: one pixel-art SVG with parts shown and hidden by id |
 | `transitions` | every standard-library transition between scenes |
+| `physics_demo` | rigid bodies (`physics{}`) simulated at load: tiles dropped into a word, a pop per impact |
 | `audio_demo` | tracks on the video and scenes, voice ducking, effects on animation constants |
+| `voiceover` | spoken lines made with `say()`, their captions, keys and effects on spoken words (`say_cue`) |
 | `media_demo` | a synced clip, WebVTT subtitles, an audio spectrum, durations from media |
 | `batch` | a title card per row of `rows.json` / `rows.csv` |
 | `scenes` | scene overlaps (cross-fades) |

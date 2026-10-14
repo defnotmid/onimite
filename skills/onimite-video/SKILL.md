@@ -40,7 +40,8 @@ says how to get the examples matching your binary).
 
 If `onimite --version` already works, skip to section 2. Otherwise install the latest
 release with one command (the installer checks the download against the release's
-checksums and puts an `onimite` launcher in `~/.local/bin`; running it again updates):
+checksums and puts an `onimite` launcher in `~/.local/bin`, or on Windows puts its folder
+on your user `PATH`; running it again updates):
 
 ```bash
 curl -fsSL https://defnotmid.com/install.sh | sh     # macOS (Apple Silicon), Linux (x86_64)
@@ -58,13 +59,15 @@ To install by hand instead, download the archive for your platform from
 [github.com/defnotmid/onimite/releases](https://github.com/defnotmid/onimite/releases)
 (`X.Y.Z` is the release):
 
-- Linux x86_64: `onimite-vX.Y.Z-linux-x86_64.tar.gz`
+- Linux x86_64: `onimite-vX.Y.Z-linux-x86_64.tar.gz` (glibc 2.35+; needs the system libcurl,
+  `libcurl.so.4`)
 - macOS Apple Silicon: `onimite-vX.Y.Z-macos-arm64.tar.gz` (signed and notarized)
-- Windows x86_64: `onimite-vX.Y.Z-windows-x86_64.zip` (when present; best effort)
+- Windows x86_64: `onimite-vX.Y.Z-windows-x86_64.zip` (when present; unsigned, best effort,
+  tested only in CI)
 - `SHA256SUMS` to check them: `sha256sum -c --ignore-missing SHA256SUMS`
 
 Each unpacks to `onimite-vX.Y.Z-<platform>/` with the binary and the SDL3 library next to
-it (no system SDL3 needed). Keep the two together, and put the directory on your `PATH`
+it (no system SDL3 needed; on Windows `lua54.dll` too). Keep them together, and put the directory on your `PATH`
 (or call `onimite` by its full path). Check it with `onimite --help`.
 
 ### From source
@@ -84,8 +87,9 @@ odin build . -collection:deps=.. -o:speed -out:build/onimite
 ```
 
 Lua 5.4, stb and SDL3 come through Odin's `vendor:` packages; Odin ships the SDL3 library
-for Windows, Linux and macOS link the system one (`pacman -S sdl3`, `apt install libsdl3-dev`, `brew install sdl3`), and Linux links libcurl (`apt install libcurl4-openssl-dev`). macOS needs a few extra steps
-(the onimite README, "macOS"). Use `-o:speed`: unoptimized builds are many times slower.
+for Windows, Linux and macOS link the system one (`pacman -S sdl3`, `apt install libsdl3-dev`, `brew install sdl3`), and Linux links libcurl (`apt install libcurl4-openssl-dev`). Odin's Linux release ships
+some vendor C libraries (stb, kb_text_shape, miniaudio, Box2D) as source to build once (the
+onimite README, "Build"); macOS needs a few extra steps (the README, "macOS"). Use `-o:speed`: unoptimized builds are many times slower.
 If `build/onimite` already exists and no `.odin` file is newer, skip the build.
 
 Every command below is `onimite <command> video.lua ...`; with a fresh build use the full
@@ -165,8 +169,8 @@ The examples are not in the release download. Read them at the release you have,
 match its API: `onimite --version` prints the tag (`v0.1.0`; `dev` for a source build: use
 `main`), then
 
-- browse `https://github.com/defnotmid/onimite/tree/TAG/examples/NAME` (each has a README
-  saying what it covers), or read one file raw:
+- browse `https://github.com/defnotmid/onimite/tree/TAG/examples/NAME` (most have a README
+  saying what they cover), or read one file raw:
   `https://raw.githubusercontent.com/defnotmid/onimite/TAG/examples/NAME/video.lua`;
 - or fetch only the examples you need, with their media:
 
@@ -282,7 +286,7 @@ with commas.
 | `strip [RANGE] -n N [--columns 4] [--width 480] [-o strip.png]` | flow and motion in one image |
 | `frame SPECS [-o frames] [--svg]` | full-size PNGs; `--svg` also writes each frame's node tree as SVG to read positions, text and colours |
 | `onion RANGE [-n 6] [-o onion.png]` | a movement's trajectory and easing |
-| `preview [AT] [--paused] [--no-loop] [--mute]` | real-time window with sound and hot reload, for the user |
+| `preview [AT] [--paused] [--no-loop] [--mute] [--exit-after N]` | real-time window with sound and hot reload, for the user (`--exit-after N`: close after N window frames) |
 | `render [RANGE] [-o out.mp4 \| dir] [--draft] [--h265] [--qp N] [--native]` | encode the video or a part, or write PNGs |
 | `render --batch rows.json\|rows.csv [-o out/{name}.mp4] [--rows a..b \| --only N]` | one video per data row, the row as `props` |
 | `snapshot SPECS [--update] [--dir _frame_snapshots] [--threshold 16] [--max-diff 0.001]` | compare frames with approved PNGs; writes `.actual.png`/`.diff.png`, exit 2 on a difference |
@@ -290,21 +294,26 @@ with commas.
 | `audio at SPECS` | which tracks play at a moment, where in their file, how loud, ducking |
 | `audio render [RANGE] [-o audio.wav] [--float]` | the mix as a stereo WAV |
 | `audio onsets [RANGE] [--min 0.1]` | where sounds start (seconds, strength) and the beat (BPM, first beat) |
+| `probe FILE...` | the streams of media files (container, video, audio) |
+| `update [--check]` | replace an installed release with the latest (`--check`: only say whether one is out) |
 
 The audio commands take `--track FILE` to hear one track alone, as it sounds in the mix.
 
 Common options: `--json`, `--scale S`, `--media DIR` (default `media/` beside the script),
-`--props FILE`, `--set K=V`, `--software`, `--threads N`.
+`--props FILE`, `--set K=V`, `--software`, `--threads N`, `--image-cache MB` (decoded images
+kept in memory, default 1024).
 
 ### As MCP tools
 
 `onimite mcp` serves these commands as MCP tools on stdin/stdout; the Claude Code plugin
+(`/plugin marketplace add defnotmid/onimite`, then `/plugin install onimite@defnotmid`)
 registers it (the `onimite` binary must be on PATH), and the Claude Desktop extension
 (`onimite-macos-arm64.mcpb`, `onimite-windows-x86_64.mcpb` in the releases) bundles its own
 binary and a work folder (`onimite mcp --dir PATH`: relative paths start there). A release
 build looks for a newer release as it starts (`--update-check false` or
 `ONIMITE_NO_UPDATE_CHECK=1`: it doesn't); when one is out, the next tool result says so:
-tell the user, and run `update` when they agree. `guide`
+tell the user, and run `update` when they agree (in Claude Desktop the extension's "Check
+for updates" setting turns the check off). `guide`
 returns this skill and its references, built into the binary. Tools: `render`, `frame`, `strip`,
 `onion`, `snapshot`, `show`, `timeline`, `inspect`, `audio_render`, `audio_analyze`,
 `audio_at`, `audio_onsets`, `probe`, `update` (the server keeps running the old version
@@ -320,12 +329,14 @@ are not kept). A failing command is an error result with its code; an `inspect` 
 
 ### Preview keys
 
-Space play/pause · Left/Right or J/K step a frame · Ctrl+Left/Right one second · Home/0 the
-bookmark, then the start · End last frame · PgDn/S, PgUp/B next/previous scene · M set the
-bookmark (reloads return to it) · Up/Down volume · Ctrl+Down mute · Shift+L loop · =/- zoom
-the timeline · T hide timeline · F fullscreen · D/I the Watch on problems/media · N/Shift+N
+Space play/pause · Left/Right or J/K step a frame · Ctrl+Left/Right one second · Home/0
+(Shift+J, Shift+Left) the bookmark, then the start · End (Shift+G, Shift+Right) last frame ·
+PgDn/S/W, PgUp/B/Shift+S next/previous scene · M set the bookmark (reloads return to it) ·
+Up/L, Down/H volume · Ctrl+Down/Ctrl+H mute · Shift+L loop · =/- zoom the timeline, Ctrl+0
+fit it · T hide timeline · F fullscreen · D/I the Watch on problems/media · N/Shift+N
 next/previous row with a warning or error · Ctrl+P go to a scene, cue or problem (type to
-filter, Up/Down, Enter) · R reload · Ctrl+O open a script · Q/Esc close.
+filter, Up/Down, Enter) · R reload · Ctrl+O open a script · Esc closes the list, the
+Watch, fullscreen, then the window · Q close.
 Click or drag the timeline to scrub. Views are tabs in panels: drag a tab to another panel or
 its edge, `+` lists the views to open in that panel and its splits (type to filter). A timeline
 in a panel at the side, taller than wide, runs top to bottom. The Watch lists scenes, cues (with drift / missing-hit
@@ -481,11 +492,13 @@ video { ..., buses = { music = {}, voice = {}, sfx = {} },
   and the speech on a `voice` bus (a track playing a `say` clip without a `bus` goes there,
   or is marked `voice = true` when the video has none): it ducks the music and is never
   beat-checked. Lay scenes out from `line.duration` so a changed line moves what follows.
+- `say()` works on Linux x86_64 and macOS Apple Silicon; the Windows x86_64 build has it
+  but it is untested there.
 - `inspect` checks each cued word starts a sound of its line (`cue_no_hit`); a word that
   runs on from the one before ("the sea") has no onset of its own and is reported: that is
   expected, check it with `show video.lua say/intro/N`. Read `references/audio.md`
-  ("Spoken lines") for voices, the first-run download (about 830 MB) and the credit the
-  audio needs (*Pocket TTS by Kyutai, CC-BY-4.0*).
+  ("Spoken lines") for voices, the first-run download (835 MB on Linux, 866 MB on macOS)
+  and the credit the audio needs (*Pocket TTS by Kyutai, CC-BY-4.0*).
 
 ## 7. Finish
 
@@ -520,7 +533,7 @@ video { ..., buses = { music = {}, voice = {}, sfx = {} },
   name in the script.
 - No WebM or transparent output: renders are opaque MP4 (alpha clips work as inputs).
 - A `say()` line that was never synthesized is made when the script loads (about a quarter
-  of its length; the first time ever, ottis's 830 MB download first), in every command and
+  of its length; the first time ever, ottis's 835-866 MB download first), in every command and
   before the preview's window opens; later loads read it back. A line that can't be made is
   silent (`line.ready == false`, `tts_unavailable`, an error): `inspect` names it and
   `render` refuses to start, as it does whenever the load found an error (`load_errors`).

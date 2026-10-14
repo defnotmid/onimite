@@ -47,11 +47,11 @@ The pieces the brief asks for:
 - **Music with beat-synced cuts**: `track.lua` synthesizes C G Am F with
   the examples' shared instruments (`../common/synth.lua`, `audio_add`); every section and
   feature cut falls on its beat, flashes and punches in, with a crash in the
-  music. `onimite audio analyze`: -14.3 LUFS, -1.0 dBTP.
+  music. `onimite audio analyze`: -13.9 LUFS, -1.0 dBTP.
 - **Progress bar**: story-style, a segment per section filling as it plays.
 
-Render with `build/onimite` (Vulkan Video): the three-row batch in 5.3 s
-(1.1-1.3 s of rendering per format).
+Render with `build/onimite` (Vulkan Video): the three-row batch in 5.4-5.6 s
+(1.5-1.9 s of rendering per format).
 
 Files: `video.lua` (formats, layout, sections), `timeline.lua` (the beat
 clock, cues and the voice-over), `track.lua` (the music), `rows.json` (the

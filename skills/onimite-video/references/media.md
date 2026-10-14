@@ -125,11 +125,11 @@ cue text, or draw them with `captions{}` below.
 -- [{text, startMs, endMs}]. Every .vtt / .srt works too: inline <00:00:01.200> timestamps
 -- time their words, other words share their cue's time evenly.
 captions_load("extra.srt")                                  -- a file beside the script (else media/)
-captions_load("inline", "WEBVTT
+captions_load("inline", [[WEBVTT
 
 00:00.000 --> 00:02.000
 Hello <00:00.800>world
-")
+]])
 captions_load("mine", { { text = "Hi", start = 0, stop = 0.4 }, { text = "there", start = 0.4, stop = 0.9 } })
 local pages = caption_pages("talk.json", { max_words = 4 })  -- at load too
 -- pages[i] = { index, start, stop, text, words = { { text, start, stop }, ... } }

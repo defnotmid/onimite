@@ -40,7 +40,7 @@ group({ filter = {                                                 -- embossed, 
   { "composite", op = "arithmetic", k = {0, 1, 1, 0}, input = "SourceGraphic", input2 = "s2" },
   region = { x = -0.1, y = -0.2, w = 1.2, h = 1.4 },
 } }, function()
-  text { "Shiny", x = 200, y = 300, font = "DM Sans", size = 120, fill = "#2563eb" }
+  text { "Shiny", x = 200, y = 700, font = "DM Sans", size = 120, fill = "#2563eb" }
 end)
 ```
 

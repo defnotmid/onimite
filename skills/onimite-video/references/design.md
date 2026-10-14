@@ -48,12 +48,14 @@ avoids all of those already reads as finished.
 
 ## Typography
 
-- One family, two at most (a display face for titles, a text face for body). Copy the font
-  files into `media/`; `inspect` reports missing families and glyphs.
+- One family, two at most (a display face for titles, a text face for body). DM Sans,
+  Instrument Serif, Bebas Neue and JetBrains Mono are built in; copy any other font's files
+  into `media/`. `inspect` reports missing families and glyphs.
 - Sizes at 1920x1080: hero 140-200, title 96-120, subtitle 44-56, body 44-60, caption 28-34;
   never below 28 px. Portrait at 1080 wide uses about the same pixel sizes.
-- Weights: titles 600-800, body 400-500 (the nearest weight in `media/` is used, so ship the
-  weights you ask for). Letter spacing `-1` to `-3` on big titles, `+2` to `+6` on small caps
+- Weights: titles 600-800, body 400-500 (the nearest available weight is drawn: DM Sans is
+  built in at 400, 500 and 700, JetBrains Mono at 400 and 700; ship other weights in
+  `media/`). Letter spacing `-1` to `-3` on big titles, `+2` to `+6` on small caps
   labels.
 - At most ~8 words per line and ~3 lines per card. Wrap with `text_lines{ max_width = ... }`;
   shrink to fit once at load:
