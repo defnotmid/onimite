@@ -429,6 +429,7 @@ Each folder in `examples/` is a `video.lua` with its `media/`.
 | `lottie_demo` | four Lottie files with text and shapes, one with a text-layer override |
 | `svg_demo` | an SVG bird animated by element id |
 | `three_d` | `view3d{}`: an orbiting camera, shadows, metal, standard, basic and custom `ShaderMaterial` meshes, a 2D title over the 3D |
+| `fox` | a downloaded, skinned glTF model (the Khronos Fox) playing its clips, then a `ShaderMaterial` override on the model |
 | `pip_demo` | Pip, the mascot, in each mood: one pixel-art SVG with parts shown and hidden by id |
 | `transitions` | every standard-library transition between scenes |
 | `physics_demo` | rigid bodies (`physics{}`) simulated at load: tiles dropped into a word, a pop per impact |

@@ -85,6 +85,9 @@ or events. `examples/voiceover` is spoken with the voice `alba`.
   (`LICENSES/lottie-web-MIT.txt`); the spiral and trim animations from Skia's
   skottie resources (`LICENSES/Skia-BSD-3-Clause.txt`); the same spiral is in
   `examples/onimite_saga/media/`.
+- `examples/fox/media/Fox.glb`: the Fox from Khronos' glTF-Sample-Assets.
+  The model is CC0 (PixelMannen); its rigging and animations are CC-BY 4.0
+  by @tomkranis (`LICENSES/CC-BY-4.0.txt`).
 - `examples/svg_demo` bird and the ovg demo rocket: CC0, drawn for onimite.
 - Generated media, part of this repository (MIT, like the code): every
   sound, voice line, video clip and photo in `examples/` (music, effects,
