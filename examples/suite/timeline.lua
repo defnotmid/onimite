@@ -21,11 +21,13 @@ T.GLITCH = 47
 -- The break: kick out, the suite's structure draws itself, unwarped.
 T.BREAK = 48
 T.BOXES = { 49, 50, 51, 52 } -- ovg, oksl, odecs, SDL3 under onimite (48)
+T.O3D_BOX = 52 -- o3d's box lands with the SDL3 row, on its blip
 T.RISER2 = 52
--- The lockup: the four names, the line, then the last hit and a tail.
+-- The lockup: the five names, the line, then the last hit and a tail.
 T.LOCKUP = 56
 T.NAMES = { 56, 57, 58, 59 }
 T.LINE = 60
+T.O3D_NAME = 60 -- the fifth name lands with the line, on its crash
 T.END = 68
 
 return T

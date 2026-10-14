@@ -418,7 +418,7 @@ Each folder in `examples/` is a `video.lua` with its `media/`.
 | --- | --- |
 | `onimite_saga` | a 2 min film laid out for agents: a manifest, a file per scene on its cue, a tempo map, a music clip per act |
 | `why_onimite` | a 50 s beat-synced pitch: BPM clock, quick cuts, a soundtrack synthesized in Lua, a shader title |
-| `suite` | onimite, ovg, oksl and odecs in every frame: an SkSL world warping a group, alpha clips, a WebP skyline |
+| `suite` | onimite, ovg, oksl, odecs and o3d in every frame: an SkSL world warping a group with a 3D gyroscope in it, alpha clips, a WebP skyline |
 | `data_story` | a 30 s chart explainer drawn from `props`, one video per `--batch` row |
 | `motion_poster` | a generative poster made of noise: SVG filter primitives, `noise()`, an SkSL warp |
 | `social_clip_kit` | one promo in 9:16, 1:1 and 16:9 through `--batch`: adaptive layout, word captions, an alpha clip |

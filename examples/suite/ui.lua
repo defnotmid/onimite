@@ -7,7 +7,7 @@ local M = {}
 
 M.BG, M.PANEL, M.LINE = "#07080c", "#10131b", "#2a3042"
 M.TEXT, M.DIM = "#f3f1ea", "#8a90a2"
-M.ONIMITE, M.OVG, M.ODECS, M.OKSL = "#2ef2a0", "#38e1ff", "#ffb020", "#ff4fa3"
+M.ONIMITE, M.OVG, M.ODECS, M.OKSL, M.O3D = "#2ef2a0", "#38e1ff", "#ffb020", "#ff4fa3", "#a07cff"
 
 M.DISPLAY, M.SANS, M.MONO = "Bebas Neue", "Space Grotesk", "JetBrains Mono"
 

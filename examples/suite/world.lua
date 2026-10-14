@@ -1,6 +1,6 @@
 -- The group the shader warps (its `uniform shader uWorld` child), drawn by
 -- ovg in 1920x1080 units: lines of this very script typing themselves,
--- planets with focal gradients, a spectrum ring, the
+-- planets with focal gradients, a spectrum ring round an o3d gyroscope, the
 -- piece's name cut by a moving mask, a VP9 alpha clip for the kaleidoscope
 -- to multiply, and in the break the suite's structure.
 
@@ -24,6 +24,7 @@ local CODE = {
   'video_frame(f, { src = "transparent.mov", looping = true })',
   'video_frame(f, { src = "avatar_vp9_alpha.webm", looping = true })',
   'audio_spectrum(t, { src = "track.wav", sample_size = 512 })',
+  'view3d { x = 720, y = 300, w = 480, h = 480, meshes = gyro }',
 }
 local CODE_SIZE, CODE_LEAD = 30, 46
 
@@ -103,6 +104,42 @@ local function ring(b, bands)
   end)
 end
 
+-- The gyroscope in the ring (o3d): a ring per library round onimite's core,
+-- each turning on its own axes, shading as it turns; the kick swells it.
+-- One torus geometry for all four rings, sized by `scale`.
+local GYRO = {
+  { color = ui.OVG, size = 1.25, spin = { 0.9, 0.3, 0 } },
+  { color = ui.OKSL, size = 1.03, spin = { -0.4, 0.8, 0.2 } },
+  { color = ui.ODECS, size = 0.81, spin = { 0.3, -0.5, 0.9 } },
+  { color = ui.O3D, size = 0.59, spin = { -0.8, 0.2, -0.5 } },
+}
+local GYRO_R = 240 -- the view's half size, in the ring's middle
+
+local function gyro(b, bands)
+  local a = snap(b - T.DROP) * (1 - progress(b, T.BREAK - 0.5, T.BREAK))
+  if a <= 0.001 or b >= T.BREAK then return end
+  local swell = 1 + 0.06 * pulse(b, 6) + 0.1 * (bands[2] or 0)
+  local meshes = {
+    { geometry = { type = "SphereGeometry", radius = 1, width_segments = 48, height_segments = 24 },
+      scale = 0.3 * swell, material = { color = ui.ONIMITE, emissive = ui.ONIMITE, emissive_intensity = 0.6,
+        roughness = 0.3 } },
+  }
+  for i, r in ipairs(GYRO) do
+    meshes[#meshes + 1] = {
+      geometry = { type = "TorusGeometry", radius = 1, tube = 0.06, radial_segments = 16, tubular_segments = 96 },
+      scale = r.size * swell * a, rotation = { b * r.spin[1], b * r.spin[2], b * r.spin[3] },
+      material = { color = r.color, emissive = r.color, emissive_intensity = 0.25, roughness = 0.35 } }
+  end
+  view3d { x = 960 - GYRO_R, y = 540 - GYRO_R, w = 2 * GYRO_R, h = 2 * GYRO_R,
+    camera = { fov = 30, position = { 0, 0, 7 }, target = { 0, 0, 0 } },
+    lights = {
+      { type = "HemisphereLight", color = "#dfe8ff", ground_color = "#20121c", intensity = 1.2 },
+      { type = "DirectionalLight", color = "#ffffff", intensity = 2.6, position = { 3, 4, 5 } },
+    },
+    meshes = meshes,
+  }
+end
+
 -- "LUA SCRIPT IN · MP4 OUT", huge, seen through stripes that slide.
 local function title(b)
   local a = progress(b, T.DROP, T.DROP + 1) * (1 - progress(b, T.KALEIDO - 1, T.KALEIDO))
@@ -137,14 +174,16 @@ local function dancer(f, b)
     stroke_dasharray = { 18, 30 }, stroke_dashoffset = -b * 24, opacity = a * 0.8 }
 end
 
--- The suite: onimite over its three libraries, two of them on SDL_GPU.
--- Every label is from the libraries' READMEs.
+-- The suite: onimite over its four libraries, three of them on SDL_GPU.
+-- Every label is from the libraries' READMEs. o3d's box lands with the
+-- SDL row.
 local BOXES = {
-  { name = "ovg", line = "2D vector canvas", x = 300, color = ui.OVG },
-  { name = "oksl", line = "SkSL → SPIR-V · MSL · CPU", x = 760, color = ui.OKSL },
-  { name = "odecs", line = "codecs, no FFmpeg", x = 1220, color = ui.ODECS },
+  { name = "ovg", line = "2D vector canvas", x = 220, color = ui.OVG, at = T.BOXES[1] },
+  { name = "oksl", line = "SkSL → SPIR-V · MSL · CPU", x = 600, color = ui.OKSL, at = T.BOXES[2] },
+  { name = "o3d", line = "3D in three.js terms", x = 980, color = ui.O3D, at = T.O3D_BOX },
+  { name = "odecs", line = "codecs, no FFmpeg", x = 1360, color = ui.ODECS, at = T.BOXES[3] },
 }
-local BOX_W, BOX_H = 400, 150
+local BOX_W, BOX_H = 340, 150
 
 function M.structure(b, x0, y0, s)
   local a = progress(b, T.BREAK, T.BREAK + 0.25)
@@ -158,8 +197,8 @@ function M.structure(b, x0, y0, s)
       text { "Lua scripts → video, one binary", x = 960, y = 192, align = "center", font = ui.MONO, size = 26,
         fill = ui.TEXT }
     end)
-    for k, bx in ipairs(BOXES) do
-      local at = T.BOXES[k]
+    for _, bx in ipairs(BOXES) do
+      local at = bx.at
       local w = progress(b, at - 0.75, at)
       if w > 0 then
         local cx = bx.x + BOX_W / 2
@@ -171,19 +210,19 @@ function M.structure(b, x0, y0, s)
         group({ transform = { scale = pop, origin = { bx.x + BOX_W / 2, 330 + BOX_H / 2 } } }, function()
           rect { x = bx.x, y = 330, w = BOX_W, h = BOX_H, rx = 18, fill = ui.PANEL, stroke = bx.color, stroke_width = 3 }
           text { bx.name, x = bx.x + BOX_W / 2, y = 405, align = "center", font = ui.DISPLAY, size = 72, fill = bx.color }
-          text { bx.line, x = bx.x + BOX_W / 2, y = 450, align = "center", font = ui.MONO, size = 22, fill = ui.TEXT }
+          text { bx.line, x = bx.x + BOX_W / 2, y = 450, align = "center", font = ui.MONO, size = 20, fill = ui.TEXT }
         end)
       end
     end
-    -- SDL_GPU under ovg and oksl; odecs on Vulkan Video or its own codecs
+    -- SDL_GPU under ovg, oksl and o3d; odecs on Vulkan Video or its own codecs
     local sdl = snap(b - T.BOXES[4])
     if sdl > 0.001 then
       group({ opacity = clamp01(sdl), transform = translate(0, (1 - sdl) * 40) }, function()
-        rect { x = 300, y = 520, w = 860, h = 70, rx = 14, fill = ui.LINE }
-        text { "SDL_GPU · Vulkan / Metal / D3D12", x = 730, y = 565, align = "center", font = ui.MONO, size = 26,
+        rect { x = 220, y = 520, w = 1100, h = 70, rx = 14, fill = ui.LINE }
+        text { "SDL_GPU · Vulkan / Metal / D3D12", x = 770, y = 565, align = "center", font = ui.MONO, size = 26,
           fill = ui.TEXT }
-        rect { x = 1220, y = 520, w = 400, h = 70, rx = 14, fill = ui.LINE }
-        text { "Vulkan Video or native", x = 1420, y = 565, align = "center", font = ui.MONO, size = 26,
+        rect { x = 1360, y = 520, w = 340, h = 70, rx = 14, fill = ui.LINE }
+        text { "Vulkan Video or native", x = 1530, y = 565, align = "center", font = ui.MONO, size = 22,
           fill = ui.TEXT }
       end)
     end
@@ -195,6 +234,7 @@ function M.draw(f, b, bands)
   title(b)
   code(b)
   ring(b, bands)
+  gyro(b, bands)
   dancer(f, b)
   if b >= T.BREAK and b < T.LOCKUP then
     M.structure(b, 0, 200, 1)

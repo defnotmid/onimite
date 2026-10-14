@@ -33,13 +33,57 @@ CARDS[2] = { "SVG", "elements animated by id", 3, look.CYAN, "#0b3a8a", look.LEM
     wing = { transform = rotate(-flap, 215, 150) }, wing_back = { transform = rotate(flap * 0.6, 200, 150) },
     sun = { fill = math.floor(gb) % 2 == 0 and look.O or look.LEMON } } })
 end }
-CARDS[3] = { "SHAPING", "ligatures, kerning, Arabic, Indic", 4, look.LEMON, look.PINK, look.VIOLET, function(f, cb, gb)
-  local s = 1 + 0.08 * (1 - soft(cb))
-  group({ transform = { scale = s, origin = { BOARD.x + 430, 480 } } }, function()
-    text { "office", x = BOARD.x + 430, y = 400, align = "center", font = look.SERIF, italic = true, size = 250, fill = look.INK }
-    text { "affluent", x = BOARD.x + 430, y = 620, align = "center", font = look.SERIF, italic = true, size = 250, fill = look.INK }
-    text { "مرحبا", x = BOARD.x + 430, y = 850, align = "center", font = "Noto Sans Arabic", size = 230, fill = look.CYAN }
-  end)
+-- A small 3D still life (view3d{}, three.js terms) on a turntable: lit,
+-- shadowed, one sphere with its own GLSL; the camera swings round it.
+local BANDS_VERT = [[
+varying vec3 vNormal;
+varying vec2 vUv;
+void main() {
+  vNormal = normalize(normalMatrix * normal);
+  vUv = uv;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+]]
+local BANDS_FRAG = [[
+varying vec3 vNormal;
+varying vec2 vUv;
+uniform float uBeat;
+uniform vec3 uA;
+uniform vec3 uB;
+void main() {
+  float band = step(0.5, fract(vUv.y * 6.0 - uBeat));
+  float l = 0.35 + 0.65 * max(dot(normalize(vNormal), normalize(vec3(0.4, 0.9, 0.6))), 0.0);
+  gl_FragColor = vec4(mix(uA, uB, band) * l, 1.0);
+}
+]]
+
+CARDS[3] = { "3D", "three.js terms: lights, shadows, GLSL", 4, look.NIGHT, look.VIOLET, look.CYAN, function(f, cb, gb)
+  local orbit = -0.5 + 0.45 * cb
+  local hop = 0.35 * look.kick(gb)
+  view3d { x = BOARD.x - 40, y = BOARD.y, w = 940, h = 840,
+    camera = { fov = 38, position = { 7.2 * math.sin(orbit), 3.4, 7.2 * math.cos(orbit) }, target = { 0, 0.5, 0 } },
+    lights = {
+      { type = "HemisphereLight", color = "#f1e9ff", ground_color = look.NIGHT, intensity = 1.1 },
+      { type = "DirectionalLight", intensity = 2.8, position = { 3, 7, 4 }, cast_shadow = true,
+        shadow = { map_size = 1024, height = 7, bias = -0.0005, normal_bias = 0.02 } },
+    },
+    meshes = {
+      { geometry = { type = "CylinderGeometry", radius_top = 2.6, radius_bottom = 2.6, height = 0.2, radial_segments = 96 },
+        position = { 0, -0.1, 0 }, material = { color = look.INK, roughness = 0.8 }, receive_shadow = true },
+      { geometry = { type = "BoxGeometry" }, position = { -1.4, 0.6 + hop, 0.3 }, scale = 1.2, rotation = { 0, gb * 0.8, 0 },
+        material = { color = look.PINK, roughness = 0.35 }, cast_shadow = true, receive_shadow = true },
+      { geometry = { type = "TorusGeometry", radius = 0.55, tube = 0.2, radial_segments = 24, tubular_segments = 64 },
+        position = { 1.3, 0.9, 0.5 }, rotation = { gb * 0.9, gb * 0.5, 0 },
+        material = { color = look.CYAN, roughness = 0.3 }, cast_shadow = true, receive_shadow = true },
+      { geometry = { type = "SphereGeometry", radius = 0.75, width_segments = 48, height_segments = 24 },
+        position = { 0, 0.75 + 0.5 * hop, -1.2 }, rotation = { 0, gb * 0.6, 0 },
+        material = { type = "ShaderMaterial", vertex_shader = BANDS_VERT, fragment_shader = BANDS_FRAG,
+          uniforms = { uBeat = gb, uA = look.VIOLET, uB = look.LEMON } },
+        cast_shadow = true },
+      { geometry = { type = "CylinderGeometry", radius_top = 0, radius_bottom = 0.45, height = 1.1, radial_segments = 48 },
+        position = { 0.2, 0.55, 1.5 }, material = { color = look.LEMON, roughness = 0.5 }, cast_shadow = true },
+    },
+  }
 end }
 CARDS[4] = { "CAPTIONS", "word-timed, TikTok style", 1, look.VIOLET, look.PINK, look.CYAN, function(f, cb, gb)
   local words = { "NO", "AUDIO", "FILES", "IN", "THIS", "FILM" }

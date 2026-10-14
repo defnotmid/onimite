@@ -1,12 +1,12 @@
--- The suite as one piece: onimite, ovg, oksl and odecs used together in
--- every frame for 36 seconds. An SkSL world (oksl, media/world.sksl) warps
+-- The suite as one piece: onimite, ovg, oksl, odecs and o3d used together
+-- in every frame for 36 seconds. An SkSL world (oksl, media/world.sksl) warps
 -- a group of shaped text and vector art (ovg: filters, blend modes,
--- masks, focal gradients) given to it as its `uniform shader` child, with
--- a WebP panorama on its horizon; the ovg rocket (an SVG animated by
+-- masks, focal gradients) and a 3D gyroscope (o3d) given to it as its
+-- `uniform shader` child, with a WebP panorama on its horizon; the ovg rocket (an SVG animated by
 -- element id) flies through it; alpha video clips decoded live by odecs
 -- glow in portals and fold into the shader's kaleidoscope; the synthesized
 -- music's beat and spectrum drive the uniforms. It ends on the suite's
--- structure under the four names.
+-- structure under the five names.
 --
 --     onimite render examples/suite/video.lua -o suite.mp4
 
@@ -175,8 +175,9 @@ local CAPTIONS = {
   { 1, "video.lua → onimite: a Lua script, rendered by a native Odin engine" },
   { T.DROP, "oksl compiles world.sksl · ovg draws its child group · svg{} flies the rocket by id" },
   { T.PORTALS[1], "odecs decodes ProRes 4444 and VP9 with alpha, live on the frame clock" },
-  { T.KALEIDO, "the VP9 clip, drawn inside the shader's child group, folded six ways" },
-  { T.BREAK, "one frame clock, four libraries" },
+  { T.PORTALS[2] + 4, "o3d draws the gyroscope (lit tori, view3d{}) inside the group the shader warps" },
+  { T.KALEIDO, "the VP9 clip and the gyroscope, inside the shader's child group, folded six ways" },
+  { T.BREAK, "one frame clock, five libraries" },
 }
 
 local function caption(b)
@@ -191,8 +192,10 @@ local function caption(b)
   end)
 end
 
-local NAMES = { { "onimite", ui.ONIMITE }, { "ovg", ui.OVG }, { "oksl", ui.OKSL }, { "odecs", ui.ODECS } }
-local NAME_SIZE, SEP = 96, "  ·  "
+-- A name a beat; o3d's lands with the line.
+local NAMES = { { "onimite", ui.ONIMITE, T.NAMES[1] }, { "ovg", ui.OVG, T.NAMES[2] }, { "oksl", ui.OKSL, T.NAMES[3] },
+  { "odecs", ui.ODECS, T.NAMES[4] }, { "o3d", ui.O3D, T.O3D_NAME } }
+local NAME_SIZE, SEP = 90, "  ·  "
 -- The row's layout, measured once at load.
 local NAME_X = {}
 do
@@ -213,8 +216,7 @@ local function lockup(b)
   if b < T.LOCKUP then return end
   group({ filter = { { "blur", std = 14, result = "b" }, { "merge", "b", "SourceGraphic" } } }, function()
     for i, n in ipairs(NAMES) do
-      local at = T.NAMES[i]
-      local p = snap(b - at)
+      local p = snap(b - n[3])
       if p > 0.001 then
         group({ opacity = clamp01(p * 2), transform = translate(0, (1 - p) * 60) }, function()
           text { n[1], x = NAME_X[i], y = 300, font = ui.SANS, size = NAME_SIZE, fill = n[2] }

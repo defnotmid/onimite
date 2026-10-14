@@ -1,6 +1,7 @@
 -- Quick cuts, a bar each (a series: every part counts its beats from 0):
 -- the SVG bird flapping by id override, shaped ligatures, Arabic joining,
--- and Pip, the mascot, as an alpha video clip with a glow.
+-- and Pip, the mascot, as an alpha video clip with a glow, dancing on a 3D
+-- stage (view3d{}) that the clip composites over.
 
 local beat = require("beat")
 local ui = require("ui")
@@ -79,10 +80,43 @@ local function arabic(f, lb)
   label(lb, 3, "shaped text · Arabic joining")
 end
 
+-- Pip's stage: a lit turntable with an arc of bars behind Pip that rise in
+-- a wave on the beat and shadow the floor. One unit box for every bar,
+-- sized by `scale`.
+local STAGE_BARS = 9
+local function stage(lb)
+  local meshes = {
+    { geometry = { type = "CylinderGeometry", radius_top = 2.1, radius_bottom = 2.1, height = 0.24, radial_segments = 96 },
+      position = { 0, -0.12, 0 }, material = { color = "#1d2233", roughness = 0.55 }, receive_shadow = true },
+    { geometry = { type = "TorusGeometry", radius = 2.1, tube = 0.035, radial_segments = 8, tubular_segments = 128 },
+      rotation = { math.pi / 2, 0, 0 }, material = { type = "MeshBasicMaterial", color = ui.O } },
+  }
+  for i = 1, STAGE_BARS do
+    local a = math.pi * ((i - 1) / (STAGE_BARS - 1) - 0.5) -- the back half, left to right
+    local h = 0.25 + 1.1 * pulse(lb - (i - 1) / STAGE_BARS, 5)
+    meshes[#meshes + 1] = { geometry = { type = "BoxGeometry" },
+      position = { 1.65 * math.sin(a), h / 2, -1.65 * math.cos(a) },
+      rotation = { 0, -a, 0 }, scale = { 0.26, h, 0.26 },
+      material = { color = ui.O, emissive = ui.O, emissive_intensity = 0.35, roughness = 0.4 },
+      cast_shadow = true }
+  end
+  local orbit = 0.22 * math.sin(lb * math.pi / 4)
+  view3d {
+    camera = { fov = 30, position = { 9 * math.sin(orbit), 2.3, 9 * math.cos(orbit) }, target = { 0, 1.1, 0 } },
+    lights = {
+      { type = "HemisphereLight", color = "#cfd6ff", ground_color = "#151131", intensity = 0.9 },
+      { type = "DirectionalLight", color = "#ffffff", intensity = 2.4, position = { 1.5, 6, 3 }, cast_shadow = true,
+        shadow = { map_size = 1024, height = 6, bias = -0.0005, normal_bias = 0.02 } },
+    },
+    meshes = meshes,
+  }
+end
+
 local function avatar(f, lb)
   local fx = 960 + math.cos(lb * 1.4) * 260
   rect { x = 0, y = 0, w = 1920, h = 1080, fill = radial_gradient { cx = 960, cy = 560, r = 760, fx = fx, fy = 420,
     stops = { { 0, "#2b1d5c" }, { 0.55, "#151131" }, { 1, ui.BG } } } }
+  stage(lb)
   local s = 1 + 0.03 * pulse(lb, 8) + 0.15 * (1 - soft(lb))
   group({ transform = { scale = s, origin = { 960, 560 } } }, function()
     group(GLOW, function()
@@ -90,7 +124,7 @@ local function avatar(f, lb)
         fit = "contain" })
     end)
   end)
-  label(lb, 4, "ProRes 4444 alpha video · glow filter")
+  label(lb, 4, "ProRes 4444 alpha video · glow · on a view3d{} stage")
 end
 
 -- each part gets its own frame and its beats since it began
