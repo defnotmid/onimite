@@ -93,3 +93,57 @@ test_time_axis :: proc(t: ^testing.T) {
 	testing.expect_value(t, axis_point(along, {130, 25}), [2]f32{130, 25})
 	testing.expect_value(t, axis_label_along(a, 80, 14), f32(14))
 }
+
+// Wheel zoom on the timeline and video keeps the point under the cursor
+// fixed on every eased frame; manual zoom/pan detaches follow until a seek
+// or Timeline_Follow reattaches it.
+@(test)
+test_timeline_and_video_camera :: proc(t: ^testing.T) {
+	app: App_State
+	pv := &app.preview
+	pv.timeline.frames = 1000
+	pv.timeline.fps = 30
+	pv.zoom = 1
+	pv.zoom_track.target = 1
+	pv.video_zoom = 1
+	pv.video_zoom_track.target = 1
+
+	// Zoom timeline around cursor ratio 0.25 (frame 250): across every
+	// eased step, the frame at ratio 0.25 stays pinned to 250.
+	ratio := 0.25
+	expected_frame := pv.view_first + ratio * view_frames(&app)
+	preview_apply(&app, .Timeline_Zoom, {scalar = 2.0, ratio = ratio, flag = true})
+	preview_apply(&app, .Timeline_Zoom, {scalar = 2.0, ratio = ratio, flag = true})
+	testing.expect(t, pv.detached)
+	for _ in 0 ..< 60 {
+		preview_motion_advance(&app, 1.0 / 60.0)
+		at_cursor := pv.view_first + ratio * view_frames(&app)
+		testing.expect(t, abs(at_cursor - expected_frame) < 1e-4)
+	}
+	testing.expect(t, abs(pv.zoom - 4.0) < 1e-3)
+
+	// While detached, advancing the playhead past the visible window does not
+	// yank view_first; seeking reattaches follow.
+	before_first := pv.view_first
+	pv.frame = 900
+	preview_view_follow(&app)
+	testing.expect_value(t, pv.view_first, before_first)
+	preview_apply(&app, .Frame_Set, {count = 900})
+	testing.expect(t, !pv.detached)
+	preview_view_follow(&app)
+	testing.expect(t, pv.view_first > before_first)
+
+	// Video 2D zoom around cursor at_xy = {0.75, 0.25} keeps the underlying
+	// point fixed across every eased frame.
+	at_xy := [2]f32{0.75, 0.25}
+	at := [2]f64{f64(at_xy.x) - 0.5, f64(at_xy.y) - 0.5}
+	pt0 := [2]f64{(at.x - pv.video_pan.x) / pv.video_zoom, (at.y - pv.video_pan.y) / pv.video_zoom}
+	preview_apply(&app, .Video_Zoom, {scalar = 3.0, at_xy = at_xy})
+	for _ in 0 ..< 60 {
+		preview_motion_advance(&app, 1.0 / 60.0)
+		pt := [2]f64{(at.x - pv.video_pan.x) / pv.video_zoom, (at.y - pv.video_pan.y) / pv.video_zoom}
+		testing.expect(t, abs(pt.x - pt0.x) < 1e-4 && abs(pt.y - pt0.y) < 1e-4)
+	}
+	testing.expect(t, abs(pv.video_zoom - 3.0) < 1e-3)
+}
+

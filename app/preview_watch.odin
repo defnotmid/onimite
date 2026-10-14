@@ -110,9 +110,11 @@ watch_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32, id: View_Id, area: W
 			current = i
 		}
 	}
-	first := clamp(v.scroll, 0, max(g.count - 1, 0))
-	for i in first ..< min(g.count, first + int(list.height / row_h) + 1) {
-		watch_row_view(app, s, dpi, id, g.first + i, {0, f32(i - first) * row_h, list.width, row_h}, i == current)
+	ui.scroll_limit(&v.scroll_reg, f64(max(g.count - 1, 0)))
+	first, fraction := ui.scroll_page_reg(s, &v.scroll_reg)
+	first = clamp(first, 0, max(g.count - 1, 0))
+	for i in first ..< min(g.count, first + int(list.height / row_h) + 2) {
+		watch_row_view(app, s, dpi, id, g.first + i, {0, (f32(i - first) - fraction) * row_h, list.width, row_h}, i == current)
 	}
 }
 

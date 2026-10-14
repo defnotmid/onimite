@@ -396,8 +396,9 @@ callback is the playback clock, and the UI thread only draws.
 | Up, L / Down, H | volume up / down |
 | Ctrl+Down, Ctrl+H | mute |
 | M | set / clear the bookmark (reloads return to it) |
-| = / - | zoom the timeline (also Ctrl+wheel); Ctrl+0 fits the video |
+| = / - | zoom the timeline (also Ctrl+wheel; a zoomed timeline you scroll stops following the playhead until Follow); Ctrl+0 fits it |
 | T | collapse / expand the timeline |
+| Z | fit the video in its panel (the wheel over the video zooms around the cursor, dragging pans) |
 | F | fullscreen |
 | D / I | the Watch on the problems / the media (the Watch button: open / close it) |
 | N / Shift+N | next / previous scene, cue, problem or media row with a warning or an error |

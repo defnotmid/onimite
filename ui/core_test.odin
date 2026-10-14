@@ -154,3 +154,33 @@ test_list_navigation :: proc(t: ^testing.T) {
 	testing.expect(t, list_scroll_apply(&first, -10, 5, 30))
 	testing.expect_value(t, first, 23)
 }
+
+// Logarithmic tracks cross the geometric mean at midpoint and converge
+// smoothly under exponential rate control; scroll registers clamp and ease.
+@(test)
+test_track_logarithmic_and_scroll :: proc(t: ^testing.T) {
+	mid := interpolate(1.0, 16.0, 0.5, .Logarithmic)
+	testing.expect(t, abs(mid - 4.0) < 1e-6)
+
+	val := 1.0
+	tr: Track
+	track_target(&tr, val, 4.0, space = .Logarithmic, rate = 18)
+	testing.expect(t, tr.active)
+	for _ in 0 ..< 120 {
+		track_advance(&val, &tr, 1.0 / 60.0)
+	}
+	testing.expect(t, !tr.active)
+	testing.expect_value(t, val, 4.0)
+
+	sc: Scroll
+	scroll_limit(&sc, 10)
+	scroll_to(&sc, 6)
+	testing.expect(t, sc.track.active)
+	for _ in 0 ..< 30 {
+		scroll_advance(&sc, 1.0 / 60.0)
+	}
+	testing.expect_value(t, sc.current, 6.0)
+	scroll_limit(&sc, 4)
+	testing.expect_value(t, sc.current, 4.0)
+}
+

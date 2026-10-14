@@ -68,15 +68,19 @@ draw_image_contain :: proc(r: ^Renderer, image: ^Image, x, y, w, h: f32, opacity
 		return
 	}
 	scale := min(w / f32(image.width), h / f32(image.height))
-	draw_w := f32(image.width) * scale
-	draw_h := f32(image.height) * scale
-	draw_x := x + (w - draw_w) * 0.5
-	draw_y := y + (h - draw_h) * 0.5
+	draw_image_rect(r, image, x + (w - f32(image.width) * scale) * 0.5, y + (h - f32(image.height) * scale) * 0.5, f32(image.width) * scale, f32(image.height) * scale, opacity, nearest)
+}
+
+// draw_image_rect draws `image` filling `(x, y, w, h)` in pixels.
+draw_image_rect :: proc(r: ^Renderer, image: ^Image, x, y, w, h: f32, opacity: f32 = 1, nearest := false) {
+	if !image_loaded(image) || w <= 0 || h <= 0 || opacity <= 0 {
+		return
+	}
 	color := [4]f32{1, 1, 1, clamp(opacity, 0, 1)}
 	rect_inst(
 		r,
 		{
-			dst = {draw_x, draw_y, draw_x + draw_w, draw_y + draw_h},
+			dst = {x, y, x + w, y + h},
 			src = {0, 0, f32(image.width), f32(image.height)},
 			col_tl = color,
 			col_tr = color,

@@ -73,10 +73,10 @@ actions_gather_from_platform :: proc(storage: ^Action_Storage, p: ^platform.Plat
 	}
 	at := platform.mouse_pos(p)
 	if wheel := platform.mouse_wheel(p); wheel != 0 {
-		append(&storage.rows, Action_Row{kind = .Scroll, position = at, scroll_delta = wheel, control = control})
+		append(&storage.rows, Action_Row{kind = .Scroll, position = at, scroll_delta = wheel, control = control, shift = shift})
 	}
 	if wheel_x := platform.mouse_wheel_x(p); wheel_x != 0 {
-		append(&storage.rows, Action_Row{kind = .Scroll, position = at, scroll_delta = wheel_x, control = control, horizontal = true})
+		append(&storage.rows, Action_Row{kind = .Scroll, position = at, scroll_delta = wheel_x, control = control, shift = shift, horizontal = true})
 	}
 	for path in platform.dropped_files(p) {
 		append(&storage.rows, Action_Row{kind = .Drop, path = path})

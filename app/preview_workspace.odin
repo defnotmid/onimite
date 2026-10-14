@@ -1,5 +1,7 @@
 package onimite_app
 
+import ui "../ui"
+
 // The preview's workspace, after oasic's: panels that split, and views as
 // tabs in them that open, close, move and are dragged where you like.
 // Panels and views are flat records with integer ids: an id is its row's
@@ -76,6 +78,7 @@ View_Record :: struct {
 	// Watch: the section shown and its first row shown.
 	section:        Watch_Section,
 	scroll:         int,
+	scroll_reg:     ui.Scroll,
 }
 
 // Where a panel is this window frame, in pixels: its whole area, below its

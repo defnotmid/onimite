@@ -218,7 +218,10 @@ timeline_rows_clamp :: proc(app: ^App_State) {
 	for acc: f32 = 0; last > 0 && acc + row_height(pv.waves.items[rows[last - 1]].kind) <= shown; last -= 1 {
 		acc += row_height(pv.waves.items[rows[last - 1]].kind)
 	}
-	pv.rows_scroll = clamp(pv.rows_scroll, 0, last if total > shown else 0)
+	limit := last if total > shown else 0
+	pv.rows_scroll = clamp(pv.rows_scroll, 0, limit)
+	ui.scroll_limit(&pv.rows_scroll_reg, f64(limit))
+	ui.scroll_to(&pv.rows_scroll_reg, f64(pv.rows_scroll))
 }
 
 // Points the rows below the scenes get in the timeline's `area` (pixels)
@@ -335,7 +338,7 @@ Timeline_Draw :: struct {
 	app:  ^App_State,
 	dpi:  f32,
 	axis: Time_Axis,
-	head: f32, // the playhead frame, eased
+	head: f32, // the playhead frame
 }
 
 // The timeline in `area` (pixels), inset by TRACK_PAD and TIMELINE_GAP.
@@ -379,22 +382,24 @@ timeline_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32, area: Workspace_R
 		if ui.mouse_over(sig) {
 			command_push(c, .Cursor_Hover, {count = clamp(frame_at(pv, track, mouse.x, ppf), 0, preview_duration(app) - 1)})
 		}
-		if motion := axis_motion(a, sig.drag_motion); ui.middle_dragging(sig) && motion.x != 0 {
-			command_push(c, .Timeline_Pan, {scalar = -f64(motion.x) / ppf})
+		if motion := axis_motion(a, sig.drag_motion); (ui.middle_dragging(sig) || ui.right_dragging(sig)) && motion.x != 0 {
+			command_push(c, .Timeline_Pan, {scalar = -f64(motion.x) / ppf, flag = true})
 		}
 		total, shown := rows_points(app, timeline_rows(app))
-		if sig.scroll != 0 && hit >= 0 && total > shown {
+		shift := platform.shift_down(s.p)
+		if sig.scroll != 0 && !shift && hit >= 0 && total > shown {
 			command_push(c, .Timeline_Rows_Scroll, {count = -1 if sig.scroll > 0 else 1})
 		} else if sig.scroll != 0 || sig.scroll_x != 0 {
 			command_push(c, .Timeline_Pan, {scalar = f64(sig.scroll_x - sig.scroll) * visible * 0.1})
 		}
 		if sig.zoom != 0 {
-			command_push(c, .Timeline_Zoom, {scalar = math.pow(1.25, f64(sig.zoom)), count = frame_at(pv, track, mouse.x, ppf)})
+			at := clamp(f64(mouse.x - track.rect.min.x) / w, 0, 1)
+			command_push(c, .Timeline_Zoom, {scalar = math.pow(1.25, f64(sig.zoom)), ratio = at, flag = true})
 		}
 	}
 
 	data := new(Timeline_Draw, context.temp_allocator)
-	data^ = {app, dpi, a, ui.anim_f32(s, track.key, f32(pv.frame), {initial = f64(pv.frame), duration = 0.05})}
+	data^ = {app, dpi, a, f32(pv.frame)}
 	track.custom_draw = timeline_draw
 	track.custom_draw_data = data
 }
@@ -406,12 +411,17 @@ timeline_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32, area: Workspace_R
 row_at :: proc(app: ^App_State, a: Time_Axis, track: ^ui.Box, mouse: [2]f32, dpi: f32) -> (item: int, in_name: bool) {
 	pv := &app.preview
 	y := track.rect.min.y + (a.ruler + SCENE_HEIGHT * a.across) * dpi
-	_, shown := rows_points(app, timeline_rows(app))
+	rows := timeline_rows(app)
+	_, shown := rows_points(app, rows)
 	if mouse.y < y || mouse.y >= y + shown * dpi * a.across {
 		return -1, false
 	}
-	rows := timeline_rows(app)
-	for i in rows[min(pv.rows_scroll, len(rows)):] {
+	first_row := clamp(int(math.floor(pv.rows_scroll_reg.current)), 0, len(rows))
+	fraction := f32(pv.rows_scroll_reg.current) - f32(first_row)
+	if first_row < len(rows) && fraction > 0 {
+		y -= fraction * row_height(pv.waves.items[rows[first_row]].kind) * dpi * a.across
+	}
+	for i in rows[first_row:] {
 		h := row_height(pv.waves.items[i].kind) * dpi * a.across
 		if mouse.y < y + h {
 			return i, mouse.x - track.rect.min.x < axis_label_along(a, ROW_NAME_WIDTH, LANE_HEIGHT) * dpi
@@ -527,23 +537,29 @@ timeline_draw :: proc(s: ^ui.State, box: ^ui.Box, data: rawptr) {
 	window_mouse := platform.mouse_pos(s.p)
 	mouse := axis_point(a, window_mouse)
 	hovered := -1
+	first_row, fraction := ui.scroll_page_reg(s, &pv.rows_scroll_reg)
+	first_row = clamp(first_row, 0, len(rows))
 	y := rows_y
-	for i, n in rows[min(pv.rows_scroll, len(rows)):] {
+	if first_row < len(rows) && fraction > 0 {
+		y -= fraction * row_height(pv.waves.items[rows[first_row]].kind) * dpi * a.across
+	}
+	for i, n in rows[first_row:] {
 		it := &pv.waves.items[i]
 		rh := row_height(it.kind) * dpi * a.across
 		if y >= rows_y + shown * dpi * a.across {
 			break
 		}
+		row_idx := first_row + n
 		switch it.kind {
 		case .Scenes:
 		case .Cues:
 			draw_cues(&view, y, rh)
 		case .Group:
-			draw_lane(&view, int(it.lane), y, rh - 2 * dpi, n + 2)
+			draw_lane(&view, int(it.lane), y, rh - 2 * dpi, row_idx + 2)
 			open := timeline_row_open(app, it^)
 			draw_row_name(&view, fmt.tprintf("%s %s  %d", "-" if open else "+", text_of(pv.waves.text[:], it.label), it.children), y, rh - 2 * dpi, 0)
 		case .Track:
-			draw_lane(&view, int(it.lane), y, rh - 2 * dpi, n + 2)
+			draw_lane(&view, int(it.lane), y, rh - 2 * dpi, row_idx + 2)
 			lane := pv.waves.lanes[it.lane]
 			name := text_of(pv.waves.text[:], it.label)
 			if lane.gain_db != 0 {

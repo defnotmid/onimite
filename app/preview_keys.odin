@@ -67,6 +67,7 @@ PREVIEW_KEYS := [?]Key_Binding {
 	{key = .M, ctrl = .Up, kind = .Bookmark_Toggle},
 	{key = .F, ctrl = .Up, kind = .Fullscreen_Toggle},
 	{key = .T, ctrl = .Up, kind = .Timeline_Toggle},
+	{key = .Z, ctrl = .Up, kind = .Video_Fit},
 	{key = .I, ctrl = .Up, kind = .Watch_Show, regs = {section = .Media}},
 	{key = .P, ctrl = .Down, kind = .Lister_Open, regs = {lister = .Go_To}},
 	{key = .Q, ctrl = .Up, kind = .Quit},

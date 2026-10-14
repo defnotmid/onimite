@@ -337,11 +337,13 @@ Space play/pause · Left/Right or J/K step a frame · Ctrl+Left/Right one second
 (Shift+J, Shift+Left) the bookmark, then the start · End (Shift+G, Shift+Right) last frame ·
 PgDn/S/W, PgUp/B/Shift+S next/previous scene · M set the bookmark (reloads return to it) ·
 Up/L, Down/H volume · Ctrl+Down/Ctrl+H mute · Shift+L loop · =/- zoom the timeline, Ctrl+0
-fit it · T hide timeline · F fullscreen · D/I the Watch on problems/media · N/Shift+N
+fit it · Z fit the video in its panel · T hide timeline · F fullscreen · D/I the Watch on problems/media · N/Shift+N
 next/previous row with a warning or error · Ctrl+P go to a scene, cue or problem (type to
 filter, Up/Down, Enter) · R reload · Ctrl+O open a script · Esc closes the list, the
 Watch, fullscreen, then the window · Q close.
-Click or drag the timeline to scrub. Views are tabs in panels: drag a tab to another panel or
+Click or drag the timeline to scrub; once zoomed, it stops following the playhead when you
+scroll it, and its Follow button brings it back. Over the video, the wheel zooms around the
+cursor and dragging pans (a click still plays/pauses). Views are tabs in panels: drag a tab to another panel or
 its edge, `+` lists the views to open in that panel and its splits (type to filter). A timeline
 in a panel at the side, taller than wide, runs top to bottom. The Watch lists scenes, cues (with drift / missing-hit
 findings), problems and media (failed, unused sounds); a click on a row goes to its frame. A

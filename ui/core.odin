@@ -215,6 +215,8 @@ Sig_Flag :: enum u32 {
 	Left_Dragging,
 	Middle_Pressed,
 	Middle_Dragging, // the middle button held since it pressed on this box
+	Right_Pressed,
+	Right_Dragging, // the right button held since it pressed on this box
 	Mouse_Over, // mouse is within rect (possibly occluded)
 }
 
@@ -241,6 +243,7 @@ pressed :: proc(s: Signal) -> bool {return .Left_Pressed in s.flags}
 mouse_over :: proc(s: Signal) -> bool {return .Mouse_Over in s.flags}
 dragging :: proc(s: Signal) -> bool {return .Left_Dragging in s.flags}
 middle_dragging :: proc(s: Signal) -> bool {return .Middle_Dragging in s.flags}
+right_dragging :: proc(s: Signal) -> bool {return .Right_Dragging in s.flags}
 
 ////////////////////////////////
 // State
@@ -263,6 +266,7 @@ State :: struct {
 	// interaction
 	hot:             Key,
 	middle_active:   Key, // the box the middle button pressed on, while held
+	right_active:    Key, // the box the right button pressed on, while held
 	drop_hot:        Key, // the Drop_Site box under the mouse this frame (raddbg's drop_hot_box_key)
 	active:          Key, // left-button active (the pressed widget)
 	// The text field that takes typing (sticky until another takes it).
@@ -423,6 +427,7 @@ modal_input_set :: proc(s: ^State, active: bool) {
 		s.hot = Key(0)
 		s.active = Key(0)
 		s.middle_active = Key(0)
+		s.right_active = Key(0)
 	}
 	s.modal_input = active
 }
@@ -787,6 +792,17 @@ signal_from_box :: proc(s: ^State, box: ^Box) -> Signal {
 			s.middle_active = Key(0)
 		}
 	}
+	if platform.mouse_pressed(s.p, .Right) && in_bounds {
+		sig.flags |= {.Right_Pressed}
+		s.right_active = box.key
+	}
+	if s.right_active == box.key {
+		if platform.mouse_down(s.p, .Right) || .Right_Pressed in sig.flags {
+			sig.flags |= {.Right_Dragging}
+		} else {
+			s.right_active = Key(0)
+		}
+	}
 
 	// The drag delta is measured while this box is active, including on
 	// the frame it is released: a sweep that ends needs to know where it
@@ -811,7 +827,7 @@ signal_from_box :: proc(s: ^State, box: ^Box) -> Signal {
 		}
 	}
 
-	if sig.flags & {.Left_Dragging, .Middle_Dragging} != {} {
+	if sig.flags & {.Left_Dragging, .Middle_Dragging, .Right_Dragging} != {} {
 		sig.drag_motion = platform.mouse_delta(s.p)
 	}
 
