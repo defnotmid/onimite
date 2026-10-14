@@ -152,7 +152,7 @@ STATUS_HEIGHT :: 26
 WATCH_WIDTH :: 360
 VOLUME_STEP :: 0.1
 
-// Preview_Open: opens the window and runs it until it closes. The start
+// Preview: opens the window and runs it until it closes. The start
 // spec resolves against the script the load row loaded (declarations only,
 // no rendering).
 preview_open :: proc(app: ^App_State, regs: Command_Regs) -> Error {

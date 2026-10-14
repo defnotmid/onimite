@@ -1,6 +1,6 @@
 // onimite: render videos written as Lua scripts. The command line only
-// parses arguments into command rows (app.cli_parse, from the option table
-// the MCP server shares); `app.front_rows_run` applies them.
+// parses arguments into command rows (app.cli_parse, from the commands'
+// argument structs the MCP server shares); `app.front_rows_run` applies them.
 package main
 
 import "core:fmt"

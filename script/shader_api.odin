@@ -62,13 +62,6 @@ import lua "vendor:lua/5.4"
 // both forms uniforms are set in every pass that declares them, and inputs
 // are bound in the passes.
 
-@(private)
-register_shader_api :: proc(s: ^Script) {
-	lua.pushlightuserdata(s.L, s)
-	lua.pushcclosure(s.L, l_shader, 1)
-	lua.setglobal(s.L, "shader")
-}
-
 // The keys of inline sources, by dialect.
 @(private = "file")
 SOURCE_KEYS := [oksl.Profile]cstring {
@@ -77,11 +70,11 @@ SOURCE_KEYS := [oksl.Profile]cstring {
 	.Glsl      = "glsl",
 }
 
-@(private = "file")
+@(private)
 l_shader :: proc "c" (L: ^lua.State) -> c.int {
 	s := host(L)
 	context = s.odin_context
-	ctx := render_ctx(L, s, "shader")
+	ctx := render_ctx(L, s)
 	f := ctx.frame
 	t: c.int = 1
 	if lua.gettop(L) >= 2 {

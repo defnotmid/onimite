@@ -154,75 +154,84 @@ dispatch_pass :: proc(app: ^App_State) {
 	defer command_batch_return(&app.commands, &batch)
 	for queued in batch.rows {
 		row := command_row_of(&batch, queued)
-		regs := row.regs
 		if app.exit_code == 1 && row.kind != .Script_Load {
 			// A failed load leaves nothing to act on.
 			continue
 		}
-		err: Error
-		switch row.kind {
-		case .None:
-			unreachable()
-		case .Script_Load:
-			err = script_load(app, regs)
-		case .Threads_Set:
-			pool_set_threads(app, regs.count)
-		case .Scale_Set:
-			app.scale = f32(regs.scalar) if regs.scalar > 0 else 1
-			app.scale_given = regs.scalar > 0
-		case .Output_Set:
-			app.json = regs.flag
-		case .Backend_Set:
-			app.software = regs.flag
-		case .Debug_Set:
-			app.debug = .Timing in regs.flags
-			app.clip_log = .Clip_Log in regs.flags
-			speech.set_log(speech_log, app.debug)
-		case .Image_Cache_Set:
-			app.image_budget = regs.count << 20
-			app.media.cache.budget = app.image_budget
-		case .Show_Print:
-			err = show_print(app, regs)
-		case .Timeline_Print:
-			err = timeline_print(app, regs)
-		case .Frames_Export:
-			err = frames_export(app, regs)
-		case .Strip_Export:
-			err = strip_export(app, regs)
-		case .Onion_Export:
-			err = onion_export(app, regs)
-		case .Snapshot_Check:
-			err = snapshot_check(app, regs)
-		case .Inspect:
-			err = inspect(app, regs)
-		case .Video_Render:
-			err = video_render(app, regs)
-		case .Batch_Render:
-			err = batch_render(app, regs)
-		case .Audio_Analyze:
-			err = audio_analyze(app, regs)
-		case .Audio_Render:
-			err = audio_render(app, regs)
-		case .Audio_At:
-			err = audio_at(app, regs)
-		case .Audio_Onsets:
-			err = audio_onsets(app, regs)
-		case .Probe_Print:
-			err = probe_print(app, regs)
-		case .Preview_Open:
-			err = preview_open(app, regs)
-		case .Update_Run:
-			err = update_run(app, regs)
-		case .Playback_Toggle, .Playback_Set, .Frame_Set, .Frame_Step, .Frame_Start, .Seconds_Step, .Scene_Step, .Script_Reload, .Script_Open, .File_Dialog, .Loop_Toggle, .Loop_Set, .Mute_Toggle, .Mute_Set, .Volume_Set, .Volume_Step, .Bookmark_Toggle, .Timeline_Zoom, .Timeline_Fit, .Timeline_Pan, .Timeline_Toggle, .Timeline_Row_Toggle, .Timeline_Rows_Scroll, .Fullscreen_Toggle, .Cursor_Hover, .Dismiss, .Watch_Show, .Watch_Section_Set, .Watch_Scroll, .Problem_Step, .Quit:
-			preview_apply(app, row.kind, regs)
-		case .Panel_Split, .Panel_Close, .Panel_Resize, .View_Open, .View_Close, .View_Select, .View_Move, .Lister_Open, .Lister_Filter, .Lister_Close:
-			workspace_apply(&app.preview.workspace, row.kind, regs)
+		err := command_validate(app, &row)
+		if err == nil {
+			err = command_apply(app, row)
 		}
 		if err != nil {
 			failure_print(app)
 			failure_clear(app)
 		}
 	}
+}
+
+// Runs a row's handler; the row is valid where it runs (command_validate).
+@(private)
+command_apply :: proc(app: ^App_State, row: Command_Row) -> Error {
+	regs := row.regs
+	switch row.kind {
+	case .None:
+		unreachable()
+	case .Script_Load:
+		return script_load(app, regs)
+	case .Threads_Set:
+		pool_set_threads(app, regs.count)
+	case .Scale_Set:
+		app.scale = f32(regs.scalar) if regs.scalar > 0 else 1
+		app.scale_given = regs.scalar > 0
+	case .Output_Set:
+		app.json = regs.flag
+	case .Backend_Set:
+		app.software = regs.flag
+	case .Debug_Set:
+		app.debug = .Timing in regs.flags
+		app.clip_log = .Clip_Log in regs.flags
+		speech.set_log(speech_log, app.debug)
+	case .Image_Cache_Set:
+		app.image_budget = regs.count << 20
+		app.media.cache.budget = app.image_budget
+	case .Show:
+		return show_print(app, regs)
+	case .Timeline:
+		return timeline_print(app, regs)
+	case .Frame:
+		return frames_export(app, regs)
+	case .Strip:
+		return strip_export(app, regs)
+	case .Onion:
+		return onion_export(app, regs)
+	case .Snapshot:
+		return snapshot_check(app, regs)
+	case .Inspect:
+		return inspect(app, regs)
+	case .Render:
+		return video_render(app, regs)
+	case .Batch_Render:
+		return batch_render(app, regs)
+	case .Audio_Analyze:
+		return audio_analyze(app, regs)
+	case .Audio_Render:
+		return audio_render(app, regs)
+	case .Audio_At:
+		return audio_at(app, regs)
+	case .Audio_Onsets:
+		return audio_onsets(app, regs)
+	case .Probe:
+		return probe_print(app, regs)
+	case .Preview:
+		return preview_open(app, regs)
+	case .Update:
+		return update_run(app, regs)
+	case .Playback_Toggle, .Playback_Set, .Frame_Set, .Frame_Step, .Frame_Start, .Seconds_Step, .Scene_Step, .Script_Reload, .Script_Open, .File_Dialog, .Loop_Toggle, .Loop_Set, .Mute_Toggle, .Mute_Set, .Volume_Set, .Volume_Step, .Bookmark_Toggle, .Timeline_Zoom, .Timeline_Fit, .Timeline_Pan, .Timeline_Toggle, .Timeline_Row_Toggle, .Timeline_Rows_Scroll, .Fullscreen_Toggle, .Cursor_Hover, .Dismiss, .Watch_Show, .Watch_Section_Set, .Watch_Scroll, .Problem_Step, .Quit:
+		preview_apply(app, row.kind, regs)
+	case .Panel_Split, .Panel_Close, .Panel_Resize, .View_Open, .View_Close, .View_Select, .View_Move, .Lister_Open, .Lister_Filter, .Lister_Close:
+		workspace_apply(&app.preview.workspace, row.kind, regs)
+	}
+	return nil
 }
 
 // ---- handlers ---------------------------------------------------------------------------

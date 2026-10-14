@@ -1,6 +1,8 @@
 package onimite_app
 
 import "core:fmt"
+import "core:reflect"
+import "core:strings"
 
 // What the lister lists (preview_lister.odin): each mode a row of its
 // title and its catalogs, in order; each catalog fills option rows
@@ -43,12 +45,9 @@ LISTER_CATALOGS := [Lister_Catalog]proc(src: Lister_Source, out: ^[dynamic]Liste
 }
 
 // The workspace's actions on a panel, each the row it pushes for the
-// lister's panel.
-PANEL_ACTIONS := [?]Lister_Option {
-	{"Panel", "Split right", "an empty panel beside this one", {.Panel_Split, {direction = .Right}}},
-	{"Panel", "Split down", "an empty panel below this one", {.Panel_Split, {direction = .Down}}},
-	{"Panel", "Close panel", "with its views", {.Panel_Close, {}}},
-}
+// lister's panel; their labels and summaries are their kinds'
+// (COMMAND_KINDS).
+PANEL_ACTIONS := [?]Command_Row{{.Panel_Split, {direction = .Right}}, {.Panel_Split, {direction = .Down}}, {.Panel_Close, {}}}
 
 // Each view kind to open in the panel (an open video or timeline moves
 // there); one opening on a section, once per Watch section.
@@ -67,10 +66,17 @@ view_options :: proc(src: Lister_Source, out: ^[dynamic]Lister_Option) {
 	}
 }
 
+// Each action labelled by its kind, and the side for one that opens a
+// panel on a side ("Split right").
 @(private = "file")
 panel_action_options :: proc(src: Lister_Source, out: ^[dynamic]Lister_Option) {
-	for o in PANEL_ACTIONS {
-		o := o
+	for row in PANEL_ACTIONS {
+		d := COMMAND_KINDS[row.kind]
+		o := Lister_Option{"Panel", d.label, d.about, row}
+		if row.regs.direction != .None {
+			side, _ := reflect.enum_name_from_value(row.regs.direction)
+			o.label = fmt.tprintf("%s %s", d.label, strings.to_lower(side, context.temp_allocator))
+		}
 		o.row.regs.panel = src.panel
 		append(out, o)
 	}

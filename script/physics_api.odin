@@ -142,7 +142,6 @@ Physics_Kick :: struct {
 l_physics :: proc "c" (L: ^lua.State) -> c.int {
 	s := host(L)
 	context = s.odin_context
-	load_only(L, s, "physics")
 	lua.L_checktype(L, 1, i32(lua.Type.TABLE))
 
 	fields_begin(L, 1)

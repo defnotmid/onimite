@@ -300,15 +300,12 @@ set_script_environment :: proc(s: ^Script) {
 	lua.pushstring(L, strings.clone_to_cstring(pp, context.temp_allocator))
 	lua.setfield(L, -2, "path")
 	// Lua files load through `load_chunk`: package.searchers[2] (require's
-	// file searcher) and dofile.
+	// file searcher) and dofile (API).
 	lua.getfield(L, -1, "searchers")
 	lua.pushlightuserdata(L, s)
 	lua.pushcclosure(L, l_search_file, 1)
 	lua.rawseti(L, -2, 2)
 	lua.pop(L, 2)
-	lua.pushlightuserdata(L, s)
-	lua.pushcclosure(L, l_dofile, 1)
-	lua.setglobal(L, "dofile")
 
 	lua.createtable(L, i32(len(s.args)), 0)
 	n := 0
@@ -620,64 +617,105 @@ l_dofile :: proc "c" (L: ^lua.State) -> c.int {
 
 // ---- API registration --------------------------------------------------------------
 
+// When a Lua function works: while the script loads (it sets the video up:
+// its scenes, tracks, cues, media), while a frame renders (it draws, or
+// reads the frame being built), or both.
+Api_Domain :: enum u8 {
+	Both,
+	Load,
+	Render,
+}
+
+Api_Function :: struct {
+	name:   cstring,
+	fn:     lua.CFunction,
+	domain: Api_Domain,
+}
+
+// Every global function the host gives a script. Each is called through
+// `l_api`, which checks its domain first: the function itself never runs
+// at the wrong time.
+@(private, rodata)
+API := [?]Api_Function {
+	// The video: declared at load.
+	{"video", l_video, .Load},
+	{"scene", l_scene, .Load},
+	{"cue", l_cue, .Load},
+	{"say", l_say, .Load},
+	{"physics", l_physics, .Load},
+	{"audio_add", l_audio_add, .Load},
+	{"captions_load", l_captions_load, .Load},
+	// Nodes and what the frame being built knows.
+	{"render_scenes", l_render_scenes, .Render},
+	{"scene_info", l_scene_info, .Render},
+	{"group", l_group, .Render},
+	{"rect", l_rect, .Render},
+	{"circle", l_circle, .Render},
+	{"ellipse", l_ellipse, .Render},
+	{"line", l_line, .Render},
+	{"path", l_path, .Render},
+	{"text", l_text, .Render},
+	{"image", l_image, .Render},
+	{"polygon", l_polygon, .Render},
+	{"polyline", l_polyline, .Render},
+	{"pattern", l_pattern, .Render},
+	{"svg", l_svg, .Render},
+	{"svg_bbox", l_svg_bbox, .Render},
+	{"lottie", l_lottie, .Render},
+	{"lottie_info", l_lottie_info, .Render},
+	{"shader", l_shader, .Render},
+	{"video_frame", l_video_frame, .Render},
+	{"video_info", l_video_info, .Render},
+	{"subtitle_at", l_subtitle_at, .Render},
+	{"subtitles", l_subtitles, .Render},
+	{"caption_words", l_caption_words, .Render},
+	{"audio_spectrum", l_audio_spectrum, .Render},
+	// Values: any time.
+	{"animate", l_animate, .Both},
+	{"animate_loop", l_animate_loop, .Both},
+	{"ease", l_ease, .Both},
+	{"cubic_bezier", l_cubic_bezier, .Both},
+	{"spring", l_spring, .Both},
+	{"noise", l_noise, .Both},
+	{"mix_color", l_mix_color, .Both},
+	{"rgb", l_rgb, .Both},
+	{"rgba", l_rgba, .Both},
+	{"linear_gradient", l_linear_gradient, .Both},
+	{"radial_gradient", l_radial_gradient, .Both},
+	{"translate", l_translate, .Both},
+	{"scale", l_scale, .Both},
+	{"rotate", l_rotate, .Both},
+	{"skew", l_skew, .Both},
+	{"text_width", l_text_width, .Both},
+	{"text_fit", l_text_fit, .Both},
+	{"text_lines", l_text_lines, .Both},
+	{"caption_pages", l_caption_pages, .Both},
+	{"path_data", l_path_data, .Both},
+	{"shared", l_shared, .Both},
+	{"physics_at", l_physics_at, .Both},
+	{"audio_buffer", l_audio_buffer, .Both},
+	{"audio_onsets", l_audio_onsets, .Both},
+	{"spectrum_centered", l_spectrum_centered, .Both},
+	{"gunzip", l_gunzip, .Both},
+	{"json_decode", l_json_decode, .Both},
+	{"check_fields", l_check_fields, .Both},
+	{"dofile", l_dofile, .Both},
+	{"print", l_print, .Both},
+}
+
 @(private)
 register_api :: proc(s: ^Script) {
 	L := s.L
 	lua.pushlightuserdata(L, s)
 	lua.setfield(L, lua.REGISTRYINDEX, "onimite.script")
-	fns := [?]struct {
-		name: cstring,
-		fn:   lua.CFunction,
-	} {
-		{"video", l_video},
-		{"scene", l_scene},
-		{"render_scenes", l_render_scenes},
-		{"scene_info", l_scene_info},
-		{"group", l_group},
-		{"rect", l_rect},
-		{"circle", l_circle},
-		{"ellipse", l_ellipse},
-		{"line", l_line},
-		{"path", l_path},
-		{"text", l_text},
-		{"image", l_image},
-		{"animate", l_animate},
-		{"ease", l_ease},
-		{"noise", l_noise},
-		{"mix_color", l_mix_color},
-		{"animate_loop", l_animate_loop},
-		{"translate", l_translate},
-		{"scale", l_scale},
-		{"rotate", l_rotate},
-		{"rgb", l_rgb},
-		{"rgba", l_rgba},
-		{"linear_gradient", l_linear_gradient},
-		{"radial_gradient", l_radial_gradient},
-		{"cubic_bezier", l_cubic_bezier},
-		{"spring", l_spring},
-		{"text_width", l_text_width},
-		{"text_fit", l_text_fit},
-		{"text_lines", l_text_lines},
-		{"gunzip", l_gunzip},
-		{"json_decode", l_json_decode},
-		{"path_data", l_path_data},
-		{"shared", l_shared},
-		{"check_fields", l_check_fields},
-		{"cue", l_cue},
-		{"say", l_say},
-		{"physics", l_physics},
-		{"physics_at", l_physics_at},
-		{"print", l_print},
-	}
-	for f in fns {
+	// Upvalues: the script (`host`), the function's row.
+	for &f in API {
 		lua.pushlightuserdata(L, s)
-		lua.pushcclosure(L, f.fn, 1)
+		lua.pushlightuserdata(L, &f)
+		lua.pushcclosure(L, l_api, 2)
 		lua.setglobal(L, f.name)
 	}
-	register_media_api(s)
-	register_audio_buffer(s)
-	register_draw_api(s)
-	register_shader_api(s)
+	register_audio_buffer_methods(s)
 	easings := [?]struct {
 		name: cstring,
 		e:    om.Easing,
@@ -711,23 +749,34 @@ host :: #force_inline proc "c" (L: ^lua.State) -> ^Script {
 	return (^Script)(lua.touserdata(L, lua.REGISTRYINDEX - 1))
 }
 
-// Raises a Lua error while rendering: `fn` sets the video up (its scenes,
-// tracks, cues, media), so it works at load only. The error names the
-// script's line, also through the standard library's wrappers (`scene`).
+// Calls the API function of its upvalue when its domain allows: a load
+// function while rendering raises an error naming the script's line (also
+// through the standard library's wrappers, `scene`), a render function
+// outside a render an error too.
 @(private)
-load_only :: proc(L: ^lua.State, s: ^Script, fn: cstring) {
-	if s.ctx != nil {
-		lua.pushstring(L, fmt.ctprintf("%s: %s() works at load, not while rendering a frame", caller_where(L), fn))
-		lua.error(L)
+l_api :: proc "c" (L: ^lua.State) -> c.int {
+	s := host(L)
+	f := (^Api_Function)(lua.touserdata(L, lua.REGISTRYINDEX - 2))
+	switch f.domain {
+	case .Both:
+	case .Load:
+		if s.ctx != nil {
+			context = s.odin_context
+			lua.pushstring(L, fmt.ctprintf("%s: %s() works at load, not while rendering a frame", caller_where(L), f.name))
+			lua.error(L)
+		}
+	case .Render:
+		if s.ctx == nil {
+			lua.L_error(L, "%s() can only be called while rendering a frame", f.name)
+		}
 	}
+	return f.fn(L)
 }
 
-// The context of the render in progress; raises a Lua error outside one.
+// The context of the render in progress (l_api lets a render function run
+// only in one), the node the call makes recorded where it came from.
 @(private)
-render_ctx :: proc(L: ^lua.State, s: ^Script, fn: cstring) -> ^om.Context {
-	if s.ctx == nil {
-		lua.L_error(L, "%s() can only be called while rendering a frame", fn)
-	}
+render_ctx :: proc(L: ^lua.State, s: ^Script) -> ^om.Context {
 	if s.node_sources_on {
 		node_source_record(s, L)
 	}
@@ -816,7 +865,6 @@ node_sources_reset :: proc(s: ^Script) {
 l_video :: proc "c" (L: ^lua.State) -> c.int {
 	s := host(L)
 	context = s.odin_context
-	load_only(L, s, "video")
 	lua.L_checktype(L, 1, i32(lua.Type.TABLE))
 	fields_begin(L, 1)
 	v := &s.video
@@ -859,7 +907,6 @@ l_video :: proc "c" (L: ^lua.State) -> c.int {
 l_scene :: proc "c" (L: ^lua.State) -> c.int {
 	s := host(L)
 	context = s.odin_context
-	load_only(L, s, "scene")
 	lua.L_checktype(L, 1, i32(lua.Type.TABLE))
 	fields_begin(L, 1)
 	sc: om.Scene
@@ -939,7 +986,6 @@ read_duration :: proc(s: ^Script, L: ^lua.State, t: c.int) -> om.Duration {
 l_cue :: proc "c" (L: ^lua.State) -> c.int {
 	s := host(L)
 	context = s.odin_context
-	load_only(L, s, "cue")
 	id := string(lua.L_checkstring(L, 1))
 	hit := ""
 	if lua.istable(L, 3) {
@@ -984,7 +1030,7 @@ add_cue :: proc(L: ^lua.State, s: ^Script, id: string, seconds: f64, hit, at: st
 l_render_scenes :: proc "c" (L: ^lua.State) -> c.int {
 	s := host(L)
 	context = s.odin_context
-	ctx := render_ctx(L, s, "render_scenes")
+	ctx := render_ctx(L, s)
 	om.render_scenes(ctx.frame, ctx)
 	return 0
 }
@@ -994,7 +1040,7 @@ l_render_scenes :: proc "c" (L: ^lua.State) -> c.int {
 l_scene_info :: proc "c" (L: ^lua.State) -> c.int {
 	s := host(L)
 	context = s.odin_context
-	ctx := render_ctx(L, s, "scene_info")
+	ctx := render_ctx(L, s)
 	info, ok := om.scene_info(ctx, string(lua.L_checkstring(L, 1)))
 	if !ok {
 		lua.pushnil(L)
@@ -1011,7 +1057,7 @@ l_scene_info :: proc "c" (L: ^lua.State) -> c.int {
 l_group :: proc "c" (L: ^lua.State) -> c.int {
 	s := host(L)
 	context = s.odin_context
-	ctx := render_ctx(L, s, "group")
+	ctx := render_ctx(L, s)
 	lua.L_checktype(L, 1, i32(lua.Type.TABLE))
 	lua.L_checktype(L, 2, i32(lua.Type.FUNCTION))
 	fields_begin(L, 1)
@@ -1108,7 +1154,7 @@ l_group :: proc "c" (L: ^lua.State) -> c.int {
 l_rect :: proc "c" (L: ^lua.State) -> c.int {
 	s := host(L)
 	context = s.odin_context
-	ctx := render_ctx(L, s, "rect")
+	ctx := render_ctx(L, s)
 	lua.L_checktype(L, 1, i32(lua.Type.TABLE))
 	fields_begin(L, 1)
 	om.rect(
@@ -1131,7 +1177,7 @@ l_rect :: proc "c" (L: ^lua.State) -> c.int {
 l_circle :: proc "c" (L: ^lua.State) -> c.int {
 	s := host(L)
 	context = s.odin_context
-	ctx := render_ctx(L, s, "circle")
+	ctx := render_ctx(L, s)
 	lua.L_checktype(L, 1, i32(lua.Type.TABLE))
 	fields_begin(L, 1)
 	om.circle(
@@ -1151,7 +1197,7 @@ l_circle :: proc "c" (L: ^lua.State) -> c.int {
 l_ellipse :: proc "c" (L: ^lua.State) -> c.int {
 	s := host(L)
 	context = s.odin_context
-	ctx := render_ctx(L, s, "ellipse")
+	ctx := render_ctx(L, s)
 	lua.L_checktype(L, 1, i32(lua.Type.TABLE))
 	fields_begin(L, 1)
 	om.ellipse(
@@ -1172,7 +1218,7 @@ l_ellipse :: proc "c" (L: ^lua.State) -> c.int {
 l_line :: proc "c" (L: ^lua.State) -> c.int {
 	s := host(L)
 	context = s.odin_context
-	ctx := render_ctx(L, s, "line")
+	ctx := render_ctx(L, s)
 	lua.L_checktype(L, 1, i32(lua.Type.TABLE))
 	fields_begin(L, 1)
 	om.line(
@@ -1194,7 +1240,7 @@ l_line :: proc "c" (L: ^lua.State) -> c.int {
 l_path :: proc "c" (L: ^lua.State) -> c.int {
 	s := host(L)
 	context = s.odin_context
-	ctx := render_ctx(L, s, "path")
+	ctx := render_ctx(L, s)
 	lua.L_checktype(L, 1, i32(lua.Type.TABLE))
 	fields_begin(L, 1)
 	rule := vg.Fill_Rule.Non_Zero
@@ -1222,7 +1268,7 @@ l_path :: proc "c" (L: ^lua.State) -> c.int {
 l_text :: proc "c" (L: ^lua.State) -> c.int {
 	s := host(L)
 	context = s.odin_context
-	ctx := render_ctx(L, s, "text")
+	ctx := render_ctx(L, s)
 	lua.L_checktype(L, 1, i32(lua.Type.TABLE))
 	fields_begin(L, 1)
 	align := om.Text_Align.Left
@@ -1266,7 +1312,7 @@ l_text :: proc "c" (L: ^lua.State) -> c.int {
 l_image :: proc "c" (L: ^lua.State) -> c.int {
 	s := host(L)
 	context = s.odin_context
-	ctx := render_ctx(L, s, "image")
+	ctx := render_ctx(L, s)
 	lua.L_checktype(L, 1, i32(lua.Type.TABLE))
 	fields_begin(L, 1)
 	om.image(

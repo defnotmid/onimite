@@ -44,8 +44,9 @@ test_buffer :: proc "contextless" (L: ^lua.State, idx: c.int) -> ^Audio_Buffer {
 	return (^Audio_Buffer)(lua.L_testudata(L, idx, AUDIO_BUFFER))
 }
 
+// The buffers' methods (the global `audio_buffer` makes one).
 @(private)
-register_audio_buffer :: proc(s: ^Script) {
+register_audio_buffer_methods :: proc(s: ^Script) {
 	L := s.L
 	lua.L_newmetatable(L, AUDIO_BUFFER)
 	methods := [?]lua.L_Reg {
@@ -61,12 +62,9 @@ register_audio_buffer :: proc(s: ^Script) {
 	lua.L_setfuncs(L, raw_data(methods[:]), 0)
 	lua.setfield(L, -2, "__index")
 	lua.pop(L, 1)
-	lua.pushlightuserdata(L, s)
-	lua.pushcclosure(L, l_audio_buffer, 1)
-	lua.setglobal(L, "audio_buffer")
 }
 
-@(private = "file")
+@(private)
 l_audio_buffer :: proc "c" (L: ^lua.State) -> c.int {
 	seconds := f64(lua.L_checknumber(L, 1))
 	if seconds < 0 || seconds > 6 * 3600 {

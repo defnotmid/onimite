@@ -40,8 +40,11 @@ Error :: enum u8 {
 	Create_Dir,
 	Png_Many_Frames,
 	Write,
+	// A row its kind's descriptor turns away: outside its domain, or
+	// without a register it needs (`command_validate`).
+	Command_Domain,
+	Command_Needs,
 	// Commands.
-	Onion_Range,
 	No_Sheet_Frames,
 	// snapshot: an approved PNG of another size than the frame.
 	Snapshot_Size,
@@ -109,6 +112,8 @@ FAILURE_TEXT := [Error]string {
 	.No_Media_Dir       = "no media directory {path}",
 	.Script             = "{script}",
 	.Renderer           = "can not set up rendering: {render}",
+	.Command_Domain     = "{name} runs only {spec}",
+	.Command_Needs      = "{name} needs {spec}",
 	.Spec_Unknown_Scene = "no scene {q:name}, available: {names}",
 	.Spec_Unknown_Name  = "no scene or cue {q:name}, available: {names}",
 	.Spec_No_Scenes     = "no scene {q:name}, the video does not define scenes",
@@ -119,7 +124,6 @@ FAILURE_TEXT := [Error]string {
 	.Create_Dir         = "can not create {path}: {os}",
 	.Png_Many_Frames    = "-o {path} is one PNG but {n} frames were asked for; give a directory instead",
 	.Write              = "can not write {path}",
-	.Onion_Range        = "onion needs a range, e.g. `Intro@0..Intro@1s`",
 	.No_Sheet_Frames    = "no frames for the contact sheet",
 	.Snapshot_Size      = "snapshot {path} is {n}x{m} but frame {spec} renders at {frame_size}: check it at the --scale it was approved at, or accept the new size with --update",
 	.Encoder            = "{encoder}",

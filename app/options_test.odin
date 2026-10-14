@@ -3,30 +3,26 @@ package onimite_app
 import "core:strings"
 import "core:testing"
 
-// The command line finds an option by its spelling among the rows of its
-// command, and an MCP tool by its name likewise: within one command a
-// spelling and a name each pick one row.
+// The command line finds an option by its spelling among the options of
+// its command (option_of checks each field's tags as it reads them; the
+// compiler keeps a tool's argument names apart).
 @(test)
 test_options_table :: proc(t: ^testing.T) {
-	for o, i in OPTIONS {
-		names := o.cli
-		for name in strings.split_iterator(&names, "|") {
-			for c in o.commands {
-				found, _, takes := option_find_cli(name, c)
-				testing.expectf(t, takes && found.row == o.row && found.reg == o.reg && found.type == o.type, "row %d: %s means another option for %v", i, name, c)
-			}
-		}
-		for p, k in OPTIONS[i + 1:] {
-			if o.mcp != "" && p.mcp == o.mcp && o.commands & p.commands != {} {
-				testing.expectf(t, false, "rows %d and %d: two %q for one tool", i, i + 1 + k, o.mcp)
-			}
-		}
-	}
-	for c in Front_Command {
-		_, ok := option_positional(c)
-		testing.expectf(t, ok || COMMANDS[c].missing == "", "%v needs a positional argument it has no row for", c)
-	}
 	defer free_all(context.temp_allocator)
+	for d, kind in COMMAND_KINDS {
+		if .Command_Line not_in d.flags {
+			continue
+		}
+		for o in command_options(kind) {
+			names := o.cli
+			for name in strings.split_iterator(&names, "|") {
+				found, _, takes := option_find_cli(name, kind)
+				testing.expectf(t, takes && found.name == o.name, "%v: %s means another option", kind, name)
+			}
+		}
+		_, ok := option_positional(kind)
+		testing.expectf(t, ok || d.missing == "", "%v needs a positional argument it has no option for", kind)
+	}
 }
 
 // Arguments fill the rows in their order: settings, the script load, the
@@ -37,7 +33,7 @@ test_cli_parse :: proc(t: ^testing.T) {
 	defer free_all(context.temp_allocator)
 	rows, help := cli_parse({"frames", "v.lua", "1s", "2s", "-o", "out", "--svg", "--scale", "0.5", "--set", "a=1", "--json", "--", "p"})
 	testing.expect(t, !help)
-	testing.expect_value(t, rows[.Command].kind, Command_Kind.Frames_Export)
+	testing.expect_value(t, rows[.Command].kind, Command_Kind.Frame)
 	testing.expect_value(t, rows[.Command].regs.spec, "1s,2s")
 	testing.expect_value(t, rows[.Command].regs.path, "out")
 	testing.expect_value(t, rows[.Command].regs.flags, Command_Flags{.Svg})
@@ -89,6 +85,27 @@ test_cli_parse :: proc(t: ^testing.T) {
 	probe := pushed("probe", "a.mp4", "b.mp4")
 	last = probe[len(probe) - 1]
 	testing.expect_value(t, len(probe), 4)
-	testing.expect_value(t, last.kind, Command_Kind.Probe_Print)
+	testing.expect_value(t, last.kind, Command_Kind.Probe)
 	testing.expect_value(t, last.regs.args, "a.mp4\nb.mp4")
+}
+
+// A row outside its kind's domain, or without a string register its kind
+// needs, fails before its handler sees it.
+@(test)
+test_command_validate :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	app: App_State
+	app_init(&app)
+	defer app_destroy(&app)
+	row := Command_Row{.Frame_Step, {count = 1}}
+	testing.expect_value(t, command_validate(&app, &row), Error.Command_Domain)
+	testing.expect_value(t, failure_message(app.failure, context.temp_allocator), "frame_step runs only in the preview window")
+	failure_clear(&app)
+	app.script_loaded = true
+	row = {.Onion, {}}
+	testing.expect_value(t, command_validate(&app, &row), Error.Command_Needs)
+	testing.expect_value(t, failure_message(app.failure, context.temp_allocator), "onion needs a range")
+	failure_clear(&app)
+	row = {.Onion, {spec = "0..10"}}
+	testing.expect_value(t, command_validate(&app, &row), Error.None)
 }

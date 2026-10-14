@@ -363,9 +363,6 @@ strip_export :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 @(private)
 onion_export :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 	r := renderer_scaled(app, 0.5) or_return
-	if regs.spec == "" {
-		return fail(app, {code = .Onion_Range})
-	}
 	start, end := resolve_range(app, &r.timeline, r.video.fps, regs.spec) or_return
 	frames := spread(start, end, regs.count if regs.count > 0 else 6)
 	pixels, reports := render_cells(app, r, frames)

@@ -106,7 +106,7 @@ A command that fails prints `error: message` on stderr, or with `--json` the doc
 duration, bad props), `renderer`, `spec_unknown_scene`, `spec_unknown_name` (neither a scene nor a cue; the
 message lists both), `spec_no_scenes`, `spec_ambiguous`, `spec_past_scene`,
 `spec_out_of_range` (the message names the valid frames, `frames 0..N-1`), `spec_invalid`,
-`create_dir`, `write`, `png_many_frames` (`frame -o x.png` with more than one frame), `onion_range`, `no_sheet_frames`, `snapshot_size` (`snapshot`: an approved PNG has
+`create_dir`, `write`, `png_many_frames` (`frame -o x.png` with more than one frame), `command_needs` (a command without an argument it needs, e.g. an MCP `onion` with an empty `range`; the message names it), `command_domain` (a command where it can not run, e.g. a preview command with no preview window open), `no_sheet_frames`, `snapshot_size` (`snapshot`: an approved PNG has
 another size than the frame, e.g. checked at another `--scale`; the message gives both
 sizes; `--update` accepts the new size), `encoder` (the MP4 writer:
 odd dimensions, the file, a frame, the GPU conversion), `read_back` (a frame could not be

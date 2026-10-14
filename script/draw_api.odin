@@ -11,20 +11,6 @@ import lua "vendor:lua/5.4"
 // skew, text spans and baselines, filters, blend modes, paint spaces and
 // SVG documents.
 
-@(private)
-register_draw_api :: proc(s: ^Script) {
-	L := s.L
-	fns := [?]struct {
-		name: cstring,
-		fn:   lua.CFunction,
-	}{{"polygon", l_polygon}, {"polyline", l_polyline}, {"pattern", l_pattern}, {"skew", l_skew}, {"svg", l_svg}, {"svg_bbox", l_svg_bbox}, {"lottie", l_lottie}, {"lottie_info", l_lottie_info}}
-	for f in fns {
-		lua.pushlightuserdata(L, s)
-		lua.pushcclosure(L, f.fn, 1)
-		lua.setglobal(L, f.name)
-	}
-}
-
 // polygon{ points = {x1, y1, x2, y2, ...} or {{x, y}, ...}, fill, stroke, ... }
 @(private)
 l_polygon :: proc "c" (L: ^lua.State) -> c.int {
@@ -42,7 +28,7 @@ l_polyline :: proc "c" (L: ^lua.State) -> c.int {
 
 @(private)
 poly :: proc(L: ^lua.State, s: ^Script, closed: bool) -> c.int {
-	ctx := render_ctx(L, s, "polygon" if closed else "polyline")
+	ctx := render_ctx(L, s)
 	lua.L_checktype(L, 1, i32(lua.Type.TABLE))
 	fields_begin(L, 1)
 	points := read_points(L, 1, ctx)
@@ -100,7 +86,7 @@ read_points :: proc(L: ^lua.State, t: c.int, ctx: ^om.Context) -> []om.Vec2 {
 l_pattern :: proc "c" (L: ^lua.State) -> c.int {
 	s := host(L)
 	context = s.odin_context
-	ctx := render_ctx(L, s, "pattern")
+	ctx := render_ctx(L, s)
 	lua.L_checktype(L, 1, i32(lua.Type.TABLE))
 	node := om.pattern_begin(ctx)
 	field(L, 1, "content")
@@ -772,7 +758,7 @@ read_color_matrix :: proc(L: ^lua.State, t: c.int) -> [20]f32 {
 l_svg :: proc "c" (L: ^lua.State) -> c.int {
 	s := host(L)
 	context = s.odin_context
-	ctx := render_ctx(L, s, "svg")
+	ctx := render_ctx(L, s)
 	t: c.int = 2 if lua.istable(L, 2) else 1
 	lua.L_checktype(L, t, i32(lua.Type.TABLE))
 	fields_begin(L, t)
@@ -876,7 +862,7 @@ override_color :: proc(L: ^lua.State, t: c.int, key: cstring) -> Maybe(om.Color)
 l_svg_bbox :: proc "c" (L: ^lua.State) -> c.int {
 	s := host(L)
 	context = s.odin_context
-	ctx := render_ctx(L, s, "svg_bbox")
+	ctx := render_ctx(L, s)
 	lua.L_checktype(L, 1, i32(lua.Type.TABLE))
 	b, ok := om.svg_local_bbox(ctx, get_str(L, 1, "src", ""), get_str(L, 1, "markup", ""), get_str(L, 1, "id", ""))
 	if !ok {
@@ -908,7 +894,7 @@ l_svg_bbox :: proc "c" (L: ^lua.State) -> c.int {
 l_lottie :: proc "c" (L: ^lua.State) -> c.int {
 	s := host(L)
 	context = s.odin_context
-	ctx := render_ctx(L, s, "lottie")
+	ctx := render_ctx(L, s)
 	f := s.frame
 	t: c.int = 1
 	if lua.gettop(L) >= 2 {
@@ -960,7 +946,7 @@ l_lottie :: proc "c" (L: ^lua.State) -> c.int {
 l_lottie_info :: proc "c" (L: ^lua.State) -> c.int {
 	s := host(L)
 	context = s.odin_context
-	ctx := render_ctx(L, s, "lottie_info")
+	ctx := render_ctx(L, s)
 	src, data: string
 	if lua.type(L, 1) == .STRING {
 		src = string(lua.tostring(L, 1))

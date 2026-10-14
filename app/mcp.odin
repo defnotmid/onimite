@@ -6,14 +6,15 @@ import "core:encoding/json"
 import "core:fmt"
 import "core:os"
 import "core:path/filepath"
+import "core:reflect"
 import "core:strings"
 import "core:sync"
 import "core:thread"
 
 // `onimite mcp`: the commands as Model Context Protocol tools, JSON-RPC 2.0
 // over stdio, one message per line. Stateless: every call fills its
-// command's rows from its arguments through OPTIONS, as the command line
-// does, and runs them on an App_State of its own. What the command prints (its
+// command's rows from its arguments through its options, as the command
+// line does, and runs them on an App_State of its own. What the command prints (its
 // `--json` document) is the call's text; frames, strips, onion skins and
 // waveforms come back as images too. Warnings and progress stay on stderr.
 // `preview` opens the window for the user as a process of its own and
@@ -131,9 +132,9 @@ mcp_handle :: proc(line: string) -> string {
 		if name == "guide" {
 			return mcp_result(id, mcp_answer_json(mcp_guide(args), name))
 		}
-		for info, c in COMMANDS {
-			if info.tool == name {
-				return mcp_result(id, mcp_answer_json(mcp_call(c, args), name))
+		for d, kind in COMMAND_KINDS {
+			if .Mcp_Tool in d.flags && command_name(kind) == name {
+				return mcp_result(id, mcp_answer_json(mcp_call(kind, args), name))
 			}
 		}
 		return mcp_error(id, -32602, fmt.tprintf("no tool %q", name))
@@ -161,7 +162,7 @@ mcp_answer_json :: proc(a: Mcp_Answer, name: string) -> string {
 	notice := ""
 	if !mcp_newer_told && sync.atomic_load(&mcp_newer_found) {
 		mcp_newer_told = true
-		if name != COMMANDS[.Update].tool {
+		if name != command_name(.Update) {
 			notice = fmt.tprintf(",%s", mcp_text(fmt.tprintf("onimite %s is out (this server is %s). Tell the user; the update tool installs it, and the app needs a restart to use it.", mcp_newer, ONIMITE_VERSION)))
 		}
 	}
@@ -193,49 +194,61 @@ mcp_quote :: proc(s: string) -> string {
 	return string(data)
 }
 
-// The tool list with each tool's input schema, from COMMANDS and OPTIONS.
+// The tool list with each tool's input schema, from COMMAND_KINDS and the
+// tools' options.
 @(private = "file")
 mcp_tools_list :: proc() -> string {
 	b := strings.builder_make(context.temp_allocator)
 	strings.write_string(&b, `{"tools":[`)
-	for info, c in COMMANDS {
-		if c != min(Front_Command) {
+	first_tool := true
+	for d, kind in COMMAND_KINDS {
+		if .Mcp_Tool not_in d.flags {
+			continue
+		}
+		if !first_tool {
 			strings.write_byte(&b, ',')
 		}
-		about := fmt.tprintf("%c%s.", info.about[0] - ('a' - 'A'), info.about[1:])
-		if info.mcp_note != "" {
-			about = fmt.tprintf("%s %s", about, info.mcp_note)
+		first_tool = false
+		about := fmt.tprintf("%c%s.", d.about[0] - ('a' - 'A'), d.about[1:])
+		if d.mcp_note != "" {
+			about = fmt.tprintf("%s %s", about, d.mcp_note)
 		}
-		fmt.sbprintf(&b, `{{"name":%s,"description":%s,"inputSchema":{{"type":"object","properties":{{`, mcp_quote(info.tool), mcp_quote(about))
+		fmt.sbprintf(&b, `{{"name":%s,"description":%s,"inputSchema":{{"type":"object","properties":{{`, mcp_quote(command_name(kind)), mcp_quote(about))
 		required := make([dynamic]string, context.temp_allocator)
 		first := true
-		for o in OPTIONS {
-			if o.mcp == "" || c not_in o.commands {
+		for o in command_options(kind) {
+			if !o.mcp {
 				continue
 			}
 			if !first {
 				strings.write_byte(&b, ',')
 			}
 			first = false
-			fmt.sbprintf(&b, `%s:{{"type":%s,"description":%s`, mcp_quote(o.mcp), mcp_quote(mcp_type(o.type)), mcp_quote(option_about(o, true)))
-			#partial switch o.type {
-			case .List:
-				strings.write_string(&b, `,"items":{"type":"string"}`)
-			case .Key_Value:
-				strings.write_string(&b, `,"additionalProperties":{"type":["string","number","boolean"]}`)
-			case .Enum:
+			fmt.sbprintf(&b, `%s:{{`, mcp_quote(o.name))
+			mcp_schema_type(&b, o.type)
+			fmt.sbprintf(&b, `,"description":%s`, mcp_quote(option_about(o, true)))
+			#partial switch t in o.type.variant {
+			case reflect.Type_Info_Slice:
+				strings.write_string(&b, `,"items":{`)
+				mcp_schema_type(&b, t.elem)
+				strings.write_byte(&b, '}')
+			case reflect.Type_Info_Map:
+				strings.write_string(&b, `,"additionalProperties":{`)
+				mcp_schema_type(&b, t.value)
+				strings.write_byte(&b, '}')
+			case reflect.Type_Info_Enum:
 				strings.write_string(&b, `,"enum":[`)
-				for v, k in o.values {
+				for name, k in option_choices(o) {
 					if k > 0 {
 						strings.write_byte(&b, ',')
 					}
-					strings.write_string(&b, mcp_quote(v))
+					strings.write_string(&b, mcp_quote(name))
 				}
 				strings.write_byte(&b, ']')
 			}
 			strings.write_byte(&b, '}')
-			if mcp_required(c, o) {
-				append(&required, o.mcp)
+			if option_required(kind, o) {
+				append(&required, o.name)
 			}
 		}
 		strings.write_string(&b, `},"required":[`)
@@ -253,49 +266,62 @@ mcp_tools_list :: proc() -> string {
 	return strings.to_string(b)
 }
 
-// Whether tool `c` needs argument `o`: the script, a positional argument
-// the command line can't do without.
+// `"type":...` of a value of type `t`: its JSON Schema type, a list of them
+// for a union.
 @(private = "file")
-mcp_required :: proc(c: Front_Command, o: Option) -> bool {
-	return o.cli == "" && (o.row == .Load || COMMANDS[c].missing != "")
+mcp_schema_type :: proc(b: ^strings.Builder, t: ^reflect.Type_Info) {
+	if u, is_union := reflect.type_info_base(t).variant.(reflect.Type_Info_Union); is_union {
+		strings.write_string(b, `"type":[`)
+		for v, i in u.variants {
+			if i > 0 {
+				strings.write_byte(b, ',')
+			}
+			strings.write_string(b, mcp_quote(mcp_type(v)))
+		}
+		strings.write_byte(b, ']')
+		return
+	}
+	fmt.sbprintf(b, `"type":%s`, mcp_quote(mcp_type(t)))
 }
 
-// The JSON Schema type of an option.
+// The JSON Schema type of a value of type `t`.
 @(private = "file")
-mcp_type :: proc(t: Option_Type) -> string {
-	switch t {
-	case .String, .Enum, .Rows:
+mcp_type :: proc(t: ^reflect.Type_Info) -> string {
+	#partial switch _ in reflect.type_info_base(t).variant {
+	case reflect.Type_Info_String, reflect.Type_Info_Enum:
 		return "string"
-	case .Integer:
+	case reflect.Type_Info_Integer:
 		return "integer"
-	case .Number:
+	case reflect.Type_Info_Float:
 		return "number"
-	case .Boolean:
+	case reflect.Type_Info_Boolean:
 		return "boolean"
-	case .Key_Value:
+	case reflect.Type_Info_Map:
 		return "object"
-	case .List:
+	case reflect.Type_Info_Slice:
 		return "array"
 	}
-	return ""
+	unreachable()
 }
 
-// Runs tool `c` on an App_State of its own: its command's JSON document as
-// text, its images, `isError` when it failed; a check that fails (inspect,
-// snapshot: exit code 2) adds `{"failed": true}`.
+// Runs tool `kind` on an App_State of its own: its command's JSON document
+// as text, its images, `isError` when it failed; a check that fails
+// (inspect, snapshot: exit code 2) adds `{"failed": true}`.
 @(private = "file")
-mcp_call :: proc(c: Front_Command, args: json.Object) -> Mcp_Answer {
-	info := COMMANDS[c]
-	rows := front_rows_make(c)
+mcp_call :: proc(kind: Command_Kind, args: json.Object) -> Mcp_Answer {
+	info := COMMAND_KINDS[kind]
+	tool := command_name(kind)
+	options := command_options(kind)
+	rows := front_rows_make(kind)
 	rows[.Output].regs.flag = true
 	for name, v in args {
-		o, known := mcp_option(c, name)
+		o, known := mcp_option(options, name)
 		if !known {
-			return mcp_usage(fmt.tprintf("%s takes no argument %q", info.tool, name))
+			return mcp_usage(fmt.tprintf("%s takes no argument %q", tool, name))
 		}
 		type := mcp_type(o.type)
 		if !mcp_type_ok(type, v) {
-			return mcp_usage(fmt.tprintf("%s: %s must be %s", info.tool, name, mcp_type_name(type)))
+			return mcp_usage(fmt.tprintf("%s: %s must be %s", tool, name, mcp_type_name(type)))
 		}
 		problem: string
 		#partial switch x in v {
@@ -317,20 +343,19 @@ mcp_call :: proc(c: Front_Command, args: json.Object) -> Mcp_Answer {
 			problem = option_set(&rows, o, {str = string(str), num = mcp_number(v), on = bool(on)})
 		}
 		if problem != "" {
-			return mcp_usage(fmt.tprintf("%s: %s %s", info.tool, name, problem))
+			return mcp_usage(fmt.tprintf("%s: %s %s", tool, name, problem))
 		}
 	}
 	// The positional argument first, then the script.
-	for o in OPTIONS {
-		if o.mcp != "" && c in o.commands && o.row == .Command && mcp_required(c, o) && o.mcp not_in args {
-			return mcp_usage(fmt.tprintf("%s needs %s", info.tool, o.mcp))
+	for row in Front_Row {
+		for o in options {
+			if o.mcp && o.row == row && option_required(kind, o) && o.name not_in args {
+				return mcp_usage(fmt.tprintf("%s needs %s", tool, o.name))
+			}
 		}
 	}
-	if c in SCRIPT_COMMANDS && "script" not_in args {
-		return mcp_usage(fmt.tprintf("%s needs script", info.tool))
-	}
-	if c == .Preview {
-		return mcp_preview(c, args, rows[.Load].regs.path)
+	if kind == .Preview {
+		return mcp_preview(kind, options, args, rows[.Load].regs.path)
 	}
 
 	// Images nobody asked to keep are written to a directory of their own
@@ -343,7 +368,7 @@ mcp_call :: proc(c: Front_Command, args: json.Object) -> Mcp_Answer {
 				return mcp_usage("can not make a directory for the images")
 			}
 			scratch = dir
-			rows[.Command].regs.path = dir if info.images == .Frames else filepath.join({dir, fmt.tprintf("%s.png", info.tool)}, context.temp_allocator) or_else ""
+			rows[.Command].regs.path = dir if info.images == .Frames else filepath.join({dir, fmt.tprintf("%s.png", tool)}, context.temp_allocator) or_else ""
 		}
 	}
 	defer if scratch != "" {
@@ -377,11 +402,11 @@ mcp_usage :: proc(message: string) -> Mcp_Answer {
 	return {mcp_text(fmt.tprintf(`{{"error":%s,"code":"usage"}}`, mcp_quote(message))), true}
 }
 
-// Tool `c`'s argument `name`.
+// The option among a tool's `options` that is its argument `name`.
 @(private = "file")
-mcp_option :: proc(c: Front_Command, name: string) -> (Option, bool) {
-	for o in OPTIONS {
-		if o.mcp == name && c in o.commands {
+mcp_option :: proc(options: []Option, name: string) -> (Option, bool) {
+	for o in options {
+		if o.mcp && o.name == name {
 			return o, true
 		}
 	}
@@ -489,9 +514,9 @@ mcp_previews: [dynamic]Mcp_Preview
 // Opens `onimite preview` on the script as a process of its own (its output
 // on this server's stderr, no stdin), unless one of this server's previews
 // shows the script already: it reloads on save, so one is enough. Its
-// command line is the call's arguments, spelled as OPTIONS says.
+// command line is the call's arguments, spelled as its `options` say.
 @(private = "file")
-mcp_preview :: proc(c: Front_Command, args: json.Object, path: string) -> Mcp_Answer {
+mcp_preview :: proc(kind: Command_Kind, options: []Option, args: json.Object, path: string) -> Mcp_Answer {
 	script, _ := filepath.abs(path, context.temp_allocator)
 	for i := 0; i < len(mcp_previews); {
 		p := mcp_previews[i]
@@ -510,31 +535,32 @@ mcp_preview :: proc(c: Front_Command, args: json.Object, path: string) -> Mcp_An
 		return mcp_usage("can not find the onimite binary to open the preview with")
 	}
 	command := make([dynamic]string, context.temp_allocator)
-	append(&command, exe, command_name(c))
-	for o in OPTIONS {
-		v, given := args[o.mcp]
-		if o.mcp == "" || c not_in o.commands || !given {
+	append(&command, exe, command_cli_name(kind))
+	for o in options {
+		v, given := args[o.name]
+		if !o.mcp || !given {
 			continue
 		}
 		// A positional argument has no spelling.
 		spelling, _, _ := strings.partition(o.cli, "|")
-		switch o.type {
-		case .Boolean:
+		#partial switch _ in o.type.variant {
+		case reflect.Type_Info_Boolean:
 			if bool(v.(json.Boolean)) {
 				append(&command, spelling)
 			}
-		case .Integer, .Number:
-			n := mcp_number(v)
-			append(&command, spelling, fmt.tprint(int(n)) if o.type == .Integer else fmt.tprint(n))
-		case .Key_Value:
+		case reflect.Type_Info_Integer:
+			append(&command, spelling, fmt.tprint(int(mcp_number(v))))
+		case reflect.Type_Info_Float:
+			append(&command, spelling, fmt.tprint(mcp_number(v)))
+		case reflect.Type_Info_Map:
 			for k, x in v.(json.Object) {
 				append(&command, spelling, fmt.tprintf("%s=%v", k, x))
 			}
-		case .List:
+		case reflect.Type_Info_Slice:
 			for x in v.(json.Array) {
 				append(&command, string(x.(json.String)))
 			}
-		case .String, .Enum, .Rows:
+		case:
 			if str := string(v.(json.String)); str != "" {
 				if spelling != "" {
 					append(&command, spelling)

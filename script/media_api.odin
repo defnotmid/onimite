@@ -13,32 +13,6 @@ import lua "vendor:lua/5.4"
 // Media functions: synced video frames, subtitles, audio spectra, and the
 // time terms durations and audio timestamps are written with.
 
-@(private)
-register_media_api :: proc(s: ^Script) {
-	L := s.L
-	fns := [?]struct {
-		name: cstring,
-		fn:   lua.CFunction,
-	} {
-		{"video_frame", l_video_frame},
-		{"video_info", l_video_info},
-		{"subtitle_at", l_subtitle_at},
-		{"subtitles", l_subtitles},
-		{"caption_words", l_caption_words},
-		{"caption_pages", l_caption_pages},
-		{"captions_load", l_captions_load},
-		{"audio_spectrum", l_audio_spectrum},
-		{"spectrum_centered", l_spectrum_centered},
-		{"audio_add", l_audio_add},
-		{"audio_onsets", l_audio_onsets},
-	}
-	for f in fns {
-		lua.pushlightuserdata(L, s)
-		lua.pushcclosure(L, f.fn, 1)
-		lua.setglobal(L, f.name)
-	}
-}
-
 // audio_add(name, sound): sound the script made becomes media clip `name`,
 // used by tracks, `{ audio = name }` durations, audio_spectrum and
 // audio_onsets like a file in media/. `sound` is
@@ -52,11 +26,10 @@ register_media_api :: proc(s: ^Script) {
 //     preview, or a script reading the clip) and once per render: frames,
 //     strips and inspections of a video don't pay for its music.
 // Works at load only; raises a Lua error when bytes can't be decoded.
-@(private = "file")
+@(private)
 l_audio_add :: proc "c" (L: ^lua.State) -> c.int {
 	s := host(L)
 	context = s.odin_context
-	load_only(L, s, "audio_add")
 	name := string(lua.L_checkstring(L, 1))
 	m := s.media
 	if m == nil {
@@ -282,11 +255,11 @@ frame_clock :: proc(L: ^lua.State, idx: c.int) -> (index: int, fps: int, seconds
 }
 
 // video_frame(f, { src, x, y, w, h, start_from, clip_start, looping, fit, align, opacity })
-@(private = "file")
+@(private)
 l_video_frame :: proc "c" (L: ^lua.State) -> c.int {
 	s := host(L)
 	context = s.odin_context
-	ctx := render_ctx(L, s, "video_frame")
+	ctx := render_ctx(L, s)
 	index, fps, _ := frame_clock(L, 1)
 	lua.L_checktype(L, 2, i32(lua.Type.TABLE))
 	fields_begin(L, 2)
@@ -315,11 +288,11 @@ l_video_frame :: proc "c" (L: ^lua.State) -> c.int {
 }
 
 // video_info("clip.mp4") -> { width, height, duration, fps, frames } or nil
-@(private = "file")
+@(private)
 l_video_info :: proc "c" (L: ^lua.State) -> c.int {
 	s := host(L)
 	context = s.odin_context
-	ctx := render_ctx(L, s, "video_info")
+	ctx := render_ctx(L, s)
 	info, ok := om.media_video_info(ctx.media, string(lua.L_checkstring(L, 1)))
 	if !ok {
 		lua.pushnil(L)
@@ -365,11 +338,11 @@ push_cue :: proc(L: ^lua.State, subs: ^om.Subtitles, i: int, ms: u32) {
 }
 
 // subtitle_at(f, "subs.vtt") -> { text, start, stop, progress, index, id, settings } or nil
-@(private = "file")
+@(private)
 l_subtitle_at :: proc "c" (L: ^lua.State) -> c.int {
 	s := host(L)
 	context = s.odin_context
-	ctx := render_ctx(L, s, "subtitle_at")
+	ctx := render_ctx(L, s)
 	_, _, seconds := frame_clock(L, 1)
 	subs := find_subtitles(L, ctx, string(lua.L_checkstring(L, 2)))
 	if subs == nil {
@@ -387,11 +360,11 @@ l_subtitle_at :: proc "c" (L: ^lua.State) -> c.int {
 }
 
 // subtitles("subs.vtt") -> every cue, in file order
-@(private = "file")
+@(private)
 l_subtitles :: proc "c" (L: ^lua.State) -> c.int {
 	s := host(L)
 	context = s.odin_context
-	ctx := render_ctx(L, s, "subtitles")
+	ctx := render_ctx(L, s)
 	subs := find_subtitles(L, ctx, string(lua.L_checkstring(L, 1)))
 	if subs == nil {
 		lua.pushnil(L)
@@ -464,11 +437,11 @@ push_word_text :: proc(L: ^lua.State, cap: ^om.Captions, i: int) {
 // the clock. `active` is the word being said (or the last one,
 // through a pause), `progress` 0..1 through each word. f may be a time in
 // seconds, or nil for the render call's clock.
-@(private = "file")
+@(private)
 l_caption_words :: proc "c" (L: ^lua.State) -> c.int {
 	s := host(L)
 	context = s.odin_context
-	render_ctx(L, s, "caption_words")
+	render_ctx(L, s)
 	seconds := f32(s.frame.index) / f32(max(s.frame.fps, 1))
 	if !lua.isnoneornil(L, 1) {
 		_, _, seconds = frame_clock(L, 1)
@@ -513,7 +486,7 @@ l_caption_words :: proc "c" (L: ^lua.State) -> c.int {
 // caption_pages("talk.json", { max_words, max_duration, combine_ms, start }) ->
 // { { index, start, stop, text, words = { { text, start, stop }, ... } }, ... }
 // (works at load).
-@(private = "file")
+@(private)
 l_caption_pages :: proc "c" (L: ^lua.State) -> c.int {
 	s := host(L)
 	context = s.odin_context
@@ -558,11 +531,10 @@ l_caption_pages :: proc "c" (L: ^lua.State) -> c.int {
 // (or absolute), else in the media directory. The words become captions
 // `name` for caption_words / caption_pages / captions{}. Works at load only;
 // raises a Lua error when the source doesn't parse.
-@(private = "file")
+@(private)
 l_captions_load :: proc "c" (L: ^lua.State) -> c.int {
 	s := host(L)
 	context = s.odin_context
-	load_only(L, s, "captions_load")
 	m := measure_media(L, s, "captions_load")
 	cname := lua.L_checkstring(L, 1)
 	name := string(cname)
@@ -617,11 +589,11 @@ l_captions_load :: proc "c" (L: ^lua.State) -> c.int {
 
 // audio_spectrum(f, { src, sample_size = 256, smooth = 0, window = "hann", bands })
 // -> sample_size / 2 magnitudes (or `bands` averaged groups of them)
-@(private = "file")
+@(private)
 l_audio_spectrum :: proc "c" (L: ^lua.State) -> c.int {
 	s := host(L)
 	context = s.odin_context
-	ctx := render_ctx(L, s, "audio_spectrum")
+	ctx := render_ctx(L, s)
 	index, fps, _ := frame_clock(L, 1)
 	lua.L_checktype(L, 2, i32(lua.Type.TABLE))
 	fields_begin(L, 2)
@@ -744,7 +716,7 @@ placed_clip_time :: proc(ctx: ^om.Context, src: string) -> (at: Maybe(f64), plac
 
 // spectrum_centered(list): low frequencies in the middle (fframes'
 // center_spectrum_low_frequencies).
-@(private = "file")
+@(private)
 l_spectrum_centered :: proc "c" (L: ^lua.State) -> c.int {
 	s := host(L)
 	context = s.odin_context
@@ -883,7 +855,7 @@ read_terms_duration :: proc(s: ^Script, L: ^lua.State, t: c.int) -> []om.Time_Te
 // beat_clock(bpm, offset)) and every beat time to the clip's end; bpm is
 // nil and beats empty without a steady beat. Analysed once per clip; works
 // at load and while rendering. nil when there is no such clip.
-@(private = "file")
+@(private)
 l_audio_onsets :: proc "c" (L: ^lua.State) -> c.int {
 	s := host(L)
 	context = s.odin_context
