@@ -560,6 +560,11 @@ load_chunk :: proc(L: ^lua.State, s: ^Script, path: string, data: []u8) -> bool 
 	if err != nil {
 		name = file // on another volume
 	}
+	// One spelling on every system: `show` paths and scripts' own
+	// debug.getinfo lookups split on "/".
+	when ODIN_OS == .Windows {
+		name, _ = strings.replace_all(name, "\\", "/", context.temp_allocator)
+	}
 	chunk := strings.clone_to_cstring(strings.concatenate({"@", name}, context.temp_allocator), context.temp_allocator)
 	return lua.L_loadbuffer(L, raw_data(data), c.size_t(len(data)), chunk) == .OK
 }
