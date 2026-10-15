@@ -866,18 +866,27 @@ test_view3d_api :: proc(t: ^testing.T) {
 video { width = 64, height = 48, fps = 10, background = "#000000" }
 scene { "A", duration = 1, render = function(f)
   view3d {
+    tone_mapping = "agx",
+    tone_mapping_exposure = 1.2,
+    fog = { type = "FogExp2", color = "#102030", density = 0.05 },
     camera = { position = { 0, 0, 4 }, fov = 45, fvo = 1 },
     lights = {
       { type = "AmbientLight", intensity = 0.5, ground_color = "#fff" },
       { type = "DirectionalLight", color = 0xffffff, intensity = 3, position = { 1, 2, 3 }, cast_shadow = true,
         shadow = { map_size = 256, baias = 0 } },
-      { type = "SpotLight", color = "#fff" },
+      { type = "SpotLight", color = "#fff", intensity = 2, position = { 0, 3, 2 }, angle = 0.5, penumbra = 0.2, cast_shadow = true },
+      { type = "RectAreaLight", color = "#fff" },
     },
     meshes = {
       { geometry = { type = "BoxGeometry", width = 2, height = 1.5, width_segments = 0 },
         material = { color = "#ff0000", roughness = 0.5, metalnes = 1 }, rotation = { 0.1, 0.2, 0 }, scale = 1.5, cast_shdow = true },
       { geometry = { type = "SphereGeometry", radius = 0.5, radial = 3 }, position = { 1, 0, 0 },
-        material = { type = "MeshBasicMaterial", color = "#00ff00", roughness = 1 } },
+        material = { type = "MeshBasicMaterial", color = "#00ff00", roughness = 1 },
+        instances = { { position = { -0.5, 0, 0 }, scale = 0.8, color = "#ffff00" } } },
+      { geometry = { type = "LineGeometry", points = { { -1, -1, 0 }, { 1, 1, 0 } }, closed = true },
+        material = { linewidth = 0.04, size_attenuation = false } },
+      { geometry = { type = "PointsGeometry", points = { 0, 0, 0, 0.5, 0.5, 0 } },
+        material = { size = 0.08, color = "#00ffff" } },
       { geometry = { type = "Cube" } },
     },
     models = { { src = "duck.glb", animaton = "Walk" } },
@@ -904,12 +913,20 @@ end }
 	}
 	testing.expect_value(t, v.w, 64)
 	testing.expect_value(t, v.camera.fov, 45)
-	testing.expect_value(t, len(v.lights), 2)
-	testing.expect_value(t, len(v.meshes), 2)
-	if len(v.lights) == 2 && len(v.meshes) == 2 {
+	testing.expect_value(t, v.tone_mapping, o3d.Tone_Mapping.AgX)
+	testing.expect_value(t, v.tone_mapping_exposure, 1.2)
+	testing.expect_value(t, v.fog.kind, o3d.Fog_Kind.Exp2)
+	testing.expect_value(t, v.fog.density, 0.05)
+	testing.expect_value(t, len(v.lights), 3)
+	testing.expect_value(t, len(v.meshes), 4)
+	if len(v.lights) == 3 && len(v.meshes) == 4 {
 		testing.expect_value(t, v.lights[1].color, [3]f32{1, 1, 1})
 		testing.expect(t, v.lights[1].cast_shadow && v.lights[1].shadow.map_size == 256)
 		testing.expect_value(t, v.lights[0].decay, 2)
+		testing.expect_value(t, v.lights[2].kind, o3d.Light_Kind.Spot)
+		testing.expect_value(t, v.lights[2].angle, 0.5)
+		testing.expect_value(t, v.lights[2].penumbra, 0.2)
+		testing.expect(t, v.lights[2].cast_shadow)
 		box := v.meshes[0]
 		testing.expect_value(t, box.geometry.kind, .Box)
 		testing.expect_value(t, box.geometry.params, [7]f32{2, 1.5, 1, 1, 1, 1, 0})
@@ -917,17 +934,30 @@ end }
 		testing.expect_value(t, box.material.color, [3]f32{1, 0, 0})
 		testing.expect_value(t, box.material.flags, bit_set[o3d.Material_Flag; u8]{})
 		testing.expect_value(t, v.meshes[1].material.flags, bit_set[o3d.Material_Flag; u8]{.Basic})
+		testing.expect_value(t, len(v.meshes[1].instances), 1)
+		if len(v.meshes[1].instances) == 1 {
+			testing.expect(t, v.meshes[1].instances[0].has_color)
+			testing.expect_value(t, v.meshes[1].instances[0].color, [3]f32{1, 1, 0})
+		}
+		testing.expect_value(t, v.meshes[2].path_kind, om.Path_Kind.Polyline)
+		testing.expect(t, v.meshes[2].path_closed)
+		testing.expect_value(t, len(v.meshes[2].points), 2)
+		testing.expect_value(t, v.meshes[2].material.mode, o3d.Draw_Mode.Lines)
+		testing.expect_value(t, v.meshes[2].material.flags, bit_set[o3d.Material_Flag; u8]{.Basic, .No_Size_Attenuation})
+		testing.expect_value(t, v.meshes[3].path_kind, om.Path_Kind.Points)
+		testing.expect_value(t, len(v.meshes[3].points), 2)
+		testing.expect_value(t, v.meshes[3].material.mode, o3d.Draw_Mode.Points)
 	}
 	want := [?]string {
 		"video.lua:4: `camera.fvo` is not used (did you mean `fov`?)",
 		"video.lua:4: `light.ground_color` is not used",
 		"video.lua:4: `shadow.baias` is not used (did you mean `bias`?)",
-		`invalid light type "SpotLight" (want AmbientLight, HemisphereLight, DirectionalLight or PointLight)`,
+		`invalid light type "RectAreaLight" (want AmbientLight, HemisphereLight, DirectionalLight, PointLight or SpotLight)`,
 		"video.lua:4: `material.metalnes` is not used (did you mean `metalness`?)",
 		"video.lua:4: `mesh.cast_shdow` is not used (did you mean `cast_shadow`?)",
 		"video.lua:4: `geometry.radial` is not used (did you mean `radius`?)",
 		"video.lua:4: `material.roughness` is not used",
-		`invalid geometry type "Cube" (want BoxGeometry, SphereGeometry, PlaneGeometry, CylinderGeometry or TorusGeometry)`,
+		`invalid geometry type "Cube" (want BoxGeometry, SphereGeometry, PlaneGeometry, CylinderGeometry, TorusGeometry, LineGeometry, LineSegmentsGeometry or PointsGeometry)`,
 		"video.lua:4: `model.animaton` is not used (did you mean `animation`?)",
 		`no glTF model "duck.glb" in the media`,
 	}
@@ -940,7 +970,7 @@ end }
 		testing.expectf(t, slice.contains(got[:], w), "missing %q in %v", w, got[:])
 	}
 	mid := px[(24 * 64 + 32) * 4:][:4]
-	testing.expectf(t, mid[0] > 100 && mid[1] < 60, "the box: %v", mid)
+	testing.expectf(t, mid[0] > 150 && mid[0] > mid[1], "the box: %v", mid)
 }
 
 @(test)

@@ -17,8 +17,9 @@ import lua "vendor:lua/5.4"
 
 // view3d{ x, y, w, h, opacity, camera = {...}, lights = {...}, meshes =
 // {...}, models = {...}, environment, environment_intensity, background,
-// background_intensity, background_blurriness }; the box defaults to the
-// whole video.
+// background_intensity, background_blurriness, tone_mapping,
+// tone_mapping_exposure, fog = {...} }; the box defaults to the whole
+// video.
 @(private)
 l_view3d :: proc "c" (L: ^lua.State) -> c.int {
 	s := host(L)
@@ -38,10 +39,17 @@ l_view3d :: proc "c" (L: ^lua.State) -> c.int {
 		background            = get_str(L, 1, "background", ""),
 		background_intensity  = get_num(L, 1, "background_intensity", 1),
 		background_blurriness = get_num(L, 1, "background_blurriness", 0),
+		tone_mapping          = read_tone_mapping(L, 1),
+		tone_mapping_exposure = get_num(L, 1, "tone_mapping_exposure", 1),
 	}
 	field(L, 1, "camera")
 	if lua.istable(L, -1) {
 		v.camera = read_camera(L, s, lua.absindex(L, -1))
+	}
+	lua.pop(L, 1)
+	field(L, 1, "fog")
+	if lua.istable(L, -1) {
+		v.fog = read_fog(L, s, lua.absindex(L, -1))
 	}
 	lua.pop(L, 1)
 	v.lights = read_list(L, s, 1, "lights", o3d.Light, read_light)
@@ -50,6 +58,52 @@ l_view3d :: proc "c" (L: ^lua.State) -> c.int {
 	om.view3d(ctx, s.frame, v)
 	fields_end(L, s, 1, "view3d")
 	return 0
+}
+
+@(private = "file")
+read_tone_mapping :: proc(L: ^lua.State, t: c.int) -> o3d.Tone_Mapping {
+	tm := get_str(L, t, "tone_mapping", "none")
+	switch tm {
+	case "none", "NoToneMapping":
+		return .None
+	case "linear", "LinearToneMapping":
+		return .Linear
+	case "reinhard", "ReinhardToneMapping":
+		return .Reinhard
+	case "cineon", "CineonToneMapping":
+		return .Cineon
+	case "aces", "aces_filmic", "ACESFilmicToneMapping":
+		return .ACES_Filmic
+	case "agx", "AgXToneMapping":
+		return .AgX
+	case "neutral", "NeutralToneMapping":
+		return .Neutral
+	case:
+		bad_string(L, "tone_mapping", tm, "none, linear, reinhard, cineon, aces_filmic, agx or neutral")
+		return .None
+	}
+}
+
+// Fog (`near`, `far`) or FogExp2 (`density`).
+@(private = "file")
+read_fog :: proc(L: ^lua.State, s: ^Script, t: c.int) -> (fog: o3d.Fog) {
+	outer := fields_push(L, t)
+	defer fields_pop(L, s, t, "fog", outer)
+	switch kind := get_str(L, t, "type", "Fog"); kind {
+	case "Fog":
+		fog.kind = .Linear
+		fog.color = read_color3(L, t, "color", {1, 1, 1})
+		fog.near = get_num(L, t, "near", 1)
+		fog.far = get_num(L, t, "far", 1000)
+	case "FogExp2":
+		fog.kind = .Exp2
+		fog.color = read_color3(L, t, "color", {1, 1, 1})
+		fog.density = get_num(L, t, "density", 0.00025)
+	case:
+		field_log = outer
+		bad_string(L, "fog type", kind, "Fog or FogExp2")
+	}
+	return
 }
 
 // The tables of list `key` read by `read` (temp memory); entries it
@@ -109,6 +163,8 @@ Light_Field :: enum u8 {
 	Target,
 	Distance,
 	Decay,
+	Angle,
+	Penumbra,
 	Cast_Shadow,
 	Shadow,
 }
@@ -122,10 +178,12 @@ LIGHT_TYPES := [o3d.Light_Kind]struct {
 	.Hemisphere  = {"HemisphereLight", {.Color, .Ground_Color, .Intensity}},
 	.Directional = {"DirectionalLight", {.Color, .Intensity, .Position, .Target, .Cast_Shadow, .Shadow}},
 	.Point       = {"PointLight", {.Color, .Intensity, .Position, .Distance, .Decay}},
+	.Spot        = {"SpotLight", {.Color, .Intensity, .Position, .Target, .Distance, .Decay, .Angle, .Penumbra, .Cast_Shadow, .Shadow}},
 }
 
-// A light with three.js's defaults (white, intensity 1, a directional
-// light from above toward the origin, a point light's decay 2).
+// A light with three.js's defaults (white, intensity 1, a directional or
+// spot light from above toward the origin, a point or spot light's decay 2,
+// a spot light's angle PI / 3).
 @(private = "file")
 read_light :: proc(L: ^lua.State, s: ^Script, t: c.int) -> (l: o3d.Light, ok: bool) {
 	outer := fields_push(L, t)
@@ -134,12 +192,12 @@ read_light :: proc(L: ^lua.State, s: ^Script, t: c.int) -> (l: o3d.Light, ok: bo
 	if !known {
 		// Its other keys are not to blame.
 		field_log = outer
-		bad_string(L, "light type", name, "AmbientLight, HemisphereLight, DirectionalLight or PointLight")
+		bad_string(L, "light type", name, "AmbientLight, HemisphereLight, DirectionalLight, PointLight or SpotLight")
 		return
 	}
 	defer fields_pop(L, s, t, "light", outer)
 	reads := LIGHT_TYPES[kind].fields
-	l = {kind = kind, color = {1, 1, 1}, intensity = 1, position = {0, 1, 0}, decay = 2}
+	l = {kind = kind, color = {1, 1, 1}, intensity = 1, position = {0, 1, 0}, decay = 2, angle = math.PI / 3}
 	if .Color in reads {l.color = read_color3(L, t, "color", l.color)}
 	if .Ground_Color in reads {l.ground = read_color3(L, t, "ground_color", l.ground)}
 	if .Intensity in reads {l.intensity = get_num(L, t, "intensity", l.intensity)}
@@ -147,6 +205,8 @@ read_light :: proc(L: ^lua.State, s: ^Script, t: c.int) -> (l: o3d.Light, ok: bo
 	if .Target in reads {l.target = read_vec3(L, t, "target", l.target)}
 	if .Distance in reads {l.distance = get_num(L, t, "distance", l.distance)}
 	if .Decay in reads {l.decay = get_num(L, t, "decay", l.decay)}
+	if .Angle in reads {l.angle = get_num(L, t, "angle", l.angle)}
+	if .Penumbra in reads {l.penumbra = get_num(L, t, "penumbra", l.penumbra)}
 	if .Cast_Shadow in reads {l.cast_shadow = get_bool(L, t, "cast_shadow", false)}
 	if .Shadow in reads {
 		field(L, t, "shadow")
@@ -178,15 +238,17 @@ light_kind :: proc(name: string) -> (o3d.Light_Kind, bool) {
 	return {}, false
 }
 
-// A mesh: `geometry`, `material` (MeshStandardMaterial's defaults when
-// left out), position, rotation (radians), scale (a number scales all
-// three) and three.js's shadow flags.
+// A mesh: `geometry`, `material` (MeshStandardMaterial's defaults for
+// surface meshes, LineBasicMaterial for LineGeometry/LineSegmentsGeometry,
+// PointsMaterial for PointsGeometry), optional `instances`, position,
+// rotation (radians), scale (a number scales all three) and three.js's
+// shadow flags.
 @(private = "file")
 read_mesh :: proc(L: ^lua.State, s: ^Script, t: c.int) -> (m: om.Mesh, ok: bool) {
 	outer := fields_push(L, t)
 	field(L, t, "geometry")
 	if lua.istable(L, -1) {
-		m.geometry, ok = read_geometry(L, s, lua.absindex(L, -1))
+		ok = read_geometry(L, s, lua.absindex(L, -1), &m)
 	} else {
 		bad_string(L, "mesh geometry", "nil", `a table such as { type = "BoxGeometry", width = 1, height = 1, depth = 1 }`)
 	}
@@ -200,12 +262,31 @@ read_mesh :: proc(L: ^lua.State, s: ^Script, t: c.int) -> (m: om.Mesh, ok: bool)
 	m.position = read_vec3(L, t, "position", {})
 	m.rotation = read_vec3(L, t, "rotation", {})
 	m.scale = read_vec3(L, t, "scale", {1, 1, 1}, splat = true)
+	m.instances = read_list(L, s, t, "instances", o3d.Instance, read_instance)
 	m.material = o3d.MATERIAL_DEFAULT
+	default_mat := "MeshStandardMaterial"
+	switch m.path_kind {
+	case .None:
+	case .Polyline, .Line_Segments:
+		default_mat = "LineBasicMaterial"
+		m.material.mode = .Lines
+		m.material.flags += {.Basic}
+	case .Points:
+		default_mat = "PointsMaterial"
+		m.material.mode = .Points
+		m.material.flags += {.Basic}
+	}
 	field(L, t, "material")
 	if lua.istable(L, -1) {
-		read_material(L, s, lua.absindex(L, -1), &m.material, &m.maps, &m.shader)
+		m.material = o3d.MATERIAL_DEFAULT
+		read_material(L, s, lua.absindex(L, -1), default_mat, &m.material, &m.maps, &m.shader)
 	}
 	lua.pop(L, 1)
+	if m.path_kind == .Polyline || m.path_kind == .Line_Segments {
+		m.material.mode = .Lines
+	} else if m.path_kind == .Points {
+		m.material.mode = .Points
+	}
 	if get_bool(L, t, "cast_shadow", false) {
 		m.material.flags += {.Cast_Shadow}
 	}
@@ -215,53 +296,139 @@ read_mesh :: proc(L: ^lua.State, s: ^Script, t: c.int) -> (m: om.Mesh, ok: bool)
 	return m, true
 }
 
-// A geometry type and its parameters (`om.GEOMETRY_TYPES`).
 @(private = "file")
-read_geometry :: proc(L: ^lua.State, s: ^Script, t: c.int) -> (key: o3d.Geometry_Key, ok: bool) {
+read_instance :: proc(L: ^lua.State, s: ^Script, t: c.int) -> (inst: o3d.Instance, ok: bool) {
+	outer := fields_push(L, t)
+	defer fields_pop(L, s, t, "instance", outer)
+	pos := read_vec3(L, t, "position", {})
+	rot := read_vec3(L, t, "rotation", {})
+	scl := read_vec3(L, t, "scale", {1, 1, 1}, splat = true)
+	inst.transform = o3d.compose(pos, rot, scl)
+	if has_field(L, t, "color") {
+		inst.color = read_color3(L, t, "color", {1, 1, 1})
+		inst.has_color = true
+	}
+	return inst, true
+}
+
+// A geometry type and its parameters (`om.GEOMETRY_TYPES`), or per-frame
+// line/point positions (`LineGeometry`, `LineSegmentsGeometry`,
+// `PointsGeometry`).
+@(private = "file")
+read_geometry :: proc(L: ^lua.State, s: ^Script, t: c.int, m: ^om.Mesh) -> (ok: bool) {
 	outer := fields_push(L, t)
 	name := get_str(L, t, "type", "")
+	switch name {
+	case "LineGeometry":
+		defer fields_pop(L, s, t, "geometry", outer)
+		m.path_kind = .Polyline
+		m.path_closed = get_bool(L, t, "closed", false)
+		m.points = read_points(L, t, "points")
+		return true
+	case "LineSegmentsGeometry":
+		defer fields_pop(L, s, t, "geometry", outer)
+		m.path_kind = .Line_Segments
+		m.points = read_points(L, t, "points")
+		return true
+	case "PointsGeometry":
+		defer fields_pop(L, s, t, "geometry", outer)
+		m.path_kind = .Points
+		m.points = read_points(L, t, "points")
+		return true
+	}
 	for gt, k in om.GEOMETRY_TYPES {
 		if k != .None && gt.name == name {
-			key.kind = k
+			m.geometry.kind = k
 		}
 	}
-	if key.kind == .None {
+	if m.geometry.kind == .None {
 		field_log = outer
-		bad_string(L, "geometry type", name, "BoxGeometry, SphereGeometry, PlaneGeometry, CylinderGeometry or TorusGeometry")
-		return
+		bad_string(L, "geometry type", name, "BoxGeometry, SphereGeometry, PlaneGeometry, CylinderGeometry, TorusGeometry, LineGeometry, LineSegmentsGeometry or PointsGeometry")
+		return false
 	}
 	defer fields_pop(L, s, t, "geometry", outer)
-	for p, i in om.GEOMETRY_TYPES[key.kind].params {
+	for p, i in om.GEOMETRY_TYPES[m.geometry.kind].params {
 		if p.name == nil {
 			break
 		}
 		switch p.kind {
 		case .Size:
-			key.params[i] = get_num(L, t, p.name, p.default)
+			m.geometry.params[i] = get_num(L, t, p.name, p.default)
 		case .Count:
-			key.params[i] = max(math.floor(get_num(L, t, p.name, p.default)), p.least)
+			m.geometry.params[i] = max(math.floor(get_num(L, t, p.name, p.default)), p.least)
 		case .Flag:
-			key.params[i] = 1 if get_bool(L, t, p.name, p.default != 0) else 0
+			m.geometry.params[i] = 1 if get_bool(L, t, p.name, p.default != 0) else 0
 		}
 	}
-	return key, true
+	return true
+}
+
+@(private = "file")
+read_points :: proc(L: ^lua.State, t: c.int, key: cstring) -> []o3d.Vec3 {
+	field(L, t, key)
+	defer lua.pop(L, 1)
+	if !lua.istable(L, -1) {
+		return nil
+	}
+	n := int(lua.rawlen(L, -1))
+	if n == 0 {
+		return nil
+	}
+	lua.rawgeti(L, -1, 1)
+	first_is_num := lua.type(L, -1) == .NUMBER
+	lua.pop(L, 1)
+	if first_is_num {
+		count := n / 3
+		pts := make([]o3d.Vec3, count, context.temp_allocator)
+		for i in 0 ..< count {
+			for c in 0 ..< 3 {
+				lua.rawgeti(L, -1, lua.Integer(i * 3 + c + 1))
+				pts[i][c] = f32(lua.tonumber(L, -1))
+				lua.pop(L, 1)
+			}
+		}
+		return pts
+	}
+	pts := make([dynamic]o3d.Vec3, 0, n, context.temp_allocator)
+	for i in 1 ..= n {
+		lua.rawgeti(L, -1, lua.Integer(i))
+		if lua.istable(L, -1) {
+			v: o3d.Vec3
+			for c in 0 ..< 3 {
+				lua.rawgeti(L, -1, lua.Integer(c + 1))
+				v[c] = f32(lua.tonumber(L, -1))
+				lua.pop(L, 1)
+			}
+			append(&pts, v)
+		}
+		lua.pop(L, 1)
+	}
+	return pts[:]
 }
 
 // MeshStandardMaterial, MeshBasicMaterial (unlit: its colour, opacity and
-// `map`) or ShaderMaterial (custom GLSL ES vertex and fragment shaders and
-// per-frame uniforms). Texture maps are media images by name.
+// `map`), LineBasicMaterial (`linewidth`, `size_attenuation`),
+// PointsMaterial (`size`, `size_attenuation`, `map`) or ShaderMaterial
+// (custom GLSL ES vertex and fragment shaders and per-frame uniforms).
+// Texture maps are media images by name.
 @(private = "file")
-read_material :: proc(L: ^lua.State, s: ^Script, t: c.int, m: ^o3d.Material, maps: ^[om.Texture_Map]string, shader: ^Maybe(om.Shader_Material)) {
+read_material :: proc(L: ^lua.State, s: ^Script, t: c.int, default_type: string, m: ^o3d.Material, maps: ^[om.Texture_Map]string, shader: ^Maybe(om.Shader_Material)) {
 	outer := fields_push(L, t)
 	defer fields_pop(L, s, t, "material", outer)
-	kind := get_str(L, t, "type", "MeshStandardMaterial")
+	kind := get_str(L, t, "type", default_type)
 	switch kind {
 	case "MeshStandardMaterial":
 	case "MeshBasicMaterial":
 		m.flags += {.Basic}
+	case "LineBasicMaterial":
+		m.flags += {.Basic}
+		m.mode = .Lines
+	case "PointsMaterial":
+		m.flags += {.Basic}
+		m.mode = .Points
 	case "ShaderMaterial":
 	case:
-		bad_string(L, "material type", kind, "MeshStandardMaterial, MeshBasicMaterial or ShaderMaterial")
+		bad_string(L, "material type", kind, "MeshStandardMaterial, MeshBasicMaterial, LineBasicMaterial, PointsMaterial or ShaderMaterial")
 	}
 	if get_bool(L, t, "transparent", false) {
 		m.flags += {.Transparent}
@@ -301,7 +468,34 @@ read_material :: proc(L: ^lua.State, s: ^Script, t: c.int, m: ^o3d.Material, map
 	}
 	m.color = read_color3(L, t, "color", m.color)
 	m.opacity = get_num(L, t, "opacity", m.opacity)
+	if kind == "LineBasicMaterial" {
+		m.size = get_num(L, t, "linewidth", m.size)
+		if !get_bool(L, t, "size_attenuation", true) {
+			m.flags += {.No_Size_Attenuation}
+		}
+		return
+	}
 	maps[.Color] = get_str(L, t, om.TEXTURE_MAPS[.Color], "")
+	if cutoff := get_num(L, t, "alpha_test", 0); cutoff > 0 {
+		m.alpha_cutoff = cutoff
+		m.flags += {.Alpha_Mask}
+	}
+	if kind == "PointsMaterial" {
+		m.size = get_num(L, t, "size", m.size)
+		if !get_bool(L, t, "size_attenuation", true) {
+			m.flags += {.No_Size_Attenuation}
+		}
+		return
+	}
+	if get_bool(L, t, "wireframe", false) {
+		m.mode = .Lines
+	}
+	if w := get_num(L, t, "wireframe_linewidth", 0); w > 0 {
+		m.size = w
+	}
+	if !get_bool(L, t, "size_attenuation", true) {
+		m.flags += {.No_Size_Attenuation}
+	}
 	if .Basic in m.flags {
 		return
 	}
@@ -309,6 +503,7 @@ read_material :: proc(L: ^lua.State, s: ^Script, t: c.int, m: ^o3d.Material, map
 	m.roughness = get_num(L, t, "roughness", m.roughness)
 	m.emissive = read_color3(L, t, "emissive", m.emissive)
 	m.emissive_intensity = get_num(L, t, "emissive_intensity", m.emissive_intensity)
+	m.ao_map_intensity = get_num(L, t, "ao_map_intensity", m.ao_map_intensity)
 	if get_bool(L, t, "flat_shading", false) {
 		m.flags += {.Flat_Shading}
 	}
@@ -409,7 +604,7 @@ read_model :: proc(L: ^lua.State, s: ^Script, t: c.int) -> (p: om.Model_Pose, ok
 	field(L, t, "material")
 	if lua.istable(L, -1) {
 		over := om.Model_Material{material = o3d.MATERIAL_DEFAULT}
-		read_material(L, s, lua.absindex(L, -1), &over.material, &over.maps, &over.shader)
+		read_material(L, s, lua.absindex(L, -1), "MeshStandardMaterial", &over.material, &over.maps, &over.shader)
 		p.material = over
 	}
 	lua.pop(L, 1)

@@ -42,6 +42,9 @@ View3d :: struct {
 	background:            string,
 	background_intensity:  f32,
 	background_blurriness: f32,
+	tone_mapping:          o3d.Tone_Mapping,
+	tone_mapping_exposure: f32,
+	fog:                   o3d.Fog,
 	// The timeline index of the scene that drew it (-1: the video's own
 	// render), for `geometry_growth`.
 	scene_index:           int,
@@ -64,18 +67,32 @@ Model_Material :: struct {
 	shader:   Maybe(Shader_Material),
 }
 
+// Per-frame line or point geometry on a mesh (`LineGeometry`,
+// `LineSegmentsGeometry` or `PointsGeometry`).
+Path_Kind :: enum u8 {
+	None          = 0,
+	Polyline      = 1,
+	Line_Segments = 2,
+	Points        = 3,
+}
+
 // A mesh: primitive geometry (its type and three.js parameters, see
-// `GEOMETRY_TYPES`), its transform (position, Euler XYZ rotation in
-// radians, scale) and its material, whose texture maps are media images
-// by name (or a custom `ShaderMaterial`).
+// `GEOMETRY_TYPES`) or per-frame line/point positions (`path_kind`,
+// `points`), optional `instances` (`InstancedMesh`), its transform
+// (position, Euler XYZ rotation in radians, scale) and its material, whose
+// texture maps are media images by name (or a custom `ShaderMaterial`).
 Mesh :: struct {
-	geometry: o3d.Geometry_Key,
-	position: o3d.Vec3,
-	rotation: o3d.Vec3,
-	scale:    o3d.Vec3,
-	material: o3d.Material,
-	maps:     [Texture_Map]string,
-	shader:   Maybe(Shader_Material),
+	geometry:    o3d.Geometry_Key,
+	path_kind:   Path_Kind,
+	path_closed: bool,
+	points:      []o3d.Vec3,
+	instances:   []o3d.Instance,
+	position:    o3d.Vec3,
+	rotation:    o3d.Vec3,
+	scale:       o3d.Vec3,
+	material:    o3d.Material,
+	maps:        [Texture_Map]string,
+	shader:      Maybe(Shader_Material),
 }
 
 // A material's texture maps, by their three.js names (`TEXTURE_MAPS`).
@@ -85,6 +102,7 @@ Texture_Map :: enum u8 {
 	Roughness,
 	Metalness,
 	Emissive,
+	AO,
 }
 
 @(rodata)
@@ -94,6 +112,7 @@ TEXTURE_MAPS := [Texture_Map]cstring {
 	.Roughness = "roughness_map",
 	.Metalness = "metalness_map",
 	.Emissive  = "emissive_map",
+	.AO        = "ao_map",
 }
 
 // The material's texture of map `k`.
@@ -109,6 +128,8 @@ material_map :: proc "contextless" (m: ^o3d.Material, k: Texture_Map) -> ^o3d.Te
 		return &m.metalness_map
 	case .Emissive:
 		return &m.emissive_map
+	case .AO:
+		return &m.ao_map
 	}
 	return &m.color_map
 }
@@ -167,6 +188,8 @@ view3d :: proc(ctx: ^Context, f: Frame, v: View3d) {
 	v.lights = clone_slice(v.lights, arena)
 	v.meshes = clone_slice(v.meshes, arena)
 	for &m in v.meshes {
+		m.points = clone_slice(m.points, arena)
+		m.instances = clone_slice(m.instances, arena)
 		for &name in m.maps {
 			name = strings.clone(name, arena)
 		}
@@ -296,6 +319,9 @@ view3d_make_geometry :: proc(m: ^Media, n: View3d) -> (made: bit_set[o3d.Primiti
 	v := &m.view3d
 	context.allocator = v.allocator
 	for mesh in n.meshes {
+		if mesh.geometry.kind == .None {
+			continue
+		}
 		sync.shared_lock(&v.lock)
 		_, known := v.geometries.keys[mesh.geometry]
 		sync.shared_unlock(&v.lock)
@@ -518,7 +544,22 @@ view3d_scene :: proc(r: ^Renderer, n: View3d, scene: ^o3d.Scene) {
 	append(&scene.lights, ..n.lights)
 	for mesh in n.meshes {
 		material := view3d_material(r, scene, mesh.material, mesh.maps, mesh.shader)
-		append(&scene.draws, o3d.Draw{v.geometries.keys[mesh.geometry], o3d.compose(mesh.position, mesh.rotation, mesh.scale), material})
+		geo_id: o3d.Geometry_Id
+		switch mesh.path_kind {
+		case .None:
+			geo_id = v.geometries.keys[mesh.geometry]
+		case .Polyline:
+			geo_id = o3d.scene_polyline(scene, mesh.points, mesh.path_closed)
+		case .Line_Segments:
+			geo_id = o3d.scene_line_segments(scene, mesh.points)
+		case .Points:
+			geo_id = o3d.scene_points(scene, mesh.points)
+		}
+		di := len(scene.draws)
+		append(&scene.draws, o3d.Draw{geo_id, o3d.compose(mesh.position, mesh.rotation, mesh.scale), material})
+		if len(mesh.instances) > 0 {
+			o3d.scene_set_draw_instances(scene, di, o3d.scene_instances(scene, mesh.instances))
+		}
 	}
 	for pose in n.models {
 		model, found := &v.models[pose.src]
@@ -560,6 +601,9 @@ view3d_scene :: proc(r: ^Renderer, n: View3d, scene: ^o3d.Scene) {
 	scene.background = view3d_texture(r, n.background)
 	scene.background_intensity = n.background_intensity
 	scene.background_blurriness = n.background_blurriness
+	scene.tone_mapping = n.tone_mapping
+	scene.tone_mapping_exposure = n.tone_mapping_exposure
+	scene.fog = n.fog
 }
 
 // Resolves a material's textures or ShaderMaterial (reporting compile and
@@ -698,6 +742,8 @@ check_geometry_growth :: proc(r: ^Renderer, n: View3d, made: bit_set[o3d.Primiti
 		report(&r.ctx, .Warning, {code = .Geometry_Growth, name = GEOMETRY_TYPES[kind].name})
 	}
 	for mesh in n.meshes {
-		d.now += {mesh.geometry.kind}
+		if mesh.geometry.kind != .None {
+			d.now += {mesh.geometry.kind}
+		}
 	}
 }

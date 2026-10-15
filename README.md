@@ -81,13 +81,15 @@ onimite is built from sibling Odin projects and Odin's vendor packages:
   clips and groups of nodes bind as inputs. The software backend runs the same
   shaders on oksl's CPU interpreter.
 - **3D** (o3d): `view3d{}` draws a scene described in three.js's terms
-  (perspective and orthographic cameras; ambient, hemisphere, point and
-  directional lights with PCF shadows; box, sphere, plane, cylinder and
-  torus meshes; MeshStandardMaterial and MeshBasicMaterial with texture
+  (perspective and orthographic cameras; ambient, hemisphere, point,
+  directional and spot lights with up to 4 PCF shadow maps; tone mapping
+  and fog; box, sphere, plane, cylinder and torus meshes plus per-frame 3D
+  lines, point clouds, wireframe and `instances`; MeshStandardMaterial,
+  MeshBasicMaterial, LineBasicMaterial and PointsMaterial with texture
   maps, and GLSL ES ShaderMaterial; an equirectangular environment and
-  background; glTF 2.0 models, including skinned characters and morph
-  targets, posed at a time of their animations with optional `morphs` and
-  `material` overrides) into a box
+  background; glTF 2.0 models, including skinned characters, morph targets
+  and punctual lights, posed at a time of their animations with optional
+  `morphs` and `material` overrides) into a box
   composited like any layer, on the GPU or, the same picture, on the CPU.
 - **Sound**: tracks on the video or scenes with gain, pan, fades, voice
   ducking and a master limiter; audio synthesized by the script

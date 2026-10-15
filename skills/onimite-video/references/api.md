@@ -619,12 +619,15 @@ view3d { x = 0, y = 0, w = 1920, h = 1080,                -- default: the whole 
 
 A 3D scene in three.js's names (`type` is the three.js class; properties in snake case),
 drawn into the box and composited like an image: transparent where nothing is drawn, with
-`opacity`, under the groups' transforms, masks and blends. Lights with shadows,
-`MeshStandardMaterial` and `MeshBasicMaterial` with texture maps from `media/`, custom
-GLSL ES `ShaderMaterial`s, glTF models (`.glb`/`.gltf` in `media/`, including skinned
-characters and morph targets) at a time of their animation with optional `morphs` and
-`material` overrides, an environment map: read [3d.md](3d.md). Animate sizes through a
-mesh's `scale`, not its geometry's parameters.
+`opacity`, under the groups' transforms, masks and blends. Ambient, hemisphere, point,
+directional and spot lights (up to 4 directional/spot PCF shadows), tone mapping and fog,
+`MeshStandardMaterial`, `MeshBasicMaterial`, `LineBasicMaterial` and `PointsMaterial` with
+texture maps from `media/`, custom GLSL ES `ShaderMaterial`s, per-frame `LineGeometry`,
+`LineSegmentsGeometry` and `PointsGeometry` plus `wireframe` and `instances` (`InstancedMesh`),
+glTF models (`.glb`/`.gltf` in `media/`, including skinned characters, morph targets and
+`KHR_lights_punctual`) at a time of their animation with optional `morphs` and `material`
+overrides, an environment map: read [3d.md](3d.md). Animate sizes through a mesh's `scale`,
+not its primitive geometry's parameters.
 
 ## Script environment
 

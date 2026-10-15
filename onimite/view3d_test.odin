@@ -488,3 +488,71 @@ test_view3d_shader_material :: proc(t: ^testing.T) {
 	testing.expectf(t, compile_err && undeclared && unset, "diagnostics: %v", r.ctx.diagnostics[:])
 }
 
+// Per-frame polylines, points, wireframe and instanced meshes: animating
+// path points across frames adds nothing to `media.view3d.geometries` and
+// never triggers `geometry_growth`.
+@(test)
+test_view3d_manim :: proc(t: ^testing.T) {
+	render_manim :: proc(f: Frame, ctx: ^Context) {
+		k := f32(f.index) * 0.2
+		line_mat := MATERIAL_GREEN_BASIC
+		line_mat.mode = .Lines
+		line_mat.size = 0.08
+		pt_mat := MATERIAL_RED
+		pt_mat.flags = {.Basic}
+		pt_mat.mode = .Points
+		pt_mat.size = 0.15
+		view3d(ctx, f, {
+			w = 64, h = 48,
+			tone_mapping = .AgX,
+			tone_mapping_exposure = 1,
+			fog = {kind = .Exp2, color = {0.1, 0.1, 0.2}, density = 0.02},
+			camera = {position = {0, 0, 4}, target = {0, 0, 0}, fov = 45, near = 0.1, far = 100},
+			lights = {{kind = .Ambient, color = {1, 1, 1}, intensity = 0.5}, {kind = .Spot, color = {1, 1, 1}, intensity = 10, position = {0, 2, 3}, angle = math.PI / 3, decay = 2}},
+			meshes = {
+				{
+					path_kind = .Polyline,
+					points    = {{-1, -0.5 + k, 0}, {0, 0.5 - k, 0}, {1, -0.5 + k, 0}},
+					scale     = {1, 1, 1},
+					material  = line_mat,
+				},
+				{
+					path_kind = .Points,
+					points    = {{0, 0, 0}},
+					scale     = {1, 1, 1},
+					material  = pt_mat,
+				},
+				{
+					geometry  = {.Box, {0.4, 0.4, 0.4, 1, 1, 1, 0}},
+					scale     = {1, 1, 1},
+					material  = MATERIAL_RED,
+					instances = {
+						{transform = o3d.compose({-1.2, 0, 0}, {}, {1, 1, 1}), color = {0, 0.5, 1}, has_color = true},
+						{transform = o3d.compose({1.2, 0, 0}, {}, {1, 1, 1}), color = {1, 0.8, 0}, has_color = true},
+					},
+				},
+			},
+		})
+	}
+	@(static) scenes: [1]Scene
+	scenes = [1]Scene{{name = "Manim", duration = Frames(3), render = render_manim}}
+	v := Video{width = 64, height = 48, fps = 30, background = BLACK, scenes = scenes[:]}
+	media: Media
+	media_init(&media)
+	defer media_destroy(&media)
+	r: Renderer
+	testing.expect_value(t, renderer_init(&r, &v, &media), Error.None)
+	defer renderer_destroy(&r)
+	for f in 0 ..< 3 {
+		diagnostics_clear(&r.ctx)
+		px := render_frame(&r, f)
+		testing.expectf(t, len(r.ctx.diagnostics) == 0, "frame %d diagnostics: %v", f, r.ctx.diagnostics[:])
+		if f == 0 {
+			mid := pixel(px, 64, 32, 24)
+			testing.expectf(t, mid.r > 150, "center point lit: %v", mid)
+		}
+	}
+	// Only the unit box was added to the media's geometry table.
+	testing.expect_value(t, len(media.view3d.geometries.list), 1)
+}
+
