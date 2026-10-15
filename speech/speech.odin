@@ -33,12 +33,13 @@ Options :: struct {
 	voice:       string,
 	seed:        u64,
 	temperature: f32,
-	// The recording a cloned voice comes from (`voice_file`), else "".
-	voice_file:  string,
+	// A cloned voice: mono samples of a recording at `voice_rate`, or a
+	// voice `ottis clone` saved (`voice_file`), and a hash of its contents.
+	voice_samples: []f32,
+	voice_rate:    int,
+	voice_file:    string,
+	voice_hash:    u64,
 }
-
-// Files a voice can be cloned from: recordings, or a voice `ottis clone` saved.
-VOICE_FILE_EXTS :: [?]string{".wav", ".flac", ".mp3", ".ogg", ".safetensors"}
 
 // A word of the line: when it is said (seconds into the line), where its
 // text ends in `Line.text`, its chunk, and whether the time is an estimate
@@ -111,10 +112,8 @@ line_key :: proc(text: string, o: Options) -> (k: Key) {
 	put(&ctx, assets.ALIGNER.sha256)
 	if pin, ok := assets.voice_pin(o.voice); ok {
 		put(&ctx, pin.sha256)
-	} else if o.voice_file != "" {
-		if data, err := os.read_entire_file(o.voice_file, context.temp_allocator); err == nil {
-			put(&ctx, string(data)) // the recording, not its path
-		}
+	} else if o.voice_hash != 0 {
+		put(&ctx, fmt.tprintf("clone %x", o.voice_hash)) // the recording, not its name
 	}
 	d := pocket.DEFAULT_OPTIONS
 	put(&ctx, fmt.tprintf("%s %d %v %d %d", o.voice, o.seed, transmute(u32)o.temperature, d.lsd_steps, d.frames_after_eos))
@@ -123,18 +122,17 @@ line_key :: proc(text: string, o: Options) -> (k: Key) {
 	return
 }
 
-// The recording `voice` names in folder `dir` (a file with one of
-// `VOICE_FILE_EXTS`), cloned instead of a built-in voice (temp memory).
+// How much of a recording a voice is cloned from.
+VOICE_SECONDS :: pocket.MAX_VOICE_SECONDS
+
+// The voice `ottis clone` saved that `voice` names in folder `dir`
+// (a `.safetensors` file; temp memory).
 voice_file :: proc(dir, voice: string) -> (path: string, ok: bool) {
-	ext := strings.to_lower(filepath.ext(voice), context.temp_allocator)
-	exts := VOICE_FILE_EXTS
-	for e in exts {
-		if ext == e {
-			path, _ = filepath.join({dir, voice}, context.temp_allocator)
-			return path, os.exists(path)
-		}
+	if !strings.equal_fold(filepath.ext(voice), ".safetensors") {
+		return "", false
 	}
-	return "", false
+	path, _ = filepath.join({dir, voice}, context.temp_allocator)
+	return path, os.exists(path)
 }
 
 // Whether ottis has voice `name`.
@@ -364,7 +362,7 @@ synthesize :: proc(text: string, o: Options) -> (l: Line, f: Failure) {
 	if tts.failure.code != .None {
 		f = tts.failure
 	} else {
-		voice, f = voice_get(o.voice, o.voice_file)
+		voice, f = voice_get(o)
 	}
 	if f.code == .None {
 		opts := pocket.DEFAULT_OPTIONS
@@ -426,24 +424,32 @@ note_failure :: proc(k: Key, f: Failure) {
 	}
 }
 
-// Voice `name`, or the voice cloned from recording `file`, loaded once
-// (under the lock).
+// Voice `o.voice`, or the one cloned from its recording, loaded once per
+// recording's contents (under the lock).
 @(private)
-voice_get :: proc(name, file: string) -> (^pocket.Voice, Failure) {
+voice_get :: proc(o: Options) -> (^pocket.Voice, Failure) {
 	context.allocator = os.heap_allocator()
-	id := file if file != "" else name
+	name := o.voice
+	id := name if o.voice_hash == 0 else fmt.tprintf("%s %x", name, o.voice_hash)
 	if v := tts.voices[id]; v != nil {
 		return v, {}
 	}
-	if file == "" {
+	v: pocket.Voice
+	e: pocket.Error
+	switch {
+	case o.voice_samples != nil:
+		v, e = pocket.voice_clone(&tts.engine, o.voice_samples, o.voice_rate, name)
+	case o.voice_file != "":
+		v, e = pocket.voice_load(&tts.engine, tts.root, o.voice_file)
+	case:
 		if !voice_known(name) {
 			return nil, {code = .Unknown_Voice, path = name}
 		}
 		if e := assets.ensure_voice(tts.root, name, false, progress); e != nil {
 			return nil, {code = .Voice_Fetch, path = name, detail = e.?}
 		}
+		v, e = pocket.voice_load(&tts.engine, tts.root, name)
 	}
-	v, e := pocket.voice_load(&tts.engine, tts.root, id)
 	if e != nil {
 		return nil, {code = .Voice_Load, path = name, detail = e.?}
 	}

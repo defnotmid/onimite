@@ -321,16 +321,18 @@ vera; or a recording in `media/` to clone, below), `seed` (a whole number: anoth
 a take varies). The same text, voice, seed and temperature give the same samples on a given
 machine.
 
-Cloning a voice: `voice` names a recording in `media/` (`.wav`, `.flac`, `.mp3` or `.ogg`;
-or a `.safetensors` voice saved by `ottis clone`), and the line is spoken in that voice:
+Cloning a voice: `voice` names a recording in `media/` (any sound the media reads: `.wav`,
+`.m4a` such as a phone's voice memo, `.mp3`, `.aac`, `.flac`, `.ogg`; or a `.safetensors`
+voice saved by `ottis clone`), and the line is spoken in that voice:
 
 ```lua
 local line = say("intro", "Welcome back to the workshop.", { voice = "me.wav" })
 ```
 
 - The recording: one speaker, 5 to 30 seconds (longer is cut at 30 s), clean speech without
-  music or noise; it is cloned once per process, where the script loads. Trailing silence is
-  trimmed.
+  music or noise. Trailing silence is trimmed.
+- It is cloned once (about 0.1 s) and shared by every `say` that names it, and only when a
+  line has to be spoken: stored lines need no cloning.
 - Lines are kept by the recording's contents: change the file and its lines are spoken again.
 - Clone only a voice you may use: your own, or a speaker who agreed to it. Don't use a
   cloned voice to pass speech off as someone's who did not say it.

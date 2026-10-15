@@ -2,8 +2,10 @@ package onimite_script
 
 import "core:c"
 import "core:fmt"
+import "core:hash"
 import "core:math"
 import "core:mem/virtual"
+import "core:os"
 import "core:slice"
 import "core:strings"
 import "core:sync"
@@ -105,8 +107,19 @@ l_say :: proc "c" (L: ^lua.State) -> c.int {
 	}
 	m := measure_media(L, s, "say")
 	if !speech.voice_known(o.voice) {
-		if path, ok := speech.voice_file(m.dir, o.voice); ok {
-			o.voice_file = path
+		if clip, ok := m.audio[o.voice]; ok && clip.frames > 0 {
+			// A recording of the media, as decoded: its first 30 s in mono.
+			n := min(clip.frames, speech.VOICE_SECONDS * om.MIX_RATE)
+			mono := make([]f32, n, context.temp_allocator)
+			for i in 0 ..< n {
+				mono[i] = (clip.samples[i * 2] + clip.samples[i * 2 + 1]) * 0.5
+			}
+			o.voice_samples, o.voice_rate = mono, om.MIX_RATE
+			o.voice_hash = hash.fnv64a(slice.to_bytes(mono))
+		} else if path, found := speech.voice_file(m.dir, o.voice); found {
+			if data, err := os.read_entire_file(path, context.temp_allocator); err == nil {
+				o.voice_file, o.voice_hash = path, hash.fnv64a(data)
+			}
 		}
 	}
 	k := speech.line_key(text, o)
@@ -123,7 +136,7 @@ l_say :: proc "c" (L: ^lua.State) -> c.int {
 			l, have = speech.store_read(dir, k)
 		}
 		why := speech.Failure{code = .Unknown_Voice, path = o.voice}
-		if !have && (speech.voice_known(o.voice) || o.voice_file != "") {
+		if !have && (speech.voice_known(o.voice) || o.voice_hash != 0) {
 			speech.log(fmt.tprintf("say(%s): synthesizing the line", name))
 			l, why = speech.synthesize(text, o)
 			have = why.code == .None
@@ -152,7 +165,7 @@ l_say :: proc "c" (L: ^lua.State) -> c.int {
 		report_warning(L, s, {code = .Tts_Noncommercial, a = name, b = o.voice})
 	}
 	if name not_in s.said {
-		s.said[strings.clone(name)] = {k, strings.clone(text), {strings.clone(o.voice), o.seed, o.temperature, ""}}
+		s.said[strings.clone(name)] = {k, strings.clone(text), {voice = strings.clone(o.voice), seed = o.seed, temperature = o.temperature}}
 	}
 	push_line(L, name, text, o, line)
 	return 1
