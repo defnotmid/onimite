@@ -25,16 +25,18 @@ File_Change :: enum u32 {
 File_Changes :: bit_set[File_Change;u32]
 
 File_Watcher :: struct {
-	script_dir: string,
-	media_dir:  string,
-	thread:     ^thread.Thread,
-	quit:       bool,
+	script_path: string,
+	script_dir:  string,
+	media_dir:   string,
+	thread:      ^thread.Thread,
+	quit:        bool,
 	// File_Changes bits seen since the last take (atomic).
-	changes:    u32,
+	changes:     u32,
 }
 
 file_watcher_start :: proc(w: ^File_Watcher, script_path, media_dir: string) {
 	w^ = {}
+	w.script_path = os_path(script_path)
 	w.script_dir = os_path(filepath.dir(script_path))
 	w.media_dir = os_path(media_dir)
 	w.thread = thread.create_and_start_with_poly_data(w, file_watcher_loop)
@@ -57,6 +59,7 @@ file_watcher_stop :: proc(w: ^File_Watcher) {
 	sync.atomic_store(&w.quit, true)
 	thread.join(w.thread)
 	thread.destroy(w.thread)
+	delete(w.script_path)
 	delete(w.script_dir)
 	delete(w.media_dir)
 	w^ = {}
@@ -68,12 +71,25 @@ file_watcher_take :: proc(w: ^File_Watcher) -> File_Changes {
 }
 
 @(private = "file")
+script_stamp :: proc(w: ^File_Watcher) -> u64 {
+	if w.script_dir == "/tmp" || w.script_dir == "/private/tmp" || w.script_dir == "/var/tmp" {
+		if fi, err := os.stat(w.script_path, context.temp_allocator); err == nil {
+			h := hash.fnv64a(transmute([]u8)fi.fullpath)
+			stamp := [2]i64{fi.size, time.to_unix_nanoseconds(fi.modification_time)}
+			return hash.fnv64a(([^]u8)(&stamp)[:size_of(stamp)], h)
+		}
+		return 0
+	}
+	return file_watcher_stamp(w.script_dir, w.media_dir)
+}
+
+@(private = "file")
 file_watcher_loop :: proc(w: ^File_Watcher) {
-	script := file_watcher_stamp(w.script_dir, w.media_dir)
+	script := script_stamp(w)
 	media := file_watcher_stamp(w.media_dir, "")
 	for !sync.atomic_load(&w.quit) {
 		time.sleep(WATCH_INTERVAL)
-		s := file_watcher_stamp(w.script_dir, w.media_dir)
+		s := script_stamp(w)
 		m := file_watcher_stamp(w.media_dir, "")
 		changed: File_Changes
 		if s != script {

@@ -47,23 +47,26 @@ view3d_gpu_render :: proc(g: ^View3d_Gpu, v: ^View3d_Media, jobs: []View3d_Job, 
 		return g.failure
 	case .Ready:
 	}
-	cmd := sdl.AcquireGPUCommandBuffer(g.device)
-	if cmd == nil {
-		return .Device
-	}
 	sync.shared_guard(&v.lock)
 	for &job in jobs {
 		entry := vg.image_store_get(images, job.image)
 		if entry == nil || entry.image.user == nil {
 			continue
 		}
+		cmd := sdl.AcquireGPUCommandBuffer(g.device)
+		if cmd == nil {
+			if err == nil {
+				err = .Device
+			}
+			continue
+		}
 		target := (^vgsdl.Image)(entry.image.user).texture
 		if e := o3d_gpu.render(&g.gpu, &job.scene, &v.geometries, &v.shaders, target, job.width, job.height, cmd, &v.textures); e != nil && err == nil {
 			err = e
 		}
-	}
-	if !sdl.SubmitGPUCommandBuffer(cmd) && err == nil {
-		err = .Device
+		if !sdl.SubmitGPUCommandBuffer(cmd) && err == nil {
+			err = .Device
+		}
 	}
 	return
 }

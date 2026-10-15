@@ -637,6 +637,7 @@ Shader_State :: struct {
 	width:         [dynamic]u32,
 	height:        [dynamic]u32,
 	used_frame:    [dynamic]int,
+	draw_gen:      int,
 	// By media image name; an invalid id: opaque, the regular texture serves.
 	premultiplied: map[string]Canvas_Image,
 	feedback:      Feedback,
@@ -860,7 +861,7 @@ fill_layer :: proc(r: ^Renderer, image: vg.Image_Id, box: vg.Rect, opacity: Mayb
 @(private)
 frame_image :: proc(r: ^Renderer, w, h: u32) -> vg.Image_Id {
 	s := &r.shader_state
-	frame_no := r.ctx.frame.global_index
+	frame_no := s.draw_gen
 	free_slot := -1
 	for id, k in s.image {
 		if s.used_frame[k] == frame_no {

@@ -239,6 +239,7 @@ Render_Worker :: struct {
 	thumb_ok:       bool,
 	thumb_gpu:      vgsdl.SDL_Backend,
 	thumb_gpu_ok:   bool,
+	thumb_gpu3d:    om.View3d_Gpu,
 	thumbs:         [dynamic]Thumb_Entry,
 	thumb_free:     [dynamic]^sdl.GPUTexture,
 	thumb_retired:  [dynamic]^sdl.GPUTexture,
@@ -853,7 +854,7 @@ worker_renderer :: proc(w: ^Render_Worker, scale: f32) -> ^om.Renderer {
 		w.renderer_ok = false
 	}
 	if !w.renderer_ok {
-		if !renderer_open(w, &w.renderer, &w.gpu, &w.gpu_ok, scale) {
+		if !renderer_open(w, &w.renderer, &w.gpu, &w.gpu_ok, &w.gpu3d, scale) {
 			return nil
 		}
 		// Seeks restore the nearest earlier checkpoint of feedback buffers.
@@ -866,14 +867,14 @@ worker_renderer :: proc(w: ^Render_Worker, scale: f32) -> ^om.Renderer {
 // Renderer `r` for the script at `scale`, drawing with `gpu` (set up on
 // first use) or on the CPU, on the worker's pool.
 @(private = "file")
-renderer_open :: proc(w: ^Render_Worker, r: ^om.Renderer, gpu: ^vgsdl.SDL_Backend, gpu_ok: ^bool, scale: f32) -> bool {
+renderer_open :: proc(w: ^Render_Worker, r: ^om.Renderer, gpu: ^vgsdl.SDL_Backend, gpu_ok: ^bool, gpu3d: ^om.View3d_Gpu, scale: f32) -> bool {
 	backend := worker_backend(w, gpu, gpu_ok)
 	if om.renderer_init(r, &w.script.video, w.media, scale, backend) != nil {
 		return false
 	}
 	if backend != nil {
-		w.gpu3d.device = w.device
-		r.gpu3d = &w.gpu3d
+		gpu3d.device = w.device
+		r.gpu3d = gpu3d
 	}
 	r.pool = w.pool
 	return true
@@ -1039,7 +1040,7 @@ thumb_render :: proc(w: ^Render_Worker, frame: int) {
 	if !w.thumb_ok {
 		thumb_clips_update(w)
 		scale := f32(w.thumb_size.y) / f32(max(w.script.video.height, 1))
-		if !renderer_open(w, &w.thumb, &w.thumb_gpu, &w.thumb_gpu_ok, scale) {
+		if !renderer_open(w, &w.thumb, &w.thumb_gpu, &w.thumb_gpu_ok, &w.thumb_gpu3d, scale) {
 			w.thumb_size = {}
 			return
 		}
@@ -1153,6 +1154,7 @@ worker_release :: proc(w: ^Render_Worker) {
 		om.renderer_destroy(&w.thumb)
 	}
 	om.view3d_gpu_destroy(&w.gpu3d)
+	om.view3d_gpu_destroy(&w.thumb_gpu3d)
 	if w.gpu_ok {
 		vgsdl.destroy(&w.gpu)
 	}

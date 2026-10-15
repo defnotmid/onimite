@@ -261,6 +261,7 @@ drop_evicted_images :: proc(r: ^Renderer) {
 // Draws the tree built for the current frame onto the canvas (whose
 // transform and target are set up by the caller).
 draw_tree :: proc(r: ^Renderer) {
+	r.shader_state.draw_gen += 1
 	r.xform = vg.TRANSFORM_IDENTITY
 	clear(&r.boxes)
 	clear(&r.texts)
