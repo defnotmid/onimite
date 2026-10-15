@@ -200,7 +200,7 @@ update_fetch :: proc(name, tag, path: string) -> (sha256: string, problem: strin
 		}
 	} else {
 		url := fmt.tprintf("%s/latest/download/%s", UPDATE_RELEASES, name) if tag == "" else fmt.tprintf("%s/download/%s/%s", UPDATE_RELEASES, tag, name)
-		if e, failed := assets.http_get(url, &sink).?; failed {
+		if e, failed := assets.http_get(url, &sink, fmt.tprintf("onimite/%s", ONIMITE_VERSION)).?; failed {
 			return "", e
 		}
 	}
