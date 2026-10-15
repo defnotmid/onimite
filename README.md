@@ -99,7 +99,8 @@ onimite is built from sibling Odin projects and Odin's vendor packages:
 - **Voice**: `say(name, text)` speaks a line (ottis: Pocket TTS by Kyutai,
   CC-BY-4.0) with the time of every word, and its captions; `say_cue` puts
   animation keys and sound effects on spoken words, and `inspect` checks
-  them against the voice. Lines are kept on disk by content, so only new or
+  them against the voice. A voice can be cloned from a recording in `media/`
+  (`voice = "me.wav"`). Lines are kept on disk by content, so only new or
   changed lines are synthesized, where the script loads. It works on Linux
   x86_64 and macOS Apple Silicon (the Windows build has it, untested).
 - **Cues**: `cue(name, t)` names a moment and `cue = "name"` on scenes, tracks

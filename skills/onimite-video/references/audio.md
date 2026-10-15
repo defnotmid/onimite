@@ -317,9 +317,25 @@ What `say(name, ...)` makes, under `name`:
 Options: `voice` (default `alba`; 27 voices: alba, anna, azelma, bill_boerst, caro_davy,
 charles, cosette, daan, eponine, estelle, eve, fantine, george, giovanni, jane, javert,
 jean, juergen, lola, marius, mary, michael, paul, peter_yearsley, rafael, stuart_bell,
-vera), `seed` (a whole number: another take of the same line), `temperature` (0.3: how much
+vera; or a recording in `media/` to clone, below), `seed` (a whole number: another take of the same line), `temperature` (0.3: how much
 a take varies). The same text, voice, seed and temperature give the same samples on a given
 machine.
+
+Cloning a voice: `voice` names a recording in `media/` (`.wav`, `.flac`, `.mp3` or `.ogg`;
+or a `.safetensors` voice saved by `ottis clone`), and the line is spoken in that voice:
+
+```lua
+local line = say("intro", "Welcome back to the workshop.", { voice = "me.wav" })
+```
+
+- The recording: one speaker, 5 to 30 seconds (longer is cut at 30 s), clean speech without
+  music or noise; it is cloned once per process, where the script loads. Trailing silence is
+  trimmed.
+- Lines are kept by the recording's contents: change the file and its lines are spoken again.
+- Clone only a voice you may use: your own, or a speaker who agreed to it. Don't use a
+  cloned voice to pass speech off as someone's who did not say it.
+- A `voice` that is neither a built-in voice nor a file in `media/` is an error
+  (`tts_unavailable`: the line is silent, with estimated word times, and a render refuses it).
 
 Placing things on words:
 

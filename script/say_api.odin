@@ -104,6 +104,11 @@ l_say :: proc "c" (L: ^lua.State) -> c.int {
 		lua.L_error(L, "say(%s): nothing to say", cname)
 	}
 	m := measure_media(L, s, "say")
+	if !speech.voice_known(o.voice) {
+		if path, ok := speech.voice_file(m.dir, o.voice); ok {
+			o.voice_file = path
+		}
+	}
 	k := speech.line_key(text, o)
 	if prev, ok := s.said[name]; ok && prev.key != k {
 		lua.L_error(L, "say(%s) already says something else: give each line its own name", cname)
@@ -118,7 +123,7 @@ l_say :: proc "c" (L: ^lua.State) -> c.int {
 			l, have = speech.store_read(dir, k)
 		}
 		why := speech.Failure{code = .Unknown_Voice, path = o.voice}
-		if !have && speech.voice_known(o.voice) {
+		if !have && (speech.voice_known(o.voice) || o.voice_file != "") {
 			speech.log(fmt.tprintf("say(%s): synthesizing the line", name))
 			l, why = speech.synthesize(text, o)
 			have = why.code == .None
@@ -147,7 +152,7 @@ l_say :: proc "c" (L: ^lua.State) -> c.int {
 		report_warning(L, s, {code = .Tts_Noncommercial, a = name, b = o.voice})
 	}
 	if name not_in s.said {
-		s.said[strings.clone(name)] = {k, strings.clone(text), {strings.clone(o.voice), o.seed, o.temperature}}
+		s.said[strings.clone(name)] = {k, strings.clone(text), {strings.clone(o.voice), o.seed, o.temperature, ""}}
 	}
 	push_line(L, name, text, o, line)
 	return 1

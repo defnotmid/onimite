@@ -480,7 +480,8 @@ user listen in the preview.
 
 ### Voiceover: spoken lines
 
-`say(name, text, { voice, seed })` speaks a line at load (text to speech by ottis) and gives
+`say(name, text, { voice, seed })` speaks a line at load (text to speech by ottis; `voice` is
+one of 27 built-in voices or a recording in `media/` to clone, references/audio.md) and gives
 the time of every word; the line is a clip `name` for tracks, `{ audio = name }` and spectra,
 and captions `name`. Put picture and sound on the words, not on guessed numbers:
 
