@@ -932,8 +932,8 @@ end }
 		testing.expect_value(t, box.geometry.params, [7]f32{2, 1.5, 1, 1, 1, 1, 0})
 		testing.expect_value(t, box.scale, [3]f32{1.5, 1.5, 1.5})
 		testing.expect_value(t, box.material.color, [3]f32{1, 0, 0})
-		testing.expect_value(t, box.material.flags, bit_set[o3d.Material_Flag; u8]{})
-		testing.expect_value(t, v.meshes[1].material.flags, bit_set[o3d.Material_Flag; u8]{.Basic})
+		testing.expect_value(t, box.material.flags, o3d.Material_Flags{})
+		testing.expect_value(t, v.meshes[1].material.flags, o3d.Material_Flags{.Basic})
 		testing.expect_value(t, len(v.meshes[1].instances), 1)
 		if len(v.meshes[1].instances) == 1 {
 			testing.expect(t, v.meshes[1].instances[0].has_color)
@@ -943,7 +943,7 @@ end }
 		testing.expect(t, v.meshes[2].path_closed)
 		testing.expect_value(t, len(v.meshes[2].points), 2)
 		testing.expect_value(t, v.meshes[2].material.mode, o3d.Draw_Mode.Lines)
-		testing.expect_value(t, v.meshes[2].material.flags, bit_set[o3d.Material_Flag; u8]{.Basic, .No_Size_Attenuation})
+		testing.expect_value(t, v.meshes[2].material.flags, o3d.Material_Flags{.Basic, .No_Size_Attenuation})
 		testing.expect_value(t, v.meshes[3].path_kind, om.Path_Kind.Points)
 		testing.expect_value(t, len(v.meshes[3].points), 2)
 		testing.expect_value(t, v.meshes[3].material.mode, o3d.Draw_Mode.Points)
@@ -1025,7 +1025,7 @@ end }
 	testing.expect_value(t, len(v.models), 1)
 	if len(v.meshes) == 1 {
 		m := v.meshes[0]
-		testing.expect_value(t, m.material.flags, bit_set[o3d.Material_Flag; u8]{.Transparent})
+		testing.expect_value(t, m.material.flags, o3d.Material_Flags{.Transparent})
 		testing.expect_value(t, m.material.side, o3d.Side.Double)
 		sh, has_sh := m.shader.?
 		testing.expect(t, has_sh)
@@ -1045,7 +1045,7 @@ end }
 	if len(v.models) == 1 {
 		over, has_over := v.models[0].material.?
 		testing.expect(t, has_over)
-		testing.expect_value(t, over.material.flags, bit_set[o3d.Material_Flag; u8]{.Basic})
+		testing.expect_value(t, over.material.flags, o3d.Material_Flags{.Basic})
 		testing.expect_value(t, over.material.side, o3d.Side.Back)
 		testing.expect_value(t, over.material.color, [3]f32{0, 1, 0})
 		testing.expect_value(t, len(v.models[0].morphs), 2)

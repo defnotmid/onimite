@@ -81,7 +81,7 @@ git clone https://github.com/defnotmid/ovg     # 2D vector canvas: software + SD
 git clone https://github.com/defnotmid/oksl    # shader compiler: SkSL, Shadertoy and GLSL to SPIR-V, MSL, CPU
 git clone https://github.com/defnotmid/odecs   # H.264/H.265/AAC codecs, MP4, WebP, clip decoding
 git clone https://github.com/defnotmid/ottis   # text to speech with word timings (say)
-git clone https://github.com/defnotmid/o3d     # 3D in three.js's vocabulary: SDL_GPU + software, glTF 2.0 (skins, morphs) + 3MF
+git clone https://github.com/defnotmid/o3d     # 3D in three.js's vocabulary: SDL_GPU + software, glTF 2.0 (skins, morphs) + 3MF + OBJ
 cd onimite
 mkdir -p build
 odin build . -collection:deps=.. -o:speed -out:build/onimite
@@ -103,7 +103,7 @@ command and option.
 my-video/
   video.lua          # the video
   scenes/intro.lua   # optional modules: require("scenes.intro")
-  media/             # fonts (.ttf/.otf/.ttc), images, .svg, Lottie / caption .json, audio, clips, .vtt/.srt, .sksl/.glsl/.frag, .glb/.gltf/.3mf
+  media/             # fonts (.ttf/.otf/.ttc), images, .svg, Lottie / caption .json, audio, clips, .vtt/.srt, .sksl/.glsl/.frag, .glb/.gltf/.3mf/.obj
 ```
 
 ```lua
@@ -148,7 +148,6 @@ The examples in the onimite repository are working patterns to read and borrow f
 | example | shows |
 | --- | --- |
 | `examples/onimite_saga` | a 2 min film laid out for agents: a manifest, one file per scene on its cue, a tempo map (`examples/common/tempo.lua`), a music clip per act; its README shows how to find and change any part |
-| `examples/onimite_saga_2` | 77 s 3D comic-book sequel (`view3d{}` + `.3mf` speaker horns, all 5 sibling mascots, GLSL sketchbook-to-halftone color wipes, physics outtake reel during credits) |
 | `examples/why_onimite` | 50 s beat-synced promo: BPM clock (`beat_clock` in `beat.lua`), quick cuts as a `series`, one timeline of beats for picture and sound (`timeline.lua`), sections as sync points (`cue()` and each scene's `cue`), soundtrack synthesized in Lua (`track.lua` on `examples/common/synth.lua`, `audio_add`), glitch cuts, shader title, spectrum outro |
 | `examples/suite` | one composition per frame: an SkSL world warping a `uniform shader` group child, an SVG animated by id, ProRes 4444 and VP9-alpha clips in masked portals, a WebP skyline, spectrum-driven uniforms |
 | `examples/data_story` | 30 s explainer drawn from `props` (one video per `--batch` row): springy bar chart with `stagger`, a line drawn on, a donut, counters, `mix_color`, scene transitions |

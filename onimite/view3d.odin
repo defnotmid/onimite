@@ -149,6 +149,8 @@ Model_Pose :: struct {
 	loop:            bool,
 	morphs:          []o3d.Morph_Weight,
 	flags:           o3d.Material_Flags,
+	outline_width:   f32,
+	outline_color:   o3d.Vec3,
 	material:        Maybe(Model_Material),
 }
 
@@ -289,7 +291,7 @@ view3d_media_destroy :: proc(v: ^View3d_Media) {
 	v^ = {}
 }
 
-// Loads 3D model file `path` (.glb, .gltf with its files beside it, or .3mf)
+// Loads 3D model file `path` (.glb, .gltf or .obj with its files beside it, or .3mf)
 // as model `name`: its meshes and images join the tables. Returns what kind of
 // model failed to load and why when `ok == false`.
 @(private)
@@ -305,6 +307,13 @@ view3d_add_model :: proc(v: ^View3d_Media, name, path: string) -> (what, why: st
 			why = fmt.tprintf("%s: %s", o3d.THREEMF_ERROR_TEXT[err], ext) if ext != "" else o3d.THREEMF_ERROR_TEXT[err]
 			o3d.model_destroy(&model)
 			return "a 3MF model", why, false
+		}
+	} else if strings.equal_fold(file_ext(name), ".obj") {
+		err: o3d.Obj_Error
+		model, err = o3d.obj_load(path, &v.geometries, &v.textures)
+		if err != .None {
+			o3d.model_destroy(&model)
+			return "an OBJ model", o3d.OBJ_ERROR_TEXT[err], false
 		}
 	} else {
 		err: o3d.Gltf_Error
@@ -600,7 +609,7 @@ view3d_scene :: proc(r: ^Renderer, n: View3d, scene: ^o3d.Scene) {
 			}
 		}
 		first := len(scene.draws)
-		o3d.gltf_draw(scene, model, o3d.compose(pose.position, pose.rotation, pose.scale), anim, pose.time, pose.loop, pose.flags, &r.view3d.pose, morphs = pose.morphs)
+		o3d.gltf_draw(scene, model, o3d.compose(pose.position, pose.rotation, pose.scale), anim, pose.time, pose.loop, pose.flags, &r.view3d.pose, morphs = pose.morphs, outline_width = pose.outline_width, outline_color = pose.outline_color)
 		if over, ok := pose.material.?; ok {
 			mat := view3d_material(r, scene, over.material, over.maps, over.shader)
 			mat.flags += pose.flags

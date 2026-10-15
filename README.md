@@ -50,7 +50,7 @@ onimite is built from sibling Odin projects and Odin's vendor packages:
 | [`odecs`](https://github.com/defnotmid/odecs) | H.264 / H.265 / AAC codecs (native Odin, Vulkan Video when available), MP4, WebP, clip decoding |
 | [`oksl`](https://github.com/defnotmid/oksl) | shader compiler for SkSL, Shadertoy and GLSL: SPIR-V, MSL and a CPU interpreter |
 | [`ottis`](https://github.com/defnotmid/ottis) | text to speech with word timings (Kyutai's Pocket TTS through ONNX Runtime, loaded at run time; models downloaded on first use) |
-| [`o3d`](https://github.com/defnotmid/o3d) | 3D in three.js's vocabulary: an SDL_GPU renderer and a software one drawing the same pixels, glTF 2.0 (skins, morph targets, animations) and 3MF import |
+| [`o3d`](https://github.com/defnotmid/o3d) | 3D in three.js's vocabulary: an SDL_GPU renderer and a software one drawing the same pixels, glTF 2.0 (skins, morph targets, animations), 3MF and OBJ import |
 | `vendor:lua/5.4` | the script runtime |
 | `vendor:sdl3` | GPU device and the preview window |
 | `vendor:stb`, `vendor:kb_text_shape`, `vendor:miniaudio`, `vendor:cgltf` | fonts, images, PNG output; text shaping; ogg / mp3 / flac decoding; glTF parsing (o3d) |
@@ -73,7 +73,7 @@ onimite is built from sibling Odin projects and Odin's vendor packages:
   animations with per-id / per-layer overrides, video clips (.mp4, .mov,
   .webm, ProRes 4444 and VP9 alpha), subtitles and word-level captions
   (Whisper JSON, VTT, SRT; TikTok-style `captions{}`), audio spectra, glTF
-  and 3MF models (.glb, .gltf, .3mf).
+  3MF and OBJ models (.glb, .gltf, .3mf, .obj).
 - **Shaders** (oksl): SkSL as in fframes, Shadertoy code and GLSL ES
   fragment shaders (a real preprocessor, `texture`, `switch`, `discard`),
   and multipass programs mixing them (`passes`: feedback, any pass's last
@@ -85,9 +85,10 @@ onimite is built from sibling Odin projects and Odin's vendor packages:
   directional and spot lights with up to 4 PCF shadow maps; tone mapping
   and fog; box, sphere, plane, cylinder and torus meshes plus per-frame 3D
   lines, point clouds, wireframe and `instances`; MeshStandardMaterial,
-  MeshBasicMaterial, LineBasicMaterial and PointsMaterial with texture
+  MeshBasicMaterial, MeshToonMaterial with cartoon outlines,
+  LineBasicMaterial and PointsMaterial with texture
   maps, and GLSL ES ShaderMaterial; an equirectangular environment and
-  background; glTF 2.0 and 3MF models, including skinned characters, morph
+  background; glTF 2.0, 3MF and OBJ models, including skinned characters, morph
   targets and punctual lights, posed at a time of their animations with
   optional `morphs` and `material` overrides) into a box
   composited like any layer, on the GPU or, the same picture, on the CPU.
@@ -421,7 +422,6 @@ Each folder in `examples/` is a `video.lua` with its `media/`.
 | example | shows |
 | --- | --- |
 | `onimite_saga` | a 2 min film laid out for agents: a manifest, a file per scene on its cue, a tempo map, a music clip per act |
-| `onimite_saga_2` | 77 s 3D comic-book sequel (`view3d{}` + `.3mf` speaker horns, all 5 sibling mascots, GLSL sketchbook-to-color wipes, physics outtakes) |
 | `why_onimite` | a 50 s beat-synced pitch: BPM clock, quick cuts, a soundtrack synthesized in Lua, a shader title |
 | `suite` | onimite, ovg, oksl, odecs and o3d in every frame: an SkSL world warping a group with a 3D gyroscope in it, alpha clips, a WebP skyline |
 | `data_story` | a 30 s chart explainer drawn from `props`, one video per `--batch` row |

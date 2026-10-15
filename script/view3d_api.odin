@@ -407,7 +407,7 @@ read_points :: proc(L: ^lua.State, t: c.int, key: cstring) -> []o3d.Vec3 {
 }
 
 // MeshStandardMaterial, MeshBasicMaterial (unlit: its colour, opacity and
-// `map`), LineBasicMaterial (`linewidth`, `size_attenuation`),
+// `map`), MeshToonMaterial (banded light), LineBasicMaterial (`linewidth`, `size_attenuation`),
 // PointsMaterial (`size`, `size_attenuation`, `map`) or ShaderMaterial
 // (custom GLSL ES vertex and fragment shaders and per-frame uniforms).
 // Texture maps are media images by name.
@@ -420,6 +420,8 @@ read_material :: proc(L: ^lua.State, s: ^Script, t: c.int, default_type: string,
 	case "MeshStandardMaterial":
 	case "MeshBasicMaterial":
 		m.flags += {.Basic}
+	case "MeshToonMaterial":
+		m.flags += {.Toon}
 	case "LineBasicMaterial":
 		m.flags += {.Basic}
 		m.mode = .Lines
@@ -428,7 +430,7 @@ read_material :: proc(L: ^lua.State, s: ^Script, t: c.int, default_type: string,
 		m.mode = .Points
 	case "ShaderMaterial":
 	case:
-		bad_string(L, "material type", kind, "MeshStandardMaterial, MeshBasicMaterial, LineBasicMaterial, PointsMaterial or ShaderMaterial")
+		bad_string(L, "material type", kind, "MeshStandardMaterial, MeshBasicMaterial, MeshToonMaterial, LineBasicMaterial, PointsMaterial or ShaderMaterial")
 	}
 	if get_bool(L, t, "transparent", false) {
 		m.flags += {.Transparent}
@@ -496,6 +498,8 @@ read_material :: proc(L: ^lua.State, s: ^Script, t: c.int, default_type: string,
 	if !get_bool(L, t, "size_attenuation", true) {
 		m.flags += {.No_Size_Attenuation}
 	}
+	m.outline_width = get_num(L, t, "outline_width", 0)
+	m.outline_color = read_color3(L, t, "outline_color", {})
 	if .Basic in m.flags {
 		return
 	}
@@ -545,7 +549,8 @@ read_shader_floats :: proc(L: ^lua.State, at: c.int, out: ^[dynamic]f32) {
 // A glTF model of the media (`src`), placed by position, rotation and
 // scale, posed at `time` seconds (default the frame's) of `animation` (a
 // name or an index; none: its rest pose), looping unless `loop = false`,
-// with optional `morphs` weight overrides, shadow flags or a `material`
+// with optional `morphs` weight overrides, shadow flags, `toon` shading,
+// an `outline_width` / `outline_color` cartoon outline or a `material`
 // override.
 @(private = "file")
 read_model :: proc(L: ^lua.State, s: ^Script, t: c.int) -> (p: om.Model_Pose, ok: bool) {
@@ -553,7 +558,7 @@ read_model :: proc(L: ^lua.State, s: ^Script, t: c.int) -> (p: om.Model_Pose, ok
 	p.src = get_str(L, t, "src", "")
 	if p.src == "" {
 		field_log = outer
-		bad_string(L, "model src", "", "a .glb or .gltf file of the media")
+		bad_string(L, "model src", "", "a .glb, .gltf, .3mf or .obj file of the media")
 		return
 	}
 	defer fields_pop(L, s, t, "model", outer)
@@ -614,6 +619,11 @@ read_model :: proc(L: ^lua.State, s: ^Script, t: c.int) -> (p: om.Model_Pose, ok
 	if get_bool(L, t, "receive_shadow", false) {
 		p.flags += {.Receive_Shadow}
 	}
+	if get_bool(L, t, "toon", false) {
+		p.flags += {.Toon}
+	}
+	p.outline_width = get_num(L, t, "outline_width", 0)
+	p.outline_color = read_color3(L, t, "outline_color", {})
 	return p, true
 }
 

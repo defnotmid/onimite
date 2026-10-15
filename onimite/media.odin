@@ -102,7 +102,7 @@ MEDIA_KINDS := [Media_Kind]Media_Kind_Info {
 	.Shader    = {"shader", "SHD", {".sksl", ".glsl", ".frag"}, ""},
 	.Subtitles = {"subtitles", "SUB", {".vtt", ".srt"}, "subtitles (WebVTT or SRT)"},
 	.Captions  = {"captions", "CAP", {".json"}, ""},
-	.Model     = {"glTF model", "MDL", {".glb", ".gltf", ".3mf"}, "a glTF 2.0 model"},
+	.Model     = {"glTF model", "MDL", {".glb", ".gltf", ".3mf", ".obj"}, "a glTF 2.0 model"},
 }
 
 // The kind file `name` loads as, by its extension (a .json file as Lottie
