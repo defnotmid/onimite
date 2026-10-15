@@ -14,8 +14,10 @@ import "core:time"
 // with `file_watcher_take` and pushes a reload.
 
 WATCH_INTERVAL :: 250 * time.Millisecond
-// Bounds a walk of a huge folder (the script is in the wrong place).
-WATCH_MAX_FILES :: 4096
+// Above this many files (or when a walk hits an unreadable directory or a
+// socket, pipe or device), the script's folder holds unrelated files and
+// only the script file itself is watched alongside `media/`.
+WATCH_MAX_FILES :: 256
 WATCH_MAX_DEPTH :: 8
 
 File_Change :: enum u32 {
@@ -71,26 +73,13 @@ file_watcher_take :: proc(w: ^File_Watcher) -> File_Changes {
 }
 
 @(private = "file")
-script_stamp :: proc(w: ^File_Watcher) -> u64 {
-	if w.script_dir == "/tmp" || w.script_dir == "/private/tmp" || w.script_dir == "/var/tmp" {
-		if fi, err := os.stat(w.script_path, context.temp_allocator); err == nil {
-			h := hash.fnv64a(transmute([]u8)fi.fullpath)
-			stamp := [2]i64{fi.size, time.to_unix_nanoseconds(fi.modification_time)}
-			return hash.fnv64a(([^]u8)(&stamp)[:size_of(stamp)], h)
-		}
-		return 0
-	}
-	return file_watcher_stamp(w.script_dir, w.media_dir)
-}
-
-@(private = "file")
 file_watcher_loop :: proc(w: ^File_Watcher) {
-	script := script_stamp(w)
-	media := file_watcher_stamp(w.media_dir, "")
+	script := file_watcher_stamp(w.script_dir, w.media_dir, w.script_path)
+	media := file_watcher_stamp(w.media_dir, "", "")
 	for !sync.atomic_load(&w.quit) {
 		time.sleep(WATCH_INTERVAL)
-		s := script_stamp(w)
-		m := file_watcher_stamp(w.media_dir, "")
+		s := file_watcher_stamp(w.script_dir, w.media_dir, w.script_path)
+		m := file_watcher_stamp(w.media_dir, "", "")
 		changed: File_Changes
 		if s != script {
 			changed += {.Script}
@@ -106,19 +95,35 @@ file_watcher_loop :: proc(w: ^File_Watcher) {
 	}
 }
 
-// A fingerprint of every file under `dir` (names, sizes and modification
-// times), skipping `skip` and hidden entries. Any edit, add, remove or
-// rename changes it.
 @(private = "file")
-file_watcher_stamp :: proc(dir, skip: string) -> u64 {
+hash_file :: proc(fi: os.File_Info, h: u64) -> u64 {
+	res := hash.fnv64a(transmute([]u8)fi.fullpath, h)
+	stamp := [2]i64{fi.size, time.to_unix_nanoseconds(fi.modification_time)}
+	return hash.fnv64a(([^]u8)(&stamp)[:size_of(stamp)], res)
+}
+
+// A fingerprint of every file under `dir` (names, sizes and modification
+// times), skipping `skip` and hidden entries. When `fallback` is given and
+// `dir` holds unrelated files (past WATCH_MAX_FILES, unreadable subfolders,
+// sockets or devices), only `fallback` is hashed.
+@(private = "file")
+file_watcher_stamp :: proc(dir, skip, fallback: string) -> u64 {
 	h := u64(14695981039346656037)
 	files := 0
-	walk :: proc(dir, skip: string, depth: int, h: ^u64, files: ^int) {
+	unrelated := false
+	walk :: proc(dir, skip: string, depth: int, h: ^u64, files: ^int, unrelated: ^bool) {
+		if unrelated^ {
+			return
+		}
 		if depth > WATCH_MAX_DEPTH || files^ >= WATCH_MAX_FILES {
+			unrelated^ = true
 			return
 		}
 		infos, err := os.read_all_directory_by_path(dir, context.temp_allocator)
 		if err != nil {
+			if depth > 0 {
+				unrelated^ = true
+			}
 			return
 		}
 		for fi in infos {
@@ -126,15 +131,30 @@ file_watcher_stamp :: proc(dir, skip: string) -> u64 {
 				continue
 			}
 			if fi.type == .Directory {
-				walk(fi.fullpath, skip, depth + 1, h, files)
+				walk(fi.fullpath, skip, depth + 1, h, files, unrelated)
+				if unrelated^ {
+					return
+				}
 				continue
 			}
+			if fi.type != .Regular && fi.type != .Symlink {
+				unrelated^ = true
+				return
+			}
 			files^ += 1
-			h^ = hash.fnv64a(transmute([]u8)fi.fullpath, h^)
-			stamp := [2]i64{fi.size, time.to_unix_nanoseconds(fi.modification_time)}
-			h^ = hash.fnv64a(([^]u8)(&stamp)[:size_of(stamp)], h^)
+			if files^ > WATCH_MAX_FILES {
+				unrelated^ = true
+				return
+			}
+			h^ = hash_file(fi, h^)
 		}
 	}
-	walk(dir, skip, 0, &h, &files)
+	walk(dir, skip, 0, &h, &files, &unrelated)
+	if unrelated && fallback != "" {
+		if fi, err := os.stat(fallback, context.temp_allocator); err == nil {
+			return hash_file(fi, 14695981039346656037)
+		}
+		return 0
+	}
 	return h
 }

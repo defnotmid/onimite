@@ -289,19 +289,32 @@ view3d_media_destroy :: proc(v: ^View3d_Media) {
 	v^ = {}
 }
 
-// Loads glTF 2.0 file `path` (.glb, or .gltf with its files beside it) as
-// model `name`: its meshes and images join the tables. Why it did not load
-// (and, for `.Unsupported_Extension`, the extension's name) otherwise.
+// Loads 3D model file `path` (.glb, .gltf with its files beside it, or .3mf)
+// as model `name`: its meshes and images join the tables. Returns what kind of
+// model failed to load and why when `ok == false`.
 @(private)
-view3d_add_model :: proc(v: ^View3d_Media, name, path: string) -> (err: o3d.Gltf_Error, ext: string) {
+view3d_add_model :: proc(v: ^View3d_Media, name, path: string) -> (what, why: string, ok: bool) {
 	context.allocator = v.allocator
 	sync.guard(&v.lock)
 	model: o3d.Model
-	model, err = o3d.gltf_load(path, &v.geometries, &v.textures)
-	if err != .None {
-		ext = strings.clone(model.unsupported_extension, context.temp_allocator)
-		o3d.model_destroy(&model)
-		return err, ext
+	if strings.equal_fold(file_ext(name), ".3mf") {
+		err: o3d.Threemf_Error
+		model, err = o3d.threemf_load(path, &v.geometries, &v.textures)
+		if err != .None {
+			ext := model.unsupported_extension
+			why = fmt.tprintf("%s: %s", o3d.THREEMF_ERROR_TEXT[err], ext) if ext != "" else o3d.THREEMF_ERROR_TEXT[err]
+			o3d.model_destroy(&model)
+			return "a 3MF model", why, false
+		}
+	} else {
+		err: o3d.Gltf_Error
+		model, err = o3d.gltf_load(path, &v.geometries, &v.textures)
+		if err != .None {
+			ext := model.unsupported_extension
+			why = fmt.tprintf("%s: %s", o3d.GLTF_ERROR_TEXT[err], ext) if ext != "" else o3d.GLTF_ERROR_TEXT[err]
+			o3d.model_destroy(&model)
+			return MEDIA_KINDS[.Model].undecodable, why, false
+		}
 	}
 	if old, exists := &v.models[name]; exists {
 		o3d.model_destroy(old)
@@ -309,7 +322,7 @@ view3d_add_model :: proc(v: ^View3d_Media, name, path: string) -> (err: o3d.Gltf
 	} else {
 		v.models[strings.clone(name)] = model
 	}
-	return .None, ""
+	return "", "", true
 }
 
 // Makes the meshes of node `n` that the tables lack; returns the geometry

@@ -556,3 +556,91 @@ test_view3d_manim :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(media.view3d.geometries.list), 1)
 }
 
+@(test)
+test_view3d_threemf :: proc(t: ^testing.T) {
+	dir, derr := os.make_directory_temp("", "onimite_view3d_3mf_test_*", context.temp_allocator)
+	testing.expect(t, derr == nil)
+	defer os.remove_all(dir)
+
+	model_xml := `<?xml version="1.0" encoding="UTF-8"?>
+<model unit="meter" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">
+	<resources>
+		<basematerials id="1">
+			<base name="Red" displaycolor="#FF0000"/>
+		</basematerials>
+		<object id="2" pid="1" pindex="0" type="model">
+			<mesh>
+				<vertices>
+					<vertex x="-1" y="0" z="-1"/>
+					<vertex x="1" y="0" z="-1"/>
+					<vertex x="0" y="0" z="1"/>
+				</vertices>
+				<triangles>
+					<triangle v1="0" v2="1" v3="2"/>
+				</triangles>
+			</mesh>
+		</object>
+	</resources>
+	<build>
+		<item objectid="2"/>
+	</build>
+</model>`
+
+	// Build a minimal Stored ZIP containing "3D/3dmodel.model".
+	name_str :: "3D/3dmodel.model"
+	zip_buf := make([dynamic]u8, 0, 512, context.temp_allocator)
+	put16 :: proc(b: ^[dynamic]u8, v: u16) { append(b, u8(v), u8(v >> 8)) }
+	put32 :: proc(b: ^[dynamic]u8, v: u32) { append(b, u8(v), u8(v >> 8), u8(v >> 16), u8(v >> 24)) }
+	put32(&zip_buf, 0x04034b50)
+	put16(&zip_buf, 20); put16(&zip_buf, 0); put16(&zip_buf, 0); put16(&zip_buf, 0); put16(&zip_buf, 0)
+	put32(&zip_buf, 0); put32(&zip_buf, u32(len(model_xml))); put32(&zip_buf, u32(len(model_xml)))
+	put16(&zip_buf, u16(len(name_str))); put16(&zip_buf, 0)
+	append(&zip_buf, ..transmute([]u8)string(name_str))
+	append(&zip_buf, ..transmute([]u8)model_xml)
+	cd_off := u32(len(zip_buf))
+	put32(&zip_buf, 0x02014b50)
+	put16(&zip_buf, 20); put16(&zip_buf, 20); put16(&zip_buf, 0); put16(&zip_buf, 0); put16(&zip_buf, 0); put16(&zip_buf, 0)
+	put32(&zip_buf, 0); put32(&zip_buf, u32(len(model_xml))); put32(&zip_buf, u32(len(model_xml)))
+	put16(&zip_buf, u16(len(name_str))); put16(&zip_buf, 0); put16(&zip_buf, 0); put16(&zip_buf, 0); put16(&zip_buf, 0)
+	put32(&zip_buf, 0); put32(&zip_buf, 0)
+	append(&zip_buf, ..transmute([]u8)string(name_str))
+	cd_sz := u32(len(zip_buf)) - cd_off
+	put32(&zip_buf, 0x06054b50)
+	put16(&zip_buf, 0); put16(&zip_buf, 0); put16(&zip_buf, 1); put16(&zip_buf, 1)
+	put32(&zip_buf, cd_sz); put32(&zip_buf, cd_off); put16(&zip_buf, 0)
+
+	p_ok, _ := filepath.join({dir, "part.3mf"}, context.temp_allocator)
+	p_bad, _ := filepath.join({dir, "broken.3mf"}, context.temp_allocator)
+	testing.expect(t, os.write_entire_file(p_ok, zip_buf[:]) == nil)
+	testing.expect(t, os.write_entire_file(p_bad, transmute([]u8)string("not a 3mf zip archive")) == nil)
+
+	media: Media
+	media_init(&media)
+	defer media_destroy(&media)
+	testing.expect_value(t, media_load_dir(&media, dir), Error.None)
+	_, loaded := media.view3d.models["part.3mf"]
+	testing.expect(t, loaded)
+	testing.expect_value(t, len(media.problems), 1)
+	if len(media.problems) == 1 {
+		msg := diagnostic_message(media.problems[0], context.temp_allocator)
+		testing.expect_value(t, msg, `media file "broken.3mf" can not be decoded as a 3MF model (not a 3MF ZIP archive)`)
+	}
+
+	@(static) scenes: [1]Scene
+	scenes = [1]Scene{{name = "Only", duration = Frames(1), render = proc(f: Frame, ctx: ^Context) {
+		at := o3d.CAMERA_DEFAULT
+		at.position = {0, 0, 3}
+		view3d(ctx, f, {
+			w = 40, h = 40,
+			camera = at,
+			lights = {{kind = .Ambient, color = {1, 1, 1}, intensity = 3}},
+			models = {{src = "part.3mf", scale = {1, 1, 1}, animation_index = -1}},
+		})
+	}}}
+	v := Video{width = 40, height = 40, fps = 30, background = BLACK, scenes = scenes[:]}
+	r: Renderer
+	testing.expect_value(t, renderer_init(&r, &v, &media), Error.None)
+	defer renderer_destroy(&r)
+	px := render_frame(&r, 0)
+	testing.expect(t, pixel(px, 40, 20, 20).r > 150)
+}

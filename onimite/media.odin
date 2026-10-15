@@ -102,7 +102,7 @@ MEDIA_KINDS := [Media_Kind]Media_Kind_Info {
 	.Shader    = {"shader", "SHD", {".sksl", ".glsl", ".frag"}, ""},
 	.Subtitles = {"subtitles", "SUB", {".vtt", ".srt"}, "subtitles (WebVTT or SRT)"},
 	.Captions  = {"captions", "CAP", {".json"}, ""},
-	.Model     = {"glTF model", "MDL", {".glb", ".gltf"}, "a glTF 2.0 model"},
+	.Model     = {"glTF model", "MDL", {".glb", ".gltf", ".3mf"}, "a glTF 2.0 model"},
 }
 
 // The kind file `name` loads as, by its extension (a .json file as Lottie
@@ -665,9 +665,8 @@ media_load_dir :: proc(m: ^Media, dir: string, pool: ^thread.Pool = nil) -> Erro
 		case .Image:
 			add_image_file(m, fi.name, fi.fullpath)
 		case .Model:
-			if err, ext := view3d_add_model(&m.view3d, fi.name, fi.fullpath); err != .None {
-				why := fmt.tprintf("%s: %s", o3d.GLTF_ERROR_TEXT[err], ext) if ext != "" else o3d.GLTF_ERROR_TEXT[err]
-				media_problem(m, {code = .Undecodable_Media, name = fi.name, a = fmt.tprintf("%s (%s)", MEDIA_KINDS[.Model].undecodable, why)})
+			if what, why, ok := view3d_add_model(&m.view3d, fi.name, fi.fullpath); !ok {
+				media_problem(m, {code = .Undecodable_Media, name = fi.name, a = fmt.tprintf("%s (%s)", what, why)})
 			}
 		case .Font, .Shader, .Subtitles:
 			data, read_err := os.read_entire_file(fi.fullpath, context.allocator)
