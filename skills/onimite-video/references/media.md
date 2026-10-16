@@ -93,7 +93,7 @@ text { string.format("%dx%d %.1fs", info.width, info.height, info.duration),
   x = 100, y = 700, font = "DM Sans", size = 40, fill = "#fff" }
 ```
 
-`.mp4`, `.mov`, `.m4v`, `.webm` in `media/`. The frame fits its box like an image: `fit`
+`.mp4` (fragmented MP4 too, as screen recorders and browsers write it), `.mov`, `.m4v`, `.webm` in `media/`. The frame fits its box like an image: `fit`
 (`contain` default, `cover`, `fill`, or `preserve_aspect_ratio`), `align = {x, y}` (0..1),
 and a missing `w` or `h` follows the clip's aspect (neither: its own size; a rotated phone
 clip counts upright). The clock is the frame's (scene-relative in a scene). Past the end the clip disappears unless it loops. A clip's sound is used by putting

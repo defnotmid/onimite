@@ -19,6 +19,7 @@ separate file in [LICENSES/](LICENSES); binary releases ship `LICENSE`,
 | oxideav-h265 | cross-reference for odecs' H.265 decoder and transforms | `LICENSES/oxideav-h265-MIT.txt` |
 | Kvazaar | odecs' H.265 encoder follows it (CABAC, SAO decisions, context tables) | `LICENSES/Kvazaar-BSD-3-Clause.txt` |
 | OpenH264 | the CABAC tables in odecs' H.264 decoder | `LICENSES/OpenH264-BSD-2-Clause.txt` |
+| Apple ALAC | odecs' Apple Lossless decoder is a restructured port of Apple's reference decoder | `LICENSES/ALAC-Apache-2.0.txt` |
 | Lua 5.4 | script runtime | `LICENSES/Lua-MIT.txt` |
 | SDL 3 | window, input, audio, GPU (bundled shared library) | `LICENSES/SDL3-Zlib.txt` |
 | kb_text_shape | text shaping | `LICENSES/kb_text_shape-Zlib.txt` |
