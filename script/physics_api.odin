@@ -66,7 +66,7 @@ MOVING_SPEED, MOVING_SPIN :: 10, 10
 @(private = "file")
 physics_lock: sync.Mutex
 
-@(private = "file")
+@(private)
 Physics_Kind :: enum u8 {
 	Dynamic,
 	Static,
@@ -118,7 +118,7 @@ Physics_Tracks :: struct {
 	labels:   []string,
 }
 
-@(private = "file")
+@(private)
 PHYSICS_TRACKS :: 0x7068_7973
 
 @(private = "file")
@@ -402,19 +402,22 @@ Physics_Sim :: struct {
 }
 
 // A simulated body as `onimite show` lists it: its simulation (in the
-// order of the physics{} calls) and that call's line, where it is at the
-// start and the end, and whether it still moves when the simulation ends.
+// order of the physics{} / physics3d{} calls) and that call's line, where it
+// is at the start and the end, and whether it still moves when the simulation
+// ends.
 Physics_Body_Info :: struct {
 	label:    string,
 	sim:      int,
 	at:       string,
 	duration: f32,
 	rate:     f32,
-	start:    [2]f32,
-	stop:     [2]f32,
-	// Its rotation at the end, radians.
+	// Where it is at the start and the end (z is 0 in 2D).
+	start:    [3]f32,
+	stop:     [3]f32,
+	// Its rotation at the end, degrees (2D only).
 	angle:    f32,
 	moving:   bool,
+	is_3d:    bool,
 }
 
 // The bodies of every simulation this load ran (temp memory, strings
@@ -422,13 +425,20 @@ Physics_Body_Info :: struct {
 physics_bodies :: proc(s: ^Script) -> []Physics_Body_Info {
 	out := make([dynamic]Physics_Body_Info, context.temp_allocator)
 	for sim, k in s.physics {
+		if sim.tracks == nil {
+			continue
+		}
+		if (^u32)(sim.tracks)^ == PHYSICS3D_TRACKS {
+			physics3d_bodies_append(&out, sim, k)
+			continue
+		}
 		tr := (^Physics_Tracks)(sim.tracks)
 		if tr.samples == 0 {
 			continue
 		}
 		for i in 0 ..< tr.bodies {
 			first, last := i * tr.samples, i * tr.samples + tr.samples - 1
-			append(&out, Physics_Body_Info{tr.labels[i], k, sim.at, tr.duration, tr.rate, {tr.x[first], tr.y[first]}, {tr.x[last], tr.y[last]}, tr.angle[last], tr.moving[i]})
+			append(&out, Physics_Body_Info{label = tr.labels[i], sim = k, at = sim.at, duration = tr.duration, rate = tr.rate, start = {tr.x[first], tr.y[first], 0}, stop = {tr.x[last], tr.y[last], 0}, angle = tr.angle[last], moving = tr.moving[i]})
 		}
 	}
 	return out[:]
@@ -468,10 +478,10 @@ make_tracks :: proc(sh: ^Shared, bodies: []Physics_Body, samples: int, rate, dur
 	return tr
 }
 
-// physics_at(sim, body, t) -> x, y, angle: body (an index or a name) of a
-// physics{} result at t seconds on its clock, between steps linearly; the
-// ends hold, and a frame past the end while the body still moved there is
-// reported (`physics_unsettled`).
+// physics_at(sim, body, t) -> x, y, angle (or pos, rot for a physics3d{}
+// result): body (an index or a name) of a physics{} result at t seconds on
+// its clock, between steps linearly; the ends hold, and a frame past the end
+// while the body still moved there is reported (`physics_unsettled`).
 @(private)
 l_physics_at :: proc "c" (L: ^lua.State) -> c.int {
 	s := host(L)
@@ -479,6 +489,10 @@ l_physics_at :: proc "c" (L: ^lua.State) -> c.int {
 	lua.L_checktype(L, 1, i32(lua.Type.TABLE))
 	lua.getfield(L, 1, "tracks")
 	tr := (^Physics_Tracks)(lua.touserdata(L, -1))
+	if tr != nil && tr.magic == PHYSICS3D_TRACKS {
+		lua.pop(L, 1)
+		return l_physics3d_at(L)
+	}
 	if tr == nil || tr.magic != PHYSICS_TRACKS {
 		lua.L_error(L, "physics_at: give the table physics{} returned")
 	}
@@ -773,7 +787,7 @@ check_overlap :: proc(L: ^lua.State, s: ^Script, bodies: []Physics_Body, i: int,
 }
 
 // The bit of collision layer `name`, given on first use (64 at most).
-@(private = "file")
+@(private)
 layer_bit :: proc(L: ^lua.State, layers: ^map[string]u64, name: string) -> u64 {
 	if bit, ok := layers[name]; ok {
 		return bit
@@ -786,7 +800,7 @@ layer_bit :: proc(L: ^lua.State, layers: ^map[string]u64, name: string) -> u64 {
 	return bit
 }
 
-@(private = "file")
+@(private)
 get_flag :: proc(L: ^lua.State, t: c.int, key: cstring) -> bool {
 	field(L, t, key)
 	defer lua.pop(L, 1)
@@ -794,7 +808,7 @@ get_flag :: proc(L: ^lua.State, t: c.int, key: cstring) -> bool {
 }
 
 // { a, b } at `idx` (missing entries read 0).
-@(private = "file")
+@(private)
 read_pair :: proc(L: ^lua.State, at: c.int) -> [2]f32 {
 	idx := lua.absindex(L, at)
 	lua.rawgeti(L, idx, 1)

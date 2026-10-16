@@ -92,6 +92,9 @@ onimite is built from sibling Odin projects and Odin's vendor packages:
   targets and punctual lights, posed at a time of their animations with
   optional `morphs` and `material` overrides) into a box
   composited like any layer, on the GPU or, the same picture, on the CPU.
+- **Physics**: rigid bodies simulated once at load and sampled per frame,
+  in 2D (`physics{}`, Box2D) and 3D for `view3d{}` (`physics3d{}`, Box3D):
+  shapes, joints, kicks, kinematic movers, and impacts as times for sounds.
 - **Sound**: tracks on the video or scenes with gain, pan, fades, voice
   ducking and a master limiter; audio synthesized by the script
   (`audio_add`); onsets and the beat of any clip (`audio_onsets`); AAC in
@@ -438,6 +441,7 @@ Each folder in `examples/` is a `video.lua` with its `media/`.
 | `fox` | a downloaded, skinned glTF model (the Khronos Fox) playing its clips, then a `ShaderMaterial` override on the model |
 | `pip_demo` | Pip, the mascot, in each mood: one pixel-art SVG with parts shown and hidden by id |
 | `transitions` | every standard-library transition between scenes |
+| `physics3d_demo` | 3D rigid bodies (`physics3d{}`): a wrecking ball on a rod knocks down a block tower, instanced with shadows |
 | `physics_demo` | rigid bodies (`physics{}`) simulated at load: tiles dropped into a word, a pop per impact |
 | `audio_demo` | tracks on the video and scenes, voice ducking, effects on animation constants |
 | `voiceover` | spoken lines made with `say()`, their captions, keys and effects on spoken words (`say_cue`) |

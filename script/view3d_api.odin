@@ -629,7 +629,7 @@ read_model :: proc(L: ^lua.State, s: ^Script, t: c.int) -> (p: om.Model_Pose, ok
 
 // `key` as a vector {x, y, z} (three.js's Vector3), else `def`; with
 // `splat`, a number is all three (`scale = 2`).
-@(private = "file")
+@(private)
 read_vec3 :: proc(L: ^lua.State, t: c.int, key: cstring, def: o3d.Vec3, splat := false) -> o3d.Vec3 {
 	field(L, t, key)
 	defer lua.pop(L, 1)

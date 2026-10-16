@@ -643,6 +643,7 @@ API := [?]Api_Function {
 	{"cue", l_cue, .Load},
 	{"say", l_say, .Load},
 	{"physics", l_physics, .Load},
+	{"physics3d", l_physics3d, .Load},
 	{"audio_add", l_audio_add, .Load},
 	{"captions_load", l_captions_load, .Load},
 	// Nodes and what the frame being built knows.
@@ -694,6 +695,8 @@ API := [?]Api_Function {
 	{"path_data", l_path_data, .Both},
 	{"shared", l_shared, .Both},
 	{"physics_at", l_physics_at, .Both},
+	{"physics3d_at", l_physics3d_at, .Both},
+	{"physics3d_instances", l_physics3d_instances, .Both},
 	{"audio_buffer", l_audio_buffer, .Both},
 	{"audio_onsets", l_audio_onsets, .Both},
 	{"spectrum_centered", l_spectrum_centered, .Both},

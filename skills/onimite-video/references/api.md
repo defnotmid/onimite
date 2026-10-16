@@ -378,6 +378,8 @@ end }
   starts inside another and they fly apart), `physics_offscreen` (a body leaves the canvas
   for good; `leaves = true` when it should), `physics_unsettled` (a frame samples past the
   end while a body still moves: simulate longer).
+- In 3D: `physics3d{}` (Box3D) takes the same bodies, joints and kicks in metres for
+  `view3d{}`, with `physics3d_at` and `physics3d_instances` (3d.md, "Physics in 3D").
 - Same script, same result: it runs on one thread at load, so renders and previews agree.
   Values computed inside `shared`'s function exist only in the state that ran it: compute
   what `render` needs (spawn times, sizes) outside it, from the same numbers or from the

@@ -774,6 +774,9 @@ body_paths :: proc(bodies: []script.Physics_Body_Info) -> []string {
 
 @(private = "file")
 body_summary :: proc(b: script.Physics_Body_Info) -> string {
+	if b.is_3d {
+		return fmt.tprintf("(%.2f, %.2f, %.2f) -> (%.2f, %.2f, %.2f) over %.2fs%s  %s", b.start.x, b.start.y, b.start.z, b.stop.x, b.stop.y, b.stop.z, b.duration, "  still moving" if b.moving else "", b.at)
+	}
 	return fmt.tprintf("(%.0f, %.0f) -> (%.0f, %.0f) over %.2fs%s  %s", b.start.x, b.start.y, b.stop.x, b.stop.y, b.duration, "  still moving" if b.moving else "", b.at)
 }
 

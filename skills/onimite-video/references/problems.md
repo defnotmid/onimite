@@ -7,7 +7,7 @@ problems panel agree on a frame. With `--json`, `frame` lists each frame's `diag
 `{severity, code, key, message, fields, source}` and `inspect` / `render` list `findings`
 (most severe first) as `{severity, code, message, fields, first_frame, last_frame, ...,
 source}`. What the load found (`unused_field`, `missing_font`, `physics_overlap`,
-`physics_offscreen`, `physics_unsettled`, `tts_unavailable`, `tts_noncommercial`,
+`physics_offscreen`, `physics_unsettled`, `physics3d_overlap`, `physics3d_offscreen`, `tts_unavailable`, `tts_noncommercial`,
 `tts_not_kept`, `missing_track`, `missing_track_time`, `unreadable_media`, `undecodable_media`) is printed as a
 `warning:` line on stderr by every command, and `inspect`, `render` and the preview's panel
 list it with `frames` 0 ("at load" in the text). `render` refuses to start while the load
@@ -97,6 +97,8 @@ output puts it before the message. Match on `code` and `fields`, not on the mess
 | `tts_not_kept` | warning | `{where}: say {q:line} was spoken but could not be kept in the store ({reason}): every run speaks it again`: found at load; the line plays, but the store under the user data folder could not be written |
 | `tts_noncommercial` | warning | `{where}: say {q:line} uses voice {q:voice}, whose recording is licensed for non-commercial use only`: `cosette` and `jean` |
 | `physics_unsettled` | warning | `{where}: physics body {q:body} is still moving at {s:time}s, the end of the simulation: later frames hold it there mid-motion (simulate longer)`: a frame samples (`physics_at`) past the end while the body still moved there |
+| `physics3d_overlap` | warning | `{where}: physics3d body {q:body} starts {r:depth} cm inside {q:with} at {s:time}s, so they fly apart (move it or give it room)`: found when `physics3d{}` simulates (at load), more than 3 cm deep at the body's first step |
+| `physics3d_offscreen` | warning | `{where}: physics3d body {q:body} leaves the world's bounds at {s:time}s and does not come back (widen the simulation's bounds, or leaves = true on the body)`: a dynamic body inside `bounds` (default ±50 m) and outside at the end |
 
 `{q:...}` is the value quoted, `{r:...}` rounded, `{s:...}` seconds to the millisecond,
 `{ds:...}` the same with a sign, `{X4:...}` four hex digits; `{video}` is

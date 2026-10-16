@@ -26,6 +26,7 @@ separate file in [LICENSES/](LICENSES); binary releases ship `LICENSE`,
 | stb_image, stb_truetype | images (o3d's textures too), font outlines (used under MIT) | `LICENSES/stb-MIT.txt` |
 | miniaudio | audio decoding (used under MIT-0) | `LICENSES/miniaudio-MIT-0.txt` |
 | Box2D 3.1 | rigid-body physics (`physics{}`) | `LICENSES/Box2D-MIT.txt` |
+| Box3D | 3D rigid-body physics (`physics3d{}`) | `LICENSES/Box3D-MIT.txt` |
 | o3d | 3D layers (`view3d{}`): the scene, its software and SDL_GPU renderers, glTF import | `LICENSES/o3d-MIT.txt` |
 | cgltf (`vendor:cgltf`) | o3d's glTF 2.0 / GLB parsing | `LICENSES/cgltf-MIT.txt` |
 | three.js | o3d follows its conventions and models: MeshStandardMaterial's shading, PCF shadows, equirectangular environment lighting, GLTFLoader's material and scene rules | `LICENSES/three.js-MIT.txt` |

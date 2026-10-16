@@ -2,6 +2,7 @@ package onimite_script
 
 import "core:encoding/json"
 import "core:fmt"
+import "core:math/linalg"
 import "core:os"
 import "core:path/filepath"
 import "core:slice"
@@ -512,6 +513,7 @@ scene { "S", duration = 1, render = function(f)
     scene = function() scene { "A", duration = 1 } end,
     cue = function() cue("x", 0.5) end,
     physics = function() physics { duration = 1, bodies = {} } end,
+    physics3d = function() physics3d { duration = 1, bodies = {} } end,
     audio_add = function() audio_add("n", { { 0, 0 } }) end,
     captions_load = function() captions_load("c", { { text = "a", start = 0, stop = 1 } }) end,
     say = function() say("a", "hi") end,
@@ -1071,3 +1073,167 @@ end }
 	}
 }
 
+// physics3d{}, physics3d_at (and physics_at dispatch), physics3d_instances,
+// primitive/compound/model colliders, 3D joints, kicks, shared{} cloning and
+// self-checks (overlap, offscreen, unsettled and unused fields).
+@(test)
+test_physics3d_api :: proc(t: ^testing.T) {
+	dir, derr := os.make_directory_temp("", "onimite_physics3d_test_*", context.temp_allocator)
+	testing.expect(t, derr == nil)
+	defer os.remove_all(dir)
+	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
+	obj_path, _ := filepath.join({dir, "crate.obj"}, context.temp_allocator)
+	obj := `
+v -0.5 -0.5 -0.5
+v  0.5 -0.5 -0.5
+v  0.5  0.5 -0.5
+v -0.5  0.5 -0.5
+v -0.5 -0.5  0.5
+v  0.5 -0.5  0.5
+v  0.5  0.5  0.5
+v -0.5  0.5  0.5
+f 1 2 3 4
+f 5 8 7 6
+f 1 5 6 2
+f 2 6 7 3
+f 3 7 8 4
+f 4 8 5 1
+`
+	testing.expect(t, os.write_entire_file(obj_path, transmute([]u8)obj) == nil)
+	src := `
+local sim = shared("sim3d", function()
+  return physics3d {
+    duration = 1.5,
+    rate = 120,
+    gravity = { 0, -9.81, 0 },
+    bounds = { x = { -20, 20 }, y = { -5, 25 }, z = { -20, 20 } },
+    bodies = {
+      { name = "floor", box = { 30, 1, 30 }, position = { 0, -0.5, 0 }, static = true, friction = 0.8 },
+      { name = "cube", box = 1, position = { 0, 2, 0 }, bounce = 0.1 },
+      { name = "ball", sphere = 0.5, position = { 2, 2, 0 } },
+      { name = "pill", capsule = { radius = 0.25, height = 1 }, position = { -2, 2, 0 } },
+      { name = "drum", cylinder = { radius = 0.4, height = 0.8, segments = 12 }, position = { 4, 2, 0 } },
+      { name = "tip", cone = { radius = 0.4, height = 0.8, segments = 12 }, position = { -4, 2, 0 } },
+      { name = "tetra", hull = { { 0, 0, 0 }, { 1, 0, 0 }, { 0, 1, 0 }, { 0, 0, 1 } }, position = { 6, 2, 0 } },
+      { name = "crate_dyn", hull = "crate.obj", scale = 0.8, position = { -6, 2, 0 } },
+      { name = "crate_stat", mesh = "crate.obj", position = { -8, 0.5, 0 }, static = true },
+      { name = "ramp", mesh = { vertices = { -1, 0, -1, 1, 0, -1, 1, 0, 1, -1, 0, 1 }, indices = { 1, 3, 2, 1, 4, 3 } }, position = { 8, 0, 0 }, static = true },
+      { name = "compound", shapes = { { box = 0.4, position = { -0.3, 0, 0 } }, { sphere = 0.2, position = { 0.3, 0, 0 } } }, position = { 0, 4, 2 } },
+      { name = "mover", box = 0.5, position = { 0, 6, 0 }, kinematic = true, move = function(t) return { t * 2, 6, 0 }, { 0, t, 0 } end },
+      { name = "pend", sphere = 0.3, position = { 1, 8, 0 }, leaves = true },
+    },
+    joints = {
+      { "hinge", b = "pend", at = { 0, 8, 0 }, axis = { 0, 0, 1 } },
+      { "spring", a = "cube", b = "ball", hertz = 1, damping = 0.5 },
+    },
+    kicks = {
+      { t = 0.1, body = "ball", velocity = { 0.5, 0, 0 }, spin = { 0, 0.2, 0 } },
+    },
+  }
+end)
+
+local p0, r0 = physics3d_at(sim, "cube", 0)
+local p1, r1 = physics_at(sim, "cube", 1.2)
+assert(math.abs(p0[2] - 2) < 1e-4 and p1[2] < 0.6 and p1[2] > 0.4, tostring(p1[2]))
+local mp, mr = physics3d_at(sim, "mover", 0.5)
+assert(math.abs(mp[1] - 1.0) < 1e-2 and math.abs(mr[2] - 0.5) < 1e-2)
+local inst = physics3d_instances(sim, 1.0, { "cube", "ball", "crate_dyn" })
+assert(#inst == 3 and #inst[1].position == 3 and #inst[1].rotation == 3)
+local default_inst = physics3d_instances(sim, 1.0)
+assert(#default_inst == 10, tostring(#default_inst))
+
+-- Diagnostics check: overlap, offscreen, unsettled and unused option fields.
+local bad = physics3d {
+  duration = 0.5,
+  gravty = -9.8,
+  bounds = { y = { -2, 10 }, w = 1 },
+  bodies = {
+    { name = "a", box = 1, position = { 0, 2, 0 }, static = true, mas = 1 },
+    { name = "b", box = 1, position = { 0, 2.2, 0 } },
+    { name = "faller", sphere = 0.3, position = { 5, 0, 0 }, velocity = { 0, -20, 0 } },
+  },
+}
+
+video { width = 32, height = 32, fps = 10, duration = 1 }
+scene { "A", duration = 1, render = function(f)
+  physics3d_at(bad, "faller", 1.0)
+  view3d {
+    meshes = {
+      { geometry = { type = "BoxGeometry" }, instances = physics3d_instances(sim, f.seconds, { "cube", "crate_dyn" }) },
+    },
+  }
+end }
+`
+	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
+	media: om.Media
+	om.media_init(&media)
+	defer om.media_destroy(&media)
+	testing.expect_value(t, om.media_load_dir(&media, dir), om.Error.None)
+
+	sh: Shared
+	defer shared_destroy(&sh)
+	s: Script
+	defer unload(&s)
+	testing.expectf(t, load(&s, path, nil, &media, &sh) == nil, "load failed: %s", error_message(s.failure, context.temp_allocator))
+
+	bodies := physics_bodies(&s)
+	testing.expect(t, len(bodies) >= 13)
+	if len(bodies) >= 2 {
+		testing.expect(t, bodies[1].is_3d)
+		testing.expect_value(t, bodies[1].label, "cube")
+		testing.expect(t, bodies[1].start.y > 1.9 && bodies[1].stop.y < 0.6)
+	}
+
+	// Second load reuses the shared 3D tracks without re-simulating `sim`.
+	s2: Script
+	defer unload(&s2)
+	testing.expectf(t, load(&s2, path, nil, &media, &sh) == nil, "second load failed: %s", error_message(s2.failure, context.temp_allocator))
+
+	r: om.Renderer
+	testing.expect_value(t, om.renderer_init(&r, &s.video, &media), om.Error.None)
+	defer om.renderer_destroy(&r)
+	om.render_frame(&r, 0)
+
+	testing.expect_value(t, len(s.load_problems), 5)
+	has_overlap, has_offscreen, has_unsettled := false, false, false
+	for d in s.load_problems {
+		#partial switch d.code {
+		case .Physics3d_Overlap:
+			has_overlap = d.a == "b" && d.b == "a"
+		case .Physics3d_Offscreen:
+			has_offscreen = d.a == "faller"
+		}
+	}
+	for d in r.ctx.diagnostics {
+		if d.code == .Physics_Unsettled && d.a == "faller" {
+			has_unsettled = true
+		}
+	}
+	testing.expect(t, has_overlap)
+	testing.expect(t, has_offscreen)
+	testing.expect(t, has_unsettled)
+}
+
+
+// physics3d's Euler XYZ <-> quaternion conversions turn bodies the way
+// view3d does (o3d.compose), and an angle comes back as it went in.
+@(test)
+test_physics3d_euler :: proc(t: ^testing.T) {
+	rots := [?]o3d.Vec3{{0.3, 0.5, 0}, {-1.2, 0.4, 2.5}, {0, 0, 0}, {2.9, -1.1, 0.2}}
+	for r in rots {
+		q := euler_xyz_to_quat(r)
+		want := o3d.compose({}, r)
+		got := linalg.matrix4_from_quaternion(q)
+		for col in 0 ..< 3 {
+			for row in 0 ..< 3 {
+				testing.expectf(t, abs(got[col][row] - want[col][row]) < 1e-5, "rotation %v: [%d][%d] is %v, view3d has %v", r, col, row, got[col][row], want[col][row])
+			}
+		}
+		back := o3d.compose({}, quat_to_euler_xyz(q))
+		for col in 0 ..< 3 {
+			for row in 0 ..< 3 {
+				testing.expectf(t, abs(back[col][row] - want[col][row]) < 1e-5, "rotation %v does not come back", r)
+			}
+		}
+	}
+}

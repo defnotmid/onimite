@@ -132,6 +132,9 @@ Diagnostic_Code :: enum u8 {
 	Physics_Unsettled,
 	Physics_Offscreen,
 	Physics_Overlap,
+	// The same for `physics3d{}`: metres, the world's bounds.
+	Physics3d_Offscreen,
+	Physics3d_Overlap,
 	// Sound against the music's beat.
 	Off_Beat,
 	// Spoken lines (`say`), found at load.
@@ -234,6 +237,8 @@ DIAGNOSTIC_TEXT := [Diagnostic_Code]string {
 	.Physics_Unsettled         = "{where}: physics body {q:body} is still moving at {s:time}s, the end of the simulation: later frames hold it there mid-motion (simulate longer)",
 	.Physics_Offscreen         = "{where}: physics body {q:body} leaves the canvas at {s:time}s and does not come back",
 	.Physics_Overlap           = "{where}: physics body {q:body} starts {r:depth}px inside {q:with} at {s:time}s, so they fly apart (move it or give it room)",
+	.Physics3d_Offscreen       = "{where}: physics3d body {q:body} leaves the world's bounds at {s:time}s and does not come back (widen the simulation's bounds, or leaves = true on the body)",
+	.Physics3d_Overlap         = "{where}: physics3d body {q:body} starts {r:depth} cm inside {q:with} at {s:time}s, so they fly apart (move it or give it room)",
 	.Off_Beat                  = "{where}: {count} sounds start off the music's beat, the loudest {q:clip} {ds:drift}s off at {s:time}s (the beat: {s:period}s; hits belong on the beat or half-beat)",
 	.Tts_Unavailable           = "{where}: say {q:line} can not be spoken ({reason}): it is silent and its word times are estimates",
 	.Tts_Noncommercial         = "{where}: say {q:line} uses voice {q:voice}, whose recording is licensed for non-commercial use only",
@@ -311,6 +316,8 @@ DIAGNOSTIC_KEY := [Diagnostic_Code]string {
 	.Physics_Unsettled         = "physics_unsettled:{where}:{body}",
 	.Physics_Offscreen         = "physics_offscreen:{where}:{body}",
 	.Physics_Overlap           = "physics_overlap:{where}:{body}:{with}",
+	.Physics3d_Offscreen       = "physics3d_offscreen:{where}:{body}",
+	.Physics3d_Overlap         = "physics3d_overlap:{where}:{body}:{with}",
 	.Off_Beat                  = "off_beat:{where}",
 	.Tts_Unavailable           = "tts_unavailable:{line}",
 	.Tts_Noncommercial         = "tts_noncommercial:{line}",

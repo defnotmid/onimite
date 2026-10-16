@@ -163,6 +163,7 @@ The examples in the onimite repository are working patterns to read and borrow f
 | `examples/fox` | a downloaded, skinned glTF model (the Khronos Fox) playing its clips under an orbiting camera, then a `ShaderMaterial` override on the whole model |
 | `examples/pip_demo` | Pip, the mascot (`examples/common/pip.lua`): a pixel-art SVG whose `display="none"` parts (blink, moods, spark frames) are swapped with `visible` overrides, a squash on the beat |
 | `examples/transitions` | every `transition` kind between scenes (`scene{ transition = ... }`), `stagger`, `loop`, `sequence` |
+| `examples/physics3d_demo` | 3D rigid bodies: `physics3d{}` at load, a wrecking ball on a rod knocking down a block tower, a kinematic sweeper, bouncing orbs drawn with `physics3d_instances` |
 | `examples/physics_demo` | rigid bodies: `physics{}` simulated once at load (in `shared`), tiles dropped into a word with `start` staggers, `physics_at` per frame, a pop per impact from `sim.contacts` (the saga's NotNeeded scene: a wrecking ball on a rope; why_onimite's Ship: 311 grains poured) |
 | `examples/audio_demo` | tracks on video and scenes, voice + ducking, SFX on animation constants |
 | `examples/voiceover` | spoken lines made with `say()` (text to speech with word times), their captions, keys and SFX on spoken words (`say_cue`), a pad ducking under the voice; its README explains the `cue_no_hit` findings left on run-together words |
@@ -285,7 +286,7 @@ with commas.
 
 | command | use it to |
 | --- | --- |
-| `show [PATH] [--at T] [--page N]` | explore the video like a debugger's watch window: the video, then `scenes`, `scene/Race`, `scene/Race/nodes`, `cue/drop`, `bus/sfx`, `track/12`, `clip/x`, `says`, `say/intro` (a spoken line's words and times), `say/intro/3` (one word, and when each track playing it says it on the video), `media` and `media/logo.png` (the files besides sounds), `fonts`, `bodies` and `body/ball` (what `physics{}` simulated: start, end, still moving), `node/scenes/race.lua:19[2]`; an unknown path lists the ones there are; each has a summary, its fields, its children by path (20 a page) and the script line that made it |
+| `show [PATH] [--at T] [--page N]` | explore the video like a debugger's watch window: the video, then `scenes`, `scene/Race`, `scene/Race/nodes`, `cue/drop`, `bus/sfx`, `track/12`, `clip/x`, `says`, `say/intro` (a spoken line's words and times), `say/intro/3` (one word, and when each track playing it says it on the video), `media` and `media/logo.png` (the files besides sounds), `fonts`, `bodies` and `body/ball` (what `physics{}` and `physics3d{}` simulated: start, end, still moving), `node/scenes/race.lua:19[2]`; an unknown path lists the ones there are; each has a summary, its fields, its children by path (20 a page) and the script line that made it |
 | `timeline [RANGE]` | scenes (with their cue and the file and line that defines them), audio tracks, cues; a range lists only what happens in it |
 | `inspect [RANGE] [--every 0.1s \| --all-frames] [--info] [--fail-on error\|warning\|never]` | find problems without looking (exit 2 on failure; `--info` also lists text entirely off canvas) |
 | `strip [RANGE] -n N [--columns 4] [--width 480] [-o strip.png]` | flow and motion in one image |
@@ -524,7 +525,7 @@ video { ..., buses = { music = {}, voice = {}, sfx = {} },
   document with `--json`, the MCP server's messages).
 - `rect`/`text`/`group` at load: "can only be called while rendering a frame". Draw inside
   `render`; measure (`text_width` & co) anywhere.
-- `video{}`, `scene{}`, `cue`, `physics{}`, `audio_add`, `captions_load` and `say` inside
+- `video{}`, `scene{}`, `cue`, `physics{}`, `physics3d{}`, `audio_add`, `captions_load` and `say` inside
   `render`: "works at load, not while rendering a frame". They set the video up; call them at
   the top level of the script.
 - A video needs scenes or a `duration` ("the video has no scenes and no duration").
