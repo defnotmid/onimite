@@ -195,8 +195,8 @@ cue("hit", hits)
 
 ## Audio-reactive visuals
 
-Any value in `render` can follow the sound: `audio_spectrum` for the spectrum at a moment,
-`pulse(clock.beat(t), sharpness)` for the beat, onset times (`audio_onsets`) for hits.
+Any value in `render` can follow the sound: `audio_energy` for how loud it is now,
+`audio_spectrum` for the spectrum at a moment, `pulse(clock.beat(t), sharpness)` for the beat, onset times (`audio_onsets`) for hits.
 Pass shader uniforms the same numbers (`uniforms = { uBass = bass }`).
 
 ```lua
@@ -206,6 +206,17 @@ for i, v in ipairs(spectrum_centered(levels)) do    -- low frequencies in the mi
   local h = v * 300 + 6
   rect { x = 200 + (i - 1) * 48, y = 900 - h, w = 36, h = h, rx = 8, fill = "#38bdf8" }
 end
+```
+
+`audio_energy(f, { src, bus, smooth = 0 })` -> `{ rms, peak, low, mid, high }`, each 0..1:
+the clip `src` where its tracks play it, else every track playing at `f` (on bus `bus` only,
+when given) summed by gain; `low` is the energy below 375 Hz (kick, bass), `mid` to 2.8 kHz
+(voice), `high` above; `smooth` averages that many frames each side:
+
+```lua
+local e = audio_energy(f, { bus = "music", smooth = 2 })
+circle { cx = 960, cy = 540, r = 120 + 80 * e.low, fill = "#f472b6" }
+view3d { ..., bloom = { intensity = 0.3 + e.rms }, ... }
 ```
 
 The magnitude spectrum of the clip's stereo mix. With a frame `f` it is what the track playing

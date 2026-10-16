@@ -297,6 +297,8 @@ read_filter :: proc(L: ^lua.State, t: c.int) -> (f: vg.Filter, images: []string,
 	}
 	lua.pop(L, 1)
 
+	read_bloom_into(L, t, &prims)
+
 	region: vg.Filter_Region
 	field(L, t, "filter")
 	if lua.istable(L, -1) {
@@ -501,6 +503,66 @@ read_filter :: proc(L: ^lua.State, t: c.int) -> (f: vg.Filter, images: []string,
 	srgb ||= bool(lua.toboolean(L, -1))
 	lua.pop(L, 1)
 	return {primitives = prims[:], merge_refs = refs[:], srgb = srgb, region = region, values = values[:]}, image_names[:], true
+}
+
+// `bloom = { threshold = 0.65, intensity = 0.6, radius = 12 }` (or `bloom = 12`):
+// extracts pixels above `threshold`, blurs them by `radius`, and adds them
+// back scaled by `intensity`.
+@(private)
+read_bloom_into :: proc(L: ^lua.State, t: c.int, prims: ^[dynamic]vg.Filter_Primitive) -> bool {
+	field(L, t, "bloom")
+	defer lua.pop(L, 1)
+	threshold := f32(0.65)
+	intensity := f32(0.6)
+	radius := f32(0)
+	if lua.type(L, -1) == .NUMBER {
+		radius = max(f32(lua.tonumber(L, -1)), 0)
+	} else if lua.istable(L, -1) {
+		e := lua.absindex(L, -1)
+		bloom_fields := fields_push(L, e)
+		threshold = clamp(get_num(L, e, "threshold", 0.65), 0, 0.999)
+		intensity = max(get_num(L, e, "intensity", 0.6), 0)
+		radius = max(get_num(L, e, "radius", 12), 0)
+		fields_pop(L, host(L), e, "bloom", bloom_fields)
+	} else {
+		return false
+	}
+	if radius <= 0 || intensity <= 0 {
+		return false
+	}
+	base_ref := vg.Filter_Ref{kind = .Source_Graphic} if len(prims) == 0 else vg.Filter_Ref{kind = .Result, index = u16(len(prims) - 1)}
+	slope := 1.0 / max(1.0 - threshold, 1e-3)
+	lin := vg.Transfer_Function{kind = .Linear, slope = slope, intercept = -threshold * slope}
+	append(
+		prims,
+		vg.Filter_Primitive{
+			op = .Component_Transfer,
+			in1 = base_ref,
+			transfer = {0 = lin, 1 = lin, 2 = lin, 3 = vg.TRANSFER_IDENTITY},
+		},
+		vg.Filter_Primitive{
+			op = .Gaussian_Blur,
+			in1 = {kind = .Previous},
+			std = {radius, radius},
+		},
+		vg.Filter_Primitive{
+			op = .Composite,
+			in1 = base_ref,
+			in2 = {kind = .Previous},
+			composite = .Arithmetic,
+			k = {0, 1, intensity, 0},
+		},
+	)
+	return true
+}
+
+@(private)
+read_bloom_filter :: proc(L: ^lua.State, t: c.int) -> (f: vg.Filter, ok: bool) {
+	prims := make([dynamic]vg.Filter_Primitive, context.temp_allocator)
+	if !read_bloom_into(L, t, &prims) {
+		return {}, false
+	}
+	return {primitives = prims[:]}, true
 }
 
 // A component transfer function table: `{type = "table", values = {...}}`.

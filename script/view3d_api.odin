@@ -2,6 +2,7 @@ package onimite_script
 
 import "core:c"
 import "core:math"
+import "core:math/linalg"
 import "core:slice"
 import "deps:o3d"
 import om "../onimite"
@@ -18,8 +19,8 @@ import lua "vendor:lua/5.4"
 // view3d{ x, y, w, h, opacity, camera = {...}, lights = {...}, meshes =
 // {...}, models = {...}, environment, environment_intensity, background,
 // background_intensity, background_blurriness, tone_mapping,
-// tone_mapping_exposure, fog = {...} }; the box defaults to the whole
-// video.
+// tone_mapping_exposure, fog = {...}, bloom = {...} }; the box defaults to
+// the whole video.
 @(private)
 l_view3d :: proc "c" (L: ^lua.State) -> c.int {
 	s := host(L)
@@ -55,7 +56,17 @@ l_view3d :: proc "c" (L: ^lua.State) -> c.int {
 	v.lights = read_list(L, s, 1, "lights", o3d.Light, read_light)
 	v.meshes = read_list(L, s, 1, "meshes", om.Mesh, read_mesh)
 	v.models = read_list(L, s, 1, "models", om.Model_Pose, read_model)
+	bloom_filter, has_bloom := read_bloom_filter(L, 1)
+	if has_bloom {
+		om.group_begin(ctx, om.Group{filter = bloom_filter})
+		if s.node_sources_on {
+			node_source_record(s, L)
+		}
+	}
 	om.view3d(ctx, s.frame, v)
+	if has_bloom {
+		om.group_end(ctx)
+	}
 	fields_end(L, s, 1, "view3d")
 	return 0
 }
@@ -259,14 +270,12 @@ read_mesh :: proc(L: ^lua.State, s: ^Script, t: c.int) -> (m: om.Mesh, ok: bool)
 		return
 	}
 	defer fields_pop(L, s, t, "mesh", outer)
-	m.position = read_vec3(L, t, "position", {})
-	m.rotation = read_vec3(L, t, "rotation", {})
-	m.scale = read_vec3(L, t, "scale", {1, 1, 1}, splat = true)
+	m.position, m.rotation, m.scale = read_pose_transform(L, t)
 	m.instances = read_list(L, s, t, "instances", o3d.Instance, read_instance)
 	m.material = o3d.MATERIAL_DEFAULT
 	default_mat := "MeshStandardMaterial"
 	switch m.path_kind {
-	case .None:
+	case .None, .Tube:
 	case .Polyline, .Line_Segments:
 		default_mat = "LineBasicMaterial"
 		m.material.mode = .Lines
@@ -300,9 +309,7 @@ read_mesh :: proc(L: ^lua.State, s: ^Script, t: c.int) -> (m: om.Mesh, ok: bool)
 read_instance :: proc(L: ^lua.State, s: ^Script, t: c.int) -> (inst: o3d.Instance, ok: bool) {
 	outer := fields_push(L, t)
 	defer fields_pop(L, s, t, "instance", outer)
-	pos := read_vec3(L, t, "position", {})
-	rot := read_vec3(L, t, "rotation", {})
-	scl := read_vec3(L, t, "scale", {1, 1, 1}, splat = true)
+	pos, rot, scl := read_pose_transform(L, t)
 	inst.transform = o3d.compose(pos, rot, scl)
 	if has_field(L, t, "color") {
 		inst.color = read_color3(L, t, "color", {1, 1, 1})
@@ -312,13 +319,21 @@ read_instance :: proc(L: ^lua.State, s: ^Script, t: c.int) -> (inst: o3d.Instanc
 }
 
 // A geometry type and its parameters (`om.GEOMETRY_TYPES`), or per-frame
-// line/point positions (`LineGeometry`, `LineSegmentsGeometry`,
-// `PointsGeometry`).
+// geometry from points (`LineGeometry`, `LineSegmentsGeometry`,
+// `PointsGeometry`, `TubeGeometry`).
 @(private = "file")
 read_geometry :: proc(L: ^lua.State, s: ^Script, t: c.int, m: ^om.Mesh) -> (ok: bool) {
 	outer := fields_push(L, t)
 	name := get_str(L, t, "type", "")
 	switch name {
+	case "TubeGeometry":
+		defer fields_pop(L, s, t, "geometry", outer)
+		m.path_kind = .Tube
+		m.path_closed = get_bool(L, t, "closed", false)
+		m.tube_radius = get_num(L, t, "radius", 0.08)
+		m.tube_segments = max(int(get_num(L, t, "radial_segments", 12)), 3)
+		m.points = read_points(L, t, "points")
+		return true
 	case "LineGeometry":
 		defer fields_pop(L, s, t, "geometry", outer)
 		m.path_kind = .Polyline
@@ -562,9 +577,7 @@ read_model :: proc(L: ^lua.State, s: ^Script, t: c.int) -> (p: om.Model_Pose, ok
 		return
 	}
 	defer fields_pop(L, s, t, "model", outer)
-	p.position = read_vec3(L, t, "position", {})
-	p.rotation = read_vec3(L, t, "rotation", {})
-	p.scale = read_vec3(L, t, "scale", {1, 1, 1}, splat = true)
+	p.position, p.rotation, p.scale = read_pose_transform(L, t)
 	p.animation_index = -1
 	field(L, t, "animation")
 	#partial switch lua.type(L, -1) {
@@ -626,6 +639,103 @@ read_model :: proc(L: ^lua.State, s: ^Script, t: c.int) -> (p: om.Model_Pose, ok
 	p.outline_color = read_color3(L, t, "outline_color", {})
 	return p, true
 }
+
+// Reads `position`, `rotation` and `scale`, with optional `from` / `to`
+// (places at the midpoint and rotates local +Y from `from` to `to`, scaling
+// local Y by the distance when `stretch = true`) or `look_at` (rotates
+// local +Z toward `look_at`).
+@(private = "file")
+read_pose_transform :: proc(L: ^lua.State, t: c.int) -> (pos, rot, scl: o3d.Vec3) {
+	pos = read_vec3(L, t, "position", {})
+	rot = read_vec3(L, t, "rotation", {})
+	scl = read_vec3(L, t, "scale", {1, 1, 1}, splat = true)
+	if has_field(L, t, "from") && has_field(L, t, "to") {
+		p_from := read_vec3(L, t, "from", {})
+		p_to := read_vec3(L, t, "to", {0, 1, 0})
+		up := read_vec3(L, t, "up", {0, 1, 0})
+		mid, euler, dist := orient_along_y(p_from, p_to, up)
+		if !has_field(L, t, "position") {
+			pos = mid
+		}
+		if !has_field(L, t, "rotation") {
+			rot = euler
+		}
+		if get_bool(L, t, "stretch", false) {
+			scl.y *= dist
+		}
+	} else if has_field(L, t, "look_at") {
+		target := read_vec3(L, t, "look_at", {})
+		up := read_vec3(L, t, "up", {0, 1, 0})
+		rot = orient_along_z(pos, target, up)
+	}
+	return
+}
+
+// Euler XYZ angles `(rx, ry, rz)` for `o3d.compose` from orthonormal basis
+// columns `(col0, col1, col2)`.
+@(private)
+basis_to_euler_xyz :: proc(col0, col1, col2: o3d.Vec3) -> o3d.Vec3 {
+	ry := math.asin(clamp(col2.x, -1, 1))
+	rx, rz: f32
+	if abs(col2.x) < 0.999999 {
+		rx = math.atan2(-col2.y, col2.z)
+		rz = math.atan2(-col1.x, col0.x)
+	} else {
+		rx = math.atan2(col1.z, col1.y)
+		rz = 0
+	}
+	return {rx, ry, rz}
+}
+
+// Midpoint, Euler XYZ rotation aligning local +Y from `from` to `to`, and
+// distance between them.
+@(private = "file")
+orient_along_y :: proc(from, to, up: o3d.Vec3) -> (mid, euler: o3d.Vec3, dist: f32) {
+	mid = (from + to) * 0.5
+	d := to - from
+	dist = linalg.length(d)
+	if dist < 1e-6 {
+		return mid, {}, 0
+	}
+	col1 := d / dist
+	ref_up := up
+	if linalg.length(ref_up) < 1e-5 {
+		ref_up = {0, 1, 0}
+	} else {
+		ref_up = linalg.normalize(ref_up)
+	}
+	if abs(linalg.dot(col1, ref_up)) > 0.999 {
+		ref_up = {1, 0, 0} if abs(col1.x) < 0.9 else {0, 0, 1}
+	}
+	col0 := linalg.normalize(linalg.cross(ref_up, col1))
+	col2 := linalg.cross(col0, col1)
+	euler = basis_to_euler_xyz(col0, col1, col2)
+	return
+}
+
+// Euler XYZ rotation aligning local +Z from `pos` toward `target`.
+@(private = "file")
+orient_along_z :: proc(pos, target, up: o3d.Vec3) -> o3d.Vec3 {
+	d := target - pos
+	dist := linalg.length(d)
+	if dist < 1e-6 {
+		return {}
+	}
+	col2 := d / dist
+	ref_up := up
+	if linalg.length(ref_up) < 1e-5 {
+		ref_up = {0, 1, 0}
+	} else {
+		ref_up = linalg.normalize(ref_up)
+	}
+	if abs(linalg.dot(col2, ref_up)) > 0.999 {
+		ref_up = {0, 0, 1} if abs(col2.z) < 0.9 else {1, 0, 0}
+	}
+	col0 := linalg.normalize(linalg.cross(ref_up, col2))
+	col1 := linalg.cross(col2, col0)
+	return basis_to_euler_xyz(col0, col1, col2)
+}
+
 
 // `key` as a vector {x, y, z} (three.js's Vector3), else `def`; with
 // `splat`, a number is all three (`scale = 2`).

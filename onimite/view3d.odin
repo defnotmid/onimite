@@ -67,32 +67,35 @@ Model_Material :: struct {
 	shader:   Maybe(Shader_Material),
 }
 
-// Per-frame line or point geometry on a mesh (`LineGeometry`,
-// `LineSegmentsGeometry` or `PointsGeometry`).
+// Per-frame geometry on a mesh made from its `points` (`LineGeometry`,
+// `LineSegmentsGeometry`, `PointsGeometry` or `TubeGeometry`).
 Path_Kind :: enum u8 {
 	None          = 0,
 	Polyline      = 1,
 	Line_Segments = 2,
 	Points        = 3,
+	Tube          = 4,
 }
 
 // A mesh: primitive geometry (its type and three.js parameters, see
-// `GEOMETRY_TYPES`) or per-frame line/point positions (`path_kind`,
-// `points`), optional `instances` (`InstancedMesh`), its transform
+// `GEOMETRY_TYPES`) or per-frame line, point or tube positions (`path_kind`,
+// `points`; a tube's `tube_radius` and `tube_segments` around), optional `instances` (`InstancedMesh`), its transform
 // (position, Euler XYZ rotation in radians, scale) and its material, whose
 // texture maps are media images by name (or a custom `ShaderMaterial`).
 Mesh :: struct {
-	geometry:    o3d.Geometry_Key,
-	path_kind:   Path_Kind,
-	path_closed: bool,
-	points:      []o3d.Vec3,
-	instances:   []o3d.Instance,
-	position:    o3d.Vec3,
-	rotation:    o3d.Vec3,
-	scale:       o3d.Vec3,
-	material:    o3d.Material,
-	maps:        [Texture_Map]string,
-	shader:      Maybe(Shader_Material),
+	geometry:      o3d.Geometry_Key,
+	path_kind:     Path_Kind,
+	path_closed:   bool,
+	points:        []o3d.Vec3,
+	tube_radius:   f32,
+	tube_segments: int,
+	instances:     []o3d.Instance,
+	position:      o3d.Vec3,
+	rotation:      o3d.Vec3,
+	scale:         o3d.Vec3,
+	material:      o3d.Material,
+	maps:          [Texture_Map]string,
+	shader:        Maybe(Shader_Material),
 }
 
 // A material's texture maps, by their three.js names (`TEXTURE_MAPS`).
@@ -181,6 +184,7 @@ GEOMETRY_TYPES := [o3d.Primitive]Geometry_Type {
 	.Plane    = {"PlaneGeometry", {{"width", .Size, 1, 0}, {"height", .Size, 1, 0}, {"width_segments", .Count, 1, 1}, {"height_segments", .Count, 1, 1}, {}, {}, {}}},
 	.Cylinder = {"CylinderGeometry", {{"radius_top", .Size, 1, 0}, {"radius_bottom", .Size, 1, 0}, {"height", .Size, 1, 0}, {"radial_segments", .Count, 32, 3}, {"height_segments", .Count, 1, 1}, {"open_ended", .Flag, 0, 0}, {}}},
 	.Torus    = {"TorusGeometry", {{"radius", .Size, 1, 0}, {"tube", .Size, 0.4, 0}, {"radial_segments", .Count, 12, 3}, {"tubular_segments", .Count, 48, 3}, {}, {}, {}}},
+	.Capsule  = {"CapsuleGeometry", {{"radius", .Size, 1, 0}, {"height", .Size, 1, 0}, {"cap_segments", .Count, 4, 1}, {"radial_segments", .Count, 8, 3}, {}, {}, {}}},
 }
 
 // Adds a 3D layer drawing at frame `f` (its scene keys `geometry_growth`).
@@ -576,6 +580,8 @@ view3d_scene :: proc(r: ^Renderer, n: View3d, scene: ^o3d.Scene) {
 			geo_id = o3d.scene_line_segments(scene, mesh.points)
 		case .Points:
 			geo_id = o3d.scene_points(scene, mesh.points)
+		case .Tube:
+			geo_id = o3d.scene_tube(scene, mesh.points, mesh.tube_radius, mesh.tube_segments, mesh.path_closed)
 		}
 		di := len(scene.draws)
 		append(&scene.draws, o3d.Draw{geo_id, o3d.compose(mesh.position, mesh.rotation, mesh.scale), material})

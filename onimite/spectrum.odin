@@ -138,3 +138,77 @@ spectrum_centered :: proc(spectrum: []f32, out: []f32) {
 		}
 	}
 }
+
+// Per-frame normalized (0..1) audio envelope and 3-band spectral energy.
+Audio_Energy :: struct {
+	rms, peak, low, mid, high: f32,
+}
+
+audio_energy :: proc(clip: ^Audio_Clip, index, fps: int, smooth := 0) -> (e: Audio_Energy) {
+	if clip == nil || clip.frames <= 0 {
+		return
+	}
+	if smooth <= 0 {
+		return energy_frame(clip, index, fps)
+	}
+	count := 0
+	for i in max(index - smooth, 0) ..= index + smooth {
+		fe := energy_frame(clip, i, fps)
+		e.rms += fe.rms
+		e.peak += fe.peak
+		e.low += fe.low
+		e.mid += fe.mid
+		e.high += fe.high
+		count += 1
+	}
+	inv := 1.0 / f32(max(count, 1))
+	e.rms *= inv
+	e.peak *= inv
+	e.low *= inv
+	e.mid *= inv
+	e.high *= inv
+	return
+}
+
+@(private = "file")
+energy_frame :: proc(clip: ^Audio_Clip, index, fps: int) -> (e: Audio_Energy) {
+	rate_fps := max(fps, 1)
+	start := index * MIX_RATE / rate_fps
+	n_win := max(MIX_RATE / rate_fps, 1)
+	if start < 0 || start >= clip.frames {
+		return
+	}
+	end := min(start + n_win, clip.frames)
+	count := end - start
+	if count <= 0 {
+		return
+	}
+	sum_sq: f32
+	peak: f32
+	src := clip.samples[start * 2:][:count * 2]
+	for k in 0 ..< count {
+		s := (src[k * 2] + src[k * 2 + 1]) * 0.5
+		sum_sq += s * s
+		if abs(s) > peak {
+			peak = abs(s)
+		}
+	}
+	e.rms = clamp(math.sqrt(sum_sq / f32(count)) * 2.0, 0, 1)
+	e.peak = clamp(peak, 0, 1)
+
+	N :: 512
+	bins: [N / 2]f32
+	spectrum_frame(clip, index, rate_fps, {sample_size = N, window = .Hann}, bins[:])
+	band_avg :: proc(b: []f32, lo, hi: int, scale: f32) -> f32 {
+		sum: f32
+		for v in b[lo:hi] {
+			sum += v
+		}
+		return clamp((sum / f32(max(hi - lo, 1))) / scale, 0, 1)
+	}
+	e.low = band_avg(bins[:], 1, 4, 32.0)
+	e.mid = band_avg(bins[:], 4, 30, 12.0)
+	e.high = band_avg(bins[:], 30, 140, 4.0)
+	return
+}
+

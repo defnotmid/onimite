@@ -1269,29 +1269,12 @@ euler_xyz_to_quat :: proc "contextless" (rot: b3.Vec3) -> b3.Quat {
 
 // Unit quaternion -> Euler XYZ (radians, matching `o3d.compose`: R = Rx * Ry * Rz).
 @(private)
-quat_to_euler_xyz :: proc "contextless" (q: b3.Quat) -> b3.Vec3 {
+quat_to_euler_xyz :: proc(q: b3.Quat) -> b3.Vec3 {
 	xx, yy, zz := q.x * q.x, q.y * q.y, q.z * q.z
 	xy, xz, yz := q.x * q.y, q.x * q.z, q.y * q.z
 	xw, yw, zw := q.x * q.w, q.y * q.w, q.z * q.w
-
-	r00 := 1 - 2 * (yy + zz)
-	r01 := 2 * (xy - zw)
-	r02 := 2 * (xz + yw)
-	r11 := 1 - 2 * (xx + zz)
-	r12 := 2 * (yz - xw)
-	r21 := 2 * (yz + xw)
-	r22 := 1 - 2 * (xx + yy)
-
-	ry := math.asin(clamp(r02, -1, 1))
-	rx, rz: f32
-	if abs(r02) < 0.9999999 {
-		rx = math.atan2(-r12, r22)
-		rz = math.atan2(-r01, r00)
-	} else {
-		rx = math.atan2(r21, r11)
-		rz = 0
-	}
-	return {rx, ry, rz}
+	// The rotation matrix's columns.
+	return basis_to_euler_xyz({1 - 2 * (yy + zz), 2 * (xy + zw), 2 * (xz - yw)}, {2 * (xy - zw), 1 - 2 * (xx + zz), 2 * (yz + xw)}, {2 * (xz + yw), 2 * (yz - xw), 1 - 2 * (xx + yy)})
 }
 
 @(private = "file")
@@ -1369,8 +1352,8 @@ read_i32_list :: proc(L: ^lua.State, at: c.int) -> []i32 {
 	return out
 }
 
-@(private = "file")
-push_vec3 :: proc(L: ^lua.State, v: b3.Vec3) {
+@(private)
+push_vec3 :: proc(L: ^lua.State, v: [3]f32) {
 	lua.createtable(L, 3, 0)
 	for k in 0 ..< 3 {
 		lua.pushnumber(L, lua.Number(v[k]))

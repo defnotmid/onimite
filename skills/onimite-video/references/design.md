@@ -80,7 +80,7 @@ local TITLE_SIZE = fit_size(TITLE, "DM Sans", 1600, 160, 72)   -- at load, once
   once (`ui.BG`, `ui.TEXT`, `ui.ACCENT`, `ui.DIM`).
 - Contrast: body text at least 4.5:1 against what is behind it, gradients included; check
   suspicious frames at full size.
-- Glows and soft shadows: `group{ blur = n }` under a sharp copy, or `shadow = {...}`; they
+- Glows and soft shadows: `bloom = {...}` on `group{}` or `view3d{}` (what is bright glows), `group{ blur = n }` under a sharp copy, or `shadow = {...}`; they
   are cheap on small elements because effect layers are content-sized.
 
 ## Motion

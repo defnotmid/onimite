@@ -672,6 +672,7 @@ API := [?]Api_Function {
 	{"subtitles", l_subtitles, .Render},
 	{"caption_words", l_caption_words, .Render},
 	{"audio_spectrum", l_audio_spectrum, .Render},
+	{"audio_energy", l_audio_energy, .Render},
 	// Values: any time.
 	{"animate", l_animate, .Both},
 	{"animate_loop", l_animate_loop, .Both},

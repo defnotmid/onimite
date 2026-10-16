@@ -1237,3 +1237,83 @@ test_physics3d_euler :: proc(t: ^testing.T) {
 		}
 	}
 }
+
+@(test)
+test_new_3d_audio_bloom_features :: proc(t: ^testing.T) {
+	dir, derr := os.make_directory_temp("", "onimite_new_features_test_*", context.temp_allocator)
+	testing.expect(t, derr == nil)
+	defer os.remove_all(dir)
+	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
+	src := `
+
+audio_add("tone.wav", function()
+  local samples = {}
+  for i = 1, 22050 do
+    samples[i] = math.sin(2 * math.pi * 110 * (i - 1) / 44100) * 0.7
+  end
+  return { samples, samples, rate = 44100 }
+end)
+
+video {
+  width = 64, height = 64, fps = 10, duration = 0.5, background = "#000000",
+  audio = { { "tone.wav", start = 0 } },
+}
+
+scene { "A", duration = 0.5, render = function(f)
+  local e = audio_energy(f)
+  local low = audio_energy(f, { src = "tone.wav", smooth = 1 }).low
+  assert(e.rms > 0.05 and e.peak > 0.1 and low >= 0)
+
+  group({ bloom = { threshold = 0.5, intensity = 0.8, radius = 4 } }, function()
+    rect { x = 8, y = 8, w = 16, h = 16, fill = "#ffffff" }
+  end)
+
+  view3d {
+    bloom = 4,
+    lights = {
+      { type = "AmbientLight", intensity = 0.8 },
+      { type = "DirectionalLight", position = { 2, 4, 5 }, intensity = 1.2 },
+    },
+    meshes = {
+      {
+        geometry = { type = "CapsuleGeometry", radius = 0.25, height = 0.8, cap_segments = 6, radial_segments = 12 },
+        from = { -1, -0.5, 0 },
+        to = { 1, 0.5, 0 },
+        stretch = true,
+        material = {
+          type = "ShaderMaterial",
+          vertex_shader = "varying vec3 vCol; void main() { vCol = instanceColor + vec3(instanceId * 0.1); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }",
+          fragment_shader = "varying vec3 vCol; void main() { gl_FragColor = vec4(vCol, 1.0); }",
+        },
+        instances = {
+          { from = { -0.8, -0.4, 0 }, to = { 0.8, 0.4, 0 }, color = "#00ff88" },
+          { position = { 0, 0, 0 }, look_at = { 0, 0, 5 }, color = "#ff0055" },
+        },
+      },
+      {
+        geometry = {
+          type = "TubeGeometry",
+          radius = 0.12,
+          radial_segments = 10,
+          points = { { -1, 0, 0 }, { 0, 0.5, 0 }, { 1, 0, 0 } },
+        },
+        material = { type = "MeshStandardMaterial", color = "#38bdf8" },
+      },
+    },
+  }
+end }
+`
+	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
+	media: om.Media
+	om.media_init(&media)
+	defer om.media_destroy(&media)
+	s: Script
+	defer unload(&s)
+	testing.expectf(t, load(&s, path, nil, &media) == nil, "load failed: %s", error_message(s.failure, context.temp_allocator))
+	r: om.Renderer
+	testing.expect_value(t, om.renderer_init(&r, &s.video, &media), om.Error.None)
+	defer om.renderer_destroy(&r)
+	om.render_frame(&r, 1)
+	testing.expectf(t, len(r.ctx.diagnostics) == 0, "unexpected diagnostics: %v", r.ctx.diagnostics[:])
+}
+

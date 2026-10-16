@@ -714,6 +714,98 @@ placed_clip_time :: proc(ctx: ^om.Context, src: string) -> (at: Maybe(f64), plac
 	return nil, placed
 }
 
+// audio_energy(f, { src, bus, smooth = 0 }) -> { rms, peak, low, mid, high }:
+// how loud the sound is at frame `f`, each 0..1: clip `src` where its
+// tracks play it (as audio_spectrum reads it), else the tracks playing then
+// (on bus `bus`, or all), summed by their gains. `low`, `mid` and `high` are
+// the energy below 375 Hz, to 2.8 kHz and above; `smooth` averages that many
+// frames on each side.
+@(private)
+l_audio_energy :: proc "c" (L: ^lua.State) -> c.int {
+	s := host(L)
+	context = s.odin_context
+	ctx := render_ctx(L, s)
+	index, fps, _ := frame_clock(L, 1)
+	src, bus: string
+	smooth := 0
+	if lua.istable(L, 2) {
+		fields_begin(L, 2)
+		src = get_str(L, 2, "src", "")
+		bus = get_str(L, 2, "bus", "")
+		smooth = max(int(get_num(L, 2, "smooth", 0)), 0)
+		fields_end(L, s, 2, "audio_energy")
+	}
+	// A clip not built yet (audio_add) reads as silence until it lands.
+	ready :: proc(L: ^lua.State, s: ^Script, ctx: ^om.Context, src: string) -> bool {
+		if s.audio_later && audio_deferred(s, src) {
+			if src not_in ctx.media.audio {
+				ctx.audio_pending += 1
+				return false
+			}
+			return true
+		}
+		build_pending(L, s, src)
+		return true
+	}
+	energy: om.Audio_Energy
+	if src != "" {
+		if !ready(L, s, ctx, src) {
+			push_energy(L, energy)
+			return 1
+		}
+		clip, ok := &ctx.media.audio[src]
+		if !ok {
+			om.report(ctx, .Error, {code = .Missing_Audio, name = src})
+			lua.pushnil(L)
+			return 1
+		}
+		if at, placed := placed_clip_time(ctx, src); placed && lua.istable(L, 1) {
+			if t, playing := at.?; playing {
+				v_fps := max(ctx.video.fps, 1)
+				energy = om.audio_energy(clip, int(math.round(t * f64(v_fps))), v_fps, smooth)
+			}
+		} else {
+			energy = om.audio_energy(clip, index, fps, smooth)
+		}
+		push_energy(L, energy)
+		return 1
+	}
+	// The tracks' clips first: a track is placed once its clip exists.
+	for tr in ctx.video.audio {
+		if bus == "" || tr.bus == bus {
+			ready(L, s, ctx, tr.src)
+		}
+	}
+	sample := om.frames_to_samples(ctx.frame.global_index, ctx.video.fps)
+	v_fps := max(ctx.video.fps, 1)
+	for p in om.placed_audio(ctx).tracks {
+		if (bus != "" && p.track.bus != bus) || sample < p.start || sample >= p.end {
+			continue
+		}
+		clip := &ctx.media.audio[p.track.src]
+		t := f64(p.file_start + sample - p.start) / om.MIX_RATE
+		te := om.audio_energy(clip, int(math.round(t * f64(v_fps))), v_fps, smooth)
+		gain := math.pow_f32(10, p.track.gain_db / 20)
+		energy.rms = min(energy.rms + te.rms * gain, 1)
+		energy.peak = min(max(energy.peak, te.peak * gain), 1)
+		energy.low = min(energy.low + te.low * gain, 1)
+		energy.mid = min(energy.mid + te.mid * gain, 1)
+		energy.high = min(energy.high + te.high * gain, 1)
+	}
+	push_energy(L, energy)
+	return 1
+}
+
+@(private = "file")
+push_energy :: proc(L: ^lua.State, e: om.Audio_Energy) {
+	lua.createtable(L, 0, 5)
+	set_num(L, "rms", e.rms)
+	set_num(L, "peak", e.peak)
+	set_num(L, "low", e.low)
+	set_num(L, "mid", e.mid)
+	set_num(L, "high", e.high)
+}
+
 // spectrum_centered(list): low frequencies in the middle (fframes'
 // center_spectrum_low_frequencies).
 @(private)

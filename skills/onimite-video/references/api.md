@@ -479,6 +479,7 @@ group({ box = { x = 100, y = 240, w = 540, h = 640, name = "card" } }, function(
 end)
 
 group({ blur = 8 }, function() circle { cx = 1000, cy = 800, r = 80, fill = "#22d3ee" } end)
+group({ bloom = { threshold = 0.65, intensity = 0.6, radius = 12 } }, function() ... end)  -- bright parts glow (or bloom = 12)
 group({ shadow = { dx = 0, dy = 12, blur = 20, color = "#000", opacity = 0.5 } }, function()
   rect { x = 1300, y = 650, w = 300, h = 200, rx = 24, fill = "#f8fafc" }
 end)
