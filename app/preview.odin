@@ -446,7 +446,8 @@ preview_report :: proc(app: ^App_State) {
 // thumbnails render); "mark" toggles the bookmark at frame 42; "reload"
 // reloads at window frame 60; "lanes" shows every audio lane; "seek" jumps
 // to frame 130, 75 and 340, then back to the start frame (40 window frames
-// apart; feedback buffers' checkpoints). The workspace: "watch" opens the
+// apart; feedback buffers' checkpoints); "fullscreen" toggles fullscreen
+// every 60 window frames, from frame 30. The workspace: "watch" opens the
 // Watch on its cues (window frame 2), "media" on the media (as I does),
 // "split" splits the video's panel to
 // the right (10), "move" moves the timeline into the empty panel (20),
@@ -472,6 +473,9 @@ preview_drive :: proc(app: ^App_State, s: ^ui.State, drive: string, frames: int)
 	}
 	if frames == 2 && strings.contains(drive, "pause") {
 		command_push(c, .Playback_Set, {flag = false})
+	}
+	if frames % 60 == 30 && strings.contains(drive, "fullscreen") {
+		command_push(c, .Fullscreen_Toggle, {})
 	}
 	preview_drive_workspace(app, drive, frames)
 	preview_drive_lister(app, s, drive, frames)
