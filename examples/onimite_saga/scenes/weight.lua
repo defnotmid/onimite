@@ -1,6 +1,6 @@
 local look = require("look")
 local fx = require("fx")
-local C = require("cues")
+local score = require("music.score")
 local sfx = require("sfx")
 local facts = require("facts")
 local snap = look.snap
@@ -25,7 +25,7 @@ for c, chart in ipairs(CHARTS) do
   for i, name in ipairs { "Remotion", "fframes" } do
     local s = setup(name)
     chart.max = math.max(chart.max, chart.value(s))
-    ROWS[#ROWS + 1] = { chart = chart, setup = s, y = chart.y + 30 + (i - 1) * 90, t0 = 1 + (c - 1) * 2.2 + (i - 1) * 0.8 }
+    ROWS[#ROWS + 1] = { chart = chart, setup = s, y = chart.y + 30 + (i - 1) * 90, t0 = 1 + (c - 1) * 2 + (i - 1) }
   end
 end
 
@@ -65,13 +65,14 @@ end
 local SOUNDS = {}
 for _, r in ipairs(ROWS) do -- a thump as each bar lands, lower and louder the longer it is
   local heavy = r.chart.value(r.setup) / r.chart.max
-  SOUNDS[#SOUNDS + 1] = sfx.at(C.WEIGHT, r.t0, sfx.thump(34 - 8 * heavy), 0.4 + 0.3 * heavy)
+  SOUNDS[#SOUNDS + 1] = sfx.at("weight", r.t0, sfx.thump(34 - 8 * heavy), 0.4 + 0.3 * heavy)
 end
 local BIG = ROWS[2].t0 -- fframes' 3.4 GB
-SOUNDS[#SOUNDS + 1] = sfx.at(C.WEIGHT, BIG - 0.8, sfx.whoosh(C.seconds(C.WEIGHT + BIG - 0.8, 0.8), 0.05), 0.22)
-SOUNDS[#SOUNDS + 1] = sfx.at(C.WEIGHT, BIG, sfx.impact(), 0.7)
+SOUNDS[#SOUNDS + 1] = sfx.at("weight", BIG - 1, sfx.whoosh(sfx.seconds("weight", BIG - 1, 1), 0.05), 0.22)
+SOUNDS[#SOUNDS + 1] = sfx.at("weight", BIG, sfx.impact(), 0.7)
 
-scene { "Weight", cue = "WEIGHT", start = C.time(C.WEIGHT), audio = SOUNDS, render = function(f)
-  local gb = C.beat(f)
-  weight(f, gb - C.WEIGHT, gb)
+local AT = score.time("weight")
+scene { "Weight", cue = "weight", start = AT, audio = SOUNDS, render = function(f)
+  local gb = score.beat(f)
+  weight(f, gb - score.beat(AT), gb)
 end }

@@ -185,7 +185,7 @@ load_diagnostics :: proc(s: ^script.Script, m: ^om.Media) -> []om.Diagnostic {
 	pending := script.audio_pending_names(s)
 	fps := s.video.fps
 	for tr in s.video.audio {
-		if tr.src != "" && tr.src not_in m.audio && !slice.contains(pending, tr.src) {
+		if tr.src != "" && !om.media_has_sound(m, tr.src) && !slice.contains(pending, tr.src) {
 			append(&out, om.Diagnostic{severity = .Error, code = .Missing_Track, name = tr.source, a = tr.src})
 			continue
 		}

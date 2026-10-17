@@ -1,9 +1,11 @@
--- Quick cuts, a bar each (a series: every part counts its beats from 0):
+-- Quick cuts on the song's glitch stutters, a bar each (a series: every
+-- part counts its beats from 0):
 -- the SVG bird flapping by id override, shaped ligatures, Arabic joining,
 -- and Pip, the mascot, as an alpha video clip with a glow, dancing on a 3D
 -- stage (view3d{}) that the clip composites over.
 
 local beat = require("beat")
+local score = require("track")
 local ui = require("ui")
 local T = require("timeline")
 local snap, soft = beat.snap, beat.soft
@@ -127,16 +129,16 @@ local function avatar(f, lb)
   label(lb, 4, "ProRes 4444 alpha video · glow · on a view3d{} stage")
 end
 
--- each part gets its own frame and its beats since it began
-local function part(fn) return function(g) fn(g, g.seconds / beat.BEAT) end end
-local CUTS, beats = T.TRICK_CUTS, beat.clock.seconds
+-- each part gets its own frame and its beats since it began (its cut)
+local function part(from, fn) return function(g) fn(g, score.beat(g.global_seconds) - score.beat(from)) end end
+local START, CUTS = score.time("tricks"), T.at.TRICK_CUTS
 local PARTS = {
-  { beats(CUTS[1]), part(bird) },
-  { beats(CUTS[2] - CUTS[1]), part(ligatures) },
-  { beats(CUTS[3] - CUTS[2]), part(arabic) },
-  { nil, part(avatar) },
+  { CUTS[1] - START, part(START, bird) },
+  { CUTS[2] - CUTS[1], part(CUTS[1], ligatures) },
+  { CUTS[3] - CUTS[2], part(CUTS[2], arabic) },
+  { nil, part(CUTS[3], avatar) },
 }
 
 local function render(f) series(f, PARTS) end
 
-return { name = "Tricks", start = T.TRICKS, stop = T.OUTRO, render = render }
+return { name = "Tricks", section = "tricks", render = render }

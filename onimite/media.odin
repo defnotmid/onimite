@@ -32,6 +32,9 @@ Media :: struct {
 	onsets:   ^Onset_Cache,
 	// Decodes audio formats the core doesn't (set by the host).
 	decoder:  Audio_Decoder,
+	// The songs scripts compose (`song{}`, `sound{}`) and the video's
+	// sample sets (music.odin); shared by copies of the media.
+	music:    ^Music,
 	// Video clips (decoded by `videos.source`, set by the host).
 	videos:   Video_Clips,
 	// Timed text by name: subtitle files (their cues and their words),
@@ -197,6 +200,8 @@ media_init :: proc(m: ^Media) {
 	m.audio = make(map[string]Audio_Clip)
 	m.onsets = new(Onset_Cache)
 	m.onsets.entries = make(map[string]Onset_Cache_Entry)
+	m.music = new(Music)
+	music_init(m.music)
 	m.captions = make(map[string]Captions)
 	m.shaders = make(map[string]string)
 	m.svgs = make(map[string]^Svg_Asset)
@@ -212,6 +217,10 @@ media_destroy :: proc(m: ^Media) {
 	free(m.cache)
 	onset_cache_destroy(m.onsets)
 	free(m.onsets)
+	if m.music != nil {
+		music_destroy(m.music)
+		free(m.music)
+	}
 	for name, img in m.images {
 		delete(name)
 		delete(img.pixels)

@@ -38,10 +38,10 @@ function M.check(x, y, s, color, width)
     fill = "none", stroke = color, stroke_width = width or s * 0.16, line_cap = "round", line_join = "round" }
 end
 
--- The soundtrack's spectrum at the frame as `n` levels from 0 to 1: bands
--- an equal pitch step wide (94 Hz to 12 kHz), -20 to +26 dB.
+-- The song's spectrum at the frame as `n` levels from 0 to 1: bands an
+-- equal pitch step wide (94 Hz to 12 kHz), -20 to +26 dB.
 function M.spectrum(f, n)
-  return audio_spectrum(f, { src = "track.wav", sample_size = 512, smooth = 2, window = "hann", bands = n,
+  return audio_spectrum(f, { src = "score", sample_size = 512, smooth = 2, window = "hann", bands = n,
     log = true, levels = { -20, 26 } }) or {}
 end
 

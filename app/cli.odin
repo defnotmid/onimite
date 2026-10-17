@@ -67,6 +67,8 @@ Timeline_Report :: struct {
 	scenes:           []Timeline_Scene `json:"scenes"`,
 	audio:            []Timeline_Track `json:"audio"`,
 	sync:             []Timeline_Sync  `json:"sync"`,
+	// The songs the script made: their form and tracks.
+	songs:            []Timeline_Song  `json:"songs"`,
 	missing_files:    []string         `json:"missing_files"`,
 }
 
@@ -126,6 +128,7 @@ timeline_print :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 		}
 	}
 	rep.sync = sync[:]
+	rep.songs = timeline_songs(&app.script)
 
 	b := strings.builder_make(context.temp_allocator)
 	fmt.sbprintf(&b, "%dx%d @ %d fps, %d frames (%.2fs)\n", rep.width, rep.height, rep.fps, rep.duration_frames, rep.duration_seconds)
@@ -207,6 +210,9 @@ timeline_print :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 		}
 		fmt.sbprintf(&b, "audio %s\n", track_summary(p))
 	}
+	for sg in rep.songs {
+		write_song(&b, sg)
+	}
 	for sp in rep.sync {
 		if on_scene_line(sp, rep.scenes) {
 			continue
@@ -256,6 +262,9 @@ snapshot_name :: proc(spec: string) -> string {
 frames_export :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 	r := renderer_scaled(app, 1) or_return
 	specs, frames := resolve_frames(app, &r.timeline, r.video.fps, regs.spec) or_return
+	// Songs' tables: only the rows these frames read (when that is less sound).
+	app.script.audio_frames = len(frames)
+	defer app.script.audio_frames = 0
 	// `-o shot.png` is the file itself (one frame); anything else is a
 	// directory that gets one PNG per spec, named after it.
 	dir := regs.path if regs.path != "" else "frames"
@@ -348,6 +357,9 @@ strip_export :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 	r := renderer(app, f32(cell_w) / f32(v.width)) or_return
 	start, end := resolve_range(app, &r.timeline, v.fps, regs.spec) or_return
 	frames := spread(start, end, regs.count if regs.count > 0 else 12)
+	// Songs' tables: only the rows these frames read (when that is less sound).
+	app.script.audio_frames = len(frames)
+	defer app.script.audio_frames = 0
 	pixels, reports := render_cells(app, r, frames)
 	labels := make([]string, len(frames), context.temp_allocator)
 	for f, i in frames {
@@ -365,6 +377,9 @@ onion_export :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 	r := renderer_scaled(app, 0.5) or_return
 	start, end := resolve_range(app, &r.timeline, r.video.fps, regs.spec) or_return
 	frames := spread(start, end, regs.count if regs.count > 0 else 6)
+	// Songs' tables: only the rows these frames read (when that is less sound).
+	app.script.audio_frames = len(frames)
+	defer app.script.audio_frames = 0
 	pixels, reports := render_cells(app, r, frames)
 	out := regs.path if regs.path != "" else "onion.png"
 	blended := onion_skin(pixels, len(frames))
@@ -496,6 +511,9 @@ Snapshot_Result :: struct {
 snapshot_check :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 	r := renderer_scaled(app, 1) or_return
 	specs, frames := resolve_frames(app, &r.timeline, r.video.fps, regs.spec) or_return
+	// Songs' tables: only the rows these frames read (when that is less sound).
+	app.script.audio_frames = len(frames)
+	defer app.script.audio_frames = 0
 	dir := regs.path if regs.path != "" else "_frame_snapshots"
 	update := .Update in regs.flags
 	threshold := regs.threshold if regs.threshold > 0 else 16
@@ -673,6 +691,10 @@ inspect :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 		}
 	}
 	for d in load_diagnostics(&app.script, app_media(app)) {
+		finding_add(&findings, nil, LOAD_FRAME, d)
+	}
+	// Each song rendered alone, through odawg's checks.
+	for d in song_check_diagnostics(&app.script, .Info in regs.flags) {
 		finding_add(&findings, nil, LOAD_FRAME, d)
 	}
 	failed := false

@@ -1,6 +1,6 @@
 local look = require("look")
 local fx = require("fx")
-local C = require("cues")
+local score = require("music.score")
 local pip = dofile("../common/pip.lua")
 local sfx = require("sfx")
 local W = look.W
@@ -28,20 +28,27 @@ local function fade(f, lb, gb)
 end
 
 -- Its sounds (sfx.lua), in beats into the scene.
--- embers popping while Pip burns away, then the question typed
-local SOUNDS = {}
+-- embers popping in clusters while Pip burns away (a crackle with no other
+-- within a sixth of a beat is left out: a lone one would be a hit off the
+-- beat), then the question typed
+local SOUNDS, embers = {}, {}
 local lb = 1.3
 while lb < 7 do
   local p = math.sin(math.pi * (lb - 1.3) / 5.7)
   local k = math.floor(lb * 100)
-  if hash(k) < 0.7 * p * p then
-    SOUNDS[#SOUNDS + 1] = sfx.at(C.FADE, lb + hash(k + 1) * 0.04, sfx.crackle(), 0.2 + 0.3 * hash(k + 2), hash(k + 3) * 2 - 1)
-  end
+  if hash(k) < 0.7 * p * p then embers[#embers + 1] = { lb + hash(k + 1) * 0.04, k } end
   lb = lb + 0.04
 end
-sfx.add(SOUNDS, sfx.typing(C.FADE, 5.6, 6.6, "pip?", 0.4, 900, function() return sfx.tick(2200) end))
+for i, e in ipairs(embers) do
+  local near = (embers[i - 1] and e[1] - embers[i - 1][1] < 1 / 6) or (embers[i + 1] and embers[i + 1][1] - e[1] < 1 / 6)
+  if near then
+    SOUNDS[#SOUNDS + 1] = sfx.at("fade", e[1], sfx.crackle(), 0.2 + 0.3 * hash(e[2] + 2), hash(e[2] + 3) * 2 - 1)
+  end
+end
+sfx.add(SOUNDS, sfx.typing("fade", 5.6, 6.6, "pip?", 0.4, 900, function() return sfx.tick(2200) end))
 
-scene { "Fade", cue = "FADE", start = C.time(C.FADE), audio = SOUNDS, render = function(f)
-  local gb = C.beat(f)
-  fade(f, gb - C.FADE, gb)
+local AT = score.time("fade")
+scene { "Fade", cue = "fade", start = AT, audio = SOUNDS, render = function(f)
+  local gb = score.beat(f)
+  fade(f, gb - score.beat(AT), gb)
 end }

@@ -426,8 +426,6 @@ worker_clips_start :: proc(w: ^Render_Worker, s: ^script.Script, tl: om.Timeline
 	for o, i in order {
 		sorted[i] = names[o]
 	}
-	// Frames never build them: they draw without and again once they land.
-	s.audio_later = true
 	b := clip_builds_make(sorted, w.pool, nil, w.script_path, w.media_dir, w.script_args, w.script_props, w.video)
 	b.wake, b.wake_data = worker_wake, w
 	w.clips_began = time.tick_now()
@@ -491,6 +489,23 @@ worker_clips :: proc(w: ^Render_Worker) -> bool {
 				fmt.eprintfln("preview worker: %d clips built in %.1f ms", len(w.clips.slots), time.duration_milliseconds(time.tick_since(w.clips_began)))
 			}
 			worker_clips_retire(w)
+		}
+	}
+	// Songs' sample sets that loaded: the mix plays them from now on.
+	if om.music_banks_landed(w.media) > 0 && landed == 0 {
+		worker_place_audio(w)
+	}
+	// Songs' tables that landed: their lanes fill, and a frame that read
+	// one before it did is drawn again.
+	if om.music_landed(w.media) > 0 {
+		wave_builder_landed(&w.waves)
+		for &t in w.thumbs {
+			if t.audio {
+				t.tries = 0
+			}
+		}
+		if landed == 0 && w.frame_audio && w.renderer_ok {
+			worker_render(w, w.last_request)
 		}
 	}
 	if landed > 0 {
@@ -561,7 +576,7 @@ worker_idle_ready :: proc(w: ^Render_Worker) -> (ready: bool, retry: time.Durati
 		append(&w.thumb_free, ..w.thumb_retired[:])
 		clear(&w.thumb_retired)
 	}
-	if w.mb.clips_landed || clips_built_here(w) || wave_builder_pending(&w.waves) || watch_pending(w) || media_pending(w) {
+	if w.mb.clips_landed || clips_built_here(w) || wave_builder_pending(&w.waves) || watch_pending(w) || media_pending(w) || om.music_queued(w.media) {
 		return true, 0
 	}
 	if thumb_next(w) < 0 {
@@ -624,6 +639,8 @@ thumbs_allowed :: proc(w: ^Render_Worker, busy: bool) -> (ok: bool, retry: time.
 // One step of idle work, in priority order.
 @(private = "file")
 worker_idle :: proc(w: ^Render_Worker, busy: bool) {
+	// what this step asked of the songs (a lane, a thumbnail)
+	defer om.music_drain(w.media)
 	if worker_clips(w) {
 		return
 	}
@@ -687,6 +704,8 @@ worker_load :: proc(w: ^Render_Worker, reload_media: bool) {
 	if reload_media || media == nil {
 		media = new(om.Media)
 		media_open(media, w.image_budget, w.video)
+		// songs' tables built in the background wake the worker when they land
+		om.music_set_wake(media, worker_wake, w)
 		if os.is_dir(w.media_dir) {
 			files := 0
 			if infos, err := os.read_all_directory_by_path(w.media_dir, context.temp_allocator); err == nil {
@@ -733,6 +752,9 @@ worker_load :: proc(w: ^Render_Worker, reload_media: bool) {
 	sync.mutex_lock(&w.mb.mutex)
 	w.mb.load_phase = .Timeline
 	sync.mutex_unlock(&w.mb.mutex)
+	// The timeline phase's steps, for the debug line.
+	steps: [6]time.Tick
+	steps[0] = time.tick_now()
 	if w.renderer_ok {
 		om.renderer_destroy(&w.renderer)
 		w.renderer_ok = false
@@ -758,6 +780,10 @@ worker_load :: proc(w: ^Render_Worker, reload_media: bool) {
 	w.script = next
 	w.media = media
 	w.ever_loaded = true
+	// What a frame reads that takes long to make (a song's tables, a clip
+	// the script builds) is made in the background: the frame draws without
+	// it and again once it lands.
+	next.audio_later = true
 	// Clips the script makes (built on the pool below): a kept media's
 	// copies are from the last version of the script.
 	for name in script.audio_pending_names(next) {
@@ -769,9 +795,11 @@ worker_load :: proc(w: ^Render_Worker, reload_media: bool) {
 	// Everything derived from the last script goes: problems, thumbnails
 	// (their textures retire until the UI takes the new generation).
 	finding_table_clear(&w.findings)
+	steps[1] = time.tick_now()
 	for d in load_diagnostics(next, media) {
 		finding_add(&w.findings, nil, LOAD_FRAME, d)
 	}
+	steps[2] = time.tick_now()
 	delete(w.load_error)
 	w.load_error = ""
 	w.watch_dirty = true
@@ -794,14 +822,17 @@ worker_load :: proc(w: ^Render_Worker, reload_media: bool) {
 		thumb_scale := min(f32(THUMB_HEIGHT) / f32(max(v.height, 1)), 1)
 		w.thumb_size = {u32(f32(v.width) * thumb_scale + 0.5), u32(f32(v.height) * thumb_scale + 0.5)}
 	}
+	steps[3] = time.tick_now()
 	worker_lanes(w)
 	w.media_dirty = true
 	bookmark := bookmark_read(w.script_path) if first_load else -1
+	steps[4] = time.tick_now()
 	if err == nil {
 		// Sound plays at once from what is ready; the rest joins as it lands.
 		worker_publish_audio(w)
 		worker_clips_start(w, next, tl, bookmark if bookmark >= 0 else w.last_request.frame)
 	}
+	steps[5] = time.tick_now()
 
 	sync.mutex_lock(&w.mb.mutex)
 	preview_timeline_build(&w.mb.timeline, &next.video, &w.timeline if err == nil else nil)
@@ -822,7 +853,19 @@ worker_load :: proc(w: ^Render_Worker, reload_media: bool) {
 	sync.mutex_unlock(&w.mb.mutex)
 	w.loaded_at, w.frames_since = time.tick_now(), 0
 	if w.debug {
-		fmt.eprintfln("preview worker: loaded %s in %.1f ms", w.script_path, time.duration_milliseconds(time.tick_since(began)))
+		ms :: proc(a, b: time.Tick) -> f64 {return time.duration_milliseconds(time.tick_diff(a, b))}
+		fmt.eprintfln(
+			"preview worker: loaded %s in %.1f ms (script and media %.1f; timeline phase: last load freed %.1f, diagnostics %.1f, timeline %.1f, lanes %.1f, mix and clips %.1f, published %.1f)",
+			w.script_path,
+			ms(began, time.tick_now()),
+			ms(began, steps[0]),
+			ms(steps[0], steps[1]),
+			ms(steps[1], steps[2]),
+			ms(steps[2], steps[3]),
+			ms(steps[3], steps[4]),
+			ms(steps[4], steps[5]),
+			ms(steps[5], time.tick_now()),
+		)
 	}
 }
 
@@ -910,6 +953,8 @@ make_target :: proc(device: ^sdl.GPUDevice, size: [2]u32) -> ^sdl.GPUTexture {
 
 @(private = "file")
 worker_render :: proc(w: ^Render_Worker, req: Render_Request) {
+	// what the frame asked of the songs, with what the lanes asked
+	defer om.music_drain(w.media)
 	r := worker_renderer(w, req.scale)
 	if r == nil {
 		sync.mutex_lock(&w.mb.mutex)

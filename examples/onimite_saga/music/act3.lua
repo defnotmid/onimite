@@ -1,31 +1,29 @@
--- Act III: the chorus (drums, side-chained bass, stabs, arp, the hook),
--- a cue on every card, glitches on the last chorus's words.
--- Its hits sit on cues.lua's beats; music/parts.lua has what the acts share.
+-- Act III: the chorus at 144: the verse's groove on sixteenth hats, the arp
+-- all the way, Pip's hook over the family's second and third cards and the
+-- check, a crash on every card. The last chorus accelerates to 168 and
+-- builds into the stop: a riser, a hat roll, a clap roll.
 
-local C = require("cues")
 local P = require("music.parts")
+local roll, join, at, HOOK = P.roll, P.join, P.beats, P.HOOK
 
-local B, bdur = C.time, C.seconds
-local sin, floor, min = math.sin, math.floor, math.min
+local CHORUS = "montage..tape_stop"
 
-return function()
-  local s = P.section(C.CHORUS, C.STOP)
-  local grooves = {
-    { C.CHORUS, C.ODECS, "kcHobsaf" },
-    { C.ODECS, C.NOT, "kcHobsalf" },
-    { C.NOT, C.CHECK, "kcHobsaf" },
-    { C.CHECK, C.STOP, "kcHobsalf" },
-  }
-  s.kicks(P.kick_times(grooves), 0.8)
-  for _, g in ipairs(grooves) do P.groove(s, g[1], g[2], g[3]) end
-
-  for _, b in ipairs { C.OVG, C.ODECS, C.OKSL, C.NOT, C.CHECK, C.LAST } do P.crash(s, b, 0.7) end
-  P.crash(s, C.CHORUS)
-  s.impact(B(C.CHORUS), 0.85)
-  -- the last chorus builds into the stop
-  s.riser(B(C.LAST + 8), bdur(C.LAST + 8, 7.8), 0.4)
-  for r = 0, 7 do s.hat(B(C.LAST + 14 + r / 8), 0.045, 90, 0.2 + 0.04 * r) end
-  for r = 0, 15 do s.clap(B(C.LAST + 14 + r / 8), 0.2 + 0.02 * r) end
-
-  return P.finish(s)
-end
+return {
+  drums = {
+    { CHORUS, steps = { kick = "x...x...x...x...", clap = { "....x.......x...", "....x.......xoxX" } }, velocity = 0.95 },
+    { CHORUS, steps = { hat = "xo.oxo.oxo.oxo.o", open_hat = "..x...x...x...x." }, velocity = 0.6 },
+    { "ovg..last", steps = { crash = { "x...............", "" } }, velocity = 0.75 },
+    { "last", steps = { crash = { "x...............", "", "", "" } }, velocity = 0.75 },
+    { "last", events = join(roll("hat", 14, 8, 0.125, 0.5, 1), roll("clap", 14, 16, 0.125, 0.4, 1)) },
+  },
+  bass = { { CHORUS, degrees = ". 1 8 1 . 1 8 1 . 1 8 1 . 1 8 1", subdivision = "16n", duration = "0:0:0.85" } },
+  stabs = { { CHORUS, chords = { voicing = "close", rhythm = "x.....x.....x..." }, duration = "8n" } },
+  arp = { { CHORUS, degrees = "1 3 5 8 5 3 5 8", subdivision = "16n", velocity = 0.55 } },
+  lead = {
+    { "odecs", notes = HOOK.AF, subdivision = "8n" },
+    { "oksl", notes = HOOK.CG, subdivision = "8n" },
+    { "check", notes = HOOK.CG, subdivision = "8n" },
+    { "last", notes = HOOK.AF .. " " .. HOOK.CG, subdivision = "8n" },
+  },
+  sweep = { { "last", events = { { time = "2m", duration = at(7.8), velocity = 0.4 } } } },
+}

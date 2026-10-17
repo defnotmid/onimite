@@ -44,19 +44,26 @@ The pieces the brief asks for:
   backgrounds, inside the format frame and over a checkerboard. It loops
   every two seconds (four beats), so it dances on the beat in every
   section.
-- **Music with beat-synced cuts**: `track.lua` synthesizes C G Am F with
-  the examples' shared instruments (`../common/synth.lua`, `audio_add`); every section and
-  feature cut falls on its beat, flashes and punches in, with a crash in the
-  music. `onimite audio analyze`: -13.9 LUFS, -1.0 dBTP.
+- **Music with beat-synced cuts**: `track.lua` is an odawg `song{}`,
+  Chicago house in C (C G Am F) on a swung 909 (`DrumMachine`), a rolling
+  bass, organ stabs and, at the outro, piano chords on a sampled upright
+  (`Sampler`, vcsl), a section per part of the promo. The picture reads the
+  song (`timeline.lua`): the scenes start on its sections, the headline
+  lines slam on its claps, the format frames pop on its blips, the feature
+  cuts are its crashes (the picture flashes and punches in on them with
+  `score.pulse`, and a `cue` lets inspect check the song hits there) and
+  the picture pumps on its kicks. `onimite audio analyze`: -14.1 LUFS,
+  -1.5 dBTP.
 - **Progress bar**: story-style, a segment per section filling as it plays.
 
 Render with `build/onimite` (Vulkan Video): the three-row batch in 5.4-5.6 s
 (1.5-1.9 s of rendering per format).
 
-Files: `video.lua` (formats, layout, sections), `timeline.lua` (the beat
-clock, cues and the voice-over), `track.lua` (the music), `rows.json` (the
-three formats).
+Files: `video.lua` (formats, layout, sections), `timeline.lua` (every cue
+in beats, read from the song, and the voice-over), `track.lua` (the song),
+`rows.json` (the three formats).
 
 Media: `mascot.webm` from `tools/gen_media` (this repository, MIT); fonts
 copied from other examples (OFL): Inter ExtraBold, DM Sans Medium,
-JetBrains Mono. The music is synthesized.
+JetBrains Mono. The music is composed by odawg from `track.lua` (the
+piano: the VCSL upright, CC0, downloaded on first use).

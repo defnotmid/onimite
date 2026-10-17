@@ -1,6 +1,6 @@
 local look = require("look")
 local fx = require("fx")
-local C = require("cues")
+local score = require("music.score")
 local sfx = require("sfx")
 local facts = require("facts")
 local snap = look.snap
@@ -27,10 +27,11 @@ end
 -- Its sounds (sfx.lua), in beats into the scene.
 local SOUNDS = {}
 for i = 1, 4 do -- a blip per chip, up the scale
-  SOUNDS[#SOUNDS + 1] = sfx.at(C.ONE, 2 + i, sfx.blip(660 * 2 ^ ((i - 1) * 2 / 12)), 0.18)
+  SOUNDS[#SOUNDS + 1] = sfx.at("one", 2 + i, sfx.blip(660 * 2 ^ ((i - 1) * 2 / 12)), 0.18)
 end
 
-scene { "One", cue = "ONE", start = C.time(C.ONE), audio = SOUNDS, render = function(f)
-  local gb = C.beat(f)
-  one(f, gb - C.ONE, gb)
+local AT = score.time("one")
+scene { "One", cue = "one", start = AT, audio = SOUNDS, render = function(f)
+  local gb = score.beat(f)
+  one(f, gb - score.beat(AT), gb)
 end }

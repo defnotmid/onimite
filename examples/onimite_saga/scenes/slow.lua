@@ -1,6 +1,6 @@
 local look = require("look")
 local fx = require("fx")
-local C = require("cues")
+local score = require("music.score")
 local W, H = look.W, look.H
 
 -- ---- the tape slows ------------------------------------------------------------
@@ -30,7 +30,8 @@ local function slow(f, lb, gb)
   end)
 end
 
-scene { "Slow", cue = "SLOW", start = C.time(C.SLOW), render = function(f)
-  local gb = C.beat(f)
-  slow(f, gb - C.SLOW, gb)
+local AT = score.time("slow")
+scene { "Slow", cue = "slow", start = AT, render = function(f)
+  local gb = score.beat(f)
+  slow(f, gb - score.beat(AT), gb)
 end }

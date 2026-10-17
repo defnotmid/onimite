@@ -204,7 +204,7 @@ resolve_frames :: proc(app: ^App_State, t: ^om.Timeline, fps: int, specs: string
 	times := spec_names(app) or_return
 	for part in strings.split(specs, ",", context.temp_allocator) {
 		for spec in strings.fields(part, context.temp_allocator) {
-			f, ferr := om.parse_frame(t^, fps, spec, times)
+			f, ferr := om.parse_frame(t^, fps, spec, times, &app.media)
 			if ferr != nil {
 				return nil, nil, fail(app, spec_failure(t, fps, spec, ferr, times))
 			}
@@ -219,7 +219,7 @@ resolve_frames :: proc(app: ^App_State, t: ^om.Timeline, fps: int, specs: string
 resolve_range :: proc(app: ^App_State, t: ^om.Timeline, fps: int, spec: string) -> (start, end: int, err: Error) {
 	times := spec_names(app) or_return
 	rerr: om.Error
-	start, end, rerr = om.parse_range(t^, fps, spec, times)
+	start, end, rerr = om.parse_range(t^, fps, spec, times, &app.media)
 	if rerr != nil {
 		return 0, 0, fail(app, spec_failure(t, fps, spec, rerr, times))
 	}

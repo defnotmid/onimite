@@ -1,6 +1,6 @@
 local look = require("look")
 local fx = require("fx")
-local C = require("cues")
+local score = require("music.score")
 local W = look.W
 
 -- ---- before the first frame ------------------------------------------------------
@@ -40,7 +40,8 @@ local function before(f, lb)
   end)
 end
 
-scene { "Before", cue = "BEFORE", start = C.time(C.BEFORE), render = function(f)
-  local gb = C.beat(f)
-  before(f, gb - C.BEFORE, gb)
+local AT = score.time("before")
+scene { "Before", cue = "before", start = AT, render = function(f)
+  local gb = score.beat(f)
+  before(f, gb - score.beat(AT), gb)
 end }

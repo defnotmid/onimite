@@ -3,17 +3,20 @@
 -- picks the canvas, and everything else is laid out from it at load: the
 -- stage, the headline fitted to its box with text_width, the format frames,
 -- the feature cards, the captions and the progress bar. Pip, the mascot, is
--- a VP9 clip with alpha composited over the picture; the music is
--- synthesized at load and every cut lands on its beat; word-level captions
--- come from a WebVTT script built from the beat timeline.
+-- a VP9 clip with alpha composited over the picture; the music is an odawg
+-- song (track.lua) and every cut lands where it hits (timeline.lua reads
+-- its sections, claps, blips and crashes); word-level captions come from a
+-- WebVTT script built from the beat timeline.
 --
 --     onimite render examples/social_clip_kit/video.lua --batch examples/social_clip_kit/rows.json -o out/{name}.mp4
 --     onimite render examples/social_clip_kit/video.lua --set format=1x1 -o square.mp4
 
 local T = require("timeline")
-local track = require("track")
+local score = require("track")
 
-local clock, FPS, BEAT = T.clock, T.FPS, T.BEAT
+local FPS = T.FPS
+-- seconds from beat b to beat gb (negative before it), as the song counts them
+local function since(gb, b) return score.seconds(gb - b) end
 
 -- ---- format and layout (all at load) ----------------------------------------
 
@@ -97,8 +100,8 @@ end
 -- Feature cards: the visual and its title, side by side when wide.
 local FEATURES = {
   { title = "Word-level captions", code = 'captions{ highlight = "box" }' },
-  { title = "Music made in Lua", code = 'audio_add("track.wav", track.build)' },
-  { title = "Cuts on the beat", code = "beat_clock(120)" },
+  { title = "Music made in Lua", code = 'song { "score", style = "chicago_house" }' },
+  { title = "Cuts on the beat", code = 'score.hits { part = "crash" }' },
   { title = "Alpha video", code = 'video_frame{ src = "mascot.webm" }' },
 }
 local CARD = {}
@@ -148,9 +151,9 @@ do
   for _, c in ipairs(T.CAPTIONS) do
     local words = {}
     for i = 1, #c, 2 do
-      words[#words + 1] = (i > 1 and "<" .. stamp(clock.time(c[i])) .. ">" or "") .. c[i + 1]
+      words[#words + 1] = (i > 1 and "<" .. stamp(score.time(c[i])) .. ">" or "") .. c[i + 1]
     end
-    vtt[#vtt + 1] = stamp(clock.time(c[1])) .. " --> " .. stamp(clock.time(c.stop))
+    vtt[#vtt + 1] = stamp(score.time(c[1])) .. " --> " .. stamp(score.time(c.stop))
     vtt[#vtt + 1] = table.concat(words, " ")
     vtt[#vtt + 1] = ""
   end
@@ -161,10 +164,6 @@ local CAPTIONS = { src = "voiceover", x = W / 2 - L.caption.w / 2, y = L.caption
   valign = "middle", font = DISPLAY, weight = 800, size = L.caption.size, line_height = 1.2, uppercase = true,
   fill = PAPER, highlight = "box", highlight_fill = "#ffd23f", active_fill = INK, active_scale = 1.1,
   max_words = 3, hold = 0.3 }
-
--- ---- music -----------------------------------------------------------------
-
-audio_add("track.wav", track.build)
 
 -- ---- shared pieces ---------------------------------------------------------
 
@@ -223,7 +222,7 @@ end
 local function hook(f, gb, lb)
   local th = THEMES[1]
   -- already a little way in on the first frame (the thumbnail)
-  local s = ease(SOFT, (gb - T.BO_IN) * BEAT + 0.12)
+  local s = ease(SOFT, since(gb, T.BO_IN) + 0.12)
   if s > 0 then
     local st = L.stage
     group({ transform = { translate = { 0, (1 - s) * 120 }, scale = 0.6 + 0.4 * s, origin = { st.cx, st.y + st.h } },
@@ -236,7 +235,7 @@ local function hook(f, gb, lb)
   local y0 = hd.cy - lead + HEAD_SIZE * 0.72
   for k, line in ipairs(HEAD) do
     local at = k == 1 and T.LINE1 or T.LINE2
-    local p = ease(SNAP, (gb - at) * BEAT)
+    local p = ease(SNAP, since(gb, at))
     if p > 0 then
       local y = y0 + (k - 1) * lead
       group({ transform = { scale = 1.35 - 0.35 * p, origin = { hd.cx, y - HEAD_SIZE * 0.35 } }, opacity = clamp01(p * 3) },
@@ -250,9 +249,9 @@ end
 
 local function formats(f, gb, lb)
   local th = THEMES[2]
-  local here = ease(SNAP, (gb - T.HERE) * BEAT)
+  local here = ease(SNAP, since(gb, T.HERE))
   for k, fr in ipairs(FRAMES) do
-    local p = ease(SNAP, (gb - T.FRAMES_GO - (k - 1)) * BEAT)
+    local p = ease(SNAP, since(gb, T.FRAMES[k]))
     if p > 0 then
       local b = fr.box
       local mine = fr.key == FORMAT
@@ -314,9 +313,9 @@ local VISUALS = {
       x = x + ws[k] + size * 0.3
     end
   end,
-  -- music: the synthesized track's spectrum, mirrored about the middle
+  -- music: the song's spectrum, mirrored about the middle
   function(f, gb, v, th)
-    local bins = audio_spectrum(f, { src = "track.wav", sample_size = 1024, smooth = 1, bands = 24 })
+    local bins = audio_spectrum(f, { src = "score", sample_size = 1024, smooth = 1, bands = 24 })
     if not bins then return end
     local n = #bins
     local bw = v.w / (2 * n)
@@ -347,7 +346,7 @@ local VISUALS = {
     -- the playhead sweeps the bar
     local x = v.cx + (fract(gb / 4) * 4 - 1.5) * r * 2.8
     rect { x = x - 3, y = v.cy + r * 1.7, w = 6, h = r * 0.5, rx = 3, fill = PAPER }
-    text { "120 BPM", x = v.cx, y = v.cy - r * 1.7, align = "center", font = MONO, size = r * 0.5, fill = PAPER,
+    text { string.format("%d BPM", score.sections[1].bpm), x = v.cx, y = v.cy - r * 1.7, align = "center", font = MONO, size = r * 0.5, fill = PAPER,
       opacity = 0.8 }
   end,
   -- alpha video: Pip over a checkerboard, the transparency showing
@@ -368,15 +367,16 @@ local VISUALS = {
 
 local function features(f, gb, lb)
   local th = THEMES[3]
-  local k = math.min(math.floor(lb / T.FEATURE_LEN), #FEATURES - 1) + 1
-  local cut = T.FEATURES_GO + (k - 1) * T.FEATURE_LEN
-  local p = ease(SNAP, (gb - cut) * BEAT)
+  local k = 1
+  for i, c in ipairs(T.FEATURE_CUTS) do if gb >= c then k = math.min(i, #FEATURES) end end
+  local cut = T.FEATURE_CUTS[k]
+  local p = ease(SNAP, since(gb, cut))
   local v = CARD.vis
   group({ transform = { scale = 0.88 + 0.12 * p, origin = { v.cx, v.cy } }, opacity = clamp01(p * 3) }, function()
     VISUALS[k](f, gb, v, th)
   end)
   local ft = FEATURES[k]
-  local tp = ease(SNAP, (gb - cut - 0.25) * BEAT)
+  local tp = ease(SNAP, since(gb, cut + 0.25))
   if tp > 0 then
     group({ transform = translate(0, (1 - tp) * 50), opacity = clamp01(tp * 2) }, function()
       local y = CARD.ty
@@ -393,10 +393,10 @@ end
 local function outro(f, gb, lb)
   local th = THEMES[4]
   local st = L.stage
-  local s = ease(SOFT, (gb - T.MARK) * BEAT + 0.15)
+  local s = ease(SOFT, since(gb, T.MARK) + 0.15)
   bo(f, st.cx, st.cy, st.w * 1.1 * (0.85 + 0.15 * s), clamp01(s * 2))
   local m = L.mark
-  local mp = ease(SNAP, (gb - T.MARK) * BEAT)
+  local mp = ease(SNAP, since(gb, T.MARK))
   group({ transform = { scale = 1.25 - 0.25 * mp, origin = { m.cx, OUT.mark - OUT.size * 0.35 } },
     opacity = clamp01(mp * 3) }, function()
     text { "onimite", x = m.cx, y = OUT.mark, align = "center", font = DISPLAY, size = OUT.size, weight = 800,
@@ -404,7 +404,7 @@ local function outro(f, gb, lb)
   end)
   text { "one Lua script · every format", x = m.cx, y = OUT.tagline, align = "center", font = SANS,
     size = OUT.tag, fill = PAPER, opacity = clamp01((gb - T.MARK - 0.5) * 2) * 0.85 }
-  local pp = ease(SNAP, (gb - T.PILL) * BEAT)
+  local pp = ease(SNAP, since(gb, T.PILL))
   if pp > 0 then
     group({ transform = { scale = 0.8 + 0.2 * pp, origin = { m.cx, OUT.pill } }, opacity = clamp01(pp * 2) }, function()
       pill(m.cx, OUT.pill, PILL, "#ffffff12", th.accent, th.accent)
@@ -414,7 +414,7 @@ local function outro(f, gb, lb)
   local cq = { font = MONO, size = 30 }
   local cy = OUT.chips
   for k, fr in ipairs(FRAMES) do
-    local cp = ease(SNAP, (gb - T.CHIPS - (k - 1) * 0.25) * BEAT)
+    local cp = ease(SNAP, since(gb, T.CHIPS + (k - 1) * 0.25))
     if cp > 0 then
       cq[1] = fr.label
       local mine = fr.key == FORMAT
@@ -443,40 +443,42 @@ local function progress_bar(gb)
   end
 end
 
--- Cuts: every section start and every feature cut flashes and punches in.
-local CUTS = { 8, 16, 18, 20, 22, 24 }
+-- Cuts: every section start and every feature cut has its crash in the
+-- song; the picture flashes and punches in on it (inspect checks it hits).
+local CUT, FLASH = { part = "crash", decay = 6 }, { part = "crash", decay = 8 }
+local KICK = { part = "drums", note = "kick", decay = 9 }
+cue("cut", score.hits { part = "crash" }, { hit = "score" })
 
 video {
   width = W, height = H, fps = FPS, background = THEMES[1].bottom,
-  duration = { frames = clock.frame(T.TOTAL, FPS) },
-  audio = { { "track.wav", start = 0, fade_out = 0.6 } },
-  -- the synth peaks at -1 dBFS: lifted to about -14 LUFS under a limiter
-  -- (audio analyze: -14.3 LUFS, -1.0 dBTP)
-  master_gain_db = 5.8,
-  limiter = { ceiling_db = -2.4 },
+  duration = score.duration,
+  buses = { music = {} },
+  audio = { { "score", bus = "music", fade_out = 0.6 } },
+  -- the song mixes near -17.5 LUFS: lifted to about -14 under the limiter
+  -- (audio analyze: -14.1 LUFS, -1.5 dBTP)
+  master_gain_db = 3.4,
+  limiter = { ceiling_db = -1.5 },
   render = function(f)
-    local gb = clock.beat(f.global_seconds)
+    local gb = score.beat(f)
     backdrop(f, gb)
-    local since = 99
-    for _, c in ipairs(CUTS) do if gb >= c then since = gb - c end end
-    local punch = 1 + 0.06 * math.exp(-since * 6)
-    local kick = T.kicking(gb) and pulse(gb, 9) or 0
+    local punch = 1 + 0.06 * score.pulse(f, CUT)
+    local kick = score.pulse(f, KICK)
     group({ transform = { scale = punch + 0.006 * kick, origin = { W / 2, H / 2 } } }, function() render_scenes(f) end)
     captions(f.global_seconds, CAPTIONS)
     progress_bar(gb)
-    local flash = math.exp(-since * 8)
+    local flash = score.pulse(f, FLASH)
     if flash > 0.02 then rect { x = 0, y = 0, w = W, h = H, fill = PAPER, opacity = flash * 0.35 } end
     local out = progress(gb, T.TOTAL - 0.75, T.TOTAL)
     if out > 0 then rect { x = 0, y = 0, w = W, h = H, fill = THEMES[4].bottom, opacity = out } end
   end,
 }
 
+-- A scene per section, from its first beat to the next scene's (the
+-- outro through the song's tail).
 for k, s in ipairs(T.SECTIONS) do
-  local start = s[1]
-  local stop = k < #T.SECTIONS and T.SECTIONS[k + 1][1] or T.TOTAL
-  local render = RENDERERS[k]
-  scene { s[2], duration = { frames = clock.frame(stop, FPS) - clock.frame(start, FPS) }, render = function(f)
-    local gb = clock.beat(f.global_seconds)
+  local start, render = s[1], RENDERERS[k]
+  scene { s[2], start = score.time(s[3]), cue = s[3], render = function(f)
+    local gb = score.beat(f)
     render(f, gb, gb - start)
   end }
 end

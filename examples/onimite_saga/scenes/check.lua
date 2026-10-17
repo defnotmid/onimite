@@ -1,6 +1,6 @@
 local look = require("look")
 local fx = require("fx")
-local C = require("cues")
+local score = require("music.score")
 local sfx = require("sfx")
 local snap = look.snap
 local W = look.W
@@ -77,14 +77,15 @@ end
 -- Its sounds (sfx.lua), in beats into the scene.
 -- On the beat grid (inspect's off_beat): cards on beats and half-beats, the
 -- list and the sheet as 16th rolls.
-local SOUNDS = { sfx.at(C.CHECK, 5, sfx.done(), 0.16) }
-for _, c in ipairs { 1, 2.5, 4 } do SOUNDS[#SOUNDS + 1] = sfx.at(C.CHECK, c, sfx.blip(880), 0.16) end -- the cards
+local SOUNDS = { sfx.at("check", 5, sfx.done(), 0.16) }
+for _, c in ipairs { 1, 2.5, 4 } do SOUNDS[#SOUNDS + 1] = sfx.at("check", c, sfx.blip(880), 0.16) end -- the cards
 for i, step in ipairs { 0, 2, 4, 7, 9 } do -- a tick down the list
-  SOUNDS[#SOUNDS + 1] = sfx.at(C.CHECK, 1.5 + i * 0.125, sfx.blip(600 * 2 ^ (step / 12)), 0.12)
+  SOUNDS[#SOUNDS + 1] = sfx.at("check", 1.5 + i * 0.125, sfx.blip(600 * 2 ^ (step / 12)), 0.12)
 end
-for i = 0, 11 do SOUNDS[#SOUNDS + 1] = sfx.at(C.CHECK, 3 + i * 0.125, sfx.blip(900 + i * 60), 0.07) end -- the contact sheet
+for i = 0, 11 do SOUNDS[#SOUNDS + 1] = sfx.at("check", 3 + i * 0.125, sfx.blip(900 + i * 60), 0.07) end -- the contact sheet
 
-scene { "Check", cue = "CHECK", start = C.time(C.CHECK), audio = SOUNDS, render = function(f)
-  local gb = C.beat(f)
-  check(f, gb - C.CHECK, gb)
+local AT = score.time("check")
+scene { "Check", cue = "check", start = AT, audio = SOUNDS, render = function(f)
+  local gb = score.beat(f)
+  check(f, gb - score.beat(AT), gb)
 end }

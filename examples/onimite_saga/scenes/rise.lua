@@ -1,6 +1,6 @@
 local look = require("look")
 local fx = require("fx")
-local C = require("cues")
+local score = require("music.score")
 local snap = look.snap
 local W, H = look.W, look.H
 
@@ -28,7 +28,8 @@ local function rise(f, lb, gb)
   end
 end
 
-scene { "Rise", cue = "RISE", start = C.time(C.RISE), render = function(f)
-  local gb = C.beat(f)
-  rise(f, gb - C.RISE, gb)
+local AT = score.time("rise")
+scene { "Rise", cue = "rise", start = AT, render = function(f)
+  local gb = score.beat(f)
+  rise(f, gb - score.beat(AT), gb)
 end }

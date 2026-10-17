@@ -8,7 +8,7 @@ The rest is in topic files; read one when the video needs it:
 
 | file | |
 | --- | --- |
-| [audio.md](audio.md) | tracks, mixing, loudness, onsets and the beat, spectra, generated audio |
+| [audio.md](audio.md) | tracks, songs and sounds (`song{}`, `sound{}`: odawg), mixing, loudness, onsets and the beat, spectra, generated audio |
 | [media.md](media.md) | SVG documents, Lottie, video clips, subtitles, word-level captions |
 | [shaders.md](shaders.md) | SkSL, Shadertoy and GLSL shaders, multipass passes in any dialect |
 | [filters.md](filters.md) | SVG filter primitives on groups |
@@ -209,6 +209,8 @@ local len = clock.seconds(4)              -- how long 4 beats last (2.0)
 local frames = clock.frame(16, f.fps)     -- frame of beat 16 (rounded): scene durations on the grid
 local kick = clock.pulse(f, 8)            -- 1 on each beat, decaying (= pulse(b, 8))
 -- pulse(x, sharpness): 1 at every whole x, decaying; 0 for x < 0. pulse(b / 4, 6): per bar
+-- A song{} (audio.md) has the same functions on its own tempo map: score.time("drop@1m"),
+-- score.beat(f), score.pulse(f, { part = "drums", note = "kick" }), score.section(f), ...
 group({ transform = { scale = 1 + 0.01 * kick, origin = { 960, 540 } } }, function()
   text { string.format("bar %d", math.floor(bar) + 1), x = 960, y = 540, align = "center",
     font = "DM Sans", size = 96, fill = "#fff" }
@@ -292,6 +294,9 @@ end }
   returns that video time; the cue has `hit = line.name`, so `inspect` checks the voice
   starts there. Put keys and effects that answer the voice on these (audio.md, "Spoken
   lines"):
+
+  `say_start(line, word, t, { nth })` is the inverse: where to start the line's track so it
+  says `word` at `t` (the voice following the music: `say_start(line, "dark", score.time("drop"))`).
 
   ```lua
   local line = say("intro", "Up top, the lamp was dark.")

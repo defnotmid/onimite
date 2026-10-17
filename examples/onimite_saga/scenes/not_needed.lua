@@ -1,6 +1,6 @@
 local look = require("look")
 local fx = require("fx")
-local C = require("cues")
+local score = require("music.score")
 local sfx = require("sfx")
 local snap = look.snap
 
@@ -22,7 +22,7 @@ local PIVOT, ROPE, BALL = { 260, -480 }, 1250, 115
 -- eighth note, the ball smashes it on beat SMASH_AT.
 local function landing(i) return 0.5 + 0.5 * i end
 local SMASH_AT = 5
-local function seconds(lb) return C.time(C.NOT + lb) - C.time(C.NOT) end
+local function seconds(lb) return score.seconds(lb, "not_needed") end
 
 local ITEMS = {}
 for i, s in ipairs(NOT) do ITEMS[i] = { text = s, w = look.width(s, look.DISPLAY, SIZE) } end
@@ -117,11 +117,12 @@ for i = 1, #NOT do
 end
 local SMASH = LANDED[BALL_AT]
 if SMASH then
-  SOUNDS[#SOUNDS + 1] = sfx.at(C.NOT, SMASH_AT - 1, sfx.whoosh(C.seconds(C.NOT + SMASH_AT - 1, 1)), 0.2)
+  SOUNDS[#SOUNDS + 1] = sfx.at("not_needed", SMASH_AT - 1, sfx.whoosh(sfx.seconds("not_needed", SMASH_AT - 1, 1)), 0.2)
   SOUNDS[#SOUNDS + 1] = { sfx.impact(), start = SMASH, gain_db = 20 * math.log(0.5, 10), pan = -0.2, bus = "sfx" }
 end
 
-scene { "NotNeeded", cue = "NOT", start = C.time(C.NOT), audio = SOUNDS, render = function(f)
-  local gb = C.beat(f)
-  not_needed(f, gb - C.NOT, gb)
+local AT = score.time("not_needed")
+scene { "NotNeeded", cue = "not_needed", start = AT, audio = SOUNDS, render = function(f)
+  local gb = score.beat(f)
+  not_needed(f, gb - score.beat(AT), gb)
 end }

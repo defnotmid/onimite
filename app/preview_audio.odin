@@ -7,155 +7,183 @@ import om "../onimite"
 import sdl "vendor:sdl3"
 
 // Preview sound. SDL's audio thread asks for samples through a callback,
-// which mixes them there and then from the placed tracks at the play
-// position (a stream: no mix is made ahead). The render worker publishes the
-// tracks after a load and again whenever clips the script builds land, so
-// sound joins in as it is made; the clock never waits for it. Playing,
-// muted, looping and seeks are written by the UI thread's command handlers;
-// the position is read back by the UI as the playback clock, so picture
-// follows sound. The volume is an atomic (f32 bits) the callback reads
-// without taking the mutex.
+// which streams them there and then from the mix (odawg's engine over the
+// placed tracks, onimite/audio_mix.odin) at the play position: no mix is
+// made ahead, and the samples are the render's. The render worker builds
+// the stream after a load and again whenever clips the script builds land,
+// so sound joins in as it is made; the clock never waits for it.
+//
+// Nothing the UI thread does waits on the callback. The UI writes its rows
+// (play state, volume, a seek) as atomics, and the callback drains them at
+// the start of each request; the callback writes back what is being heard,
+// which the UI reads as the playback clock, so picture follows sound. The
+// worker hands over a new mix under the SDL stream's lock (SDL holds it
+// while the callback runs): only the worker ever waits, for one request.
 
 AUDIO_CHUNK :: 2048 // frames mixed per step inside the callback
 
+Audio_State :: enum u32 {
+	Playing,
+	Muted,
+	Looping,
+}
+
 Audio_Shared :: struct {
-	mutex:    sync.Mutex,
-	// The placed tracks the callback mixes, owned; their clips point into
-	// `clips` (copies of the clips' headers: the samples belong to the
-	// worker's media, which outlives them).
-	tracks:   []om.Placed_Track,
-	clips:    []om.Audio_Clip,
-	opts:     om.Mix_Options,
-	stream_state: om.Mix_Stream,
-	total:    i64, // the video's length in samples
-	position: i64, // next sample handed to SDL
-	playing:  bool,
-	muted:    bool,
-	looping:  bool,
-	// Samples handed to SDL so far (diagnostics: compare with the playhead).
-	fed:      i64,
-	// The volume as f32 bits; written by the UI, read by the callback
-	// (atomic, outside the mutex).
-	gain:     u32,
-	scratch:  [AUDIO_CHUNK * 2]f32,
-	// The stream and the device's own buffer (frames): what is handed to SDL
-	// is heard only after both, so the playhead stays behind by that much.
-	stream:        ^sdl.AudioStream,
+	// Under the SDL stream's lock (set by the worker, read by the callback):
+	// the mix the callback streams, owned (nil: silence; its samples are its
+	// own copies, the worker's media may change under it), and the video's
+	// length in samples.
+	stream:        ^om.Mix_Stream,
+	total:         i64,
+	// The UI's rows (atomics). A seek is `seek_to` published by bumping
+	// `seek_gen`; `state` is a bit_set of Audio_State; `gain` the volume
+	// as f32 bits.
+	seek_to:       i64,
+	seek_gen:      u32,
+	state:         u32,
+	gain:          u32,
+	// The callback's (atomics, read by the UI): the sample being heard as
+	// of its last request (handed to SDL minus what waits in the stream and
+	// the device's buffer), whether it is advancing (it stops at the end
+	// when not looping), the seek it applied last, and the samples handed
+	// to SDL so far (diagnostics).
+	heard:         i64,
+	advancing:     bool,
+	applied_gen:   u32,
+	fed:           i64,
+	// The callback's own: the next sample handed to SDL, and scratch.
+	position:      i64,
+	scratch:       [AUDIO_CHUNK * 2]f32,
+	// The SDL stream and the device's own buffer (frames).
+	sdl_stream:    ^sdl.AudioStream,
 	device_frames: i64,
 }
 
 audio_shared_destroy :: proc(a: ^Audio_Shared) {
-	delete(a.tracks)
-	delete(a.clips)
-	a.tracks, a.clips = nil, nil
+	if a.stream != nil {
+		om.mix_stream_destroy(a.stream)
+		free(a.stream)
+		a.stream = nil
+	}
 }
 
-// Publishes the tracks to mix (`placed` is copied; nil stops every sound:
-// before the media they play from goes) and the video's length.
+// Builds the mix of `placed` (nil or none stops every sound: before the
+// media they play from goes) and publishes it with the video's length.
+// The mix is built before the swap, so the callback waits for nothing; it
+// never waits for songs' sample sets either (the music's builder loads
+// them, and the worker publishes again when they land).
 audio_set_tracks :: proc(a: ^Audio_Shared, placed: []om.Placed_Track, total: i64, opts: om.Mix_Options) {
-	tracks := make([]om.Placed_Track, len(placed))
-	clips := make([dynamic]om.Audio_Clip, 0, len(placed))
-	from := make(map[^om.Audio_Clip]int, len(placed), context.temp_allocator)
-	for p, i in placed {
-		k, seen := from[p.clip]
-		if !seen {
-			k = len(clips)
-			from[p.clip] = k
-			append(&clips, p.clip^)
-		}
-		tracks[i] = p
+	stream: ^om.Mix_Stream
+	if len(placed) > 0 {
+		stream = new(om.Mix_Stream)
+		om.mix_stream_init(stream, placed, opts, load = false)
 	}
-	// Point the tracks at the copies only once `clips` stops growing.
-	for &t, i in tracks {
-		t.clip = &clips[from[placed[i].clip]]
-	}
-	sync.mutex_lock(&a.mutex)
-	old_tracks, old_clips := a.tracks, a.clips
-	a.tracks, a.clips = tracks, clips[:]
-	a.opts = opts
-	a.total = total
-	a.position = clamp(a.position, 0, max(total - 1, 0))
-	sync.mutex_unlock(&a.mutex)
-	delete(old_tracks)
-	delete(old_clips)
+	audio_swap(a, stream, total)
 }
 
 // Stops every sound until tracks are published again (before the samples
 // they play from change or go).
 audio_clear_tracks :: proc(a: ^Audio_Shared) {
-	sync.mutex_lock(&a.mutex)
-	old_tracks, old_clips := a.tracks, a.clips
-	a.tracks, a.clips = nil, nil
-	sync.mutex_unlock(&a.mutex)
-	delete(old_tracks)
-	delete(old_clips)
+	audio_swap(a, nil, -1)
+}
+
+// Puts `stream` (and `total`, unless negative) where the callback reads
+// them, then frees the one it replaces: after the swap the callback can't
+// be using it.
+@(private = "file")
+audio_swap :: proc(a: ^Audio_Shared, stream: ^om.Mix_Stream, total: i64) {
+	if a.sdl_stream != nil {
+		sdl.LockAudioStream(a.sdl_stream)
+	}
+	old := a.stream
+	a.stream = stream
+	if total >= 0 {
+		a.total = total
+		a.position = clamp(a.position, 0, max(total - 1, 0))
+	}
+	if a.sdl_stream != nil {
+		sdl.UnlockAudioStream(a.sdl_stream)
+	}
+	if old != nil {
+		om.mix_stream_destroy(old)
+		free(old)
+	}
 }
 
 audio_set_state :: proc(a: ^Audio_Shared, playing, muted, looping: bool) {
-	sync.mutex_lock(&a.mutex)
-	a.playing, a.muted, a.looping = playing, muted, looping
-	sync.mutex_unlock(&a.mutex)
+	s: bit_set[Audio_State;u32]
+	if playing {
+		s += {.Playing}
+	}
+	if muted {
+		s += {.Muted}
+	}
+	if looping {
+		s += {.Looping}
+	}
+	sync.atomic_store_explicit(&a.state, transmute(u32)s, .Release)
 }
 
 audio_set_gain :: proc(a: ^Audio_Shared, gain: f32) {
 	sync.atomic_store_explicit(&a.gain, transmute(u32)gain, .Relaxed)
 }
 
+// Asks for sample `sample` next (the callback clamps it to the video once
+// it knows its length: a start time given on the command line survives
+// until the tracks arrive).
 audio_seek :: proc(a: ^Audio_Shared, sample: i64) {
-	sync.mutex_lock(&a.mutex)
-	// Before the first load (total 0) the position is kept as asked, so a
-	// start time given on the command line survives until the tracks arrive
-	// (audio_set_tracks clamps it then).
-	a.position = clamp(sample, 0, a.total - 1) if a.total > 0 else max(sample, 0)
-	sync.mutex_unlock(&a.mutex)
+	sync.atomic_store_explicit(&a.seek_to, sample, .Relaxed)
+	sync.atomic_add_explicit(&a.seek_gen, 1, .Release)
 }
 
-// The sample being heard now and whether it is still advancing (it stops at
-// the end when not looping): the next sample handed to SDL minus what waits
-// in the stream and the device's buffer, so the picture shows what you hear.
+// The sample being heard now and whether it is still advancing (it stops
+// at the end when not looping). A seek the callback hasn't taken yet is
+// what will be heard next.
 audio_position :: proc(a: ^Audio_Shared) -> (sample: i64, playing: bool, fed: i64) {
-	queued: i64
-	if a.stream != nil {
-		queued = i64(sdl.GetAudioStreamQueued(a.stream)) / (2 * size_of(f32))
+	state := transmute(bit_set[Audio_State;u32])sync.atomic_load_explicit(&a.state, .Acquire)
+	fed = sync.atomic_load_explicit(&a.fed, .Relaxed)
+	if sync.atomic_load_explicit(&a.applied_gen, .Acquire) != sync.atomic_load_explicit(&a.seek_gen, .Acquire) {
+		return max(sync.atomic_load_explicit(&a.seek_to, .Relaxed), 0), .Playing in state, fed
 	}
-	sync.mutex_lock(&a.mutex)
-	defer sync.mutex_unlock(&a.mutex)
-	sample = a.position
-	if a.playing {
-		sample = max(a.position - queued - a.device_frames, 0)
-	}
-	return sample, a.playing, a.fed
+	return sync.atomic_load_explicit(&a.heard, .Relaxed), sync.atomic_load_explicit(&a.advancing, .Relaxed), fed
 }
 
-// Called on SDL's audio thread whenever the device wants `additional`
-// bytes: mixes them from the tracks at the play position. Silence while
-// paused or muted; muted playback still advances.
+// Called on SDL's audio thread (with the stream's lock held) whenever the
+// device wants `additional` bytes: drains the UI's rows, then streams them
+// from the mix at the play position. Silence while paused or muted; muted
+// playback still advances.
 audio_callback :: proc "c" (userdata: rawptr, stream: ^sdl.AudioStream, additional, total: c.int) {
 	context = runtime.default_context()
 	defer free_all(context.temp_allocator)
 	a := (^Audio_Shared)(userdata)
-	frames := int(additional) / (2 * size_of(f32))
+	gen := sync.atomic_load_explicit(&a.seek_gen, .Acquire)
+	if gen != a.applied_gen {
+		to := sync.atomic_load_explicit(&a.seek_to, .Relaxed)
+		a.position = clamp(to, 0, a.total - 1) if a.total > 0 else max(to, 0)
+	}
+	state := transmute(bit_set[Audio_State;u32])sync.atomic_load_explicit(&a.state, .Acquire)
 	gain := transmute(f32)sync.atomic_load_explicit(&a.gain, .Relaxed)
+	playing := .Playing in state
+	frames := int(additional) / (2 * size_of(f32))
 	for frames > 0 {
 		n := min(frames, AUDIO_CHUNK)
-		sync.mutex_lock(&a.mutex)
 		buf := a.scratch[:n * 2]
 		for &x in buf {
 			x = 0
 		}
 		// Up to the end, then (looping) on from the start.
-		for k := 0; a.playing && a.total > 0 && k < n; {
+		for k := 0; playing && a.total > 0 && k < n; {
 			if a.position >= a.total {
-				if !a.looping {
-					a.playing = false
+				if .Looping not_in state {
+					playing = false
 					break
 				}
 				a.position = 0
 			}
 			run := min(n - k, int(a.total - a.position))
-			if !a.muted && len(a.tracks) > 0 {
+			if .Muted not_in state && a.stream != nil {
 				part := buf[k * 2:][:run * 2]
-				om.mix_block(a.tracks, int(a.position), part, a.opts, &a.stream_state)
+				om.mix_block(a.stream, int(a.position), part)
 				for &x in part {
 					x *= gain
 				}
@@ -163,11 +191,18 @@ audio_callback :: proc "c" (userdata: rawptr, stream: ^sdl.AudioStream, addition
 			a.position += i64(run)
 			k += run
 		}
-		a.fed += i64(n)
 		sdl.PutAudioStreamData(stream, raw_data(buf), c.int(n * 2 * size_of(f32)))
-		sync.mutex_unlock(&a.mutex)
+		sync.atomic_add_explicit(&a.fed, i64(n), .Relaxed)
 		frames -= n
 	}
+	heard := a.position
+	if playing {
+		queued := i64(sdl.GetAudioStreamQueued(stream)) / (2 * size_of(f32))
+		heard = max(a.position - queued - a.device_frames, 0)
+	}
+	sync.atomic_store_explicit(&a.heard, heard, .Relaxed)
+	sync.atomic_store_explicit(&a.advancing, playing, .Relaxed)
+	sync.atomic_store_explicit(&a.applied_gen, gen, .Release)
 }
 
 // Opens the default playback device with the callback; nil when there is
@@ -186,7 +221,7 @@ audio_open :: proc(a: ^Audio_Shared) -> ^sdl.AudioStream {
 	if sdl.GetAudioDeviceFormat(sdl.GetAudioStreamDevice(stream), &spec_out, &frames) {
 		a.device_frames = i64(frames)
 	}
-	a.stream = stream
+	a.sdl_stream = stream
 	sdl.ResumeAudioStreamDevice(stream)
 	return stream
 }

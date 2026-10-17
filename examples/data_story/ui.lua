@@ -35,11 +35,11 @@ function M.backdrop(f, accent, cx, cy)
     stops = { { 0, glow }, { 1, clear } } } }
 end
 
--- A section header that rises in while its section's transition runs (the
--- beat before `lb` = 0).
-function M.header(lb, title, sub)
-  local s = ease(M.SNAP, (lb + 1) * 0.5)
-  group({ transform = translate(0, (1 - s) * 60), opacity = clamp01((lb + 1) * 2) }, function()
+-- A section header that rises in while its section's transition runs: `t`
+-- is the seconds since the transition began.
+function M.header(t, title, sub)
+  local s = ease(M.SNAP, t)
+  group({ transform = translate(0, (1 - s) * 60), opacity = clamp01(t * 4) }, function()
     text { title, x = 160, y = 190, font = M.DISPLAY, size = 76, weight = 800, letter_spacing = -2, fill = M.TEXT }
     text { sub, x = 162, y = 244, font = M.MONO, size = 28, fill = M.DIM }
   end)

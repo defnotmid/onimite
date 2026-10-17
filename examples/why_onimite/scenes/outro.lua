@@ -1,5 +1,5 @@
--- The last drop: three lines slam in on the beat over the soundtrack's
--- spectrum, then the wordmark; a bar of tail fades out.
+-- The last drop: three lines slam in on the beat over the song's spectrum,
+-- each with a crash, then the wordmark; the tail fades out.
 
 local beat = require("beat")
 local ui = require("ui")
@@ -24,7 +24,7 @@ local function spectrum(f, lb, fade)
 end
 
 local function render(f, lb)
-  local fade = 1 - progress(lb, 17, 19.5)
+  local fade = 1 - progress(lb, T.TAIL + 1, T.TAIL + 3.5)
   spectrum(f, lb, fade)
 
   local leave = ease(easing.exponential_in, progress(lb, T.WORDMARK - 0.5, T.WORDMARK))
@@ -44,7 +44,7 @@ local function render(f, lb)
 
   if lb >= T.WORDMARK then
     local s = 1 + 0.3 * (1 - soft(lb - T.WORDMARK))
-    local kick = lb < 16 and 0.025 * pulse(lb, 8) or 0
+    local kick = lb < T.TAIL and 0.025 * pulse(lb, 8) or 0
     group({ opacity = fade, transform = { scale = s + kick, origin = { 960, 470 } } }, function()
       circle { cx = 960, cy = 470, r = 300 + 40 * pulse(lb, 5), fill = "none", stroke = ui.O, stroke_width = 3,
         stroke_opacity = 0.35 }
@@ -57,4 +57,8 @@ local function render(f, lb)
   end
 end
 
-return { name = "Outro", start = T.OUTRO, stop = T.TOTAL, render = render }
+local audio = {}
+for i = 2, #T.at.OUTRO_LINES do audio[#audio + 1] = { sound { "crash", duration = "2n" }, start = T.at.OUTRO_LINES[i], gain_db = -8 } end
+audio[#audio + 1] = { sound { "crash", duration = "2n" }, start = T.at.WORDMARK, gain_db = -6 }
+
+return { name = "Outro", section = "outro", render = render, audio = audio }

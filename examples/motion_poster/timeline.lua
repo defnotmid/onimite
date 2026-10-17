@@ -1,27 +1,32 @@
--- The clock and every cue, in beats from the start (120 BPM, 4 beats a bar,
--- 10 bars = 20 s). The picture (video.lua) and the music (track.lua) both
--- read these numbers.
+-- Every cue the picture uses, read from the soundtrack (track.lua) in video
+-- seconds: its sections, and the notes it really plays (the kicks, the
+-- riser, the impact).
 
-local T = {}
+local score = require("track")
+local T = { score = score, FPS = 60, BEAT = score.seconds("4n") }
 
-T.FPS, T.BPM = 60, 120
-T.clock = beat_clock(T.BPM)
-T.BEAT = T.clock.spb
-T.TOTAL = 40
+-- Intro: the type grows out of nothing from the second beat to the groove.
+T.TYPE_IN, T.TYPE_SET = score.time("intro@2n"), score.time("groove")
+-- The kicks: the type's outline breathes and the shader ripples on each.
+T.KICKS = score.hits { part = "drums", note = "kick" }
+-- Break: the type thins over its first two beats; the riser swirls the
+-- poster into the finale, which lands on the impact.
+T.BREAK, T.THIN = score.time("break"), score.time("break@2n")
+local riser = score.events { part = "riser" }[1]
+T.RISER = riser.time
+T.FINALE = cue("impact", score.hits { part = "impact" }[1])
 
--- Sections (labels for timeline, strips and per-section loudness).
-T.SECTIONS = { { 0, "Intro" }, { 8, "Groove" }, { 24, "Break" }, { 32, "Finale" } }
+T.BARS = 0
+for _, s in ipairs(score.sections) do T.BARS = T.BARS + s.bars end
 
--- Intro: the field fades up, the type grows out of nothing (erode -> 0).
-T.FIELD_IN, T.TYPE_IN, T.TYPE_SET = 0, 2, 8
--- Where the kick plays: the type's outline breathes and the shader ripples.
-T.KICK = { { 8, 24 }, { 32, 40 } }
--- Break: the type thins, the light slows, a riser swirls into the finale.
-T.BREAK, T.RISER, T.FINALE = 24, 28, 32
-
-function T.kicking(b)
-  for _, s in ipairs(T.KICK) do if b >= s[1] and b < s[2] then return true end end
-  return false
+-- The seconds since the last kick at or before t (nil before the first).
+function T.since_kick(t)
+  local last
+  for _, k in ipairs(T.KICKS) do
+    if k > t then break end
+    last = k
+  end
+  return last and t - last
 end
 
 return T

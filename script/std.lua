@@ -143,27 +143,40 @@ end
 -- there (cue_no_hit); a word whose time is an estimate (a number, a symbol, a line that
 -- could not be synthesized) gets the cue without the check.
 local SAY_CUE_KEYS = { "name", "nth" }
-function say_cue(line, at, word, opts)
-  if opts then check_fields(opts, "say_cue", SAY_CUE_KEYS) else opts = EMPTY end
-  local w
+local SAY_START_KEYS = { "nth" }
+
+-- The word of `line` named by `word` (its text in any case, the nth time,
+-- or its index), for say_cue and say_start (`fn` names the caller).
+local function said_word(fn, line, word, nth)
   if type(word) == "number" then
-    w = line.words[word]
-    if not w then error(string.format("say_cue: line %s has %d words, no word %d", line.name, #line.words, word), 2) end
-  else
-    local want, nth, seen = string.lower(word), opts.nth or 1, 0
-    for _, x in ipairs(line.words) do
-      if string.lower(x.text) == want then
-        seen = seen + 1
-        if seen == nth then w = x break end
-      end
-    end
-    if not w then
-      error(string.format("say_cue: line %s says %q %d times, not %d", line.name, word, seen, nth), 2)
+    local w = line.words[word]
+    if not w then error(string.format("%s: line %s has %d words, no word %d", fn, line.name, #line.words, word), 3) end
+    return w
+  end
+  local want, seen = string.lower(word), 0
+  for _, x in ipairs(line.words) do
+    if string.lower(x.text) == want then
+      seen = seen + 1
+      if seen == nth then return x end
     end
   end
+  error(string.format("%s: line %s says %q %d times, not %d", fn, line.name, word, seen, nth), 3)
+end
+
+function say_cue(line, at, word, opts)
+  if opts then check_fields(opts, "say_cue", SAY_CUE_KEYS) else opts = EMPTY end
+  local w = said_word("say_cue", line, word, opts.nth or 1)
   local name = opts.name or string.lower(w.text)
   if w.estimated or not line.ready then return cue(name, at + w.start) end
   return cue(name, at + w.start, { hit = line.name })
+end
+
+-- say_start(line, word, t, { nth }) -> where to start `line`'s track so it
+-- says `word` (as say_cue finds it) at video time t: the inverse of
+-- say_cue, for a voice that follows the music (`t = score.time("drop")`).
+function say_start(line, word, t, opts)
+  if opts then check_fields(opts, "say_start", SAY_START_KEYS) else opts = EMPTY end
+  return t - said_word("say_start", line, word, opts.nth or 1).start
 end
 
 -- ---- transitions ---------------------------------------------------------------

@@ -1,7 +1,7 @@
 -- Eight renders side by side: each lane's bars are the progress of the same
 -- video in fframes and in onimite, at their measured relative speeds.
 -- fframes' bars all take two bars of music; onimite' finish on the nearest
--- half beat of their share, with a DONE. The speedup pops once both are
+-- eighth of their share, with a DONE. The speedup pops once both are
 -- done, in the winner's colour: the last two lanes are fframes' wins.
 
 local beat = require("beat")
@@ -11,7 +11,7 @@ local facts = require("facts")
 local snap, soft = beat.snap, beat.soft
 
 local TRACK_X, TRACK_W, LANE_Y, LANE_H = 520, 940, 272, 84
-local GO, STOP = T.RACE_GO, T.RACE_GO + T.RACE_BEATS
+local GO, STOP = T.RACE_GO, T.RACE_STOP
 
 local function bar(x, y, w, p, color)
   rect { x = x, y = y, w = w, h = 26, rx = 13, fill = ui.LINE }
@@ -71,4 +71,8 @@ local function render(f, lb)
   end)
 end
 
-return { name = "Race", start = T.RACE, stop = T.BILL, render = render }
+-- A DONE as each onimite bar lands, a crash when fframes' land.
+local audio = { { sound { "crash", duration = "2n" }, start = T.at.RACE_STOP, gain_db = -8 } }
+for _, t in ipairs(T.at.RACE_DONE) do audio[#audio + 1] = { sound { "done", duration = "16n" }, start = t, gain_db = -6 } end
+
+return { name = "Race", section = "race", render = render, audio = audio }

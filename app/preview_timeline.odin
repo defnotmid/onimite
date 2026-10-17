@@ -13,7 +13,8 @@ import ui "../ui"
 // published (preview_tables.odin), each drawn the way its kind says: the
 // scenes as segments with thumbnails, the cues as marks, a bus's tracks as
 // one group lane with their sound together (click its name to open it to
-// a lane per track), a track's span and waveform. Hovering a row says what
+// a lane per track), a track's span and waveform, a song's open to a lane
+// per part. Hovering a row says what
 // it is, with the path `onimite show` takes. The bookmark, the hovered
 // frame and the playhead run over all of it. It zooms (Ctrl+wheel, +/-),
 // pans (wheel, horizontal wheel or touchpad, middle drag) and follows the
@@ -47,20 +48,21 @@ THUMBS_WANTED_MAX :: 64
 RULER_BG :: [4]u8{22, 24, 30, 255}
 LANE_BG :: [4]u8{24, 26, 33, 255}
 
-// A row's height in points: its kind decides.
+// A row's height in points, by its kind.
+@(private = "file")
+TIMELINE_ROW_HEIGHT := [Timeline_Kind]f32 {
+	.Scenes = SCENE_HEIGHT,
+	.Cues   = CUE_HEIGHT,
+	.Group  = LANE_HEIGHT,
+	.Track  = TRACK_HEIGHT,
+	.Part   = TRACK_HEIGHT,
+	.Notes  = 2 * LANE_HEIGHT,
+	.Hits   = TRACK_HEIGHT,
+}
+
 @(private = "file")
 row_height :: proc(kind: Timeline_Kind) -> f32 {
-	switch kind {
-	case .Scenes:
-		return SCENE_HEIGHT
-	case .Cues:
-		return CUE_HEIGHT
-	case .Group:
-		return LANE_HEIGHT
-	case .Track:
-		return TRACK_HEIGHT
-	}
-	return LANE_HEIGHT
+	return TIMELINE_ROW_HEIGHT[kind]
 }
 
 // The timeline's axes. It draws and hit-tests in its own space: time
@@ -181,7 +183,8 @@ timeline_row_open :: proc(app: ^App_State, item: Timeline_Item) -> bool {
 }
 
 // The items shown below the scenes, in order: the top-level ones and the
-// tracks of open groups (items list each group's tracks right after it).
+// children of open items (a group's tracks, a song's parts), each listed
+// right after its parent.
 timeline_rows :: proc(app: ^App_State) -> []int {
 	pv := &app.preview
 	items := pv.waves.items[:]
@@ -190,10 +193,13 @@ timeline_rows :: proc(app: ^App_State) -> []int {
 		if it.kind == .Scenes {
 			continue
 		}
-		if it.parent >= 0 && !timeline_row_open(app, items[it.parent]) {
-			continue
+		shown := true
+		for p := it.parent; p >= 0 && shown; p = items[p].parent {
+			shown = timeline_row_open(app, items[p])
 		}
-		append(&rows, i)
+		if shown {
+			append(&rows, i)
+		}
 	}
 	return rows[:]
 }
@@ -371,7 +377,7 @@ timeline_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32, area: Workspace_R
 		if ui.pressed(sig) {
 			// A press on a group's name opens or closes it, and the drag it
 			// starts doesn't scrub.
-			pv.press_on_name = hit >= 0 && in_name && pv.waves.items[hit].kind == .Group
+			pv.press_on_name = hit >= 0 && in_name && pv.waves.items[hit].children > 0
 			if pv.press_on_name {
 				command_push(c, .Timeline_Row_Toggle, {spec = text_of(pv.waves.text[:], pv.waves.items[hit].path)})
 			}
@@ -554,18 +560,32 @@ timeline_draw :: proc(s: ^ui.State, box: ^ui.Box, data: rawptr) {
 		case .Scenes:
 		case .Cues:
 			draw_cues(&view, y, rh)
-		case .Group:
-			draw_lane(&view, int(it.lane), y, rh - 2 * dpi, row_idx + 2)
-			open := timeline_row_open(app, it^)
-			draw_row_name(&view, fmt.tprintf("%s %s  %d", "-" if open else "+", text_of(pv.waves.text[:], it.label), it.children), y, rh - 2 * dpi, 0)
-		case .Track:
-			draw_lane(&view, int(it.lane), y, rh - 2 * dpi, row_idx + 2)
+		case .Group, .Track, .Part, .Notes, .Hits:
+			// a lane: its regions, each with its waveform (a notes view: its
+			// notes over them), its name (and level when it differs from what
+			// it sits under), open or closed when it has children
+			if it.kind == .Notes || it.kind == .Hits {
+				draw_notes(&view, it^, y, rh - 2 * dpi, row_idx + 2)
+			} else {
+				draw_lane(&view, int(it.lane), y, rh - 2 * dpi, row_idx + 2)
+			}
 			lane := pv.waves.lanes[it.lane]
 			name := text_of(pv.waves.text[:], it.label)
-			if lane.gain_db != 0 {
+			above: f32
+			if it.parent >= 0 && pv.waves.items[it.parent].lane >= 0 {
+				above = pv.waves.lanes[pv.waves.items[it.parent].lane].gain_db
+			}
+			if lane.gain_db != above {
 				name = fmt.tprintf("%s · %+.1f dB", name, lane.gain_db)
 			}
-			draw_row_name(&view, name, y, rh - 2 * dpi, 14 * dpi if it.parent >= 0 else 0, lane.start)
+			if it.children > 0 {
+				name = fmt.tprintf("%s %s  %d", "-" if timeline_row_open(app, it^) else "+", name, it.children)
+			}
+			depth := 0
+			for p := it.parent; p >= 0; p = pv.waves.items[p].parent {
+				depth += 1
+			}
+			draw_row_name(&view, name, y, rh - 2 * dpi, 14 * dpi * f32(depth))
 		}
 		if mouse.y >= y && mouse.y < y + rh && mouse.x >= x0 && mouse.x < x0 + w {
 			hovered = i
@@ -625,33 +645,85 @@ draw_lane :: proc(v: ^Row_View, index: int, y, lane_h: f32, color_index: int) {
 	lane := &waves.lanes[index]
 	dpi := v.d.dpi
 	fill(r, v.a, v.x0, y, v.w, lane_h, LANE_BG)
-	xa := v.x0 + f32((f64(lane.start) / v.samples_per_frame - v.first) * v.ppf)
-	xb := v.x0 + f32((f64(lane.end) / v.samples_per_frame - v.first) * v.ppf)
-	cx0, cx1 := max(xa, v.x0), min(xb, v.x0 + v.w)
-	if cx1 <= cx0 {
-		return
-	}
 	color := SCENE_COLORS[color_index % len(SCENE_COLORS)]
-	fill_rounded(r, v.a, xa, y, xb - xa, lane_h, 3 * dpi, {color.r, color.g, color.b, 90})
-	clip := &waves.clips[lane.clip]
+	wave := [4]u8{u8(min(int(color.r) + 90, 255)), u8(min(int(color.g) + 90, 255)), u8(min(int(color.b) + 90, 255)), 255}
 	mid := y + lane_h * 0.5
 	half := lane_h * 0.5 - v.line_w
 	length := lane.end - lane.start
-	wave := [4]u8{u8(min(int(color.r) + 90, 255)), u8(min(int(color.g) + 90, 255)), u8(min(int(color.b) + 90, 255)), 255}
 	col_w := max(math.round(dpi), 1)
-	for cx := cx0; cx < cx1; cx += col_w {
-		s0 := (v.first + f64(cx - v.x0) / v.ppf) * v.samples_per_frame
-		s1 := (v.first + f64(cx + col_w - v.x0) / v.ppf) * v.samples_per_frame
-		k := int(s0) - lane.start
-		lo, hi, ok := wave_peak(waves, clip, k + lane.file_start, int(s1) - lane.start + lane.file_start)
-		if !ok {
-			break // still being computed
+	// each region: where its source sounds, a view of its pyramid
+	for reg in waves.regions[lane.regions[0]:][:lane.regions[1]] {
+		xa, xb := x_of_sample(v, reg.start), x_of_sample(v, reg.end)
+		cx0, cx1 := max(xa, v.x0), min(xb, v.x0 + v.w)
+		if cx1 <= cx0 {
+			continue
 		}
-		env := om.track_envelope_peak(k, int(s1) - lane.start, length, lane.fade_in, lane.fade_out, lane.curve)
-		top := mid - clamp(hi * env, -1, 1) * half
-		bottom := mid - clamp(lo * env, -1, 1) * half
-		fill(r, v.a, cx, top, col_w, max(bottom - top, v.line_w), wave)
+		fill_rounded(r, v.a, xa, y, xb - xa, lane_h, 3 * dpi, {color.r, color.g, color.b, 90})
+		if reg.clip < 0 {
+			continue
+		}
+		clip := &waves.clips[reg.clip]
+		for cx := cx0; cx < cx1; cx += col_w {
+			s0 := int((v.first + f64(cx - v.x0) / v.ppf) * v.samples_per_frame)
+			s1 := int((v.first + f64(cx + col_w - v.x0) / v.ppf) * v.samples_per_frame)
+			lo, hi, ok := wave_peak(waves, clip, s0 - reg.start + reg.at, s1 - reg.start + reg.at)
+			if !ok {
+				break // still being computed
+			}
+			env := om.track_envelope_peak(s0 - lane.start, s1 - lane.start, length, lane.fade_in, lane.fade_out, lane.curve)
+			top := mid - clamp(hi * env, -1, 1) * half
+			bottom := mid - clamp(lo * env, -1, 1) * half
+			fill(r, v.a, cx, top, col_w, max(bottom - top, v.line_w), wave)
+		}
 	}
+}
+
+// A notes view: its lane's regions, and its notes over them: pitched notes
+// by pitch (its lowest at the bottom, its highest at the top), a pad's hits
+// as marks, each as strong as it is played.
+@(private = "file")
+draw_notes :: proc(v: ^Row_View, it: Timeline_Item, y, lane_h: f32, color_index: int) {
+	r := v.s.r
+	waves := &v.d.app.preview.waves
+	dpi := v.d.dpi
+	fill(r, v.a, v.x0, y, v.w, lane_h, LANE_BG)
+	color := SCENE_COLORS[color_index % len(SCENE_COLORS)]
+	if it.lane >= 0 {
+		lane := waves.lanes[it.lane]
+		for reg in waves.regions[lane.regions[0]:][:lane.regions[1]] {
+			xa, xb := x_of_sample(v, reg.start), x_of_sample(v, reg.end)
+			if min(xb, v.x0 + v.w) > max(xa, v.x0) {
+				fill_rounded(r, v.a, xa, y, xb - xa, lane_h, 3 * dpi, {color.r, color.g, color.b, 50})
+			}
+		}
+	}
+	notes := waves.notes[it.notes[0]:][:it.notes[1]]
+	lo, hi := f32(math.F32_MAX), f32(-math.F32_MAX)
+	for n in notes {
+		lo, hi = min(lo, n.pitch), max(hi, n.pitch)
+	}
+	rows := max(hi - lo + 1, 1)
+	step := lane_h / rows
+	for n in notes {
+		xa, xb := x_of_sample(v, n.start), x_of_sample(v, n.end)
+		if xb < v.x0 || xa > v.x0 + v.w {
+			continue
+		}
+		a := u8(clamp(90 + 165 * n.velocity, 0, 255))
+		ink := [4]u8{u8(min(int(color.r) + 110, 255)), u8(min(int(color.g) + 110, 255)), u8(min(int(color.b) + 110, 255)), a}
+		if it.kind == .Hits {
+			fill(r, v.a, xa, y + 2 * dpi, max(2 * dpi, min(xb - xa, 4 * dpi)), lane_h - 4 * dpi, ink)
+			continue
+		}
+		ny := y + (hi - n.pitch) * step
+		fill(r, v.a, xa, ny, max(xb - xa, dpi), max(step - dpi, dpi), ink)
+	}
+}
+
+// Where mix sample `s` is across the row.
+@(private = "file")
+x_of_sample :: proc(v: ^Row_View, s: int) -> f32 {
+	return v.x0 + f32((f64(s) / v.samples_per_frame - v.first) * v.ppf)
 }
 
 // A row's name on a dark tab: at the start of the row (groups, `at < 0`),

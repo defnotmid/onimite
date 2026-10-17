@@ -12,9 +12,9 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-# The build reads ovg, oksl, odecs, ottis and o3d through `-collection:deps=..`,
-# so every job checks the six repositories out side by side:
-#   $GITHUB_WORKSPACE/{onimite,ovg,oksl,odecs,ottis,o3d}
+# The build reads ovg, oksl, odecs, ottis, o3d and odawg through
+# `-collection:deps=..`, so every job checks the seven repositories out side by side:
+#   $GITHUB_WORKSPACE/{onimite,ovg,oksl,odecs,ottis,o3d,odawg}
 # The siblings come from their default branches. The build, test and smoke
 # steps are .github/ci.sh, the same on every OS.
 #
@@ -63,6 +63,12 @@ jobs:
           # Pinned like ottis: o3d is released on its own (v0.0.11).
           ref: v0.0.11
           path: o3d
+      - uses: actions/checkout@v4
+        with:
+          repository: defnotmid/odawg
+          # Pinned like ottis: odawg is released on its own (v0.0.2).
+          ref: v0.0.2
+          path: odawg
 
       - uses: ./onimite/.github/actions/setup-toolchain
 
@@ -112,6 +118,12 @@ jobs:
           # Pinned like ottis: o3d is released on its own (v0.0.11).
           ref: v0.0.11
           path: o3d
+      - uses: actions/checkout@v4
+        with:
+          repository: defnotmid/odawg
+          # Pinned like ottis: odawg is released on its own (v0.0.2).
+          ref: v0.0.2
+          path: odawg
 
       - uses: ./onimite/.github/actions/setup-toolchain
 

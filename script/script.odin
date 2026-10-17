@@ -73,6 +73,10 @@ Script :: struct {
 	// A frame needing one that isn't here yet draws without it (silence)
 	// and counts it in its context's `audio_pending`, to be drawn again.
 	audio_later:     bool,
+	// How many frames the command draws (frame, strip, onion, snapshot);
+	// few enough, and a song's table is filled only at the rows they read
+	// (0: tables are built whole).
+	audio_frames:    int,
 	node_sources:    [dynamic]Node_Source,
 	node_text:       [dynamic]u8,
 	// text_width's results by text and font (hashed).
@@ -87,6 +91,8 @@ Script :: struct {
 	// it synthesized any in this load.
 	said:          map[string]Said,
 	spoke:         bool,
+	// The songs and sounds this load made (song_api.odin).
+	songs:         [dynamic]Script_Song,
 }
 
 // A named moment, seconds on the video clock. `hit` names a track whose
@@ -234,6 +240,7 @@ unload :: proc(s: ^Script) {
 	}
 	delete(s.pending_audio)
 	say_unload(s)
+	songs_unload(s)
 	physics_unload(s)
 	delete(s.widths)
 	delete(s.node_sources)
@@ -642,6 +649,8 @@ API := [?]Api_Function {
 	{"scene", l_scene, .Load},
 	{"cue", l_cue, .Load},
 	{"say", l_say, .Load},
+	{"song", l_song, .Load},
+	{"sound", l_sound, .Load},
 	{"physics", l_physics, .Load},
 	{"physics3d", l_physics3d, .Load},
 	{"audio_add", l_audio_add, .Load},

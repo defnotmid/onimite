@@ -1,6 +1,6 @@
 local look = require("look")
 local fx = require("fx")
-local C = require("cues")
+local score = require("music.score")
 local sfx = require("sfx")
 local family = require("scenes.family")
 local snap = look.snap
@@ -47,12 +47,13 @@ local function oksl(f, lb, gb)
 end
 
 -- Its sounds (sfx.lua), in beats into the scene.
-local SOUNDS = { sfx.at(C.OKSL, 5.5, sfx.done(), 0.16) } -- the equation holds
+local SOUNDS = { sfx.at("oksl", 5.5, sfx.done(), 0.16) } -- the equation holds
 for i = 1, 3 do -- a blip per output
-  SOUNDS[#SOUNDS + 1] = sfx.at(C.OKSL, 3 + (i - 1) * 0.5, sfx.blip(880 * 2 ^ ((i - 1) * 3 / 12)), 0.14)
+  SOUNDS[#SOUNDS + 1] = sfx.at("oksl", 3 + (i - 1) * 0.5, sfx.blip(880 * 2 ^ ((i - 1) * 3 / 12)), 0.14)
 end
 
-scene { "OKSL", cue = "OKSL", start = C.time(C.OKSL), audio = SOUNDS, render = function(f)
-  local gb = C.beat(f)
-  oksl(f, gb - C.OKSL, gb)
+local AT = score.time("oksl")
+scene { "OKSL", cue = "oksl", start = AT, audio = SOUNDS, render = function(f)
+  local gb = score.beat(f)
+  oksl(f, gb - score.beat(AT), gb)
 end }

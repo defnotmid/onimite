@@ -8,7 +8,8 @@ package onimite
 Time_Term_Kind :: enum u8 {
 	Seconds,
 	Frames,
-	// The length of an audio file in the media (`value` unused).
+	// The length of an audio file in the media, or of a song (`value`
+	// unused).
 	Audio,
 	// The length of a video clip in the media.
 	Video,
@@ -33,8 +34,14 @@ term_media_seconds :: proc(t: Time_Term, m: ^Media) -> (f64, bool) {
 	}
 	#partial switch t.kind {
 	case .Audio:
-		clip, found := m.audio[t.name]
-		return f64(clip.frames) / MIX_RATE, found
+		if clip, found := m.audio[t.name]; found {
+			return f64(clip.frames) / MIX_RATE, true
+		}
+		// a song lasts to the end of its last section
+		if sc := media_song(m, t.name); sc != nil && sc.ok {
+			return sc.song.duration, true
+		}
+		return 0, false
 	case .Video:
 		info, found := media_video_info(m, t.name)
 		return info.duration, found

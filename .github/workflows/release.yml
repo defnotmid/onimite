@@ -83,12 +83,18 @@ jobs:
           # Pinned like ottis: o3d is released on its own (v0.0.11).
           ref: v0.0.11
           path: o3d
+      - uses: actions/checkout@v4
+        with:
+          repository: defnotmid/odawg
+          # Pinned like ottis: odawg is released on its own (v0.0.2).
+          ref: v0.0.2
+          path: odawg
 
       - uses: ./onimite/.github/actions/setup-toolchain
 
       - name: Record sibling revisions
         run: |
-          for r in ovg oksl odecs ottis o3d; do
+          for r in ovg oksl odecs ottis o3d odawg; do
             echo "$r $(git -C "$r" rev-parse HEAD)"
           done
 

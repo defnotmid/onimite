@@ -1,106 +1,83 @@
 -- A voiceover: three spoken lines (say: text to speech with word timings, by
--- ottis), their captions, a pad underneath that ducks under the voice, and
--- every key and sound effect on the word it belongs to (say_cue).
+-- ottis), their captions, an odawg score that the narration sizes and that
+-- ducks under the voice, and every key and sound effect on the word it
+-- belongs to (say_cue), or the word on the music (say_start).
 --
 --     onimite inspect examples/voiceover/video.lua
 --     onimite show examples/voiceover/video.lua say/strike
+--     onimite show examples/voiceover/video.lua song/score
 --     onimite render examples/voiceover/video.lua -o voiceover.mp4
 --
 -- The voice is Pocket TTS by Kyutai (CC-BY-4.0), voice "alba".
 
-local synth = dofile("../common/synth.lua")
-
 local W, H = 1920, 1080
-local LEAD, AFTER = 0.6, 0.7  -- each scene: silence before its line, after it
 
--- The lines. Their durations and word times lay out everything below.
+-- The lines first: their lengths size the music below, their words place the keys.
 local climb = say("climb", "The keeper climbed the spiral stairs.", { seed = 3 })
 local top = say("top", "At the top, the great lamp was dark.", { seed = 5 })
 local strike = say("strike", "He struck a match. Light swept across the sea.", { seed = 2 })
 
--- Scenes back to back; each line starts LEAD into its scene (video seconds).
-local CLIMB_AT = LEAD
-local TOP_START = CLIMB_AT + climb.duration + AFTER
-local TOP_AT = TOP_START + LEAD
-local STRIKE_START = TOP_AT + top.duration + AFTER
-local STRIKE_AT = STRIKE_START + LEAD
-local END = STRIKE_AT + strike.duration + 2.0
+-- The score: ambient in A minor, a section per line. "climb" and "top" are as long as
+-- their lines plus a breath (whole bars); "strike" is a bar of riser under the match;
+-- "beam" lands on the word "Light" with an impact, the strings, a sub and a heartbeat kick.
+local score = song { "score", key = "A minor", bpm = 120, seed = 11,
+  sections = {
+    { "climb", duration = { audio = "climb", plus = { seconds = 1.2 } }, style = "ambient", energy = 0.2, chords = "Am9 Fmaj7" },
+    { "top", duration = { audio = "top", plus = { seconds = 1.2 } }, energy = 0.35, chords = "Cmaj7 G" },
+    { "strike", duration = "1m", energy = 0.25, chords = "Em7" },
+    { "beam", duration = "2m", energy = 0.85, chords = "Fmaj7 C", transition = "impact" },
+  },
+}
+
+-- Where the lines start: a beat into their sections; the last so that "Light" lands on "beam".
+local CLIMB_AT, TOP_AT = score.time("climb@4n"), score.time("top@4n")
+local STRIKE_AT = say_start(strike, "light", score.time("beam"))
 
 -- The words things happen on: video times, and cues inspect checks.
 local CLIMBED = say_cue(climb, CLIMB_AT, "climbed")
 local STAIRS = say_cue(climb, CLIMB_AT, "stairs")
 local LAMP = say_cue(top, TOP_AT, "lamp")
 local DARK = say_cue(top, TOP_AT, "dark")
-local MATCH = say_cue(strike, STRIKE_AT, "match")
-local LIGHT = say_cue(strike, STRIKE_AT, "light")
-local SWEPT = say_cue(strike, STRIKE_AT, "swept")
+local LIGHT = say_cue(strike, STRIKE_AT, "light")          -- = score.time("beam")
 local SEA = say_cue(strike, STRIKE_AT, "sea")
+-- Over the score's grid a sound snaps to the half beat, its key with it (no word cue).
+local MATCH = score.snap(say_cue(strike, STRIKE_AT, "match"), "8n")
+local SWEPT = score.snap(say_cue(strike, STRIKE_AT, "swept"), "8n")
 
--- The score: slow pads with no beat, under the voice.
-audio_add("pad", function()
-  local s = synth.new(END, { seed = 11 })
-  local chords = { { 45, 52, 57, 60 }, { 41, 48, 57, 60 }, { 43, 50, 55, 59 }, { 45, 52, 57, 64 } }
-  local t, i = 0, 1
-  while t < END do
-    s.chord(t, 4.6, chords[i], 0.05, 900, 1.6, 0.05, 0, 1600)
-    t, i = t + 4, i % #chords + 1
-  end
-  return s.finish(5000)
-end)
+-- Sound effects, one sound{} per kind.
+local STEP = sound { "tick", note = "A5" }                                  -- a footstep on iron
+local SCRAPE = sound { { "NoiseSynth", noise = { type = "pink" },          -- the match struck
+  envelope = { attack = 0.004, decay = 0.45, sustain = 0, release = 0.1 } }, duration = 0.5 }
+local EMBER = sound { "crackle" }
+local BELL = sound { "bell", note = score.note("1", "beam"), duration = "1m" }   -- the lamp catching
+local WHOOSH = sound { "whoosh", duration = 0.7 }                            -- the beam passing
 
--- Sound effects, one clip per kind.
-audio_add("strike_fx", function()  -- a match struck: crackles and a hiss
-  local s = synth.new(0.7, { seed = 2 })
-  s.tick(0, 0.9, 2600)
-  for k = 0, 9 do s.crackle(0.01 + k * 0.035, 0.6 - k * 0.05, (k % 2 == 0) and -0.3 or 0.3) end
-  local n, x = s.note(0.6)
-  local y = 0
-  for k = 1, n do
-    local t = (k - 1) / s.RATE
-    y = y + s.lp(5000) * (s.noise() - y)
-    x[k] = y * math.min(1, t * 200) * math.exp(-t * 6) * 0.25
-  end
-  s.put(0, x, n, 0)
-  return s.finish()
-end)
-audio_add("swell", function()  -- the lamp catching: a low bell
-  local s = synth.new(3, { seed = 3 })
-  s.bell(0, 57, 0.6, 1.2)
-  s.bell(0, 64, 0.3, 1.6, 0.2)
-  return s.finish()
-end)
-audio_add("whoosh", function()  -- the beam passing
-  local s = synth.new(1.2, { seed = 4 })
-  local n, x = s.note(1.1)
-  local y = 0
-  for k = 1, n do
-    local u = (k - 1) / n
-    y = y + s.lp(300 + 2500 * math.sin(math.pi * u)) * (s.noise() - y)
-    x[k] = y * math.min(1, u * 40) * (1 - u) ^ 1.5
-  end
-  s.put(0, x, n, 0)
-  return s.finish()
-end)
-audio_add("step", function()  -- a footstep on iron
-  local s = synth.new(0.2, { seed = 5 })
-  s.tick(0, 0.8, 900)
-  return s.finish()
-end)
-
--- The keeper's steps: one per stair, from "climbed" to "stairs" (the Stairs scene starts at 0,
--- so its times are video times).
+-- The keeper's steps: one per stair, from "climbed" to "stairs" (a roll, not beat-checked).
 local STEPS = 8
 local steps = {}
 for i = 0, STEPS - 1 do
-  steps[#steps + 1] = { "step", start = CLIMBED + (STAIRS - CLIMBED) * i / STEPS, gain_db = -20, bus = "sfx",
-    pan = (i % 2 == 0) and -0.2 or 0.2 }
+  steps[#steps + 1] = { STEP, start = CLIMBED + (STAIRS - CLIMBED) * i / STEPS - score.time("climb"),
+    gain_db = 2, bus = "sfx", pan = (i % 2 == 0) and -0.2 or 0.2 }
 end
 steps[1].cue = "climbed"
 
-video { width = W, height = H, fps = 30, duration = END, background = "#070b16",
-  buses = { music = { gain_db = 0 }, voice = { gain_db = 0 }, sfx = { gain_db = -4 } },
+-- The match struck, the lamp catching, the beam passing (from the Light scene's start).
+local at = score.time("strike")
+local light_fx = {
+  { SCRAPE, start = MATCH - at, gain_db = 14, bus = "sfx" },
+  { BELL, start = LIGHT - at, gain_db = 3, bus = "sfx", cue = "light" },
+  { WHOOSH, start = SWEPT - at, gain_db = 10, bus = "sfx" },
+}
+for k = 0, 9 do  -- the match's crackle: a roll after the scrape
+  light_fx[#light_fx + 1] = { EMBER, start = MATCH - at + 0.01 + k * 0.035, gain_db = 14 - k, bus = "sfx",
+    pan = k % 2 == 0 and -0.3 or 0.3 }
+end
+
+video { width = W, height = H, fps = 30, duration = score.duration, background = "#070b16",
+  buses = { music = { gain_db = 0 }, voice = { gain_db = 0 }, sfx = { gain_db = -5 } },
+  master_gain_db = 6, limiter = { ceiling_db = -1.2 },
   audio = {
-    { "pad", start = 0, gain_db = -16, fade_in = 2, fade_out = 2, ducked = true, bus = "music" },
+    { "score", gain_db = -6, fade_in = 1, fade_out = 1.5, ducked = true, bus = "music" },
     { "climb", start = CLIMB_AT },     -- spoken lines go on the voice bus by themselves
     { "top", start = TOP_AT },
     { "strike", start = STRIKE_AT },
@@ -132,7 +109,7 @@ local function tower(cx, top_y)
   polygon { points = { cx - 60, top_y - 40, cx + 60, top_y - 40, cx, top_y - 110 }, fill = "#334155" }
 end
 
-scene { "Stairs", start = 0, audio = steps, render = function(f)
+scene { "Stairs", start = score.time("climb"), audio = steps, render = function(f)
   local t = f.global_seconds
   sky()
   -- The stairs rise one by one from "climbed"; the keeper reaches the top on "stairs".
@@ -151,20 +128,20 @@ scene { "Stairs", start = 0, audio = steps, render = function(f)
   circle { cx = x, cy = y - 40, r = 70, fill = "#fbbf24", opacity = 0.25 * glow }
 end }
 
-scene { "Lamp", start = TOP_START, render = function(f)
+scene { "Lamp", start = score.time("top"), render = function(f)
   local t = f.global_seconds
   sky()
   tower(960, 300)
   -- The lamp swells in on "lamp", its last ember dies on "dark".
   local s = animate(t, { { start = LAMP, stop = LAMP + 0.5, from = 0.6, to = 1, easing = spring { stiffness = 220, damping = 18 }, cue = "lamp" } })
-  local ember = animate(t, { { start = TOP_START, stop = LAMP, from = 0.5, to = 0.5 }, { start = DARK, stop = DARK + 0.7, from = 0.5, to = 0, easing = ease_in, cue = "dark" } })
+  local ember = animate(t, { { start = score.time("top"), stop = LAMP, from = 0.5, to = 0.5 }, { start = DARK, stop = DARK + 0.7, from = 0.5, to = 0, easing = ease_in, cue = "dark" } })
   group({ transform = scale(s, s, 960, 280) }, function()
     circle { cx = 960, cy = 280, r = 70, fill = "#1f2937", stroke = "#475569", stroke_width = 6 }
     circle { cx = 960, cy = 280, r = 46, fill = "#f59e0b", opacity = ember }
   end)
 end }
 
-scene { "Light", start = STRIKE_START, render = function(f)
+scene { "Light", start = score.time("strike"), render = function(f)
   local t = f.global_seconds
   sky()
   -- The sea rises on "sea".
@@ -180,9 +157,9 @@ scene { "Light", start = STRIKE_START, render = function(f)
   end
   tower(960, 300)
   -- A spark on "match", the lamp catches on "light", the beam sweeps on "swept".
-  local spark = animate(t, { { start = MATCH, stop = MATCH + 0.08, from = 0, to = 1, cue = "match" }, { start = MATCH + 0.08, stop = MATCH + 0.6, from = 1, to = 0, easing = ease_in } })
+  local spark = animate(t, { { start = MATCH, stop = MATCH + 0.08, from = 0, to = 1 }, { start = MATCH + 0.08, stop = MATCH + 0.6, from = 1, to = 0, easing = ease_in } })
   local lit = animate(t, { { start = LIGHT, stop = LIGHT + 0.4, from = 0, to = 1, easing = ease_out, cue = "light" } })
-  local sweep = animate(t, { { start = SWEPT, stop = SWEPT + 1.4, from = -60, to = 40, easing = ease_in_out, cue = "swept" } })
+  local sweep = animate(t, { { start = SWEPT, stop = SWEPT + 1.4, from = -60, to = 40, easing = ease_in_out } })
   if spark > 0 then
     circle { cx = 1000, cy = 280, r = 14, fill = "#fde68a", opacity = spark }
     circle { cx = 1000, cy = 280, r = 60 * spark, fill = "#fde68a", opacity = 0.3 * spark }
@@ -194,8 +171,4 @@ scene { "Light", start = STRIKE_START, render = function(f)
   circle { cx = 960, cy = 280, r = 70, fill = "#1f2937", stroke = "#475569", stroke_width = 6 }
   circle { cx = 960, cy = 280, r = 46, fill = "#fbbf24", opacity = lit }
   circle { cx = 960, cy = 280, r = 140, fill = "#fbbf24", opacity = 0.18 * lit }
-end, audio = {
-  { "strike_fx", start = MATCH - STRIKE_START, gain_db = -6, bus = "sfx", cue = "match" },
-  { "swell", start = LIGHT - STRIKE_START, gain_db = -10, bus = "sfx", cue = "light" },
-  { "whoosh", start = SWEPT - STRIKE_START, gain_db = -8, bus = "sfx", cue = "swept" },
-} }
+end, audio = light_fx }

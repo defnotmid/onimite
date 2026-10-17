@@ -33,7 +33,7 @@ build_audio :: proc(app: ^App_State) -> Error {
 }
 
 // The placed tracks, all but `track` muted when it is set; No_Track when no
-// track plays that file.
+// track plays that file (or song part: `score/bass`).
 @(private)
 placed_tracks :: proc(app: ^App_State, r: ^om.Renderer, track: string) -> (placed: [dynamic]om.Placed_Track, err: Error) {
 	// Copied: muting one track alone is this call's.
@@ -49,18 +49,32 @@ placed_tracks :: proc(app: ^App_State, r: ^om.Renderer, track: string) -> (place
 					append(&names, n)
 				}
 			}
+			if p.song != nil {
+				for part in p.song.song.parts {
+					n := fmt.tprintf("%s/%s", p.track.src, part)
+					if !slice.contains(names[:], n) {
+						append(&names, n)
+					}
+				}
+			}
 		}
 		return placed, fail(app, {code = .No_Track, name = track, names = names[:]})
 	}
 	return placed, nil
 }
 
-// Mutes every track but those playing file `name` or mixed through bus
-// `name`; returns how many are left.
+// Mutes every track but those playing file `name`, mixed through bus
+// `name`, or playing song part `name` ("score/bass": that part alone);
+// returns how many are left.
 @(private)
 solo :: proc(placed: []om.Placed_Track, name: string) -> (heard: int) {
+	song, _, part := strings.partition(name, "/")
 	for &p in placed {
+		p.part = ""
 		p.muted = p.track.src != name && p.track.bus != name
+		if p.muted && p.song != nil && p.track.src == song && slice.contains(p.song.song.parts[:], part) {
+			p.muted, p.part = false, part
+		}
 		heard += int(!p.muted)
 	}
 	return
@@ -377,7 +391,7 @@ audio_onsets :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 	start, end := resolve_range(app, &r.timeline, fps, regs.spec) or_return
 	mix, _, _ := audio_mix(app, r, start, end, regs.track) or_return
 	defer delete(mix)
-	rep := om.audio_onsets(mix, context.temp_allocator)
+	rep := om.onsets_from_interleaved(mix, context.temp_allocator)
 	offset := f64(start) / f64(fps)
 	res := Audio_Onsets_Result {
 		start_seconds = offset,
@@ -416,12 +430,30 @@ audio_onsets :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 // ---- at -------------------------------------------------------------------------------
 
 Active_Track :: struct {
-	file:         string     `json:"file"`,
-	bus:          string     `json:"bus"`,
-	file_seconds: f64        `json:"file_seconds"`,
-	gain_db:      Maybe(f64) `json:"gain_db"`,
-	voice:        bool       `json:"voice"`,
-	ducked_db:    Maybe(f64) `json:"ducked_db"`,
+	file:         string        `json:"file"`,
+	bus:          string        `json:"bus"`,
+	file_seconds: f64           `json:"file_seconds"`,
+	gain_db:      Maybe(f64)    `json:"gain_db"`,
+	voice:        bool          `json:"voice"`,
+	ducked_db:    Maybe(f64)    `json:"ducked_db"`,
+	// A song: where in its form, and the notes sounding.
+	song:         Maybe(Song_At) `json:"song"`,
+}
+
+Song_At :: struct {
+	section:  string    `json:"section"`,
+	bar:      int       `json:"bar"`,
+	beat:     f64       `json:"beat"`,
+	notes:    []Note_At `json:"notes"`,
+}
+
+Note_At :: struct {
+	part:     string `json:"part"`,
+	note:     string `json:"note"`,
+	// Where it started on the video.
+	start_seconds: f64 `json:"start_seconds"`,
+	velocity: f64    `json:"velocity"`,
+	held:     bool   `json:"held"`,
 }
 
 Audio_At_Result :: struct {
@@ -431,8 +463,9 @@ Audio_At_Result :: struct {
 	tracks:  []Active_Track `json:"tracks"`,
 }
 
-// What plays at each time: the file, where in it, how loud (gain, fades and
-// ducking) and how far it is ducked.
+// What plays at each time: the file (or song: its section and the notes
+// sounding), where in it, how loud (gain, fades and ducking) and how far
+// it is ducked.
 @(private)
 audio_at :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 	build_audio(app) or_return
@@ -440,11 +473,15 @@ audio_at :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 	fps := r.video.fps
 	specs, frames := resolve_frames(app, &r.timeline, fps, regs.spec) or_return
 	placed := placed_tracks(app, r, regs.track) or_return
+	// The mix without its samples: how the voices duck the others.
+	mx: om.Mix
+	om.mix_init(&mx, placed[:], r.video.mix, samples = false)
+	defer om.mix_destroy(&mx)
 	results := make([]Audio_At_Result, len(frames), context.temp_allocator)
 	for f, i in frames {
 		s := int(math.round(f64(f) / f64(fps) * om.MIX_RATE))
 		tracks := make([dynamic]Active_Track, context.temp_allocator)
-		for p in placed {
+		for p, pi in placed {
 			if s < p.start || s >= p.end || p.muted {
 				continue
 			}
@@ -454,7 +491,7 @@ audio_at :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 			env := om.track_envelope(k, length, om.seconds_to_samples(tr.fade_in), om.seconds_to_samples(tr.fade_out), tr.curve)
 			duck: f32 = 1
 			if tr.ducked {
-				duck = om.duck_envelope(placed[:], om.ducking_resolved(tr.duck), s, s + 1)[0]
+				duck = om.mix_duck_gain(&mx, pi, s)
 			}
 			gain := tr.gain_db + 20 * math.log10(max(env * duck, 1e-12))
 			at := Active_Track {
@@ -466,6 +503,22 @@ audio_at :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 			}
 			if tr.ducked {
 				at.ducked_db = f64(20 * math.log10(max(duck, 1e-12)))
+			}
+			if p.song != nil {
+				t := at.file_seconds
+				sa: Song_At
+				if place, inside := om.song_place(p.song, t); inside {
+					sa.section, sa.bar, sa.beat = place.name, place.bar + 1, place.beat + 1
+				}
+				notes := make([dynamic]Note_At, context.temp_allocator)
+				for n in om.song_notes_at(p.song, t) {
+					if p.part != "" && n.part != p.part {
+						continue
+					}
+					append(&notes, Note_At{fmt.tprintf("%s/%s", tr.src, n.part), n.note, f64(p.start - p.file_start) / om.MIX_RATE + n.time, f64(n.velocity), n.held})
+				}
+				sa.notes = notes[:]
+				at.song = sa
 			}
 			append(&tracks, at)
 		}
@@ -487,7 +540,17 @@ audio_at :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 				ducked = fmt.tprintf(", ducked %.1f dB", d)
 			}
 			bus := fmt.tprintf(" (bus %s)", t.bus) if t.bus != "" else ""
-			fmt.sbprintf(&b, "\n  %s%s at %.3fs of the file, %s dB%s%s", t.file, bus, t.file_seconds, gain, ", voice" if t.voice else "", ducked)
+			sa, is_song := t.song.?
+			fmt.sbprintf(&b, "\n  %s%s at %.3fs of the %s, %s dB%s%s", t.file, bus, t.file_seconds, "song" if is_song else "file", gain, ", voice" if t.voice else "", ducked)
+			if !is_song {
+				continue
+			}
+			if sa.section != "" {
+				fmt.sbprintf(&b, "\n    %s bar %d beat %.2f", sa.section, sa.bar, sa.beat)
+			}
+			for n in sa.notes {
+				fmt.sbprintf(&b, "\n    %-16s %-6s from %.3fs  %s", n.part, n.note, n.start_seconds, "held" if n.held else "ringing")
+			}
 		}
 	}
 	emit(app, results, strings.to_string(b))
@@ -586,7 +649,7 @@ write_waveform :: proc(app: ^App_State, r: ^om.Renderer, path: string, mix: []f3
 	}
 	// Every onset of the mix (ticks as tall as they are strong) and the
 	// script's cues (green, named; a family by its first).
-	onsets := om.audio_onsets(mix, context.temp_allocator)
+	onsets := om.onsets_from_interleaved(mix, context.temp_allocator)
 	vg.path_reset(&p)
 	for o in onsets.onsets {
 		vg.path_rect(&p, x_of(f64(o.time), duration) - 0.5, TOP + WAVE_H - 10 * o.strength, 1, 10 * o.strength)

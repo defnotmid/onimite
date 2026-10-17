@@ -12,6 +12,7 @@ import "core:strings"
 import om "../onimite"
 import script "../script"
 import "../speech"
+import odevice "deps:odawg/device"
 
 // `onimite show video.lua [path]`: any part of the video looked at the same
 // way, like a debugger's watch window: a summary, its fields (read from the
@@ -26,6 +27,7 @@ import "../speech"
 //   bus/sfx                 a bus and its tracks
 //   track/12                a placed sound (in time order)
 //   clip/tick_1900          a sound clip
+//   song/score              a song; song/score/sections/drop, song/score/parts/bass
 //   node/scenes/race.lua:19[2]   what that script line drew (the third), at --at
 
 SHOW_PAGE :: 20
@@ -132,6 +134,9 @@ Show_Kind :: enum u8 {
 	Clip,
 	Say,
 	Word,
+	Song,
+	Section,
+	Part,
 	Node,
 	Media,
 	Font,
@@ -167,6 +172,8 @@ SHOW_PATHS := [?]Show_Path {
 	{"clip", "clip/NAME", show_clip},
 	{"says", "says", show_says},
 	{"say", "say/NAME", show_say},
+	{"songs", "songs", show_songs},
+	{"song", "song/NAME[/sections/NAME|/parts/NAME]", show_song},
 	{"media", "media, media/FILE", show_media},
 	{"fonts", "fonts", show_fonts},
 	{"font", "font/FAMILY", show_font},
@@ -210,6 +217,9 @@ show_video :: proc(sh: ^Show, _: string) -> Error {
 	child(sh, "clips", .List, fmt.tprintf("%d clips (%d made by the script, built when needed)", len(sh.app.media.audio) + len(sh.app.script.pending_audio), len(sh.app.script.pending_audio)))
 	if n := len(sh.app.script.said); n > 0 {
 		child(sh, "says", .List, fmt.tprintf("%d spoken lines (say)", n))
+	}
+	if n := len(sh.app.script.songs); n > 0 {
+		child(sh, "songs", .List, fmt.tprintf("%d songs and sounds (song, sound)", n))
 	}
 	m := &sh.app.media
 	child(sh, "media", .List, fmt.tprintf("%d media files besides the sounds", len(media_files(m))))
@@ -448,7 +458,11 @@ show_track :: proc(sh: ^Show, rest: string) -> Error {
 	sh.res.fields["start_seconds"] = json.Float(f64(p.start) / om.MIX_RATE)
 	sh.res.fields["end_seconds"] = json.Float(f64(p.end) / om.MIX_RATE)
 	sh.res.fields["scene"] = json.String(p.scene)
-	child(sh, fmt.tprintf("clip/%s", p.track.src), .Clip, "the sound it plays")
+	if p.song != nil {
+		child(sh, fmt.tprintf("song/%s", p.track.src), .Song, "the song it plays")
+	} else {
+		child(sh, fmt.tprintf("clip/%s", p.track.src), .Clip, "the sound it plays")
+	}
 	if p.scene != "" {
 		child(sh, fmt.tprintf("scene/%s", p.scene), .Scene, "the scene that places it")
 	}
@@ -555,6 +569,109 @@ show_say :: proc(sh: ^Show, rest: string) -> Error {
 	child(sh, fmt.tprintf("clip/%s", name), .Clip, "its audio and the tracks that play it")
 	for w, i in l.words {
 		child(sh, fmt.tprintf("say/%s/%d", name, i + 1), .Word, fmt.tprintf("%.3fs..%.3fs  %s%s", w.start, w.stop, speech.word_text(l, i), "  (estimated)" if w.estimated else ""))
+	}
+	return nil
+}
+
+// ---- songs -------------------------------------------------------------------------------
+
+@(private = "file")
+show_songs :: proc(sh: ^Show, _: string) -> Error {
+	s := &sh.app.script
+	sh.res.kind = show_kind(.List)
+	sh.res.summary = fmt.tprintf("%d songs and sounds", len(s.songs))
+	for x in s.songs {
+		g := &x.clip.song
+		child(sh, fmt.tprintf("song/%s", x.name), .Song, fmt.tprintf("%.3fs..%.3fs  %d sections  %d tracks%s", g.start, g.start + g.duration, len(g.sections), len(g.tracks), "  (sound)" if x.sound else ""))
+	}
+	return nil
+}
+
+// `song/NAME`: a song's form and tracks; `song/NAME/sections/S`: a section;
+// `song/NAME/parts/P`: a part's tracks and every note it plays, on the
+// video clock.
+@(private = "file")
+show_song :: proc(sh: ^Show, rest: string) -> Error {
+	s := &sh.app.script
+	name, _, sub := strings.partition(rest, "/")
+	group, _, item := strings.partition(sub, "/")
+	sc := script.script_song(s, name)
+	if sc == nil {
+		return fail(sh.app, {code = .No_Path, name = fmt.tprintf("song/%s", name), names = {"songs"}})
+	}
+	g := &sc.song
+	at := ""
+	for x in s.songs {
+		if x.name == name {
+			at = x.at
+		}
+	}
+	t := timeline_song(sc, at)
+	sh.res.source = at
+	switch group {
+	case "":
+		sh.res.kind = show_kind(.Song)
+		sh.res.summary = fmt.tprintf("%s  %s  %.3fs..%.3fs  %d sections, %d tracks, %d notes", name, t.key, t.start_seconds, t.end_seconds, len(t.sections), len(t.tracks), len(g.notes))
+		sh.res.fields["key"] = json.String(t.key)
+		sh.res.fields["start"] = json.Float(t.start_seconds)
+		sh.res.fields["duration"] = json.Float(g.duration)
+		sh.res.fields["tail"] = json.Float(sc.tail)
+		sh.res.fields["seed"] = json.Integer(i64(g.seed))
+		for f, i in sc.findings {
+			sh.res.fields[fmt.tprintf("finding %d", i + 1)] = json.String(fmt.tprintf("%s: %s", f.code, f.message))
+		}
+		for sec in t.sections {
+			bpm := fmt.tprintf("%.1f", sec.bpm[0]) if sec.bpm[0] == sec.bpm[1] else fmt.tprintf("%.1f->%.1f", sec.bpm[0], sec.bpm[1])
+			child(sh, fmt.tprintf("song/%s/sections/%s", name, sec.name), .Section, fmt.tprintf("%.3fs..%.3fs  %d bars  %s bpm  %s  energy %.2f", sec.start_seconds, sec.end_seconds, sec.bars, bpm, sec.style, sec.energy))
+		}
+		for part in g.parts {
+			n := 0
+			for tr in g.tracks {
+				if g.parts[tr.part] == part {
+					n += int(tr.notes.count)
+				}
+			}
+			child(sh, fmt.tprintf("song/%s/parts/%s", name, part), .Part, fmt.tprintf("%d notes", n))
+		}
+		pa := om.placed_audio(&sh.r.ctx)
+		placed, order := pa.tracks[:], pa.order[:]
+		for k, idx in order {
+			if placed[k].track.src == name {
+				child(sh, fmt.tprintf("track/%d", idx), .Track, track_summary(placed[k]))
+			}
+		}
+	case "sections":
+		for sec in t.sections {
+			if sec.name != item {
+				continue
+			}
+			sh.res.kind = show_kind(.Section)
+			sh.res.summary = fmt.tprintf("%s of %s  %.3fs..%.3fs  %d bars of %d", sec.name, name, sec.start_seconds, sec.end_seconds, sec.bars, sec.beats_per_bar)
+			sh.res.fields = reflect_object(sec, 0)
+			child(sh, fmt.tprintf("cue/%s", sec.name), .Cue, "its cue")
+			return nil
+		}
+		return fail(sh.app, {code = .No_Path, name = fmt.tprintf("song/%s/sections/%s", name, item), names = {fmt.tprintf("song/%s", name)}})
+	case "parts":
+		found := false
+		for tr in g.tracks {
+			if g.parts[tr.part] != item {
+				continue
+			}
+			found = true
+			child(sh, fmt.tprintf("song/%s/parts/%s", name, item), .Part, fmt.tprintf("%s  %s  %d notes  %+.1f dB  pan %.2f", tr.variant, odevice.DEVICE_TABLE[g.devices[tr.instrument]].name, tr.notes.count, tr.gain_db, tr.pan))
+			for i in tr.notes.first ..< tr.notes.first + tr.notes.count {
+				n := g.notes[i]
+				append(&sh.children, Show_Child{fmt.tprintf("%.3fs", g.start + n.time), "note", fmt.tprintf("beat %.2f  %-6s %.3fs  vel %.2f", n.beat, om.note_name(n.pad, n.pitch), n.duration, n.velocity)})
+			}
+		}
+		if !found {
+			return fail(sh.app, {code = .No_Path, name = fmt.tprintf("song/%s/parts/%s", name, item), names = {fmt.tprintf("song/%s", name)}})
+		}
+		sh.res.kind = show_kind(.Part)
+		sh.res.summary = fmt.tprintf("%s/%s: its tracks and notes on the video (`--track %s/%s` hears it alone)", name, item, name, item)
+	case:
+		return fail(sh.app, {code = .No_Path, name = fmt.tprintf("song/%s", rest), names = {fmt.tprintf("song/%s/sections/NAME", name), fmt.tprintf("song/%s/parts/NAME", name)}})
 	}
 	return nil
 }

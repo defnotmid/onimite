@@ -1,6 +1,6 @@
 local look = require("look")
 local fx = require("fx")
-local C = require("cues")
+local score = require("music.score")
 local sfx = require("sfx")
 local facts = require("facts")
 local snap = look.snap
@@ -89,17 +89,18 @@ end
 -- Its sounds (sfx.lua), in beats into the scene.
 local SOUNDS = {}
 for k, b in ipairs(BANDS) do -- a blip per part, up the scale
-  SOUNDS[#SOUNDS + 1] = sfx.at(C.DOWNLOAD, b.t0, sfx.blip(440 * 2 ^ ((k - 1) * 2 / 12)), 0.12)
+  SOUNDS[#SOUNDS + 1] = sfx.at("download", b.t0, sfx.blip(440 * 2 ^ ((k - 1) * 2 / 12)), 0.12)
 end
 for _, s in ipairs {
-  sfx.at(C.DOWNLOAD, 3.5, sfx.whoosh(C.seconds(C.DOWNLOAD + 3.5, 1), 0.1), 0.2), -- then ours
-  sfx.at(C.DOWNLOAD, 4.5, sfx.impact(), 0.5),
-  sfx.at(C.DOWNLOAD, 5.5, sfx.done(), 0.14),
-  sfx.at(C.DOWNLOAD, 6.5, sfx.done(), 0.18),
-  sfx.at(C.DOWNLOAD, 6.5, sfx.crash(), 0.5),
+  sfx.at("download", 3.5, sfx.whoosh(sfx.seconds("download", 3.5, 1), 0.1), 0.2), -- then ours
+  sfx.at("download", 4.5, sfx.impact(), 0.5),
+  sfx.at("download", 5.5, sfx.done(), 0.14),
+  sfx.at("download", 6.5, sfx.done(), 0.18),
+  sfx.at("download", 6.5, sfx.crash(), 0.5),
 } do SOUNDS[#SOUNDS + 1] = s end
 
-scene { "Download", cue = "DOWNLOAD", start = C.time(C.DOWNLOAD), audio = SOUNDS, render = function(f)
-  local gb = C.beat(f)
-  download(f, gb - C.DOWNLOAD, gb)
+local AT = score.time("download")
+scene { "Download", cue = "download", start = AT, audio = SOUNDS, render = function(f)
+  local gb = score.beat(f)
+  download(f, gb - score.beat(AT), gb)
 end }

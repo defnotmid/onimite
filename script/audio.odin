@@ -9,8 +9,9 @@ import lua "vendor:lua/5.4"
 //             curve = "equal_power", ducked = true},
 //            {"vo.wav", start = 0.6, voice = true} }`
 //
-// Track fields: the file (first entry or `src`), `start`, `stop` (omitted:
-// to the end of the file), `offset` (seconds into the file), `gain_db`,
+// Track fields: the file (first entry or `src`: a clip, or a song or sound
+// by name), `start` (a song on video{} without one: its own start), `stop`
+// (omitted: to the end of the file, a song's end and tail), `offset` (seconds into the file), `gain_db`,
 // `pan` (-1..1), `fade_in`, `fade_out`, `curve` ("linear" or
 // "equal_power"), `voice`, `ducked` (true for fframes' duck_under_voice, or
 // a table `{depth_db, attack, hold, release, merge_gap}`), `mono` (a stereo
@@ -53,6 +54,10 @@ read_audio :: proc(s: ^Script, L: ^lua.State, t: c.int, scene: Maybe(int)) {
 			append(&s.owned_strings, tr.bus)
 		}
 		tr.start = get_num(L, e, "start", 0)
+		// A song on the video starts where it says (its own `start`).
+		if sc := script_song(s, tr.src); sc != nil && scene == nil && !has_field(L, e, "start") {
+			tr.start = f32(sc.song.start)
+		}
 		tr.stop = get_num(L, e, "stop", 0)
 		// Frames, minutes, audio lengths and sums (fframes' AudioTimestamp).
 		tr.start_terms = read_terms_field(s, L, e, "start")

@@ -1,11 +1,16 @@
 local look = require("look")
 local fx = require("fx")
-local C = require("cues")
+local score = require("music.score")
 local sfx = require("sfx")
 local code = require("code")
 local W, H = look.W, look.H
 
 -- ---- the spark ----------------------------------------------------------------
+
+-- In beats into the scene: the code types over [CODE_FROM, CODE_TO], the
+-- command over [CMD_FROM, CMD_TO], the render bar fills from BAR_FROM to the
+-- drop. The tempo climbs under it, so it types faster and faster.
+local CODE_FROM, CODE_TO, CMD_FROM, CMD_TO, BAR_FROM = 1, 10.5, 11.5, 14, 14.5
 
 local MONO_SIZE = 40
 
@@ -44,7 +49,7 @@ local function spark(f, lb)
   end)
 
   -- the script, character by character, in beats: it types faster as the tempo climbs
-  local n = code.CODE_CHARS * progress(lb, C.CODE_FROM, C.CODE_TO)
+  local n = code.CODE_CHARS * progress(lb, CODE_FROM, CODE_TO)
   local done, cursor_at = 0, nil
   for i, tokens in ipairs(code.LINES) do
     local y = PANEL.y + 120 + (i - 1) * 78
@@ -52,7 +57,7 @@ local function spark(f, lb)
     if n - done >= 0 and n - done < used + 0.5 and not cursor_at then cursor_at = { PANEL.x + 56 + math.floor(n - done) * CW, y } end
     done = done + used
   end
-  if appear > 0.9 and lb < C.CMD_FROM then
+  if appear > 0.9 and lb < CMD_FROM then
     cursor_at = cursor_at or { PANEL.x + 56, PANEL.y + 120 }
     if math.floor(lb * 3) % 2 == 0 or n < code.CODE_CHARS then
       rect { x = cursor_at[1], y = cursor_at[2] - MONO_SIZE * 0.8, w = CW, h = MONO_SIZE * 1.1, fill = look.INK, opacity = 0.85 }
@@ -60,21 +65,21 @@ local function spark(f, lb)
   end
 
   -- the command
-  local c = code.COMMAND_CHARS * progress(lb, C.CMD_FROM, C.CMD_TO)
-  if lb >= C.CMD_FROM - 0.3 then
+  local c = code.COMMAND_CHARS * progress(lb, CMD_FROM, CMD_TO)
+  if lb >= CMD_FROM - 0.3 then
     local used = typed(code.COMMAND, 240, 800, 46, math.floor(c), text_width { "M", font = look.MONO, size = 46 })
     local cw = text_width { "M", font = look.MONO, size = 46 }
-    if lb < C.BAR_FROM and (math.floor(lb * 3) % 2 == 0 or c < code.COMMAND_CHARS) then
+    if lb < BAR_FROM and (math.floor(lb * 3) % 2 == 0 or c < code.COMMAND_CHARS) then
       rect { x = 240 + math.floor(c) * cw, y = 800 - 46 * 0.8, w = cw, h = 46 * 1.1, fill = look.INK, opacity = 0.85 }
     end
   end
 
   -- the render bar
-  if lb >= C.BAR_FROM then
-    local p = ease(easing.exponential_out, progress(lb, C.BAR_FROM, 15.7))
+  if lb >= BAR_FROM then
+    local p = ease(easing.exponential_out, progress(lb, BAR_FROM, 15.7))
     rect { x = 240, y = 870, w = 1440, h = 14, rx = 7, fill = look.LINE }
     rect { x = 240, y = 870, w = math.max(1440 * p, 1), h = 14, rx = 7, fill = look.O }
-    group({ opacity = progress(lb, 15.2, 15.7) }, function()
+    group({ opacity = progress(lb, 15, 15.5) }, function()
       text { "video.mp4 written", x = 240, y = 940, font = look.MONO, size = 30, fill = look.O }
     end)
   end
@@ -86,13 +91,14 @@ end
 -- Its sounds (sfx.lua), in beats into the scene.
 local SOUNDS = sfx.add({},
   -- the script types itself, then the command: a key per character
-  sfx.typing(C.SPARK, C.CODE_FROM, C.CODE_TO, code.CODE_TEXT, 0.08, 1),
-  sfx.typing(C.SPARK, C.CMD_FROM, C.CMD_TO, code.COMMAND_TEXT, 0.1, 500),
+  sfx.typing("spark", CODE_FROM, CODE_TO, code.CODE_TEXT, 0.08, 1),
+  sfx.typing("spark", CMD_FROM, CMD_TO, code.COMMAND_TEXT, 0.1, 500),
   -- the render bar fills, then DONE
-  sfx.at(C.SPARK, C.BAR_FROM, sfx.whoosh(C.seconds(C.SPARK + C.BAR_FROM, 1.1), 0.3), 0.12),
-  sfx.at(C.SPARK, 15.2, sfx.done(), 0.18))
+  sfx.at("spark", BAR_FROM, sfx.whoosh(sfx.seconds("spark", BAR_FROM, 1), 0.3), 0.12),
+  sfx.at("spark", 15, sfx.done(), 0.18))
 
-scene { "Spark", cue = "SPARK", start = C.time(C.SPARK), audio = SOUNDS, render = function(f)
-  local gb = C.beat(f)
-  spark(f, gb - C.SPARK, gb)
+local AT = score.time("spark")
+scene { "Spark", cue = "spark", start = AT, audio = SOUNDS, render = function(f)
+  local gb = score.beat(f)
+  spark(f, gb - score.beat(AT), gb)
 end }

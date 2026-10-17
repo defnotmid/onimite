@@ -1,35 +1,26 @@
--- The clock and every cue, in beats from the start (120 BPM, 4 beats a bar,
--- a beat is half a second). The picture (video.lua) and the music
--- (track.lua) both read these numbers.
+-- Every cue the picture uses, read from the score (track.lua) in video
+-- seconds: where its sections start, and the notes it really plays there.
+-- The blips, chimes and the riser are the moments; the cues let `inspect`
+-- and `frame video.lua month[3]` find them.
 
-local T = {}
+return function(score)
+  local T = { FPS = 60 }
+  T.BEAT = score.seconds("4n")   -- a beat: each transition's length
+  T.SCENES = { { "title", "Title" }, { "bars", "Bars" }, { "line", "Line" }, { "donut", "Donut" }, { "outro", "Outro" } }
 
-T.FPS, T.BPM = 60, 120
-T.clock = beat_clock(T.BPM)
-T.BEAT = T.clock.spb
-
--- Sections: start beat, scene name. A section runs to the next one's start.
-T.SECTIONS = {
-  { 0, "Title" },
-  { 8, "Bars" },
-  { 24, "Line" },
-  { 36, "Donut" },
-  { 48, "Outro" },
-}
-T.TOTAL = 60 -- 15 bars, 30 s
-
--- Title: the emoji pops, the name slams, the subtitle follows.
-T.EMOJI, T.NAME, T.SUB = 1, 2, 3
--- Bars: twelve months rise a sixteenth apart, the best month lights up.
-T.BARS_GO, T.BARS_STEP, T.PEAK = 9, 0.25, 18
--- Line: the running total draws itself on, then the total pops.
-T.LINE_GO, T.LINE_END = 25, 31
--- Donut: a segment a beat, the legend rows with them.
-T.DONUT_GO, T.DONUT_STEP = 37, 1
--- Outro: the total counts up over three beats.
-T.COUNT_GO, T.COUNT_END = 49, 52
-
--- Bars where the kick plays (the picture pumps with it).
-T.KICK_FROM, T.KICK_TO = 4, 56
-
-return T
+  -- Title: the emoji pops, the name slams on the impact, the subtitle follows.
+  T.EMOJI, T.SUB = score.time("title@4n"), score.time("title@2n.")
+  T.NAME = cue("slam", score.hits { part = "impact" }[1])
+  -- Bars: twelve months rise on their blips, the best month lights up on the chime.
+  T.MONTHS = cue("month", score.hits { part = "months" })
+  T.PEAK = cue("peak", score.hits { part = "chimes", range = "bars" }[1])
+  -- Line: the running total draws while the riser swells, and pops on the chime.
+  local riser = score.events { part = "riser" }[1]
+  T.LINE_GO, T.LINE_END = riser.time, riser.time + riser.duration
+  -- Donut: a segment and its legend row on each blip.
+  T.SEGMENTS = cue("segment", score.hits { part = "segments" })
+  -- Outro: the total counts up over the ticks and lands on the chime.
+  T.COUNT_GO = score.hits { part = "ticks" }[1]
+  T.COUNT_END = cue("total", score.hits { part = "chimes", range = "outro" }[1])
+  return T
+end

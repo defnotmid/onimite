@@ -24,25 +24,30 @@ frame is one composition that uses all of them:
   4444 `.mov` and the VP9-alpha `.webm` glow in masked portals over the
   shader world. In the kaleidoscope the VP9 clip is drawn *inside* the
   shader's child group, so the fold multiplies it.
-- **onimite** runs the Lua script, synthesizes the soundtrack at load
-  (`track.lua` on `../common/synth.lua`, registered with `audio_add`), and feeds the beat and
-  `audio_spectrum` into the shader's uniforms (bulge, fringes, floor glow).
+- **onimite** runs the Lua script, composes the soundtrack with odawg
+  (`track.lua`, a `song{}`: synthwave on 909 `DrumMachine`s, octave saw
+  bass, wide pads, a dotted-eighth arp, a lead in the kaleidoscope) and feeds
+  its kicks (`score.pulse`) and `audio_spectrum` into the shader's uniforms
+  (bulge, fringes, floor glow).
 
 ```sh
 onimite render examples/suite/video.lua -o suite.mp4
 ```
 
-| beats | seconds | what |
-| --- | --- | --- |
-| 0-16 | 0-8 | ignition: the world fades up, the script's lines type in, the rocket rises; a riser |
-| 16-32 | 8-16 | the drop: full warp, the 3D gyroscope springs up inside the spectrum ring, the rocket flies a figure of eight, the portals open on beats 20 and 24 |
-| 32-48 | 16-24 | the portals dive into the centre, the kaleidoscope folds the VP9 dancer, the gyroscope and the spectrum ring; the rocket orbits |
-| 48-56 | 24-28 | the break: the warp settles and the structure draws itself, a box a beat (o3d's lands with the SDL_GPU row on 52) |
-| 56-72 | 28-36 | the lockup: "onimite · ovg · oksl · odecs · o3d" (a name a beat, o3d's with the line on 60), "one binary, all Odin, Lua scripts", the structure under it; the last hit on 68 |
+| beats | seconds | section | what |
+| --- | --- | --- | --- |
+| 0-16 | 0-8 | `ignition`, `liftoff` | the world fades up, the script's lines type in, the rocket rises on its blip; the kick, a riser |
+| 16-32 | 8-16 | `drop` | full warp, the 3D gyroscope springs up inside the spectrum ring, the rocket flies a figure of eight, the portals open on their blips (beats 20 and 24) |
+| 32-48 | 16-24 | `kaleido` | the portals dive into the centre, the kaleidoscope folds the VP9 dancer, the gyroscope and the spectrum ring; the rocket orbits; a stutter before the break |
+| 48-56 | 24-28 | `break` | the warp settles and the structure draws itself, a box a blip (o3d's lands with the SDL_GPU row on 52) |
+| 56-72 | 28-36 | `lockup`, `tail` | "onimite · ovg · oksl · odecs · o3d" (a name a blip, o3d's with the line on its crash, 60), "one binary, all Odin, Lua scripts", the structure under it; the last hit on 68 |
 
-The text on screen comes from the five READMEs. Files: `timeline.lua`
-(every beat; picture and music read it), `beat.lua` (`beat_clock` and easing,
-from why_onimite), `track.lua` (why_onimite' instruments, D minor),
+The text on screen comes from the five READMEs. Files: `track.lua` (the
+song, D minor: its sections are the piece's parts, its transitions the
+risers and the impacts on the drop and the lockup, its own parts the blips,
+crashes and stutters the picture lands on), `timeline.lua` (every moment in
+beats, read from the song: section starts and those parts' hits, so the
+picture moves when the song does), `beat.lua` (easing on the song's beat),
 `ui.lua` (palette, spectrum), `world.lua` (the shader's child group, the
 gyroscope),
 `video.lua` (the shader layer, portals, rocket, captions, lockup).
@@ -58,6 +63,6 @@ gyroscope),
   rendered by onimite from `tools/gen_media/canyon.lua` (turbulence-lit
   rock strata, noise ridges) and encoded by `gen.sh`.
 - Fonts (OFL): Bebas Neue, Space Grotesk, JetBrains Mono.
-- The soundtrack is synthesized. All of the media above is part of this
+- The soundtrack is composed by odawg from `track.lua`. All of the media above is part of this
   repository (MIT); `tools/gen_media/gen.sh` regenerates the clips and the
   panorama.

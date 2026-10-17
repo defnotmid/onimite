@@ -1,0 +1,157 @@
+package onimite
+
+import "core:encoding/json"
+import "core:math"
+import "core:testing"
+import "core:time"
+import orender "deps:odawg/render"
+
+// A clip of constant level placed with gain, balance, an offset, fades and
+// ducking under a voice track (no limiter) plays as onimite's own mix did:
+// every sample is the clip times gain, balance, the track envelope and the
+// ducking envelope (fframes' duck_under_voice, computed here on its own).
+@(test)
+test_mix_envelopes :: proc(t: ^testing.T) {
+	n := MIX_RATE
+	music := make([]f32, n * 2)
+	defer delete(music)
+	for i in 0 ..< n {
+		music[i * 2], music[i * 2 + 1] = 0.5, 0.25
+	}
+	voice := make([]f32, n * 2)
+	defer delete(voice)
+	music_clip := Audio_Clip{samples = music, frames = n, source_channels = 2}
+	voice_clip := Audio_Clip{samples = voice, frames = n, source_channels = 1}
+	duck := Ducking{depth_db = -9, attack = 0.05, hold = 0.02, release = 0.1}
+	placed := []Placed_Track {
+		{track = {gain_db = -6, pan = 0.3, fade_in = 0.1, fade_out = 0.2, curve = .Equal_Power, ducked = true, duck = duck}, clip = &music_clip, start = 2400, end = 40000, file_start = 100},
+		{track = {voice = true}, clip = &voice_clip, start = 12000, end = 20000},
+	}
+	out, _ := mix_tracks(placed, 0, n, {no_limiter = true})
+	defer delete(out)
+	d := ducking_resolved(duck)
+	depth := math.pow(10, d.depth_db / 20)
+	attack := seconds_to_samples(d.attack)
+	hold := seconds_to_samples(d.hold)
+	release := seconds_to_samples(d.release)
+	ducking :: proc(s, a, b, attack, hold, release: int, depth: f32) -> f32 {
+		w: f32
+		switch {
+		case s < a - attack || s >= b + hold + release:
+			w = 0
+		case s < a:
+			w = f32(s - (a - attack)) / f32(attack)
+		case s >= b + hold:
+			w = 1 - f32(s - (b + hold)) / f32(release)
+		case:
+			w = 1
+		}
+		return 1 + (depth - 1) * w
+	}
+	p := placed[0]
+	gain := math.pow(f32(10), -6.0 / 20)
+	gl, gr := min(1, 1 - p.track.pan) * gain, min(1, 1 + p.track.pan) * gain
+	worst: f32
+	for s in 0 ..< n {
+		want_l, want_r: f32
+		if s >= p.start && s < p.end {
+			k := s - p.start
+			env := track_envelope(k, p.end - p.start, seconds_to_samples(p.track.fade_in), seconds_to_samples(p.track.fade_out), p.track.curve)
+			env *= ducking(s, 12000, 20000, attack, hold, release, depth)
+			want_l, want_r = 0.5 * gl * env, 0.25 * gr * env
+		}
+		worst = max(worst, abs(out[s * 2] - want_l), abs(out[s * 2 + 1] - want_r))
+	}
+	testing.expectf(t, worst < 1e-5, "largest difference from the envelopes %e", worst)
+}
+
+// The preview's stream, block by block from the start, plays the render's
+// samples (the limiter working, the render cut into short segments on
+// several threads), and the limiter holds the ceiling.
+@(test)
+test_mix_stream_is_render :: proc(t: ^testing.T) {
+	n := MIX_RATE / 2
+	samples := make([]f32, n * 2)
+	defer delete(samples)
+	for i in 0 ..< n {
+		v := f32(math.sin(f64(i) * 0.05)) * 1.6 // loud: the limiter works
+		samples[i * 2], samples[i * 2 + 1] = v, v * 0.5
+	}
+	clip := Audio_Clip{samples = samples, frames = n, source_channels = 2}
+	placed := []Placed_Track{{track = {fade_in = 0.05, gain_db = 2}, clip = &clip, start = 100, end = n - 1000}}
+	opts := Mix_Options{master_gain_db = 2}
+	mx: Mix
+	mix_init(&mx, placed, opts)
+	defer mix_destroy(&mx)
+	whole, stats := mix_render(&mx, 0, n, threads = 3, segment = 0.05)
+	defer delete(whole)
+	testing.expect(t, stats.max_reduction_db < -1, "the limiter works")
+	st: Mix_Stream
+	mix_stream_init(&st, placed, opts)
+	defer mix_stream_destroy(&st)
+	streamed := make([]f32, n * 2)
+	defer delete(streamed)
+	for from := 0; from < n; from += 1000 {
+		count := min(1000, n - from)
+		mix_block(&st, from, streamed[from * 2:][:count * 2])
+		free_all(context.temp_allocator)
+	}
+	worst: f32
+	for v, i in whole {
+		worst = max(worst, abs(v - streamed[i]))
+	}
+	testing.expectf(t, worst < 1e-6, "largest difference %e", worst)
+	ceiling := math.pow(f32(10), -1.0 / 20)
+	peak: f32
+	for v in whole {
+		peak = max(peak, abs(v))
+	}
+	testing.expectf(t, peak <= ceiling + 1e-4, "peak %f over the ceiling", peak)
+}
+
+// A song's analysis tables, shared by every reader, are its render
+// measured: a frame's energy and spectrum are those of the rendered
+// samples at the frame, whoever built the table and however.
+@(test)
+test_song_tables_are_render :: proc(t: ^testing.T) {
+	m: Media
+	media_init(&m)
+	defer media_destroy(&m)
+	v, err := json.parse_string(`{ name: "s", bpm: 120, sections: [ { name: "a", duration: "2m" } ],
+		parts: { drums: { instrument: "DrumKit", play: [ { name: "a", steps: { kick: "x...x...x...x...", hat: "..x...x...x...x." } } ] },
+		         lead: { instrument: "pluck", effects: [ { name: "FeedbackDelay", delay_time: "8n", feedback: 0.4, wet: 0.3 } ],
+		                 play: [ { name: "a", notes: "A4 C5 E5 -", subdivision: "8n" } ] } } }`, .JSON5, true, context.temp_allocator)
+	testing.expect(t, err == nil)
+	sc, _ := media_song_put(&m, "s", v, value_key(v))
+	testing.expect(t, sc.ok)
+	frames := int(math.ceil((sc.song.duration + sc.tail) * MIX_RATE))
+	whole := orender.output_from_song(&sc.song, {to = f64(frames) / MIX_RATE}, context.temp_allocator)
+	clip := Audio_Clip{samples = make([]f32, 2 * whole.frames, context.temp_allocator), frames = whole.frames, source_rate = MIX_RATE, source_channels = 2}
+	for i in 0 ..< whole.frames {
+		clip.samples[2 * i], clip.samples[2 * i + 1] = whole.left[i], whole.right[i]
+	}
+	spectrum := song_table(sc, .Spectrum, -1, MIX_RATE, 30, 1024, .Hann)
+	energy := song_table(sc, .Energy, -1, MIX_RATE, 30)
+	testing.expect(t, song_table(sc, .Energy, -1, MIX_RATE, 30) == energy) // one per kind and step
+	song_table_build(sc, spectrum)
+	// the other in the background, as the preview builds it (queued, then
+	// drained)
+	for !song_table_later(sc, energy) {
+		music_drain(&m)
+		time.sleep(time.Millisecond)
+	}
+	testing.expect_value(t, music_landed(&m), 1)
+	p := Spectrum_Params{sample_size = 1024, smooth = 1, window = .Hann}
+	worst: f32
+	a, b: [512]f32
+	for f in 0 ..< 70 { // past the end: silence from both
+		audio_spectrum(&clip, f, 30, p, a[:])
+		audio_spectrum(nil, f, 30, p, b[:], spectrum)
+		for k in 0 ..< 512 {
+			worst = max(worst, abs(a[k] - b[k]))
+		}
+		x, y := audio_energy(&clip, f, 30, 2), audio_energy(nil, f, 30, 2, energy)
+		worst = max(worst, abs(x.rms - y.rms), abs(x.peak - y.peak), abs(x.low - y.low), abs(x.mid - y.mid), abs(x.high - y.high))
+	}
+	testing.expectf(t, worst < 1e-5, "largest difference from the render %e", worst)
+}

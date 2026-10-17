@@ -1,6 +1,6 @@
 local look = require("look")
 local fx = require("fx")
-local C = require("cues")
+local score = require("music.score")
 local sfx = require("sfx")
 local facts = require("facts")
 local snap = look.snap
@@ -102,11 +102,12 @@ end
 -- Its sounds (sfx.lua), in beats into the scene.
 local SOUNDS = {}
 for _, save in ipairs(SAVES) do -- a key click and a DONE at each save
-  SOUNDS[#SOUNDS + 1] = sfx.at(C.RELOAD, save - 0.05, sfx.tick(3000), 0.25)
-  SOUNDS[#SOUNDS + 1] = sfx.at(C.RELOAD, save, sfx.done(), 0.15)
+  SOUNDS[#SOUNDS + 1] = sfx.at("reload", save - 0.05, sfx.tick(3000), 0.25)
+  SOUNDS[#SOUNDS + 1] = sfx.at("reload", save, sfx.done(), 0.15)
 end
 
-scene { "Reload", cue = "RELOAD", start = C.time(C.RELOAD), audio = SOUNDS, render = function(f)
-  local gb = C.beat(f)
-  reload(f, gb - C.RELOAD, gb)
+local AT = score.time("reload")
+scene { "Reload", cue = "reload", start = AT, audio = SOUNDS, render = function(f)
+  local gb = score.beat(f)
+  reload(f, gb - score.beat(AT), gb)
 end }

@@ -5,6 +5,7 @@
 -- own output, copied, not written for the film.
 
 local beat = require("beat")
+local score = require("track")
 local ui = require("ui")
 local T = require("timeline")
 local snap = beat.snap
@@ -54,8 +55,8 @@ local function render(f, lb)
       text { "3.4", x = bx, y = y, font = ui.MONO, size = SIZE, fill = ui.DIM, opacity = clamp01(s * 3) }
       local w = text_width { "3.4", font = ui.MONO, size = SIZE }
       if s > 0.001 then rect { x = bx - 2, y = y - 9, w = (w + 4) * s, h = 3, fill = ui.F } end
-      if lb >= T.AGENT_FIX + 1 then
-        local s2 = snap(lb - T.AGENT_FIX - 1)
+      if lb >= T.AGENT_NUMBER then
+        local s2 = snap(lb - T.AGENT_NUMBER)
         text { "3", x = bx + w + 14, y = y, font = ui.MONO, size = SIZE, fill = ui.O, opacity = clamp01(s2 * 3) }
         text { ", sfx.impact(), 0.4),", x = bx + w + 14 + text_width { "3", font = ui.MONO, size = SIZE }, y = y,
           font = ui.MONO, size = SIZE, fill = ui.DIM, opacity = clamp01(s2 * 3) }
@@ -75,4 +76,12 @@ local function render(f, lb)
   end)
 end
 
-return { name = "Agents", start = T.AGENTS, stop = T.TRICKS, render = render }
+-- A blip for the finding and for the new number, in the chord sounding
+-- there; a DONE when it runs clean.
+local audio = {
+  { sound { "blip", note = score.note("5", T.at.AGENT_FOUND, 4), duration = "16n" }, start = T.at.AGENT_FOUND, gain_db = -6 },
+  { sound { "blip", note = score.note("3", T.at.AGENT_NUMBER, 5), duration = "16n" }, start = T.at.AGENT_NUMBER, gain_db = -7 },
+  { sound { "done", note = "E6", duration = "16n" }, start = T.at.AGENT_CLEAN, gain_db = -6 },
+}
+
+return { name = "Agents", section = "agents", render = render, audio = audio }

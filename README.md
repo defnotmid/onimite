@@ -50,6 +50,7 @@ onimite is built from sibling Odin projects and Odin's vendor packages:
 | [`odecs`](https://github.com/defnotmid/odecs) | H.264 / H.265 / AAC codecs (native Odin, Vulkan Video when available), MP4, WebP, clip decoding |
 | [`oksl`](https://github.com/defnotmid/oksl) | shader compiler for SkSL, Shadertoy and GLSL: SPIR-V, MSL and a CPU interpreter |
 | [`ottis`](https://github.com/defnotmid/ottis) | text to speech with word timings (Kyutai's Pocket TTS through ONNX Runtime, loaded at run time; models downloaded on first use) |
+| [`odawg`](https://github.com/defnotmid/odawg) | sound in Tone.js's vocabulary: songs composed from data (`song{}`, `sound{}`), the mix, master and preview stream, loudness, onsets and spectra; sample sets downloaded on first use |
 | [`o3d`](https://github.com/defnotmid/o3d) | 3D in three.js's vocabulary: an SDL_GPU renderer and a software one drawing the same pixels, glTF 2.0 (skins, morph targets, animations), 3MF and OBJ import |
 | `vendor:lua/5.4` | the script runtime |
 | `vendor:sdl3` | GPU device and the preview window |
@@ -96,9 +97,13 @@ onimite is built from sibling Odin projects and Odin's vendor packages:
   in 2D (`physics{}`, Box2D) and 3D for `view3d{}` (`physics3d{}`, Box3D):
   shapes, joints, kicks, kinematic movers, and impacts as times for sounds.
 - **Sound**: tracks on the video or scenes with gain, pan, fades, voice
-  ducking and a master limiter; audio synthesized by the script
-  (`audio_add`); onsets and the beat of any clip (`audio_onsets`); AAC in
-  the MP4.
+  ducking and a master limiter, mixed and streamed by odawg (the preview
+  plays the render's samples); music composed from data with `song{}`
+  (sections with tempo, style, energy and chords; its sections are cues and
+  its notes answer the picture: `score.time("drop@1m")`, `score.pulse(f,
+  { part = "drums", note = "kick" })`) and one-shots with `sound{}`; audio
+  synthesized by the script (`audio_add`); onsets and the beat of any clip
+  (`audio_onsets`); AAC in the MP4.
 - **Voice**: `say(name, text)` speaks a line (ottis: Pocket TTS by Kyutai,
   CC-BY-4.0) with the time of every word, and its captions; `say_cue` puts
   animation keys and sound effects on spoken words, and `inspect` checks
@@ -134,16 +139,17 @@ git clone https://github.com/defnotmid/oksl
 git clone https://github.com/defnotmid/odecs
 git clone https://github.com/defnotmid/ottis
 git clone https://github.com/defnotmid/o3d
+git clone https://github.com/defnotmid/odawg
 cd onimite
 mkdir -p build    # a fresh clone has no build/ (gitignored); Odin will not create it
 odin build . -collection:deps=.. -o:speed -out:build/onimite
 ```
 
-`deps` is the parent directory holding `ovg`, `oksl`, `odecs`, `ottis` and `o3d`. Use
+`deps` is the parent directory holding `ovg`, `oksl`, `odecs`, `ottis`, `o3d` and `odawg`. Use
 `-o:speed`: unoptimized builds are many times slower. On Linux the binary
 links the system SDL3 (`pacman -S sdl3`, `apt install libsdl3-dev` on Ubuntu
 25.04+, otherwise build SDL 3 from source as `.github/actions/setup-toolchain`
-does) and libcurl (ottis downloads its models with it: `pacman -S curl`,
+does) and libcurl (ottis downloads its models and odawg its sample sets with it: `pacman -S curl`,
 `apt install libcurl4-openssl-dev`); Odin
 ships SDL3 for Windows. Odin's Linux release ships some vendor C libraries
 as source; build them once:
@@ -237,7 +243,7 @@ does that check once as it starts (off with `--update-check false` or
 Push a tag `vX.Y.Z` (`git tag v0.1.0 && git push origin v0.1.0`; a tag with
 a `-`, like `v0.2.0-rc1`, makes a prerelease, which the installers skip).
 `.github/workflows/release.yml` builds `-o:speed` stripped binaries against the
-default branches of ovg, oksl and odecs, and ottis and o3d at their pinned
+default branches of ovg, oksl and odecs, and ottis, o3d and odawg at their pinned
 tags, with the tag as their
 `--version`, and publishes a GitHub release:
 
@@ -270,7 +276,7 @@ onimite frame    video.lua Intro@1s,50%,end -o frames [--svg]  # PNGs of single 
 onimite strip    video.lua [range] -n 12 --columns 4 --width 480 -o strip.png
 onimite onion    video.lua Intro@0..Intro@1s -n 6 -o onion.png   # frames blended, later ones stronger
 onimite snapshot video.lua 1s,Intro@end [--update] [--dir _frame_snapshots]
-onimite timeline video.lua [range]                        # scenes (cue, source line), audio tracks, cues
+onimite timeline video.lua [range]                        # scenes (cue, source line), audio tracks, cues, songs
 onimite mcp                                               # every command as MCP tools on stdio (preview opens the window)
 onimite show     video.lua [path] [--at t] [--page n]     # one thing, its fields and children: scene/Race, cue/drop,
                                                           # bus/sfx, track/12, clip/x, media/logo.png, fonts,
@@ -279,9 +285,9 @@ onimite inspect  video.lua [range] [--every 0.25s] [--all-frames] [--info] [--fa
 onimite probe   file.mp4 [--json]          # container, video and audio streams of a media file (no ffprobe needed)
 onimite audio render  video.lua [range] -o audio.wav [--float]
 onimite audio analyze video.lua [range] [--waveform w.png] # LUFS, LRA, true peak, clipping, silence, per scene
-onimite audio at      video.lua 3.1s,6.2s                 # what plays: file position, level, ducking
+onimite audio at      video.lua 3.1s,6.2s                 # what plays: file position, level, ducking, a song's notes
 onimite audio onsets  video.lua [range] [--min 0.1]       # where sounds start, and the beat
-                                                          # (audio commands: --track FILE hears one track)
+                                                          # (audio commands: --track FILE hears one track, --track score/bass a song's part)
 onimite preview  video.lua [at] [--paused] [--no-loop] [--mute]
 onimite update   [--check]                                # replace this release with the latest (--check: only say)
 ```
@@ -449,9 +455,6 @@ Each folder in `examples/` is a `video.lua` with its `media/`.
 | `batch` | a title card per row of `rows.json` / `rows.csv` |
 | `scenes` | scene overlaps (cross-fades) |
 | `fframes/` | all 17 fframes example crates (19 videos) ported 1:1, the benchmark material (media: `examples/fframes/fetch.sh`) |
-
-`examples/common/synth.lua` holds the instruments the synthesized soundtracks
-share (plain Lua, not part of onimite).
 
 Every sound, voice line, clip, photo and texture in them, and the decoder test clips
 in `testdata/`, are generated by `tools/gen_media/gen.sh` (onimite renders

@@ -8,6 +8,8 @@ import "core:slice"
 import "core:strings"
 import "core:sync"
 import om "../onimite"
+import oanalyze "deps:odawg/analyze"
+import orender "deps:odawg/render"
 import lua "vendor:lua/5.4"
 
 // Media functions: synced video frames, subtitles, audio spectra, and the
@@ -604,6 +606,10 @@ l_audio_spectrum :: proc "c" (L: ^lua.State) -> c.int {
 	}
 	silence: om.Audio_Clip
 	clip, ok := &ctx.media.audio[src]
+	song := om.media_song(ctx.media, src) if !ok else nil
+	if song != nil {
+		clip, ok = &silence, true // its frames are its table's rows (song_table_at)
+	}
 	if !ok && later {
 		// Not built yet: the spectrum of silence until it lands.
 		ctx.audio_pending += 1
@@ -618,7 +624,7 @@ l_audio_spectrum :: proc "c" (L: ^lua.State) -> c.int {
 	if n < 2 || n > om.SPECTRUM_MAX || n & (n - 1) != 0 {
 		lua.L_error(L, "audio_spectrum: sample_size must be a power of two from 2 to 2048")
 	}
-	window := om.Spectrum_Window.None
+	window := oanalyze.Window.None
 	switch get_str(L, 2, "window", "") {
 	case "hann":
 		window = .Hann
@@ -639,13 +645,13 @@ l_audio_spectrum :: proc "c" (L: ^lua.State) -> c.int {
 			if t, playing := at.?; playing {
 				fps = ctx.video.fps
 				index = int(math.round(t * f64(fps)))
-				om.audio_spectrum(clip, index, fps, params, out)
+				om.audio_spectrum(clip, index, fps, params, out, song_table_at(s, ctx, song, .Spectrum, fps, {index - params.smooth, index + params.smooth}, n, window))
 			}
 		} else {
-			om.audio_spectrum(clip, index, fps, params, out)
+			om.audio_spectrum(clip, index, fps, params, out, song_table_at(s, ctx, song, .Spectrum, fps, {index - params.smooth, index + params.smooth}, n, window))
 		}
 	} else {
-		om.audio_spectrum(clip, index, fps, params, out)
+		om.audio_spectrum(clip, index, fps, params, out, song_table_at(s, ctx, song, .Spectrum, fps, {index - params.smooth, index + params.smooth}, n, window))
 	}
 	result := out
 	field(L, 2, "log")
@@ -747,13 +753,18 @@ l_audio_energy :: proc "c" (L: ^lua.State) -> c.int {
 		build_pending(L, s, src)
 		return true
 	}
-	energy: om.Audio_Energy
+	energy: oanalyze.Energy
 	if src != "" {
 		if !ready(L, s, ctx, src) {
 			push_energy(L, energy)
 			return 1
 		}
+		silence: om.Audio_Clip
 		clip, ok := &ctx.media.audio[src]
+		song := om.media_song(ctx.media, src) if !ok else nil
+		if song != nil {
+			clip, ok = &silence, true // its frames are its table's rows (song_table_at)
+		}
 		if !ok {
 			om.report(ctx, .Error, {code = .Missing_Audio, name = src})
 			lua.pushnil(L)
@@ -762,10 +773,11 @@ l_audio_energy :: proc "c" (L: ^lua.State) -> c.int {
 		if at, placed := placed_clip_time(ctx, src); placed && lua.istable(L, 1) {
 			if t, playing := at.?; playing {
 				v_fps := max(ctx.video.fps, 1)
-				energy = om.audio_energy(clip, int(math.round(t * f64(v_fps))), v_fps, smooth)
+				i := int(math.round(t * f64(v_fps)))
+				energy = om.audio_energy(clip, i, v_fps, smooth, song_table_at(s, ctx, song, .Energy, v_fps, {i - smooth, i + smooth}))
 			}
 		} else {
-			energy = om.audio_energy(clip, index, fps, smooth)
+			energy = om.audio_energy(clip, index, fps, smooth, song_table_at(s, ctx, song, .Energy, fps, {index - smooth, index + smooth}))
 		}
 		push_energy(L, energy)
 		return 1
@@ -782,9 +794,9 @@ l_audio_energy :: proc "c" (L: ^lua.State) -> c.int {
 		if (bus != "" && p.track.bus != bus) || sample < p.start || sample >= p.end {
 			continue
 		}
-		clip := &ctx.media.audio[p.track.src]
 		t := f64(p.file_start + sample - p.start) / om.MIX_RATE
-		te := om.audio_energy(clip, int(math.round(t * f64(v_fps))), v_fps, smooth)
+		i := int(math.round(t * f64(v_fps)))
+		te := om.audio_energy(p.clip, i, v_fps, smooth, song_table_at(s, ctx, p.song, .Energy, v_fps, {i - smooth, i + smooth}))
 		gain := math.pow_f32(10, p.track.gain_db / 20)
 		energy.rms = min(energy.rms + te.rms * gain, 1)
 		energy.peak = min(max(energy.peak, te.peak * gain), 1)
@@ -796,8 +808,33 @@ l_audio_energy :: proc "c" (L: ^lua.State) -> c.int {
 	return 1
 }
 
+// The table the analysis reads of song `song` (nil: a clip's sound is
+// read), for its rows `rows` (first, last): built now, or while the preview
+// draws by the music's builder (the frame reads silence until it lands,
+// then is drawn again). A command drawing a few frames (`audio_frames`)
+// has only those rows filled when that is less sound to make than the
+// whole song.
 @(private = "file")
-push_energy :: proc(L: ^lua.State, e: om.Audio_Energy) {
+song_table_at :: proc(s: ^Script, ctx: ^om.Context, song: ^om.Song_Clip, kind: orender.Table_Kind, fps: int, rows: [2]int, size := 0, shape := oanalyze.Window.None) -> ^om.Song_Table {
+	if song == nil {
+		return nil
+	}
+	st := om.song_table(song, kind, -1, om.MIX_RATE, max(fps, 1), size, shape)
+	switch {
+	case s.audio_later:
+		if !om.song_table_later(song, st) {
+			ctx.audio_pending += 1
+		}
+	case s.audio_frames > 0 && om.song_table_rows_cheaper(song, st, s.audio_frames, rows[1] - rows[0] + 1):
+		om.song_table_fill_rows(song, st, max(rows[0], 0), rows[1])
+	case:
+		om.song_table_build(song, st)
+	}
+	return st
+}
+
+@(private = "file")
+push_energy :: proc(L: ^lua.State, e: oanalyze.Energy) {
 	lua.createtable(L, 0, 5)
 	set_num(L, "rms", e.rms)
 	set_num(L, "peak", e.peak)
@@ -967,6 +1004,10 @@ l_audio_onsets :: proc "c" (L: ^lua.State) -> c.int {
 		return 1
 	}
 	build_pending(L, s, src)
+	if sc := om.media_song(m, src); sc != nil && src not_in m.audio {
+		push_song_onsets(L, sc)
+		return 1
+	}
 	rep, ok := om.media_onsets(m, src)
 	if !ok {
 		if s.ctx != nil {
@@ -1005,4 +1046,35 @@ l_audio_onsets :: proc "c" (L: ^lua.State) -> c.int {
 	}
 	lua.setfield(L, -2, "beats")
 	return 1
+}
+
+// audio_onsets of a song: its notes (exact), its first tempo and every
+// beat of its tempo map, seconds into the song.
+@(private = "file")
+push_song_onsets :: proc(L: ^lua.State, sc: ^om.Song_Clip) {
+	rep := om.song_onsets(sc, context.temp_allocator)
+	lua.createtable(L, 0, 4)
+	lua.createtable(L, c.int(len(rep.onsets)), 0)
+	for o, i in rep.onsets {
+		lua.createtable(L, 0, 2)
+		lua.pushnumber(L, lua.Number(o.time))
+		lua.setfield(L, -2, "time")
+		lua.pushnumber(L, lua.Number(o.strength))
+		lua.setfield(L, -2, "strength")
+		lua.rawseti(L, -2, lua.Integer(i + 1))
+	}
+	lua.setfield(L, -2, "onsets")
+	if rep.bpm > 0 {
+		lua.pushnumber(L, lua.Number(rep.bpm))
+		lua.setfield(L, -2, "bpm")
+		lua.pushnumber(L, 0)
+		lua.setfield(L, -2, "offset")
+	}
+	beats := om.song_beats(sc)
+	lua.createtable(L, c.int(len(beats)), 0)
+	for b, i in beats {
+		lua.pushnumber(L, lua.Number(b))
+		lua.rawseti(L, -2, lua.Integer(i + 1))
+	}
+	lua.setfield(L, -2, "beats")
 }

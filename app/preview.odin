@@ -285,7 +285,7 @@ preview_run :: proc(app: ^App_State, capture, drive: string) -> Error {
 	defer {
 		// The worker releases its GPU objects before the device goes.
 		worker_stop(worker)
-		audio.stream = nil // the playhead stops asking the stream
+		audio.sdl_stream = nil // the playhead stops asking the stream
 		audio_close(pv.audio_stream)
 		mailbox_destroy(mb)
 		audio_shared_destroy(audio)
@@ -453,7 +453,8 @@ preview_report :: proc(app: ^App_State) {
 // the right (10), "move" moves the timeline into the empty panel (20),
 // "drag" drops the timeline's tab on the left edge of the video's panel
 // (30), "pick" clicks the Watch's third row (40), "next" goes to the next
-// warning or error (45), "close" closes the Watch (50). The lister, as
+// warning or error (45), "close" closes the Watch (50), "hover" moves the
+// mouse down and up the Watch's rows (from 10). The lister, as
 // keys and typing reach it (`preview_drive_lister`): "goto" and "openview".
 @(private)
 preview_drive :: proc(app: ^App_State, s: ^ui.State, drive: string, frames: int) {
@@ -479,9 +480,24 @@ preview_drive :: proc(app: ^App_State, s: ^ui.State, drive: string, frames: int)
 	}
 	preview_drive_workspace(app, drive, frames)
 	preview_drive_lister(app, s, drive, frames)
+	if frames >= 10 && strings.contains(drive, "hover") {
+		// Down and up the Watch's rows, a row's height every two window
+		// frames, as the mouse's motion reaches the widgets.
+		ws := &app.preview.workspace
+		if v := workspace_view(ws, workspace_find(ws, .Watch)); v != nil {
+			r := ws.areas[int(v.panel) - 1].content
+			k := (frames / 2) % 40
+			y := r.y + r.height * (f32(k if k < 20 else 40 - k) + 0.5) / 20
+			input := &s.p.input
+			input.mouse_prev = input.mouse
+			input.mouse = {r.x + r.width / 3, y}
+			input.mouse_delta = input.mouse - input.mouse_prev
+			input.user_seen = true
+		}
+	}
 	if frames == 90 && strings.contains(drive, "lanes") {
 		for it in app.preview.waves.items {
-			if it.kind == .Group {
+			if it.children > 0 {
 				command_push(c, .Timeline_Row_Toggle, {spec = text_of(app.preview.waves.text[:], it.path)})
 			}
 		}

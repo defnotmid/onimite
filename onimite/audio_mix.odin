@@ -1,11 +1,22 @@
 package onimite
 
 import "core:math"
+import "core:mem/virtual"
 import "core:slice"
+import "core:strings"
+import "core:sync"
+import odevice "deps:odawg/device"
+import orender "deps:odawg/render"
+import osong "deps:odawg/song"
 
-// The mix: every track placed on the video timeline, summed linearly with
-// gain, balance, fades and ducking, then a peak limiter on the master bus
-// (fframes' defaults: -1 dBFS ceiling).
+// The mix: every track placed on the video timeline, as one odawg song
+// (odawg's song/mix.odin) that odawg's engine streams: a clip is a Player
+// playing its samples (gain, balance, offset, fades, mono, ducking under
+// the voice tracks), a song or sound its own tracks moved to where it
+// starts, let through its track's window. Then `master_gain_db` and the
+// master limiter (fframes' defaults: -1 dB ceiling). The render is that
+// stream cut into time segments on every core; the preview plays the same
+// stream.
 
 Mix_Options :: struct {
 	master_gain_db: f32,
@@ -17,16 +28,20 @@ Mix_Options :: struct {
 // A track resolved to sample positions on the video timeline.
 Placed_Track :: struct {
 	track:      Audio_Track,
+	// What it plays: a decoded clip, or a song (`song{}`, `sound{}`).
 	clip:       ^Audio_Clip,
+	song:       ^Song_Clip,
 	// `[start, end)` in mix samples (per channel) from the video start.
 	start, end: int,
-	// First clip sample played.
+	// First clip sample played (a song: its sample at `start`).
 	file_start: int,
 	// The name of the scene that places it, or "" for the video's own.
 	scene:      string,
 	// Left out of the mix but still a voice for ducking (one track heard
 	// alone, as it sounds in the mix).
 	muted:      bool,
+	// A song's part heard alone ("bass" for `--track score/bass`; "" all).
+	part:       string,
 	// Its bus's kind (`None` on no bus).
 	kind:       Bus_Kind,
 }
@@ -99,21 +114,31 @@ placed_audio :: proc(ctx: ^Context) -> ^Placed_Audio {
 }
 
 // Places the video's tracks on timeline `t` into `p`. Tracks whose sound
-// the media lacks are left out (the load reports them).
+// the media lacks are left out (the load reports them). A song lasts to
+// its end and its tail.
 placed_audio_update :: proc(p: ^Placed_Audio, v: ^Video, t: Timeline, m: ^Media) {
 	clear(&p.tracks)
 	total := frames_to_samples(t.duration_frames, v.fps)
 	for tr in v.audio {
 		clip, has := &m.audio[tr.src]
-		if !has {
-			continue
+		song: ^Song_Clip
+		length := 0
+		if has {
+			length = clip.frames
+		} else {
+			clip = nil
+			song = media_song(m, tr.src)
+			if song == nil || !song.ok {
+				continue
+			}
+			length = int(math.ceil((song.song.duration + song.tail) * MIX_RATE))
 		}
 		start, stop, has_stop, ok := track_times(tr, t, v.fps, m)
 		if !ok {
 			continue
 		}
 		file_start := seconds_to_samples(tr.offset)
-		end := start + max(clip.frames - file_start, 0)
+		end := start + max(length - file_start, 0)
 		if has_stop {
 			end = min(end, stop)
 		}
@@ -125,7 +150,7 @@ placed_audio_update :: proc(p: ^Placed_Audio, v: ^Video, t: Timeline, m: ^Media)
 		if i, in_scene := tr.scene.?; in_scene {
 			scene = v.scenes[i].name
 		}
-		append(&p.tracks, Placed_Track{track = tr, clip = clip, start = start, end = end, file_start = file_start, scene = scene})
+		append(&p.tracks, Placed_Track{track = tr, clip = clip, song = song, start = start, end = end, file_start = file_start, scene = scene})
 	}
 	// A bus's gain adds to its tracks' (placed tracks carry the sum), and
 	// its kind is theirs: a voice bus's tracks are voices (they duck).
@@ -154,126 +179,244 @@ frames_to_samples :: #force_inline proc "contextless" (frames, fps: int) -> int 
 	return int(i64(frames) * MIX_RATE / i64(max(fps, 1)))
 }
 
-// Mixes `[from, to)` (mix samples) of the placed tracks into interleaved
-// stereo, the whole range at once.
-mix_tracks :: proc(placed: []Placed_Track, from, to: int, opts: Mix_Options = {}, allocator := context.allocator) -> (out: []f32, stats: Mix_Stats) {
+// ---- the mix as an odawg song ---------------------------------------------------------
+
+// The placed tracks as one song: `song` streams the mix; `bank` holds what
+// its Players and Samplers play: the video's sample sets first (a view of
+// its bank, at the indices its songs were composed with: rows copied, no
+// audio), then a set per clip (lent by the media, not copied). `tracks[i]`
+// is placed track i's tracks in the song (first, count). All in `arena`.
+Mix :: struct {
+	arena:  virtual.Arena,
+	song:   osong.Song,
+	bank:   odevice.Bank,
+	tracks: [][2]i32,
+}
+
+// The master limiter's release (fframes' 80 ms).
+LIMITER_RELEASE :: 0.08
+
+// Builds the mix of `placed`; `samples = false` leaves the samples out (a
+// mix asked only where things are and how loud they are set: `audio at`).
+// `load = false` takes the songs' sample sets as the bank has them now
+// (the preview: what isn't loaded yet joins when it lands) instead of
+// loading them first.
+mix_init :: proc(mx: ^Mix, placed: []Placed_Track, opts: Mix_Options, samples := true, load := true) {
+	_ = virtual.arena_init_growing(&mx.arena)
+	context.allocator = virtual.arena_allocator(&mx.arena)
+	osong.mix_init(&mx.song)
+	mx.song.bank = &mx.bank
+	mx.tracks = make([][2]i32, len(placed))
+	// the sample sets the songs play, loaded and viewed as the video's bank
+	// has them
+	if samples {
+		for p in placed {
+			if p.song != nil && load {
+				song_clip_load(p.song)
+			}
+		}
+		for p in placed {
+			if p.song != nil && p.song.song.bank != nil {
+				sync.guard(&p.song.music.bank_lock)
+				odevice.bank_view(&mx.bank, p.song.song.bank)
+				break
+			}
+		}
+	}
+	sets := make(map[^Audio_Clip]i32, len(placed), context.temp_allocator)
+	for p, i in placed {
+		tr := p.track
+		first := i32(len(mx.song.tracks))
+		if p.song != nil {
+			// song time 0 on the video, let through the track's span
+			at := f64(p.start - p.file_start) / MIX_RATE
+			window := osong.Window{f64(p.start) / MIX_RATE, f64(p.end) / MIX_RATE, f64(tr.fade_in), f64(tr.fade_out), odevice.Curve(tr.curve)}
+			duck := tr.ducked ? sidechain_from_ducking(tr.duck) : osong.Sidechain{}
+			osong.append_song(&mx.song, &p.song.song, at, tr.src, f64(tr.gain_db), window, duck)
+			heard := strings.concatenate({tr.src, "/", p.part}, context.temp_allocator)
+			for &t in mx.song.tracks[first:] {
+				t.variant = strings.clone(t.variant)
+				t.muted = p.muted || (p.part != "" && mx.song.parts[t.part] != heard)
+			}
+		} else {
+			set: i32 = -1
+			if samples {
+				known: bool
+				if set, known = sets[p.clip]; !known {
+					set = odevice.bank_borrow(&mx.bank, tr.src, p.clip.samples[:p.clip.frames * 2])
+					sets[p.clip] = set
+				}
+			}
+			d := ducking_resolved(tr.duck)
+			c := osong.Clip {
+				name     = tr.src,
+				set      = set,
+				start    = f64(p.start) / MIX_RATE,
+				stop     = f64(p.end) / MIX_RATE,
+				offset   = f64(p.file_start) / MIX_RATE,
+				gain_db  = f64(tr.gain_db),
+				pan      = f64(tr.pan),
+				fade_in  = f64(tr.fade_in),
+				fade_out = f64(tr.fade_out),
+				curve    = odevice.Curve(tr.curve),
+				// a mono file plays as is
+				mono     = tr.mono && p.clip.source_channels >= 2,
+				voice    = tr.voice,
+				ducked   = tr.ducked,
+			}
+			c.duck = {f64(d.depth_db), f64(d.attack), f64(d.hold), f64(d.release), f64(d.merge_gap)}
+			ti := osong.append_clip(&mx.song, c)
+			mx.song.tracks[ti].muted = p.muted
+		}
+		mx.tracks[i] = {first, i32(len(mx.song.tracks)) - first}
+	}
+	// a song that makes room under a bus ("voice"): that bus's spans
+	for p in placed {
+		if p.song == nil || p.song.song.room_from == "" {
+			continue
+		}
+		for q in placed {
+			if q.track.bus == p.song.song.room_from {
+				append(&mx.song.room, [2]f64{f64(q.start) / MIX_RATE, f64(q.end) / MIX_RATE})
+			}
+		}
+	}
+	mx.song.master_gain_db = f64(opts.master_gain_db)
+	if !opts.no_limiter {
+		p := odevice.params_from_kind(.Limiter)
+		p[.Threshold] = opts.ceiling_db if opts.ceiling_db != 0 else -1
+		p[.Release] = LIMITER_RELEASE
+		append(&mx.song.devices, odevice.Device_Kind.Limiter)
+		append(&mx.song.params, p)
+		append(&mx.song.chain, i32(len(mx.song.devices) - 1))
+		mx.song.master = {i32(len(mx.song.chain) - 1), 1}
+	}
+	osong.mix_end(&mx.song)
+}
+
+mix_destroy :: proc(mx: ^Mix) {
+	virtual.arena_destroy(&mx.arena)
+	mx^ = {}
+}
+
+// A ducked song track's sidechain: under the voice tracks' spans, with the
+// track's ducking (onimite's defaults for what it leaves out).
+@(private = "file")
+sidechain_from_ducking :: proc(duck: Ducking) -> osong.Sidechain {
+	d := ducking_resolved(duck)
+	return {mode = .Spans, depth = f64(d.depth_db), attack = f64(d.attack), hold = f64(d.hold), release = f64(d.release), merge = f64(d.merge_gap)}
+}
+
+// The master as odawg measures it, in onimite's terms.
+@(private = "file")
+mix_stats :: proc(s: orender.Master_Stats) -> Mix_Stats {
+	return {clipped_before_limiter = s.clipped_before, peak_before_limiter = s.peak_before, max_reduction_db = s.reduction_db}
+}
+
+// Renders `[from, to)` (mix samples) of the mix into interleaved stereo:
+// odawg's export (the stream cut into time segments on every core, each
+// from an exact seek, the master over them in order), each segment
+// interleaved into `out` as it comes: the samples streaming from `from`
+// gives, however it is cut.
+mix_render :: proc(mx: ^Mix, from, to: int, threads := 0, segment: f64 = 0, allocator := context.allocator) -> (out: []f32, stats: Mix_Stats) {
 	n := max(to - from, 0)
 	out = make([]f32, n * 2, allocator)
 	if n == 0 {
 		return
 	}
-	mix_sum(placed, from, to, out)
-	stats = master(out, n, opts, nil)
+	got := orender.export_song(&mx.song, {from = f64(from) / MIX_RATE, to = f64(to) / MIX_RATE, threads = threads, segment = segment}, {&out, proc(data: rawptr, at: i64, l, r: []f32, stems: [][2][]f32) {
+		out := (^[]f32)(data)^
+		for i in 0 ..< len(l) {
+			k := 2 * (int(at) + i)
+			if k + 1 < len(out) {
+				out[k], out[k + 1] = l[i], r[i]
+			}
+		}
+	}})
+	if mx.song.master.count > 0 || mx.song.master_gain_db != 0 {
+		stats = mix_stats(got)
+	}
 	return
 }
 
-// A mix made block by block (the preview's audio callback): the limiter's
-// envelope carries from one block to the next, and each block looks ahead
-// of its end, so consecutive blocks sound like one mix of the whole.
+// Mixes `[from, to)` (mix samples) of the placed tracks into interleaved
+// stereo, the whole range at once.
+mix_tracks :: proc(placed: []Placed_Track, from, to: int, opts: Mix_Options = {}, allocator := context.allocator) -> (out: []f32, stats: Mix_Stats) {
+	mx: Mix
+	mix_init(&mx, placed, opts)
+	defer mix_destroy(&mx)
+	return mix_render(&mx, from, to, allocator = allocator)
+}
+
+// The mix played block by block (the preview's audio callback): one
+// engine streaming it, put where a block asks when the position jumps (a
+// seek: notes sounding there are picked up, effects start afresh), so
+// consecutive blocks are the render's samples.
 Mix_Stream :: struct {
-	env:  f32,
-	// Where the next block is expected; a block elsewhere (a seek) starts
-	// the limiter afresh.
-	next: int,
+	mix:    Mix,
+	engine: orender.Engine,
+	// Where the next block is expected.
+	next:   int,
+	ready:  bool,
+}
+
+mix_stream_init :: proc(st: ^Mix_Stream, placed: []Placed_Track, opts: Mix_Options, load := true) {
+	mix_init(&st.mix, placed, opts, load = load)
+	st.ready = orender.engine_init(&st.engine, &st.mix.song)
+	st.next = 0
+}
+
+mix_stream_destroy :: proc(st: ^Mix_Stream) {
+	if st.ready {
+		orender.engine_destroy(&st.engine)
+	}
+	mix_destroy(&st.mix)
+	st^ = {}
 }
 
 // Mixes the `len(out) / 2` samples from `from` into `out` (interleaved
 // stereo), continuing `st`. Scratch comes from the temp allocator.
-mix_block :: proc(placed: []Placed_Track, from: int, out: []f32, opts: Mix_Options, st: ^Mix_Stream) {
+mix_block :: proc(st: ^Mix_Stream, from: int, out: []f32) {
 	n := len(out) / 2
-	if n == 0 {
+	if n == 0 || !st.ready {
 		return
 	}
-	if from != st.next || st.env <= 0 {
-		st.env = 1
+	if from != st.next {
+		orender.engine_seek(&st.engine, i64(from), false)
 	}
-	look := 0 if opts.no_limiter else LIMIT_LOOK
-	buf := make([]f32, (n + look) * 2, context.temp_allocator)
-	mix_sum(placed, from, from + n + look, buf)
-	master(buf, n, opts, &st.env)
-	copy(out, buf[:n * 2])
+	buf := make([]f32, 2 * n, context.temp_allocator)
+	l, r := buf[:n], buf[n:]
+	orender.engine_process(&st.engine, l, r)
+	for i in 0 ..< n {
+		out[i * 2], out[i * 2 + 1] = l[i], r[i]
+	}
 	st.next = from + n
 }
 
-// Adds every unmuted track's samples in `[from, to)` to `out`.
-@(private = "file")
-mix_sum :: proc(placed: []Placed_Track, from, to: int, out: []f32) {
-	duck_cache := make(map[Ducking][]f32, context.temp_allocator)
-	for &p in placed {
-		lo := max(p.start, from)
-		hi := min(p.end, to)
-		if hi <= lo || p.muted {
-			continue
-		}
-		tr := p.track
-		gain := math.pow(10, tr.gain_db / 20)
-		gl := min(1, 1 - tr.pan) * gain
-		gr := min(1, 1 + tr.pan) * gain
-		fade_in := seconds_to_samples(tr.fade_in)
-		fade_out := seconds_to_samples(tr.fade_out)
-		duck: []f32
-		if tr.ducked {
-			d := ducking_resolved(tr.duck)
-			cached, ok := duck_cache[d]
-			if !ok {
-				cached = duck_envelope(placed, d, from, to)
-				duck_cache[d] = cached
-			}
-			duck = cached
-		}
-		length := p.end - p.start
-		mono := tr.mono && p.clip.source_channels >= 2
-		for s in lo ..< hi {
-			k := s - p.start
-			src := p.file_start + k
-			if src < 0 || src >= p.clip.frames {
-				continue
-			}
-			env := track_envelope(k, length, fade_in, fade_out, tr.curve)
-			if duck != nil {
-				env *= duck[s - from]
-			}
-			o := (s - from) * 2
-			l, r := p.clip.samples[src * 2], p.clip.samples[src * 2 + 1]
-			if mono {
-				l = l * 0.70710678 + r * 0.70710678
-				r = l
-			}
-			out[o] += l * gl * env
-			out[o + 1] += r * gr * env
+// The ducking gain (0..1) of placed track `i` at mix sample `at`: how far
+// the voice tracks dip it there (1: not ducked).
+mix_duck_gain :: proc(mx: ^Mix, i: int, at: int) -> f32 {
+	span := mx.tracks[i]
+	if span[1] == 0 {
+		return 1
+	}
+	t := mx.song.tracks[span[0]]
+	l, r := [1]f32{1}, [1]f32{1}
+	for sc in mx.song.sidechains[t.sidechains.first:t.sidechains.first + t.sidechains.count] {
+		if sc.mode == .Spans {
+			orender.SIDECHAIN_TABLE[.Spans](&mx.song, sc, i64(at), l[:], r[:])
 		}
 	}
+	return l[0]
 }
 
-// The master bus over the first `n` samples of `x` (which may hold look-ahead
-// past them): gain, then the limiter, continuing `env` when given.
-@(private = "file")
-master :: proc(x: []f32, n: int, opts: Mix_Options, env: ^f32) -> (stats: Mix_Stats) {
-	gain := math.pow(10, opts.master_gain_db / 20)
-	for &v in x {
-		v *= gain
-	}
-	for v in x[:n * 2] {
-		stats.peak_before_limiter = max(stats.peak_before_limiter, abs(v))
-		if abs(v) > 1 {
-			stats.clipped_before_limiter += 1
-		}
-	}
-	if !opts.no_limiter {
-		ceiling_db := opts.ceiling_db if opts.ceiling_db != 0 else -1
-		start: f32 = 1
-		e := env if env != nil else &start
-		stats.max_reduction_db = limit(x, n, math.pow(10, ceiling_db / 20), e)
-	}
-	return
-}
-
-// The shortest fade a track starts and ends with (no click): 3 ms.
+// The shortest fade a track starts and ends with (no click): 3 ms, as
+// odawg's Player and a song's window play it.
 DECLICK :: MIX_RATE * 3 / 1000
 
 // A track's fade gain (0 to 1) `k` samples into its `length` samples: its
-// fade in times its fade out (lengths in samples), each at least DECLICK.
-// The mix, `audio at` and the preview's waveforms all use it.
+// fade in times its fade out (lengths in samples), each at least DECLICK:
+// what the mix plays, for `audio at` and the preview's waveforms.
 track_envelope :: #force_inline proc "contextless" (k, length, fade_in, fade_out: int, curve: Fade_Curve) -> f32 {
 	return fade_gain(k, max(fade_in, DECLICK), curve) * fade_gain(length - 1 - k, max(fade_out, DECLICK), curve)
 }
@@ -297,106 +440,4 @@ fade_gain :: #force_inline proc "contextless" (k, length: int, curve: Fade_Curve
 		return math.sin(t * math.PI / 2)
 	}
 	return t
-}
-
-// The ducking gain at every sample of `[from, to)`: 1 away from voice,
-// `depth` under it, ramping over `attack` before and `release` after (with
-// `hold`). Voice regions closer than `merge_gap` merge.
-duck_envelope :: proc(placed: []Placed_Track, d: Ducking, from, to: int) -> []f32 {
-	n := to - from
-	weight := make([]f32, n, context.temp_allocator)
-	Region :: struct {
-		a, b: int,
-	}
-	regions := make([dynamic]Region, context.temp_allocator)
-	for p in placed {
-		if p.track.voice {
-			append(&regions, Region{p.start, p.end})
-		}
-	}
-	// Sort by start (few regions: insertion sort), then merge.
-	for i in 1 ..< len(regions) {
-		for j := i; j > 0 && regions[j].a < regions[j - 1].a; j -= 1 {
-			regions[j], regions[j - 1] = regions[j - 1], regions[j]
-		}
-	}
-	gap := seconds_to_samples(d.merge_gap)
-	merged := make([dynamic]Region, context.temp_allocator)
-	for r in regions {
-		if len(merged) > 0 && r.a - merged[len(merged) - 1].b < gap {
-			last := &merged[len(merged) - 1]
-			last.b = max(last.b, r.b)
-		} else {
-			append(&merged, r)
-		}
-	}
-	attack := seconds_to_samples(d.attack)
-	hold := seconds_to_samples(d.hold)
-	release := seconds_to_samples(d.release)
-	for r in merged {
-		lo := max(r.a - attack, from)
-		hi := min(r.b + hold + release, to)
-		for s in lo ..< hi {
-			w: f32 = 1
-			switch {
-			case s < r.a:
-				w = f32(s - (r.a - attack)) / f32(max(attack, 1))
-			case s >= r.b + hold:
-				w = 1 - f32(s - (r.b + hold)) / f32(max(release, 1))
-			}
-			weight[s - from] = max(weight[s - from], w)
-		}
-	}
-	depth := math.pow(10, d.depth_db / 20)
-	for &w in weight {
-		w = 1 + (depth - 1) * w
-	}
-	return weight
-}
-
-// The limiter's look-ahead (and attack) in samples.
-LIMIT_LOOK :: MIX_RATE * 5 / 1000
-
-// Look-ahead peak limiter (5 ms look-ahead and attack, 80 ms release) that
-// keeps |sample| <= ceiling over the first `n` samples of `x`; the samples
-// after them are look-ahead only. `env` is the gain envelope going in and
-// coming out. Returns the deepest reduction in dB.
-@(private)
-limit :: proc(x: []f32, n: int, ceiling: f32, env: ^f32) -> f32 {
-	total := len(x) / 2
-	look := LIMIT_LOOK
-	need := make([]f32, total, context.temp_allocator)
-	for i in 0 ..< total {
-		peak := max(abs(x[i * 2]), abs(x[i * 2 + 1]))
-		need[i] = ceiling / peak if peak > ceiling else 1
-	}
-	// Sliding minimum of `need` over the next `look` samples (monotonic deque).
-	window := make([]f32, total, context.temp_allocator)
-	deque := make([]int, total + 1, context.temp_allocator)
-	head, tail := 0, 0
-	for i := total - 1; i >= 0; i -= 1 {
-		for tail > head && need[deque[tail - 1]] >= need[i] {
-			tail -= 1
-		}
-		deque[tail] = i
-		tail += 1
-		for deque[head] > i + look {
-			head += 1
-		}
-		window[i] = need[deque[head]]
-	}
-	attack := 1 - math.exp(-1 / f32(look))
-	release := 1 - math.exp(-1 / f32(0.08 * MIX_RATE))
-	e := env^
-	deepest: f32 = 1
-	for i in 0 ..< n {
-		t := window[i]
-		e += (t - e) * (attack if t < e else release)
-		g := min(e, need[i])
-		deepest = min(deepest, g)
-		x[i * 2] = clamp(x[i * 2] * g, -ceiling, ceiling)
-		x[i * 2 + 1] = clamp(x[i * 2 + 1] * g, -ceiling, ceiling)
-	}
-	env^ = e
-	return 20 * math.log10(deepest)
 }

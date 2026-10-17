@@ -4,35 +4,30 @@
 -- masks, focal gradients) and a 3D gyroscope (o3d) given to it as its
 -- `uniform shader` child, with a WebP panorama on its horizon; the ovg rocket (an SVG animated by
 -- element id) flies through it; alpha video clips decoded live by odecs
--- glow in portals and fold into the shader's kaleidoscope; the synthesized
--- music's beat and spectrum drive the uniforms. It ends on the suite's
--- structure under the five names.
+-- glow in portals and fold into the shader's kaleidoscope. The music is an
+-- odawg song (track.lua) and the picture follows it: its sections, its
+-- blips and crashes place every moment (timeline.lua), its kicks pump the
+-- shader, its impacts flash, its spectrum drives the uniforms. It ends on
+-- the suite's structure under the five names.
 --
 --     onimite render examples/suite/video.lua -o suite.mp4
 
 local beat = require("beat")
 local ui = require("ui")
 local T = require("timeline")
-local track = require("track")
+local score = require("track")
 local world = require("world")
 
-local clock, FPS = beat.clock, beat.FPS
+local FPS = beat.FPS
 
 local snap, soft = beat.snap, beat.soft
 local sin, cos, pi, max, min = math.sin, math.cos, math.pi, math.max, math.min
 
--- Synthesized once per render, registered as a media clip.
-audio_add("track.wav", track.build)
-
 -- canyon.webp's size: the shader samples it in its own pixels.
 local PANO_SIZE = { 4800, 928 }
 
--- Bars where the kick plays: the shader bulges and the picture pumps.
-local KICKS = { { 8, T.BREAK }, { T.LOCKUP, T.END + 1 } }
-local function kicking(b)
-  for _, s in ipairs(KICKS) do if b >= s[1] and b < s[2] then return true end end
-  return false
-end
+-- The kicks the drums play: the shader bulges and the picture pumps.
+local KICK, PUMP = { part = "drums", note = "kick", decay = 6 }, { part = "drums", note = "kick", decay = 9 }
 
 local function rgb3(hex)
   return { tonumber(hex:sub(2, 3), 16) / 255, tonumber(hex:sub(4, 5), 16) / 255, tonumber(hex:sub(6, 7), 16) / 255 }
@@ -156,7 +151,7 @@ local function portals(f, b, kick)
             fy = cy - 90, stops = { { 0, p.color }, { 0.45, "#141826" }, { 1, ui.BG } } }, opacity = 0.9 }
           group(glow(p.color), function()
             video_frame(f, { src = p.src, x = cx - 400, y = cy - 200, w = 800, h = 450, looping = true,
-              start_from = clock.time(at) })
+              start_from = score.time(at) })
           end)
         end)
         circle { cx = cx, cy = cy, r = PR, fill = "none", stroke = p.color, stroke_width = 6 }
@@ -239,7 +234,7 @@ end
 -- ---- the frame -----------------------------------------------------------------
 
 local function picture(f, b)
-  local kick = kicking(b) and pulse(b, 6) or 0.25 * pulse(b, 6)
+  local kick = max(score.pulse(f, KICK), 0.25 * score.pulse(f, 6))
   local bands = ui.spectrum(f, 16)
   draw_world(f, b, bands, kick)
   portals(f, b, kick)
@@ -248,21 +243,25 @@ local function picture(f, b)
   lockup(b)
 end
 
--- Impacts flash, the beat before the break glitches for three frames.
-local FLASHES = { T.DROP, T.LOCKUP }
-local GLITCH_FRAME = clock.frame(T.BREAK, FPS)
+-- The song's impacts flash (inspect checks it hits there), the break
+-- glitches for three frames.
+local IMPACT = { part = "fx", note = "C2", decay = 5 }
+cue("impact", score.hits { part = "fx", note = "C2" }, { hit = "score" })
+local GLITCH_FRAME = score.frame("break", FPS)
 
 video {
   width = 1920, height = 1080, fps = FPS, background = ui.BG,
-  duration = { frames = clock.frame(T.TOTAL, FPS) },
-  audio = { { "track.wav", start = 0, fade_out = 0.5, curve = "equal_power", gain_db = 5 } },
-  -- audio analyze: about -14 LUFS, true peaks under -1 dBTP
-  master_gain_db = 1.6,
-  limiter = { ceiling_db = -3 },
+  duration = score.duration,
+  buses = { music = {} },
+  audio = { { "score", bus = "music", fade_out = 0.5, curve = "equal_power" } },
+  -- the song mixes near -18 LUFS: lifted to about -14 under the limiter
+  -- (audio analyze: -14.1 LUFS, -1.5 dBTP)
+  master_gain_db = 4.4,
+  limiter = { ceiling_db = -1.5 },
   render = function(f)
-    local b = clock.beat(f.global_seconds)
+    local b = score.beat(f)
     rect { x = 0, y = 0, w = 1920, h = 1080, fill = ui.BG }
-    local pump = 1 + (kicking(b) and pulse(b, 9) or 0) * 0.006
+    local pump = 1 + score.pulse(f, PUMP) * 0.006
     local since = f.global_index - GLITCH_FRAME
     group({ transform = { scale = pump, origin = { 960, 540 } } }, function()
       if since >= 0 and since < 3 then
@@ -277,10 +276,7 @@ video {
         picture(f, b)
       end
     end)
-    local flash = 0
-    for _, d in ipairs(FLASHES) do
-      if b >= d then flash = max(flash, math.exp(-(b - d) * 5)) end
-    end
+    local flash = score.pulse(f, IMPACT)
     if flash > 0.01 then rect { x = 0, y = 0, w = 1920, h = 1080, fill = ui.TEXT, opacity = flash * 0.4 } end
     -- out to black over the last beat
     local out = progress(b, T.TOTAL - 1, T.TOTAL)

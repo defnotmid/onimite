@@ -1,6 +1,6 @@
 local look = require("look")
 local fx = require("fx")
-local C = require("cues")
+local score = require("music.score")
 local pip = dofile("../common/pip.lua")
 local W, H = look.W, look.H
 
@@ -25,7 +25,8 @@ local function stop(f, lb, gb)
   if lit > 0 then rect { x = 0, y = 0, w = W, h = H, fill = "#ffffff", opacity = lit } end
 end
 
-scene { "TapeStop", cue = "STOP", start = C.time(C.STOP), render = function(f)
-  local gb = C.beat(f)
-  stop(f, gb - C.STOP, gb)
+local AT = score.time("tape_stop")
+scene { "TapeStop", cue = "tape_stop", start = AT, render = function(f)
+  local gb = score.beat(f)
+  stop(f, gb - score.beat(AT), gb)
 end }

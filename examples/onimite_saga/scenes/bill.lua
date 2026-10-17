@@ -1,6 +1,6 @@
 local look = require("look")
 local fx = require("fx")
-local C = require("cues")
+local score = require("music.score")
 local sfx = require("sfx")
 local facts = require("facts")
 local snap = look.snap
@@ -50,16 +50,17 @@ end
 local SOUNDS = {}
 for _, cue in ipairs { 1, 4 } do
   for _, s in ipairs {
-    sfx.at(C.BILL, cue, sfx.blip(880), 0.16),
-    sfx.at(C.BILL, cue + 1.5, sfx.whoosh(C.seconds(C.BILL + cue + 1.5, 0.5)), 0.15),
-    sfx.at(C.BILL, cue + 2, sfx.done(), 0.16),
-    sfx.at(C.BILL, cue + 3, sfx.impact(), 0.4),
-    sfx.at(C.BILL, cue + 3, sfx.crash(), 0.5),
+    sfx.at("bill", cue, sfx.blip(880), 0.16),
+    sfx.at("bill", cue + 1.5, sfx.whoosh(sfx.seconds("bill", cue + 1.5, 0.5)), 0.15),
+    sfx.at("bill", cue + 2, sfx.done(), 0.16),
+    sfx.at("bill", cue + 3, sfx.impact(), 0.4),
+    sfx.at("bill", cue + 3, sfx.crash(), 0.5),
   } do SOUNDS[#SOUNDS + 1] = s end
-  for j = 0, 7 do SOUNDS[#SOUNDS + 1] = sfx.at(C.BILL, cue + 0.5 + j * 0.125, sfx.blip(600 + j * 70), 0.08) end
+  for j = 0, 7 do SOUNDS[#SOUNDS + 1] = sfx.at("bill", cue + 0.5 + j * 0.125, sfx.blip(600 + j * 70), 0.08) end
 end
 
-scene { "Bill", cue = "BILL", start = C.time(C.BILL), audio = SOUNDS, render = function(f)
-  local gb = C.beat(f)
-  bill(f, gb - C.BILL, gb)
+local AT = score.time("bill")
+scene { "Bill", cue = "bill", start = AT, audio = SOUNDS, render = function(f)
+  local gb = score.beat(f)
+  bill(f, gb - score.beat(AT), gb)
 end }

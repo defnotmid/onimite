@@ -15,7 +15,7 @@ local sin, cos, pi = math.sin, math.cos, math.pi
 
 -- Lines of video.lua, typed one a beat from beat 1.
 local CODE = {
-  'audio_add("track.wav", track.build)',
+  'local score = song { "score", style = "synthwave" }',
   'shader(f, { src = "world.sksl", w = 1920, h = 1080,',
   '  uniforms = { uWorld = function() world.draw(f, b, bands) end,',
   '    uPano = "canyon.webp", uWarp = warp, uPulse = kick } })',
@@ -23,7 +23,7 @@ local CODE = {
   '  flame = { transform = scale(1, flicker, 200, 262) } } })',
   'video_frame(f, { src = "transparent.mov", looping = true })',
   'video_frame(f, { src = "avatar_vp9_alpha.webm", looping = true })',
-  'audio_spectrum(t, { src = "track.wav", sample_size = 512 })',
+  'audio_spectrum(f, { src = "score", sample_size = 512 })',
   'view3d { x = 720, y = 300, w = 480, h = 480, meshes = gyro }',
 }
 local CODE_SIZE, CODE_LEAD = 30, 46

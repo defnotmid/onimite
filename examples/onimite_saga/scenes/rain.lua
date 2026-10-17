@@ -1,10 +1,12 @@
 local look = require("look")
 local fx = require("fx")
-local C = require("cues")
+local score = require("music.score")
 local sfx = require("sfx")
 local W, H = look.W, look.H
 
-local TOTAL = C.TOTAL_FRAMES
+local TOTAL = score.frame("end")
+-- The lines typed, in beats into the scene.
+local RAIN_LINES = { 4, 8, 12, 16 }
 
 local LINES = {
   "> where did pip go",
@@ -39,9 +41,9 @@ local function rain(f, lb, gb)
   -- the dialogue: typed, green, on a dark plate so the rain does not eat it
   local x, y0, size = 150, 800, 46
   local cw = text_width { "M", font = look.MONO, size = size }
-  local final_at = C.RAIN_LINES[4]
+  local final_at = RAIN_LINES[4]
   for i, l in ipairs(LINES) do
-    local at = C.RAIN_LINES[i]
+    local at = RAIN_LINES[i]
     local n = math.floor(#l * progress(lb, at, at + (i == 4 and 3 or 2)) + 0.001)
     if n > 0 then
       local y = y0 + (i - 1) * 62 - (i == 4 and 0 or 0)
@@ -62,13 +64,14 @@ end
 -- Its sounds (sfx.lua), in beats into the scene.
 local SOUNDS = {}
 for i, l in ipairs(LINES) do -- a beep as each visible character of a line appears
-  local at = C.RAIN_LINES[i]
-  sfx.add(SOUNDS, sfx.typing(C.RAIN, at, at + (i == 4 and 3 or 2), l, 0.05, i * 31, function(k)
+  local at = RAIN_LINES[i]
+  sfx.add(SOUNDS, sfx.typing("rain", at, at + (i == 4 and 3 or 2), l, 0.05, i * 31, function(k)
     return sfx.beep(1000 + math.floor(hash(k * 7 + i * 31) * 36) * 25)
   end))
 end
 
-scene { "Rain", cue = "RAIN", start = C.time(C.RAIN), audio = SOUNDS, render = function(f)
-  local gb = C.beat(f)
-  rain(f, gb - C.RAIN, gb)
+local AT = score.time("rain")
+scene { "Rain", cue = "rain", start = AT, audio = SOUNDS, render = function(f)
+  local gb = score.beat(f)
+  rain(f, gb - score.beat(AT), gb)
 end }

@@ -1,16 +1,15 @@
 -- What you install before the first frame, to scale (area per MB): fframes'
 -- Rust toolchain drops into its bin, its 311 crates pour in (one grain
 -- each), then the 2.5 GB first build lands on top; onimite is one small
--- block. Simulated once at load (physics{}); the soundtrack (track.lua)
--- puts a sound on each landing (`HITS`). Bars 3 and 4: what an edit costs
--- in each.
+-- block. Simulated once at load (physics{}); each landing has its sound
+-- (`HITS`, the scene's audio). Bars 3 and 4: what an edit costs in each.
 
 local beat = require("beat")
+local score = require("track")
 local ui = require("ui")
 local T = require("timeline")
 local facts = require("facts")
 local snap, soft = beat.snap, beat.soft
-local BEAT = beat.BEAT
 
 local PX2_PER_MB = 65
 local FLOOR, WALL = 960, 10
@@ -28,18 +27,19 @@ local SLAB_H = BUILD[2] * PX2_PER_MB / SLAB_W
 -- Beats in the scene: the toolchain drops, the crates pour, the build
 -- lands, then onimite.
 local DROP_TOOLCHAIN, POUR_FROM, POUR_TO, DROP_BUILD, DROP_ONIMITE = 1, 2, 4, 4.5, T.SHIP_TOTAL
-local function seconds(lb) return lb * BEAT end
+local function seconds(lb) return score.seconds(lb, "ship") end
 
 local TOOLCHAIN_AT, BUILD_AT, ONIMITE_AT, GRAINS_AT = 1, 2, 3, 4
 -- When crate k (from 0) starts falling, seconds into the scene.
 local function poured(k) return seconds(POUR_FROM + (POUR_TO - POUR_FROM) * k / fframes.deps) end
-local sim = shared("ship.bins", function()
+local START = score.time("ship")
+local function simulate(shift)
   local function wall(x, y, w, h) return { static = true, box = { w, h }, x = x + w / 2, y = y + h / 2 } end
   local bodies = {
     { box = { side(TOOLCHAIN[2]), side(TOOLCHAIN[2]) }, x = FF.x + FF.w * 0.3, y = -160, angle = 4,
-      vy = 900, start = seconds(DROP_TOOLCHAIN), friction = 0.6 },
-    { box = { SLAB_W, SLAB_H }, x = FF.x + FF.w / 2, y = -SLAB_H, vy = 1400, start = seconds(DROP_BUILD), density = 2 },
-    { box = { side(onimite), side(onimite) }, x = ON.x + ON.w / 2, y = -40, angle = 12, vy = 900, start = seconds(DROP_ONIMITE) },
+      vy = 900, start = seconds(DROP_TOOLCHAIN) + shift[1], friction = 0.6 },
+    { box = { SLAB_W, SLAB_H }, x = FF.x + FF.w / 2, y = -SLAB_H, vy = 1400, start = seconds(DROP_BUILD) + shift[2], density = 2 },
+    { box = { side(onimite), side(onimite) }, x = ON.x + ON.w / 2, y = -40, angle = 12, vy = 900, start = seconds(DROP_ONIMITE) + shift[3] },
   }
   -- The crates: spread over the bin's width above the frame, at jittered heights;
   -- consecutive ones far apart so none starts inside another.
@@ -56,7 +56,23 @@ local sim = shared("ship.bins", function()
     bodies[#bodies + 1] = wall(bin.x - WALL, 300, WALL, FLOOR - 300)
     bodies[#bodies + 1] = wall(bin.x + bin.w, 300, WALL, FLOOR - 300)
   end
-  return physics { duration = seconds(T.AGENTS - T.SHIP), gravity = 5200, bodies = bodies }
+  return physics { duration = score.seconds("4m", "ship"), gravity = 5200, bodies = bodies }
+end
+-- Body i's first hard contact, seconds into the scene.
+local function landing(s, i)
+  for _, c in ipairs(s.contacts) do
+    if (c.a == i or c.b == i) and c.speed > 300 then return c.t end
+  end
+end
+-- The blocks' drops are moved so each lands on the song's grid (the crates
+-- pour as a roll).
+local sim = shared("ship.bins", function()
+  local first, shift = simulate { 0, 0, 0 }, {}
+  for i = 1, 3 do
+    local t = START + landing(first, i)
+    shift[i] = score.snap(t, "8n") - t
+  end
+  return simulate(shift)
 end)
 local GRAINS_END = GRAINS_AT + fframes.deps - 1
 
@@ -175,4 +191,24 @@ local function render(f, lb)
     "saved → cargo rebuilds the video's crate", false)
 end
 
-return { name = "Ship", start = T.SHIP, stop = T.AGENTS, render = render, hits = HITS }
+-- A sound per landing, as hard as it hit: a tick per crate (three pitches),
+-- a thump for the toolchain, an impact for the build, a blip for onimite;
+-- a crash when onimite has landed, a DONE on the reload.
+local TICKS = { sound { "tick", note = "C#7" }, sound { "tick", note = "E7" }, sound { "tick", note = "G7" } }
+local LANDING = { build = sound { "impact", duration = "2n" }, onimite = sound { "blip", note = "E6", duration = "16n" },
+  block = sound { "thump", note = "A1", duration = "4n" } }
+local audio = {
+  { sound { "crash", duration = "2n" }, start = T.at.SHIP_TOTAL, gain_db = -8 },
+  { sound { "done", note = "E6", duration = "16n" }, start = T.at.RELOAD, gain_db = -6 },
+}
+for _, h in ipairs(HITS) do
+  local g = clamp01(h.speed / 2500)
+  if h.kind == "grain" then
+    audio[#audio + 1] = { TICKS[math.floor(hash(h.t) * 3) + 1], start = START + h.t,
+      gain_db = 20 * math.log(0.3 + 0.7 * g, 10) - 14, pan = (hash(h.t, 2) - 0.5) * 0.6 }
+  else
+    audio[#audio + 1] = { LANDING[h.kind], start = START + h.t, gain_db = h.kind == "build" and -8 or -6 }
+  end
+end
+
+return { name = "Ship", section = "ship", render = render, audio = audio }

@@ -12,7 +12,7 @@ M.RAIN = "#00ff66"
 
 M.DISPLAY, M.SANS, M.MONO, M.SERIF = "Bebas Neue", "Space Grotesk", "JetBrains Mono", "Instrument Serif"
 
-M.W, M.H = 1920, 1080
+M.W, M.H, M.FPS = 1920, 1080, 60
 
 -- Springs run in seconds; a beat is about half a second in the loud acts.
 local SNAP = spring { stiffness = 320, damping = 22 }
@@ -62,18 +62,10 @@ function M.pop_word(word, x, y, size, lb, fill, font, opts)
 end
 
 -- The soundtrack's spectrum at the frame as `n` levels from 0 to 1: bands
--- an equal pitch step wide (94 Hz to 12 kHz), -20 to +26 dB. The acts are
--- separate clips (video.lua); where two overlap, the louder band wins.
-local ACTS = { "act1", "act2", "act3", "act4" }
-
+-- an equal pitch step wide (94 Hz to 12 kHz), -20 to +26 dB.
 function M.spectrum(f, n)
-  local out = {}
-  for _, clip in ipairs(ACTS) do
-    local b = audio_spectrum(f, { src = clip, sample_size = 512, smooth = 2, window = "hann", bands = n,
-      log = true, levels = { -20, 26 } }) or {}
-    for k = 1, n do out[k] = math.max(out[k] or 0, b[k] or 0) end
-  end
-  return out
+  return audio_spectrum(f, { src = "score", sample_size = 512, smooth = 2, window = "hann", bands = n,
+    log = true, levels = { -20, 26 } }) or {}
 end
 
 -- ---- shared parts ---------------------------------------------------------------

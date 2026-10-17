@@ -1,6 +1,6 @@
 local look = require("look")
 local fx = require("fx")
-local C = require("cues")
+local score = require("music.score")
 local sfx = require("sfx")
 local facts = require("facts")
 local snap, soft = look.snap, look.soft
@@ -191,11 +191,12 @@ end
 -- Its sounds (sfx.lua), in beats into the scene.
 local SOUNDS = {}
 for k = 1, 7 do -- a whoosh into every cut, a crash on it
-  SOUNDS[#SOUNDS + 1] = sfx.at(C.MONTAGE, 2 * k - 0.5, sfx.whoosh(C.seconds(C.MONTAGE + 2 * k - 0.5, 0.5)), 0.12)
-  SOUNDS[#SOUNDS + 1] = sfx.at(C.MONTAGE, 2 * k, sfx.hat(0.6, 6), 0.6)
+  SOUNDS[#SOUNDS + 1] = sfx.at("montage", 2 * k - 0.5, sfx.whoosh(sfx.seconds("montage", 2 * k - 0.5, 0.5)), 0.12)
+  SOUNDS[#SOUNDS + 1] = sfx.at("montage", 2 * k, sfx.hat(0.6, 6), 0.6)
 end
 
-scene { "Montage", cue = "MONTAGE", start = C.time(C.MONTAGE), audio = SOUNDS, render = function(f)
-  local gb = C.beat(f)
-  montage(f, gb - C.MONTAGE, gb)
+local AT = score.time("montage")
+scene { "Montage", cue = "montage", start = AT, audio = SOUNDS, render = function(f)
+  local gb = score.beat(f)
+  montage(f, gb - score.beat(AT), gb)
 end }

@@ -279,7 +279,7 @@ COMMAND_KINDS := [Command_Kind]Command_Descriptor {
 	.Timeline_Pan = {help = "regs.scalar frames, signed", domain = .Preview},
 	.Timeline_Follow = {help = "regs.flag: whether the timeline view follows the playhead", domain = .Preview},
 	.Timeline_Toggle = {help = "collapse / expand the timeline area", domain = .Preview},
-	.Timeline_Row_Toggle = {help = "regs.spec a timeline group's path (\"bus/sfx\"): open or close it", domain = .Preview},
+	.Timeline_Row_Toggle = {help = "regs.spec a timeline row's path (\"bus/sfx\", \"track/3\": a song's parts): open or close it", domain = .Preview},
 	.Timeline_Rows_Scroll = {help = "regs.count rows, signed: the timeline's rows below the scenes", domain = .Preview},
 	.Video_Zoom = {help = "regs.scalar zoom factor (> 1 in), regs.at_xy 0..1 anchor in the video panel", domain = .Preview},
 	.Video_Pan = {help = "regs.at_xy pan in pixels", domain = .Preview},

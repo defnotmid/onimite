@@ -9,10 +9,110 @@ with the commands below, and ask the user to listen in `onimite preview`.
   (`mono = true` on a track folds it to `0.707 * (L + R)` on both sides, like fframes'
   embedded media). The mix is 48 kHz stereo, encoded as AAC in renders.
 - A video clip's own sound: put the clip's file name in an `audio` list.
-- No assets: synthesize in Lua at load and register the samples with `audio_add` (below), or
-  use short synthesized blips as placeholders. Tell the user which sounds are placeholders.
+- No music file: compose one with `song{}` (odawg, below), sound effects with `sound{}`.
+  Tell the user the music is generated and offer to swap in a real track.
 - Narration without a recording: `say()` speaks a line with the time of every word
   ("Spoken lines", below).
+
+## Songs and sounds (odawg)
+
+`song{}` composes music with odawg from data, in Tone.js's vocabulary: sections with tempo,
+style, energy and chords; parts playing patterns in them. It is a sound tracks play by name,
+like a clip; its sections and markers are cues. Deterministic: the same table and `seed` give
+the same samples. The spec's fields are odawg's; the ones a video uses are below:
+
+```lua
+local VO = require("vo")                          -- say → song → placement: the lines first
+local score = song { "score", key = "A minor", seed = 7,          -- start = 0: where it sits on the video
+  sections = {
+    { "intro", duration = { audio = "intro", plus = { seconds = 1 } },   -- as long as a line: any duration form
+      bpm = 84, style = "lofi", energy = 0.3, chords = "Am7 Fmaj7 C G" },
+    { "build", duration = "2m", bpm = { 84, 124 } },                     -- a ramp
+    { "drop",  duration = "8m", flex = { "4m", "8m" }, bpm = 124, style = "house", energy = 1 },
+  },
+  parts = { lead = { instrument = "pluck",
+    play = { { "drop@4m..", notes = "E5 G5 A5 - G5 E5 D5 -", subdivision = "8n" } } } },
+  markers = { { "logo", at = "drop@2m" } },
+}
+```
+
+- A bare number is seconds; musical time is a string: `"8n"`, `"8n."`, `"8t"`, `"2m"`,
+  `"2:1:0"` (bars:quarters:sixteenths). A section's `duration` (rounded up to whole bars) and
+  `start` (exactly there: odawg resizes `flex` sections and nudges tempi before it) and the
+  song's `start` take onimite's time forms too (`{ frame = n }` after `video{}`).
+- Styles: `acid_house`, `ambient`, `booty_house`, `chicago_house`, `house`, `lofi`,
+  `synthwave`, or the song's own: `styles = { footwork = { swing = 0.1,
+  parts = { drums = { ... }, bass = { ... } } } }` is a style like the shipped ones (a partial
+  spec), used by name in `style = "footwork"`. Parts not given come from the section's style;
+  `parts` overrides or adds by role name (`drums`, `bass`, `keys`, `lead`, ...). A style's
+  entries play by the section's `energy` in bands `[lo, hi)`. Instruments: Tone's classes (`{ "MonoSynth", oscillator = { type =
+  "fatsawtooth" } }`), odawg's presets (`"pluck"`, `"sub_bass"`, `"kick"`, ...),
+  `{ "DrumKit", kit = "909" }`, `{ "Sampler", set = "vcsl/upright_piano" }` (a sample set,
+  downloaded the first time into the user data folder; it plays at a synth preset's level; the
+  preview opens without waiting for it, and its notes join the sound once it has loaded).
+- Positions (`time`, ranges, `at`): `"drop"`, `"drop@1m"`, `"drop@-4n"`, `"drop@0.5s"`,
+  `"2:0:0"`, `"end"`; ranges `"drop..outro"` (to the end of outro), `"drop@4m.."` (to the end
+  of drop; `"drop@4m..end"` to the song's end).
+- The song's `gain_db` (default -10, headroom for the mix) replaces the default: `gain_db = -3`
+  is 7 dB louder, not 3 dB quieter. `room = { { from, to }, ... }` (seconds) or
+  `room = "voice"` (where the voice bus plays): the parts whose role makes room (pads, keys)
+  dip there.
+- A misspelled key or a bad value is a warning or error at the script line
+  (`song_finding`, problems.md); a song that can't be composed is a load error.
+- Section and marker names are cues (`frame video.lua drop@1m`), so they must be unique
+  across the video's songs: two songs sharing one is a load error.
+
+The song object answers on the video clock, with `beat_clock`'s signatures (a drop-in for
+`beat_clock`):
+
+```lua
+local T = score.time                      -- T("drop@1m"), T(8): a number is a beat
+score.start, score.duration, score.key    -- seconds; score.sections[i] = { name, start, stop, bpm, bars, ... }
+score.beat(f), score.bar(f)               -- from a frame or video seconds
+score.seconds("2m", "drop")               -- a length, measured where (default: the start): a bar is shorter where it's faster
+score.frame("drop", fps)                  -- its frame (fps: the video's)
+score.snap(t, "8n")                       -- the nearest grid point
+score.pulse(f, 9)                         -- 1 on every beat, decaying (beat_clock's)
+score.pulse(f, { part = "drums", note = "kick", decay = 8 })   -- from the notes really there
+score.section(f)                          -- { name, progress, bar, beat, index }, bars and beats from 0
+score.hits { part = "drums", note = "snare", range = "chorus" } -- seconds: cue("snare", ...) checks flashes
+score.events { part = "lead", range = "drop" }                 -- { time, note, duration, velocity, part }
+score.note("5", "drop@2m")                -- an in-key note name (the chord's 5th there), for a blip
+```
+
+Resolve bar offsets through the song (`T("chorus@2m")`), never `T("chorus") + 2 *
+score.seconds("1m")`: under a tempo change the sum is wrong. `pulse`/`hits` reading a part
+or note with nothing there warn (`no_events`: a style without that part).
+
+`sound{ instrument, note, duration = "8n", velocity = 1, effects, sends, pan, sidechain,
+gain_db }` is a one-note song, named by its content (`"impact~3f2a9c01"`): place it like a
+clip, as often as needed. With no `note` it plays the instrument's own pitch (a `done` chime
+is high, a `thump` low); its other keys are a part's (`effects = { { "FeedbackDelay",
+delay_time = "8n", wet = 0.3 } }`).
+
+```lua
+video { width = 1920, height = 1080, fps = 60, duration = score.duration,
+  buses = { music = {}, voice = {}, sfx = { gain_db = -6 } },
+  audio = {
+    { "score", bus = "music", ducked = true },          -- start: the song's own start
+    { "intro", start = T("intro@4n") },                 -- a say line
+    { sound { "impact" }, start = T("drop"), bus = "sfx" },
+    { sound { "blip", note = score.note("5", "explain"), duration = "16n" }, start = T("explain") + 0.8, bus = "sfx" },
+  } }
+```
+
+- A song track takes the track fields: `gain_db` adds to its parts, `fade_in`/`fade_out`/`curve`
+  and `stop` let it through a window (crossfade two songs as two clips), `offset` starts it that
+  far in, `ducked` dips it under the voice. Each song keeps its own tempo; there is no song
+  inside a song.
+- A song plays to its end plus its tail (reverb, releases). Its parts are `score/drums`,
+  `score/bass`: `--track score/bass` hears one alone, `show video.lua song/score/parts/bass`
+  lists its notes.
+- Nothing of a song's sound is kept: the mix and the preview stream it; `audio_energy` and
+  `audio_spectrum` on a song read its tables (what each frame measures, made once from one
+  stream of it, only where it sounds); `audio_onsets("score")` and `hits` are its notes,
+  exact. In the preview a song's lane opens to its parts, a part to its notes (a piano roll,
+  a row per drum pad), each drawn where it plays; a bus opens to a row per sound.
 
 ## Placing tracks
 
@@ -45,8 +145,8 @@ Track fields:
 
 | field | meaning |
 | --- | --- |
-| first entry or `src` | the media file (or an `audio_add` name) |
-| `start` | when it starts: seconds, `{ frame = n }`, `{ minutes = 1, seconds = 5 }`, `{ audio = "f" }`, with `plus` / `minus`, or a list (summed) |
+| first entry or `src` | the media file (or an `audio_add`, `say`, `song` or `sound` name) |
+| `start` | when it starts: seconds, `{ frame = n }`, `{ minutes = 1, seconds = 5 }`, `{ audio = "f" }`, with `plus` / `minus`, or a list (summed); a song on `video{}` without one: its own start |
 | `stop` | when it ends, same forms; omitted = to the end of the file; `stop = { audio = "f" }` is the file's length on the timeline |
 | `offset` | seconds into the file to start from |
 | `gain_db` | level in dB (0 = as recorded) |
@@ -110,28 +210,30 @@ scene { "Race", duration = 4, audio = {
 
 ## The master bus
 
-Tracks sum linearly into a master bus with de-click fades, then `master_gain_db` and a
-limiter (fframes' `AudioMixOptions`):
+The mix is odawg's: tracks (clips as Players, songs as their parts) sum linearly with
+de-click fades into a master bus, then `master_gain_db` and odawg's true-peak `Limiter`
+(fframes' `AudioMixOptions`). The render and the preview are one stream: the same samples.
 
 ```lua
 video { width = 1920, height = 1080, fps = 30, duration = 5,
   audio = { { "music.mp3", start = 0 } },
   master_gain_db = 3.5,              -- before the limiter
-  limiter = { ceiling_db = -1.5 },   -- default -1 dBFS; limiter = false turns it off
+  limiter = { ceiling_db = -1.5 },   -- true peak, default -1 dBTP; limiter = false turns it off
 }
 ```
 
 The limiter stops loud overlaps from clipping, but a limiter working hard squashes the mix:
 fix track gains first. To hit a loudness target with a hot synthesized track, raise
 `master_gain_db` and lower `ceiling_db` until `audio analyze` shows the target with true peak
-under -1 dBTP (why_onimite: `master_gain_db = 5.5`, `ceiling_db = -3.4` gives -13.9 LUFS,
--1.5 dBTP).
+under -1 dBTP (why_onimite: `master_gain_db = 5.5`, `ceiling_db = -3.4` gives -14.3 LUFS,
+-3.4 dBTP).
 
 ## Checking without listening
 
 ```bash
-onimite timeline video.lua                        # every track: span, gain, fades; every sync point
-onimite audio at video.lua 3.1s,drop              # what plays at a moment: file position, level, ducking, voice
+onimite timeline video.lua                        # every track: span, gain, fades; every sync point; songs: sections, tracks
+onimite show video.lua song/score                 # a song: sections, parts, findings; song/score/parts/bass: every note
+onimite audio at video.lua 3.1s,drop              # what plays at a moment: file position, level, ducking, voice; a song's section and the notes sounding
 onimite audio analyze video.lua                   # loudness report, per scene, and per second
 onimite audio analyze video.lua --waveform w.png  # read the image: waveform, loudness, scenes, onsets, cues
 onimite audio analyze video.lua Intro             # one scene or range
@@ -140,8 +242,9 @@ onimite audio render video.lua Intro -o intro.wav # the mix of a range, for the 
 ```
 
 Every audio command takes `--track FILE`: that track alone, as it sounds in the mix (the others
-still duck it). Give each synthesized layer its own clip (`drums`, `bass`, ...) and `--track`
-checks one layer at a time.
+still duck it); a bus name hears the bus, `--track score/bass` one part of a song. `inspect`
+renders each song alone through odawg's checks (`silent_part`, `clipping`, `true_peak`) and
+reports what reading and composing it found (`song_finding`).
 
 Targets for the report:
 - Integrated loudness about -14 LUFS for web and social (-16 for podcasts, -23 for
@@ -161,7 +264,9 @@ meet on the same `cue` and `inspect` checks them (Cues in api.md); for one-off c
 use `audio at` on the event time and a `frame` of the same time.
 
 `inspect` also checks every sound against the music's beat (`off_beat`, problems.md): the
-music is the tracks on a bus named `music`; around each hit it measures the beat from the
+music is the tracks on a bus named `music`; over a song it is the song's own grid (the
+half-beat from its section's start) where a drum plays in that section (none: no beat to be
+off, as over pads); elsewhere, around each hit it measures the beat from the
 music's strong onsets (following tempo changes; silent where the music has no steady beat)
 and reports hits more than 30 ms off the half-beat grid, one finding per scene (the `scene{}`
 or `video{}` line that placed them) with the count and the loudest, by its clip name and
@@ -263,28 +368,11 @@ Lua tables (a Lua value is 16 bytes, a buffer sample 4). `audio_add` also takes
 `{ left, right, rate }` lists and file bytes (a WAV packed with `string.pack`), decoded by the
 name's extension.
 
-The examples' soundtracks share their instruments in `examples/common/synth.lua` (kick,
-clap, hats, toms, bass, chords, plucks, leads, bells, risers, impacts, glitches, blips, ticks,
-a sidechain, filter automation); copy it next to your `video.lua`:
-
-```lua
-local synth = dofile("synth.lua")
-local function build()
-  local s = synth.new(30, { seed = 120 })          -- 30 s of silence (origin = t: a clip that starts at t)
-  s.kicks({ 0, 0.5, 1.0 }, 0.8)                     -- bass, chords and leads duck under these
-  for _, t in ipairs({ 0, 0.5, 1.0 }) do s.kick(t, 0.9) end
-  s.chord(0, 2, { 57, 60, 64 }, 0.1, 1800, 0.01, 1)
-  return s.finish()                                  -- low-passed, peak at -1 dBFS
-end
-audio_add("track", build)
-```
-
-For a long video give each section its own clip and track (`synth.new(seconds, { origin =
-section_start })`, `{ "act2", start = section_start }`): the sections build side by side,
-`--track act2` checks one section, and they don't all live in memory at once. A tempo that changes is
-`examples/common/tempo.lua`. Patterns: `examples/why_onimite/track.lua` (one clip),
-`examples/onimite_saga/music/` (a clip per act on a tempo map). Tell the user the music is
-synthesized and offer to swap in a real track.
+Prefer `song{}` and `sound{}`: `audio_add` is for sound the script computes itself. Patterns:
+`examples/why_onimite/track.lua` (one song on a fixed tempo), `examples/onimite_saga/music/`
+(a song whose sections follow the scenes, tempo ramps, its parts in their own files),
+`examples/onimite_saga/sfx.lua` (`sound{}` effects on a bus). Tell the user the music is
+composed and offer to swap in a real track.
 
 ## Spoken lines
 
@@ -351,6 +439,13 @@ local line = say("intro", "Welcome back to the workshop.", { voice = "me.wav" })
   (`tts_unavailable`: the line is silent, with estimated word times, and a render refuses it).
 
 Placing things on words:
+
+- **One leader per moment.** The voice follows the music: `{ "features", start =
+  say_start(VO.features, "Onimite", T("drop")) }` (where to start the line so the word lands at
+  the time; the inverse of `say_cue`). The music follows the voice: give the section a `start`
+  from `say_cue(...)` and odawg lands it there (or reports `start_unreachable`). Lua runs in
+  order, so per moment decide who leads: say → song → placement.
+- A sound snapped to the grid (`score.snap(t, "8n")`) shouldn't also carry the word's cue.
 
 - **Put every animation key and sound effect that answers the voice on a word cue**
   (`say_cue`), and the speech on a `voice` bus. Tracks of a `say` clip with no `bus` go on

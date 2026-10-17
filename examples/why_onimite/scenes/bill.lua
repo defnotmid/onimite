@@ -1,6 +1,7 @@
 -- What the same render costs the machine: CPU seconds of tiktok and peak
 -- memory of beta, counters ticking on the beat (fframes' takes four ticks,
--- onimite' one), then the ratio.
+-- onimite' one), then the ratio. The ticks are the song's blips
+-- (timeline.lua reads them); a DONE under each ratio.
 
 local beat = require("beat")
 local ui = require("ui")
@@ -56,4 +57,9 @@ local function render(f, lb)
   end)
 end
 
-return { name = "Bill", start = T.BILL, stop = T.SHIP, render = render }
+local audio = {
+  { sound { "done", duration = "16n" }, start = T.at.CPU_RATIO, gain_db = -6 },
+  { sound { "done", duration = "16n" }, start = T.at.MEMORY_RATIO, gain_db = -6 },
+}
+
+return { name = "Bill", section = "bill", render = render, audio = audio }

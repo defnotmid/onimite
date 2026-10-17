@@ -1,6 +1,6 @@
 local look = require("look")
 local fx = require("fx")
-local C = require("cues")
+local score = require("music.score")
 local sfx = require("sfx")
 local W, H = look.W, look.H
 
@@ -48,17 +48,18 @@ end
 -- Its sounds (sfx.lua), in beats into the scene.
 local SOUNDS = {
   -- the hit, a beat in
-  sfx.at(C.SLAM, 1, sfx.impact(), 1.0),
-  sfx.at(C.SLAM, 1, sfx.tom(55), 0.8),
-  sfx.at(C.SLAM, 1, sfx.crash(), 0.8),
+  sfx.at("slam", 1, sfx.impact(), 1.0, nil, "logo_hit"),
+  sfx.at("slam", 1, sfx.tom(55), 0.8),
+  sfx.at("slam", 1, sfx.crash(), 0.8),
   -- and a riser into the matrix
-  sfx.at(C.SLAM, 3, sfx.whoosh(C.seconds(C.SLAM + 3, 1), 0.2), 0.2),
+  sfx.at("slam", 3, sfx.whoosh(sfx.seconds("slam", 3, 1), 0.2), 0.2),
 }
-for _, g in ipairs { 1.0, 1.25, 2.0, 2.5, 3.0, 3.25, 3.5, 3.75 } do -- glitches, faster and faster
-  SOUNDS[#SOUNDS + 1] = sfx.at(C.SLAM, g, sfx.glitch(C.seconds(C.SLAM + g, 0.25)), 0.1)
+for _, g in ipairs { 1.0, 2.0, 2.5, 3.0, 3.5, 3.625, 3.75, 3.875 } do -- glitches, faster and faster
+  SOUNDS[#SOUNDS + 1] = sfx.at("slam", g, sfx.glitch(sfx.seconds("slam", g, 0.25)), 0.1)
 end
 
-scene { "Slam", cue = "SLAM", start = C.time(C.SLAM), audio = SOUNDS, render = function(f)
-  local gb = C.beat(f)
-  slam(f, gb - C.SLAM, gb)
+local AT = score.time("slam")
+scene { "Slam", cue = "slam", start = AT, audio = SOUNDS, render = function(f)
+  local gb = score.beat(f)
+  slam(f, gb - score.beat(AT), gb)
 end }

@@ -1,6 +1,6 @@
 local look = require("look")
 local fx = require("fx")
-local C = require("cues")
+local score = require("music.score")
 local sfx = require("sfx")
 local family = require("scenes.family")
 local snap = look.snap
@@ -39,10 +39,11 @@ end
 -- Its sounds (sfx.lua), in beats into the scene.
 local SOUNDS = {}
 for i = 1, 6 do -- a blip per row of codecs
-  SOUNDS[#SOUNDS + 1] = sfx.at(C.ODECS, 1 + (i - 1) * 0.5, sfx.blip(700 * 2 ^ ((i - 1) * 2 / 12)), 0.14)
+  SOUNDS[#SOUNDS + 1] = sfx.at("odecs", 1 + (i - 1) * 0.5, sfx.blip(700 * 2 ^ ((i - 1) * 2 / 12)), 0.14)
 end
 
-scene { "ODECS", cue = "ODECS", start = C.time(C.ODECS), audio = SOUNDS, render = function(f)
-  local gb = C.beat(f)
-  odecs(f, gb - C.ODECS, gb)
+local AT = score.time("odecs")
+scene { "ODECS", cue = "odecs", start = AT, audio = SOUNDS, render = function(f)
+  local gb = score.beat(f)
+  odecs(f, gb - score.beat(AT), gb)
 end }

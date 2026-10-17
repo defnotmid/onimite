@@ -1,16 +1,27 @@
--- Word-level captions, TikTok style: a 10 s vertical clip over a synthesized
--- 120 BPM beat, its captions read from a Whisper-style word-timed JSON file
+-- Word-level captions, TikTok style: a 10 s vertical clip over a lo-fi beat
+-- (an odawg song), its captions read from a Whisper-style word-timed JSON file
 -- (media/talk.json) and drawn by captions{} in two highlight styles: a box
 -- sliding from word to word, then a colour pop with an outline.
 --
 --     onimite render examples/captions_demo/video.lua -o captions_demo.mp4
 
-local beat = require("beat")
-
 local W, H = 1080, 1920
-local clock = beat_clock(beat.BPM)
 
-audio_add("beat.wav", function() return beat.build(10) end)
+-- The beat: lo-fi hip hop in A minor, a section per style, two bars (5 s) each. The
+-- style's swung boom-bap, round bass and filtered keys, the keys a real FM electric
+-- piano (sampled); in "pop" a soft grand arpeggiates on top.
+local score = song { "score", key = "A minor", bpm = 96, seed = 120,
+  sections = {
+    { "box", duration = "2m", style = "lofi", energy = 0.5, chords = "Am9 Fmaj7" },
+    { "pop", duration = "2m", energy = 0.6, chords = "Cmaj7 G" },
+  },
+  parts = {
+    drums = { gain_db = 1 },
+    keys = { instrument = { "Sampler", set = "vcsl/fm_piano" }, gain_db = -12.3 },
+    piano = { instrument = { "Sampler", set = "osiris/soft_piano" }, gain_db = -12.4, pan = 0.25, sends = { room = -6 },
+      play = { { "pop", arpeggio = { pattern = "upDown", interval = "8n", octaves = 2 }, octave = 4, velocity = 0.55 } } },
+  },
+}
 
 -- The look both styles share: Inter ExtraBold, wrapped within 920 px around y = 1080.
 local function style(t)
@@ -34,11 +45,12 @@ local function label(s)
   text(q)
 end
 
-video { width = W, height = H, fps = 30, duration = 10, background = "#0b0b12",
-  audio = { { "beat.wav", gain_db = -1 } },
+video { width = W, height = H, fps = 30, duration = score.duration, background = "#0b0b12",
+  audio = { { "score" } },
+  master_gain_db = 6.6, limiter = { ceiling_db = -1.2 },   -- the song lifted to about -14 LUFS
   render = function(f)
     local t = f.global_seconds
-    local kick = clock.pulse(t, 6)
+    local kick = score.pulse(f, { part = "drums", note = "kick", decay = 6 })
     rect { x = 0, y = 0, w = W, h = H, fill = linear_gradient { x1 = 0, y1 = 0, x2 = 0, y2 = H,
       stops = { { 0, "#1e1b4b" }, { 0.55, "#0b0b12" }, { 1, "#111827" } } } }
     -- two slow blobs and a glow that breathes with the kick
@@ -49,7 +61,7 @@ video { width = W, height = H, fps = 30, duration = 10, background = "#0b0b12",
     circle { cx = W / 2, cy = 1080, r = 520 + 40 * kick, fill = radial_gradient { cx = W / 2, cy = 1080,
       r = 520 + 40 * kick, stops = { { 0, "#ffffff10" }, { 1, "#ffffff00" } } } }
     -- the beat in the bar
-    local b = math.floor(clock.beat(t)) % 4
+    local b = math.floor(score.beat(f)) % 4
     for i = 0, 3 do
       local on = i == b
       circle { cx = W / 2 + (i - 1.5) * 56, cy = 1640, r = on and 12 + 6 * kick or 10,
@@ -58,18 +70,18 @@ video { width = W, height = H, fps = 30, duration = 10, background = "#0b0b12",
     render_scenes(f)
     -- progress
     rect { x = 0, y = H - 12, w = W, h = 12, fill = "#ffffff20" }
-    if t > 0 then rect { x = 0, y = H - 12, w = W * t / 10, h = 12, fill = "#facc15" } end
+    if t > 0 then rect { x = 0, y = H - 12, w = W * t / score.duration, h = 12, fill = "#facc15" } end
   end,
 }
 
-scene { "Box", duration = 5, render = function(f)
+scene { "Box", start = score.time("box"), render = function(f)
   label('highlight = "box"')
   captions(f.global_seconds, BOX)
 end }
 
-scene { "Pop", duration = 5, transition = { "slide", from = "right", duration = 0.4, easing = ease_in_out },
+scene { "Pop", start = score.time("pop"), transition = { "slide", from = "right", duration = 0.4, easing = ease_in_out },
   render = function(f)
     label('highlight = "fill"')
     -- the first half's last page is still held while this scene slides in
-    if f.global_seconds >= 5.2 then captions(f.global_seconds, POP) end
+    if f.global_seconds >= score.time("pop@0.2s") then captions(f.global_seconds, POP) end
   end }

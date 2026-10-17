@@ -1,5 +1,6 @@
 -- Motion poster: a 20 second generative piece (1080x1350, 60 fps) on a
--- synthesized 120 BPM ambient techno track. Everything is drawn from noise:
+-- 120 BPM ambient techno track (an odawg song, track.lua). Everything is
+-- drawn from noise:
 --
 --   * the field: feTurbulence, stretched to grey (feColorMatrix) and
 --     posterized into an OKLab palette (feComponentTransfer, discrete), its
@@ -17,13 +18,10 @@
 --     onimite render examples/motion_poster/video.lua -o motion_poster.mp4
 
 local T = require("timeline")
-local track = require("track")
+local score = T.score
 
-local clock, FPS, BEAT = T.clock, T.FPS, T.BEAT
 local W, H = 1080, 1350
 local CX, CY = 540, 470 -- the disc
-
-audio_add("track.wav", track.build)
 
 -- ---- palette (OKLab) ----------------------------------------------------------
 
@@ -55,10 +53,10 @@ end
 
 -- Levels per bar: 4 in the intro, 5/6 alternating in the groove, 3 in the
 -- break, 7/8 in the finale.
-local function levels(b)
-  local bar = math.floor(b / 4)
-  if b < 8 then return 4 elseif b < T.BREAK then return 5 + bar % 2
-  elseif b < T.FINALE then return 3 else return 7 + bar % 2 end
+local LEVELS_IN = { intro = { 4, 4 }, groove = { 5, 6 }, ["break"] = { 3, 3 }, finale = { 7, 8 } }
+local function levels(t)
+  local s = score.section(t) or { name = "finale", bar = 1 }
+  return LEVELS_IN[s.name][s.bar % 2 + 1]
 end
 
 -- The turbulence drifts: the group moves one way, the region the other, so
@@ -66,10 +64,10 @@ end
 local GREY = { 3, 0, 0, 0, -1, 3, 0, 0, 0, -1, 3, 0, 0, 0, -1, 0, 0, 0, 0, 1 }
 local function field(t, b)
   local dx, dy = t * 26, t * 14
-  group({ transform = translate(-dx, -dy), opacity = progress(b, T.FIELD_IN - 3, T.FIELD_IN + 3), filter = {
+  group({ transform = translate(-dx, -dy), opacity = progress(b, -3, 3), filter = {
     { "turbulence", type = "fractalNoise", base_frequency = 0.0032, octaves = 3, seed = 11 },
     { "color_matrix", type = "matrix", values = GREY },
-    { "component_transfer", r = LEVELS[levels(b)].r, g = LEVELS[levels(b)].g, b = LEVELS[levels(b)].b },
+    { "component_transfer", r = LEVELS[levels(t)].r, g = LEVELS[levels(t)].g, b = LEVELS[levels(t)].b },
     region = { x = dx, y = dy, w = W, h = H, units = "userSpaceOnUse" },
   } }, function()
     rect { x = dx, y = dy, w = W, h = H, fill = INK }
@@ -154,7 +152,7 @@ end
 
 local function poster(t, b, kick)
   rings(t, b)
-  local d = ease(spring { stiffness = 60, damping = 14 }, (b - 1) * BEAT)
+  local d = ease(spring { stiffness = 60, damping = 14 }, t - score.time("intro@4n"))
   if d > 0 then
     group({ transform = { scale = 0.85 + 0.15 * d, origin = { CX, CY } }, opacity = clamp01(d * 1.5) }, function()
       disc(t, kick)
@@ -162,13 +160,13 @@ local function poster(t, b, kick)
   end
   orbs(t, b, kick)
   -- the type: grows in (erode 14 -> 0) over the intro, thins in the break
-  local grow = 14 * (1 - ease(ease_out, (b - T.TYPE_IN) * BEAT, (T.TYPE_SET - T.TYPE_IN) * BEAT))
-  local thin = 5 * smoothstep(T.BREAK, T.BREAK + 2, b) * (1 - smoothstep(T.FINALE - 0.5, T.FINALE, b))
-  if b >= T.TYPE_IN then
+  local grow = 14 * (1 - ease(ease_out, t - T.TYPE_IN, T.TYPE_SET - T.TYPE_IN))
+  local thin = 5 * smoothstep(T.BREAK, T.THIN, t) * (1 - smoothstep(score.time("finale@-8n"), T.FINALE, t))
+  if t >= T.TYPE_IN then
     word("NOISE", 735, 330, INK, grow + thin, 3 + 9 * kick, CREAM)
     word("FIELD", 1015, 330, linear_gradient { x1 = 0, y1 = 780, x2 = 0, y2 = 1015,
       stops = { { 0, CREAM }, { 1, palette(0.86) } } }, grow + thin * 1.4, 6, INK)
-    group({ opacity = progress(b, T.TYPE_SET - 2, T.TYPE_SET),
+    group({ opacity = progress(t, score.time("groove@-2n"), T.TYPE_SET),
       shadow = { dx = 0, dy = 3, blur = 8, color = INK, opacity = 0.9 } }, function()
       text { "a study in noise and light", x = W / 2, y = 1082, align = "center", font = "Instrument Serif",
         italic = true, size = 58, fill = CREAM }
@@ -226,7 +224,7 @@ local function card(b)
       font = "JetBrains Mono", size = 28, fill = INK }
     text { "feMorphology  feComponentTransfer  SkSL", x = CARD.x + 36, y = CARD.y + 94,
       font = "JetBrains Mono", size = 28, fill = INK }
-    text { "120 BPM  ·  music synthesized in Lua  ·  onimite", x = CARD.x + 36, y = CARD.y + 136,
+    text { string.format("%d BPM  ·  music composed by odawg  ·  onimite", score.sections[1].bpm), x = CARD.x + 36, y = CARD.y + 136,
       font = "JetBrains Mono", size = 28, fill = "#7a3b52" }
   end)
 end
@@ -234,32 +232,34 @@ end
 local function header(t, b, kick)
   local a = progress(b, 0.5, 2.5)
   text { "ONIMITE", x = 80, y = 92, font = "JetBrains Mono", size = 28, letter_spacing = 6, fill = CREAM, opacity = a }
-  local bar = math.floor(b / 4) + 1
-  text { string.format("BAR %02d / 10", math.min(bar, 10)), x = 1000, y = 92, align = "right",
+  local bar = math.floor(score.bar(t)) + 1
+  text { string.format("BAR %02d / %02d", math.min(bar, T.BARS), T.BARS), x = 1000, y = 92, align = "right",
     font = "JetBrains Mono", size = 28, fill = CREAM, opacity = a }
   rect { x = 80, y = 112, w = 920, h = 2, fill = CREAM, opacity = a * 0.5 }
-  rect { x = 80, y = 111, w = math.max(920 * b / T.TOTAL, 1), h = 4, fill = ACCENT, opacity = a }
+  rect { x = 80, y = 111, w = math.max(920 * t / score.duration, 1), h = 4, fill = ACCENT, opacity = a }
 end
 
 -- ---- video ---------------------------------------------------------------------
 
 video {
-  width = W, height = H, fps = FPS, background = INK,
-  audio = { { "track.wav", start = 0, fade_out = 1.5 } },
-  -- the synth peaks at -1 dBFS: lifted to about -14 LUFS under a limiter
-  -- (audio analyze: -13.9 LUFS, -1.5 dBTP)
-  master_gain_db = 3.5,
-  limiter = { ceiling_db = -2.4 },
+  width = W, height = H, fps = T.FPS, duration = score.duration, background = INK,
+  audio = { { "score", fade_out = 1.5 } },
+  -- the song lifted to about -14 LUFS under the limiter
+  master_gain_db = 2,
+  limiter = { ceiling_db = -1.2 },
   render = function(f)
     local t = f.global_seconds
-    local b = clock.beat(t)
-    local kicking = T.kicking(b)
-    local kick = kicking and pulse(b, 6) or 0
-    local since_kick = kicking and fract(b) * BEAT or 10
-    local since_bar = fract(b / 4) * 4 * BEAT
-    local split = (kicking and 10 or 0) * math.exp(-since_bar * 5) + 4 * smoothstep(T.RISER, T.FINALE, b)
-    if b >= T.FINALE then split = split + 24 * math.exp(-(b - T.FINALE) * BEAT * 3) end
-    local swirl = 1.3 * smoothstep(T.RISER, T.FINALE, b) * (1 - progress(b, T.FINALE, T.FINALE + 1))
+    local b = score.beat(t)
+    -- the kicks really played: a pulse on each, the ripple's age while they play
+    local kick = score.pulse(f, { part = "drums", note = "kick", decay = 6 })
+    local since_kick = T.since_kick(t)
+    if not since_kick or since_kick > T.BEAT then since_kick = 10 end
+    -- a colour split on every bar while they play (the pad changes chord each bar),
+    -- growing with the riser, a big one on the impact
+    local bar = score.pulse(f, { part = "pad", decay = 2.5 })
+    local split = (since_kick < 10 and 10 * bar or 0) + 4 * smoothstep(T.RISER, T.FINALE, t)
+      + 24 * score.pulse(f, { part = "impact", decay = 1.5 })
+    local swirl = 1.3 * smoothstep(T.RISER, T.FINALE, t) * (1 - progress(t, T.FINALE, score.time("finale@4n")))
 
     rect { x = 0, y = 0, w = W, h = H, fill = INK }
     field(t, b)
@@ -269,16 +269,15 @@ video {
     } }
     card(b)
     header(t, b, kick)
-    -- the finale's flash and the fade at the end
-    local flash = b >= T.FINALE and math.exp(-(b - T.FINALE) * 3) or 0
+    -- the finale's flash on the impact and the fade at the end
+    local flash = score.pulse(f, { part = "impact", decay = 3 })
     if flash > 0.01 then rect { x = 0, y = 0, w = W, h = H, fill = CREAM, opacity = flash * 0.6 } end
-    local out = progress(t, T.TOTAL * BEAT - 1, T.TOTAL * BEAT)
+    local out = progress(t, score.duration - 1, score.duration)
     if out > 0 then rect { x = 0, y = 0, w = W, h = H, fill = INK, opacity = out } end
   end,
 }
 
--- Sections as labels (no render): Groove@2s and per-section loudness work.
-for k, s in ipairs(T.SECTIONS) do
-  local stop = k < #T.SECTIONS and T.SECTIONS[k + 1][1] or T.TOTAL
-  scene { s[2], duration = { frames = clock.frame(stop, FPS) - clock.frame(s[1], FPS) } }
+-- The sections as scenes (no render): Groove@2s and per-section loudness work.
+for _, s in ipairs { { "intro", "Intro" }, { "groove", "Groove" }, { "break", "Break" }, { "finale", "Finale" } } do
+  scene { s[2], start = score.time(s[1]) }
 end

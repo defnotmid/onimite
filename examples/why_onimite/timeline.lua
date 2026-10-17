@@ -1,45 +1,72 @@
--- Where things happen, in beats from the start of the video (4 beats a
--- bar). The scenes animate from these numbers and track.lua puts its hits
--- on them, so picture and sound share one list.
+-- Where things happen, read from the song (track.lua): its sections are
+-- the scenes, its hits the counters' ticks and the tricks' cuts, the rest
+-- positions in its grammar ("race@1m", "agents@2:3"). Each name gives
+-- T.X, beats into its scene (what the scenes animate from), and T.at.X,
+-- video seconds (where its sound goes).
 
+local score = require("track")
 local facts = require("facts")
 
-local T = {}
+local T = { at = {} }
 
--- Sections: 4 bars each, the outro has a bar of tail.
-T.TITLE, T.RACE, T.BILL, T.SHIP, T.AGENTS, T.TRICKS, T.OUTRO, T.TOTAL = 0, 16, 32, 48, 64, 80, 96, 116
+-- beats into `section` of video seconds t
+local function into(t, section) return score.beat(t) - score.beat(score.time(section)) end
+local function put(name, section, times)
+  if type(times) == "table" then
+    T[name], T.at[name] = {}, times
+    for i, t in ipairs(times) do T[name][i] = into(t, section) end
+  else
+    T[name], T.at[name] = into(times, section), times
+  end
+end
+local function place(name, pos) put(name, pos:match("^[%w_]+"), score.time(pos)) end
 
--- Title: glitches on beats 0 and 2, the slam on the downbeat of bar 2.
-T.TITLE_GLITCHES = { 0, 2 }
-T.TITLE_SLAM = 4
+-- Title: the slam on the downbeat of bar 2 (the "slam" section).
+place("TITLE_SLAM", "slam")
 
--- Race (beats inside the section): bars start at RACE_GO and fframes' bars
--- all take RACE_BEATS; each onimite bar takes its share of that, on the
--- nearest half beat (labels show the exact seconds).
-T.RACE_GO, T.RACE_BEATS = 4, 8
-T.RACE_DONE = {}
-for i, r in ipairs(facts.RACE) do
-  T.RACE_DONE[i] = T.RACE_GO + math.floor(r[3] / r[2] * T.RACE_BEATS * 2 + 0.5) / 2
+-- Race: bars start on bar 2 and fframes' all take two bars; each onimite
+-- bar takes its share of that, its DONE on the nearest eighth (labels show
+-- the exact seconds).
+place("RACE_GO", "race@1m")
+place("RACE_STOP", "race@3m")
+do
+  local done = {}
+  for i, r in ipairs(facts.RACE) do
+    done[i] = score.snap(T.at.RACE_GO + r[3] / r[2] * (T.at.RACE_STOP - T.at.RACE_GO), "8n")
+  end
+  put("RACE_DONE", "race", done)
 end
 
--- Bill: counters tick on beats; fframes' takes four ticks, onimite' one.
-T.CPU_TICKS = { 1, 2, 3, 4 }
-T.MEMORY_TICKS = { 8, 9, 10, 11 }
-T.CPU_RATIO, T.MEMORY_RATIO = 5, 12
+-- Bill: the counters tick on the song's blips, four each (fframes' takes
+-- all four, onimite' the first); then the ratios.
+do
+  local ticks = score.hits { part = "ticks", range = "bill" }
+  put("CPU_TICKS", "bill", { ticks[1], ticks[2], ticks[3], ticks[4] })
+  put("MEMORY_TICKS", "bill", { ticks[5], ticks[6], ticks[7], ticks[8] })
+end
+place("CPU_RATIO", "bill@1:1")
+place("MEMORY_RATIO", "bill@3m")
 
 -- Shipping: fframes' install lands from beat 1 (scenes/ship.lua times its
 -- parts), onimite's on beat 6, the hot reload on beat 9.
-T.SHIP_TOTAL, T.RELOAD = 6, 9
+place("SHIP_TOTAL", "ship@1:2")
+place("RELOAD", "ship@2:1")
 
 -- Agents: the command typed from beat 1, the finding on 3, the fix on 6
--- (the new number on 7), the re-run from 9, clean on 11.
-T.AGENT_RUN, T.AGENT_FOUND, T.AGENT_FIX, T.AGENT_RERUN, T.AGENT_CLEAN = 1, 3, 6, 9, 11
+-- and the new number on 7, the re-run from 9, clean on 11.
+place("AGENT_RUN", "agents@4n")
+place("AGENT_FOUND", "agents@0:3")
+place("AGENT_FIX", "agents@1:2")
+place("AGENT_NUMBER", "agents@1:3")
+place("AGENT_RERUN", "agents@2:1")
+place("AGENT_CLEAN", "agents@2:3")
 
--- Tricks: a cut per bar, each with a glitch.
-T.TRICK_CUTS = { 4, 8, 12 }
+-- Tricks: a cut on each of the song's glitch stutters.
+put("TRICK_CUTS", "tricks", score.hits { part = "glitch", range = "tricks" })
 
--- Outro: three lines, then the wordmark.
-T.OUTRO_LINES = { 0, 2, 4 }
-T.WORDMARK = 8
+-- Outro: three lines a half bar apart, then the wordmark; the tail.
+put("OUTRO_LINES", "outro", { score.time("outro"), score.time("outro@2n"), score.time("outro@1m") })
+place("WORDMARK", "outro@2m")
+put("TAIL", "outro", score.time("tail"))
 
 return T

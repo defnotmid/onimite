@@ -75,12 +75,20 @@ test_timeline_items :: proc(t: ^testing.T) {
 	for wave_builder_pending(&b) {
 		wave_builder_step(&b)
 	}
-	// The group's sound has both tracks' loud sample at their places.
+	// The group's sound has both tracks' loud sample at their places, in a
+	// region each (nothing between them).
 	g := b.table.lanes[items[1].lane]
 	testing.expect_value(t, g.start, 1000)
-	c := &b.table.clips[g.clip]
+	regions := lane_regions(&b.table, items[1].lane)
+	testing.expect_value(t, len(regions), 2)
 	for at in ([]int{1000 + 100, 20_000 + 100}) {
-		_, hi, ok := wave_peak(&b.table, c, at - g.start, at - g.start + 1)
+		hi: f32
+		ok: bool
+		for r in regions {
+			if at >= r.start && at < r.end {
+				_, hi, ok = wave_peak(&b.table, &b.table.clips[r.clip], at - r.start + r.at, at - r.start + r.at + 1)
+			}
+		}
 		testing.expectf(t, ok && hi > 0.7, "the group's peak at %d: %v", at, hi)
 	}
 }

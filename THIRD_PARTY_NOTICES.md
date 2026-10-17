@@ -32,6 +32,7 @@ separate file in [LICENSES/](LICENSES); binary releases ship `LICENSE`,
 | three.js | o3d follows its conventions and models: MeshStandardMaterial's shading, PCF shadows, equirectangular environment lighting, GLTFLoader's material and scene rules | `LICENSES/three.js-MIT.txt` |
 | ottis | text to speech with word timings (`say()`): runs Pocket TTS and the word aligner through ONNX Runtime | `LICENSES/ottis-MIT.txt` |
 | Pocket TTS (Kyutai, github.com/kyutai-labs/pocket-tts) | ottis ports its text preparation and chunking, the generation loop's end-of-speech rule and the decoder fade-in | `LICENSES/pocket-tts-MIT.txt` |
+| odawg | sound (`song{}`, `sound{}`, the mix): composing songs from data, its synths, drum machines, samplers and effects, the master and the preview stream, loudness, onsets and spectra | `LICENSES/odawg-MIT.txt` |
 | Odin core and vendor packages (Copyright 2016-2025 Ginger Bill) | the runtime and core library every Odin program links, the vendor bindings above (`vendor:cgltf` among them), and `vendor:fontstash` (a port of Mikko Mononen's Fontstash, zlib) | `LICENSES/Odin-Zlib.txt` |
 | Noto Color Emoji (COLRv1 build, Copyright 2022 Google Inc.) | the emoji fallback font, embedded via ovg | `LICENSES/OFL-1.1.txt` |
 | Bitstream Vera Sans (Copyright 2003 Bitstream, Inc.) | the preview window's interface font, embedded via ovg | `LICENSES/Bitstream-Vera.txt` |
@@ -56,6 +57,21 @@ Audio made with `say()` must be credited: *Pocket TTS by Kyutai
 other things, voice impersonation or cloning without explicit and lawful
 consent, and presenting generated audio as genuine recordings of real people
 or events. `examples/voiceover` is spoken with the voice `alba`.
+
+## Downloaded at run time (`song{}` Samplers)
+
+A song whose parts play a `Sampler` downloads the zones its notes reach,
+the first time, into `$ODAWG_DATA`, else `odawg/` in the user data folder, each
+file pinned by commit and SHA-256. None of it is in this repository or the
+binary. Every source is CC0 1.0:
+
+| Sample set | From |
+| --- | --- |
+| Versilian Community Sample Library (VCSL), Versilian Studios LLC | github.com/sgossner/VCSL |
+| VS Chamber Orchestra 2: Community Edition, Versilian Studios LLC | github.com/sgossner/VSCO-2-CE |
+| Osiris Piano, Versilian Studios and Karoryfer Samples | github.com/sfzinstruments/Osiris_Piano |
+| Growlybass, Karoryfer Samples | github.com/sfzinstruments/karoryfer.growlybass |
+| Virtuosity Drums, Versilian Studios and Karoryfer Samples | github.com/sfzinstruments/virtuosity_drums |
 
 ## Ported from
 

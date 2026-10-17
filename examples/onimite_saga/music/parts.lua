@@ -1,145 +1,88 @@
--- What the four acts' score shares: the progression and the hook, the
--- groove, pads, crashes, and how a section becomes a clip. (Sound effects
--- belong to the scenes: sfx.lua.) Each act
--- (music/act1.lua ...) is its own clip, played from where its act starts, so
--- `onimite audio analyze video.lua --track act2` hears one act, and the
--- instruments (../common/synth.lua) take video seconds throughout.
-
-local C = require("cues")
-local synth = dofile("../common/synth.lua")
+-- What the four acts' score shares: the instruments (a part each, with its
+-- effects, sends and side-chain), the hook, and the builders the acts write
+-- their play entries with. The acts (music/act1.lua ...) say what each part
+-- plays where; music/score.lua puts the sections and the acts together.
+-- A part's gain_db sets it in the mix, a note's velocity (0..1) its dynamics.
 
 local M = {}
 
-local B = C.time
--- Seconds the `d` beats from beat `b` last.
-local function bdur(b, d) return C.seconds(b, d) end
-local floor = math.floor
+-- ---- the instruments ---------------------------------------------------------
 
--- The level every act's clip is scaled by: one level for all, so the acts
--- keep their balance (`audio analyze` for the result; master_gain_db and the
--- limiter in video.lua finish the mix).
-M.LEVEL = 0.5
--- Notes ring past the end of their act: each clip runs this much longer.
-local TAIL = 3
+-- The TR-909's circuits: the build, the K-pop acts and the tape stop.
+local MACHINE = { "DrumMachine", machine = "909", tone = 0.55 }
+-- What ducks under the kick: the pumping bass, the stabs, the arp, the hook.
+local DUCK = { "drums/kick", depth = 0.55, release = 0.18 }
 
--- A chord per bar (MIDI notes), its bass root, and a hook per bar as
--- { beat in the bar, note, beats long }. Bars are in sync with the global
--- beat: every section starts on a multiple of four.
-local CHORDS = { { 57, 60, 64, 69 }, { 53, 57, 60, 65 }, { 55, 60, 64, 67 }, { 55, 59, 62, 67 } }
-local ROOTS = { 33, 29, 36, 31 }
-local HOOKS = {
-  { { 0, 76, 0.5 }, { 0.5, 79, 0.5 }, { 1, 81, 1 }, { 2, 79, 0.5 }, { 2.5, 76, 0.5 }, { 3, 74, 1 } },
-  { { 0, 77, 0.5 }, { 0.5, 81, 0.5 }, { 1, 84, 1 }, { 2, 81, 0.5 }, { 2.5, 77, 0.5 }, { 3, 76, 1 } },
-  { { 0, 79, 0.5 }, { 0.5, 84, 0.5 }, { 1, 88, 1 }, { 2, 84, 0.5 }, { 2.5, 79, 0.5 }, { 3, 76, 1 } },
-  { { 0, 74, 0.5 }, { 0.5, 79, 0.5 }, { 1, 83, 1 }, { 2, 79, 0.5 }, { 2.5, 74, 0.5 }, { 3, 71, 1 } },
+M.PARTS = {
+  drums = { instrument = MACHINE, gain_db = -0.5, sends = { room = -20 } },
+  -- the offbeat bass, and the matrix's dread pulse
+  bass = { instrument = "bass", gain_db = -2.5, octave = 1, sidechain = DUCK },
+  stabs = { instrument = "stab", gain_db = -11, octave = 4, sidechain = DUCK, sends = { hall = -14 } },
+  arp = { instrument = "pluck", gain_db = -12.5, octave = 4, sidechain = DUCK,
+    effects = { { "PingPongDelay", delay_time = "8n.", feedback = 0.3, wet = 0.22 } }, sends = { hall = -16 } },
+  lead = { instrument = "lead", gain_db = -15.5, sidechain = DUCK,
+    effects = { { "FeedbackDelay", delay_time = "8n.", feedback = 0.25, wet = 0.18 } }, sends = { hall = -10 } },
+  -- the void: a dark pad, and string sections over it
+  drone = { instrument = { "pad", cutoff = 160, cutoff2 = 520, envelope = { attack = 3 } }, gain_db = -15.5 },
+  strings = { instrument = { "Sampler", set = "vsco2/strings", attack = 1.2, release = 2.5 }, gain_db = -19.4,
+    sends = { hall = -8 } },
+  -- the pad that opens: the build into the drop, the countdown
+  swell = { instrument = { "pad", cutoff = 300, cutoff2 = 3500, envelope = { attack = 2 } }, gain_db = -20.5 },
+  bells = { instrument = "bell", gain_db = -13.5, sends = { hall = -6 } },
+  -- the hush: a quiet grand over a soft pad
+  piano = { instrument = { "Sampler", set = "osiris/soft_piano", release = 1.2 }, gain_db = -8.4, sends = { hall = -10 } },
+  pad = { instrument = { "pad", cutoff = 450, cutoff2 = 1100, envelope = { attack = 0.6 } }, gain_db = -22.5 },
+  -- the tape: a chord whose pitch falls to nothing, a sine gliding down
+  tape = { instrument = "tape_chord", gain_db = -15.5 },
+  fall = { instrument = "fall", gain_db = -12 },
+  -- the logo's drone: a boom closing over seven beats
+  slam = { instrument = { "pad", cutoff = 300, cutoff2 = 120, envelope = { attack = 0.05 } }, gain_db = -10.5 },
+  sweep = { instrument = "riser", gain_db = 4.5 },
+  boom = { instrument = "impact", gain_db = -1.5 },
+  heart = { instrument = "thump", gain_db = 0.5 },
 }
-local ARP = { 1, 2, 3, 4, 3, 2, 3, 4 }
 
--- Beats [from, to) of the groove. Flags: k kick, c clap on 2 and 4, h hats on
--- eighths, H hats on sixteenths, o open hats on the off-beats, b bass,
--- s stabs, a arp, l lead, p pad, f a clap roll in the last beat of every
--- eight.
-function M.groove(s, from, to, flags)
-  local function has(c) return flags:find(c, 1, true) ~= nil end
-  for b = from, to - 1 do
-    local bar = floor(b / 4)
-    local i = bar % 4 + 1
-    local notes, root = CHORDS[i], ROOTS[i]
-    local q = b % 4
-    local t = B(b)
-    if has("k") then s.kick(t, 0.9) end -- (ducking: M.kick_times)
-    if has("c") and (q == 1 or q == 3) then s.clap(t, 0.45) end
-    if has("f") and b % 8 == 7 then
-      for r = 0, 3 do s.clap(B(b + r / 4), 0.18 + 0.1 * r) end
-    end
-    for x = 0, 3 do
-      local ts = B(b + x / 4)
-      local len = B(b + x / 4 + 0.25) - ts
-      if has("H") then
-        if x == 2 and has("o") then s.hat(ts, 0.22, 14, 0.3)
-        else s.hat(ts, 0.045, 90, x % 2 == 0 and 0.3 or 0.16) end
-      elseif has("h") and x % 2 == 0 then
-        if x == 2 and has("o") then s.hat(ts, 0.22, 14, 0.3) else s.hat(ts, 0.045, 90, 0.33) end
-      end
-      if has("b") and x ~= 0 then
-        s.bass(ts, len * 0.85, root + (x == 2 and 12 or 0), 0.22)
-      end
-      local e = q * 4 + x -- sixteenth in the bar
-      if has("a") then
-        s.pluck(ts, notes[ARP[e % 8 + 1]] + 12, has("k") and 0.05 or 0.09, e % 2 == 0 and -0.4 or 0.4)
-      end
-      if has("s") and x % 2 == 0 and (e == 0 or e == 6 or e == 12) then
-        s.chord(ts, len * 1.8, { notes[1] + 12, notes[2] + 12, notes[3] + 12, notes[4] + 12 }, 0.04, 2600, 0.003, 7)
-      end
-    end
-    if q == 0 then
-      if has("p") then s.chord(t, bdur(b, 4), notes, 0.03, 600, 0.3, 0, 1, 2400) end
-      if has("l") then
-        for _, n in ipairs(HOOKS[i]) do
-          s.lead(B(b + n[1]), bdur(b + n[1], n[3] * 0.92), n[2], 0.06)
-        end
-      end
-    end
-  end
-end
+M.RETURNS = {
+  hall = { { "Reverb", decay = 3.2, pre_delay = 0.03 } },
+  room = { { "Reverb", decay = 0.9, pre_delay = 0.01 } },
+}
 
--- A pad, ducked not at all, on beats [b0, b0 + beats): the cutoff opens
--- from c0 to c1.
-function M.pad(s, b0, beats, notes, gain, c0, c1, attack)
-  s.chord(B(b0), bdur(b0, beats), notes, gain, c0, attack, 0, 0, c1)
-end
+-- ---- the hook ----------------------------------------------------------------
 
--- A crash on beat `b`.
-function M.crash(s, b, gain) s.hat(B(b), 1.6, 2.5, gain or 0.9) end
+-- Pip's hook, a bar per chord in eighths ("-" holds): over Am F, over C G.
+M.HOOK = {
+  AF = "E5 G5 A5 - G5 E5 D5 - F5 A5 C6 - A5 F5 E5 -",
+  CG = "G5 C6 E6 - C6 G5 E5 - D5 G5 B5 - G5 D5 B4 -",
+}
 
--- The kicks of a list of grooves { from, to, flags }: what the bass, chords
--- and leads duck under.
-function M.kick_times(grooves)
+-- ---- builders ----------------------------------------------------------------
+
+-- `b` beats into a play entry's range, as a time ("0:3.5": 3.5 quarters).
+function M.beats(b) return ("0:%g"):format(b) end
+
+-- Notes held together: `notes` ("A1 E2 A2") from `at` (a time) for `length`.
+function M.held(notes, at, length, velocity)
   local out = {}
-  for _, g in ipairs(grooves) do
-    if g[3]:find("k", 1, true) then
-      for b = g[1], g[2] - 1 do out[#out + 1] = B(b) end
-    end
-  end
-  table.sort(out)
+  for n in notes:gmatch("%S+") do out[#out + 1] = { time = at or 0, note = n, duration = length, velocity = velocity } end
   return out
 end
 
--- The synth for beats [from, to) of the film (plus the tail).
-function M.section(from, to)
-  return synth.new(B(to) - B(from) + TAIL, { seed = 204 + from, origin = B(from) })
-end
-
--- The whole mix goes through a low-pass whose cutoff follows these keys
--- (seconds, Hz): shut for the tape slowing and the hush, and for the tape
--- stop, open elsewhere.
-local function cutoff_keys()
-  return {
-    { B(C.SLOW), 11000 }, { B(C.SLOW + 4), 450 }, { B(C.HUSH), 450 }, { B(C.HUSH + 3), 3500 },
-    { B(C.RISE), 3500 }, { B(C.RISE + 3.5), 11000 },
-    { B(C.STOP), 11000 }, { B(C.STOP + 3), 250 }, { B(C.FADE), 11000 },
-  }
-end
-
-local function cutoff_at(keys, t)
-  if t <= keys[1][1] then return keys[1][2] end
-  for i = 2, #keys do
-    local a, b = keys[i - 1], keys[i]
-    if t <= b[1] then
-      local u = (t - a[1]) / (b[1] - a[1])
-      return a[2] * (b[2] / a[2]) ^ u
-    end
+-- `n` hits of `note` (a pad or a note) every `step` beats from beat `from`,
+-- the velocity going from v0 to v1: rolls and crescendos.
+function M.roll(note, from, n, step, v0, v1, length)
+  local out = {}
+  for i = 0, n - 1 do
+    out[#out + 1] = { time = M.beats(from + i * step), note = note, duration = length or "32n",
+      velocity = v0 + (v1 - v0) * (n > 1 and i / (n - 1) or 0) }
   end
-  return keys[#keys][2]
+  return out
 end
 
-local KEYS -- computed once
--- The finished clip: the mix's low-pass automation, the shared level.
-function M.finish(s)
-  KEYS = KEYS or cutoff_keys()
-  s.finish(function(t) return cutoff_at(KEYS, t) end, false)
-  s.mix:gain(M.LEVEL)
-  return s.mix
+-- Event lists joined into one.
+function M.join(...)
+  local out = {}
+  for _, l in ipairs { ... } do for _, e in ipairs(l) do out[#out + 1] = e end end
+  return out
 end
 
 return M

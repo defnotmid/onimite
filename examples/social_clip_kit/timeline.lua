@@ -1,33 +1,46 @@
--- The clock and every cue, in beats from the start (120 BPM, 4 beats a bar,
--- 8 bars = 16 s). The picture (video.lua), the captions and the music
--- (track.lua) all read these numbers, so every cut lands on the grid.
+-- Every cue, in beats from the start, read from the song (track.lua): its
+-- sections are the promo's, its claps, blips and crashes the moments the
+-- picture lands on. The picture (video.lua) and the captions read these
+-- numbers, so every cut lands where the song hits.
+
+local score = require("track")
 
 local T = {}
 
-T.FPS, T.BPM = 30, 120
-T.clock = beat_clock(T.BPM)
-T.BEAT = T.clock.spb
-T.TOTAL = 32
+T.FPS = 30
 
--- Sections: start beat, scene name. Each runs to the next one's start.
-T.SECTIONS = { { 0, "Hook" }, { 8, "Formats" }, { 16, "Features" }, { 24, "Outro" } }
-
--- Hook: Pip hops in, the two headline lines slam on beats 2 and 4, a riser
--- into the drop.
-T.BO_IN, T.LINE1, T.LINE2, T.RISER = 0, 2, 4, 4
--- Formats: a frame a beat, then this video's own frame lights up.
-T.FRAMES_GO, T.HERE = 9, 12
--- Features: four cuts, two beats each.
-T.FEATURES_GO, T.FEATURE_LEN = 16, 2
--- Outro: the impact and the wordmark, the command, the formats.
-T.MARK, T.PILL, T.CHIPS = 24, 26, 27
-
--- Where the kick plays (the picture pumps with it).
-T.KICK = { { 8, 24 }, { 24, 30 } }
-function T.kicking(b)
-  for _, s in ipairs(T.KICK) do if b >= s[1] and b < s[2] then return true end end
-  return false
+-- the beat of a position ("formats", "outro@0:3", "end"), or of each hit
+local function B(pos) return score.beat(score.time(pos)) end
+local function hits(part, range)
+  local b = score.hits { part = part, range = range }
+  for i, t in ipairs(b) do b[i] = score.beat(t) end
+  return b
 end
+
+T.TOTAL = B("end")
+
+-- Sections: start beat, scene name, song section. Each runs to the next
+-- one's start (the outro through the song's tail).
+T.SECTIONS = { { B("hook"), "Hook", "hook" }, { B("formats"), "Formats", "formats" },
+  { B("features"), "Features", "features" }, { B("outro"), "Outro", "outro" } }
+
+-- Hook: Pip hops in, the two headline lines slam on their claps; a riser
+-- into the drop.
+T.BO_IN = B("hook")
+T.LINE1, T.LINE2 = table.unpack(hits("hits", "hook"))
+-- Formats: a frame a blip, then this video's own frame lights up on the
+-- double blip.
+do
+  local b = hits("blips", "formats")
+  T.FRAMES = { b[1], b[2], b[3] }
+  T.HERE = b[4]
+end
+-- Features: four cuts, a crash each.
+T.FEATURE_CUTS = hits("crash", "features")
+-- Outro: the impact and the wordmark, the command on its blip, the formats.
+T.MARK = B("outro")
+T.PILL = hits("blips", "outro")[1]
+T.CHIPS = B("outro@0:3")
 
 -- The voice-over the captions show, a cue per section, each word on its
 -- beat. video.lua turns this into WebVTT with inline timestamps.

@@ -5,6 +5,7 @@ import "core:math"
 import "core:slice"
 import "core:strings"
 import om "../onimite"
+import oanalyze "deps:odawg/analyze"
 import script "../script"
 
 // Sync points: everything a script tags with the same `id` (cues, scenes,
@@ -83,9 +84,15 @@ Onset_At :: struct {
 // file it plays, one up to 2 ms before that part at its start.
 @(private)
 placed_onsets :: proc(m: ^om.Media, p: om.Placed_Track, min_strength: f32) -> []Onset_At {
-	rep, ok := om.media_onsets(m, p.track.src)
-	if !ok {
-		return nil
+	rep: oanalyze.Onsets
+	if p.song != nil {
+		// a song's onsets are its notes
+		rep = om.song_onsets(p.song, context.temp_allocator)
+	} else {
+		ok: bool
+		if rep, ok = om.media_onsets(m, p.track.src); !ok {
+			return nil
+		}
 	}
 	out := make([dynamic]Onset_At, context.temp_allocator)
 	from := f64(p.file_start) / om.MIX_RATE
@@ -413,13 +420,26 @@ off_beat_check :: proc(app: ^App_State, r: ^om.Renderer) -> []om.Diagnostic {
 		track: ^om.Placed_Track,
 	}
 	sounds := make([dynamic]Hit, context.temp_allocator)
+	// Songs on the music bus: their own grid where they play.
+	songs := make([dynamic]^om.Placed_Track, context.temp_allocator)
 	for &p in placed {
 		if is_music(p) {
-			append(&music, ..placed_onsets(&app.media, p, 0))
+			if p.song != nil {
+				append(&songs, &p)
+			} else {
+				append(&music, ..placed_onsets(&app.media, p, 0))
+			}
 			continue
 		}
 		// Speech is not on the beat; an `other` bus has no role.
-		if p.muted || p.clip == nil || p.track.voice || p.kind == .Voice || p.kind == .Other {
+		if p.muted || p.track.voice || p.kind == .Voice || p.kind == .Other {
+			continue
+		}
+		if p.song != nil {
+			// a sound{}: its first note is its attack
+			if onsets := placed_onsets(&app.media, p, 0.5); len(onsets) > 0 {
+				append(&sounds, Hit{onsets[0].seconds, f32(math.pow(10, p.track.gain_db / 20)), &p})
+			}
 			continue
 		}
 		peak: f32
@@ -439,68 +459,87 @@ off_beat_check :: proc(app: ^App_State, r: ^om.Renderer) -> []om.Diagnostic {
 			append(&sounds, Hit{t, peak * math.pow(10, p.track.gain_db / 20), &p})
 		}
 	}
-	if len(music) < 4 || len(sounds) == 0 {
+	if (len(music) < 4 && len(songs) == 0) || len(sounds) == 0 {
 		return nil
 	}
 	slice.sort_by(music[:], proc(a, b: Onset_At) -> bool {return a.seconds < b.seconds})
 	slice.sort_by(sounds[:], proc(a, b: Hit) -> bool {return a.t < b.t})
 
-	Row :: struct {
-		d:     om.Diagnostic,
-		count: int,
-		level: f32,
-	}
-	rows := make([dynamic]Row, context.temp_allocator)
+	rows := make([dynamic]Off_Beat_Row, context.temp_allocator)
 	strong := make([dynamic]f64, context.temp_allocator)
 	gaps := make([dynamic]f64, context.temp_allocator)
 	for h, i in sounds {
 		t := h.t
-		// The music around it: its strong onsets, their beat, the nearest one.
-		clear(&strong)
-		loudest := 0.0
-		for m in music {
-			if abs(m.seconds - t) <= OFF_BEAT_WINDOW {
-				loudest = max(loudest, m.strength)
+		period, off: f64
+		// Over a song: the song's own grid ("8n" from its section's start).
+		over_song := false
+		for sp in songs {
+			sample := int(math.round(t * om.MIX_RATE))
+			if sample < sp.start || sample >= sp.end {
+				continue
 			}
-		}
-		for m in music {
-			if abs(m.seconds - t) <= OFF_BEAT_WINDOW && m.strength >= loudest * 0.5 {
-				append(&strong, m.seconds)
+			ok: bool
+			off, period, ok = om.song_off_grid(sp.song, t - f64(sp.start - sp.file_start) / om.MIX_RATE)
+			over_song = true
+			if !ok {
+				period = 0
 			}
+			break
 		}
-		if len(strong) < 4 {
+		if !over_song {
+			// The music around it: its strong onsets, their beat, the nearest one.
+			clear(&strong)
+			loudest := 0.0
+			for m in music {
+				if abs(m.seconds - t) <= OFF_BEAT_WINDOW {
+					loudest = max(loudest, m.strength)
+				}
+			}
+			for m in music {
+				if abs(m.seconds - t) <= OFF_BEAT_WINDOW && m.strength >= loudest * 0.5 {
+					append(&strong, m.seconds)
+				}
+			}
+			if len(strong) < 4 {
+				continue
+			}
+			clear(&gaps)
+			nearest := strong[0]
+			for m, k in strong {
+				if k > 0 && m - strong[k - 1] >= OFF_BEAT_MIN_BEAT {
+					append(&gaps, m - strong[k - 1])
+				}
+				if abs(m - t) < abs(nearest - t) {
+					nearest = m
+				}
+			}
+			if len(gaps) < 3 {
+				continue
+			}
+			slice.sort(gaps[:])
+			period = gaps[len(gaps) / 2]
+			steady := 0
+			for g in gaps {
+				if abs(g - period) <= period * 0.1 {
+					steady += 1
+				}
+			}
+			if steady * 3 < len(gaps) * 2 {
+				continue // no steady beat here
+			}
+			half := period / 2
+			off = t - nearest
+			off -= half * math.round(off / half)
+		}
+		if period <= 0 {
 			continue
-		}
-		clear(&gaps)
-		nearest := strong[0]
-		for m, k in strong {
-			if k > 0 && m - strong[k - 1] >= OFF_BEAT_MIN_BEAT {
-				append(&gaps, m - strong[k - 1])
-			}
-			if abs(m - t) < abs(nearest - t) {
-				nearest = m
-			}
-		}
-		if len(gaps) < 3 {
-			continue
-		}
-		slice.sort(gaps[:])
-		period := gaps[len(gaps) / 2]
-		steady := 0
-		for g in gaps {
-			if abs(g - period) <= period * 0.1 {
-				steady += 1
-			}
-		}
-		if steady * 3 < len(gaps) * 2 {
-			continue // no steady beat here
 		}
 		// A roll or typing: another hit of the same instrument and line
 		// within a quarter beat (but not with it: sounds layered into one hit).
 		LAYERED :: 0.01
 		same :: proc(a, b: ^om.Placed_Track) -> bool {
 			stem :: proc(name: string) -> string {
-				i := strings.index_any(name, "_.")
+				i := strings.index_any(name, "_.~")
 				return name if i < 0 else name[:i]
 			}
 			return a.track.source == b.track.source && stem(a.track.src) == stem(b.track.src)
@@ -512,39 +551,10 @@ off_beat_check :: proc(app: ^App_State, r: ^om.Renderer) -> []om.Diagnostic {
 		for k := i + 1; k < len(sounds) && sounds[k].t - t < period / 4; k += 1 {
 			texture ||= sounds[k].t - t > LAYERED && same(sounds[k].track, h.track)
 		}
-		if texture {
+		if texture || abs(off) <= OFF_BEAT_TOLERANCE {
 			continue
 		}
-		half := period / 2
-		off := t - nearest
-		off -= half * math.round(off / half)
-		if abs(off) <= OFF_BEAT_TOLERANCE {
-			continue
-		}
-		d := om.Diagnostic {
-			severity = .Warning,
-			code     = .Off_Beat,
-			frame    = om.frame_at(t, r.video.fps),
-			name     = h.track.track.source,
-			a        = h.track.track.src,
-			x        = f32(t),
-			w        = f32(off),
-			h        = f32(period),
-		}
-		found := false
-		for &row in rows {
-			if row.d.name == d.name {
-				row.count += 1
-				if h.level > row.level {
-					row.d, row.level = d, h.level
-				}
-				found = true
-				break
-			}
-		}
-		if !found {
-			append(&rows, Row{d, 1, h.level})
-		}
+		add_off_beat(&rows, r, h.track, h.level, t, off, period)
 	}
 	out := make([]om.Diagnostic, len(rows), context.temp_allocator)
 	for row, i in rows {
@@ -552,6 +562,39 @@ off_beat_check :: proc(app: ^App_State, r: ^om.Renderer) -> []om.Diagnostic {
 		out[i].n = i64(row.count)
 	}
 	return out
+}
+
+// An off-beat hit, counted into its placing line's finding (which names
+// the loudest).
+@(private = "file")
+Off_Beat_Row :: struct {
+	d:     om.Diagnostic,
+	count: int,
+	level: f32,
+}
+
+@(private = "file")
+add_off_beat :: proc(rows: ^[dynamic]Off_Beat_Row, r: ^om.Renderer, track: ^om.Placed_Track, level: f32, t, off, period: f64) {
+	d := om.Diagnostic {
+		severity = .Warning,
+		code     = .Off_Beat,
+		frame    = om.frame_at(t, r.video.fps),
+		name     = track.track.source,
+		a        = track.track.src,
+		x        = f32(t),
+		w        = f32(off),
+		h        = f32(period),
+	}
+	for &row in rows {
+		if row.d.name == d.name {
+			row.count += 1
+			if level > row.level {
+				row.d, row.level = d, level
+			}
+			return
+		}
+	}
+	append(rows, Off_Beat_Row{d, 1, level})
 }
 
 // Whether interleaved stereo `samples` played from frame `first` reach a

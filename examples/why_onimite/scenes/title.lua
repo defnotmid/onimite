@@ -3,6 +3,7 @@
 -- bar, a ripple ring from the slam on bar 2, small kicks on every beat.
 
 local beat = require("beat")
+local score = require("track")
 local ui = require("ui")
 local T = require("timeline")
 local snap, soft = beat.snap, beat.soft
@@ -86,7 +87,7 @@ local function render(f, lb)
   group({ opacity = opacity, transform = { scale = s, origin = { 960, BOX.y + BASE - 90 } } }, function()
     shader(f, { sksl = GLITCH, x = BOX.x, y = BOX.y, w = BOX.w, h = BOX.h,
       uniforms = { uText = title_text, uGlitch = glitch, uSeed = math.floor(lb * 8),
-                   uRipple = lb >= slam and (lb - slam) * beat.BEAT or -1 } })
+                   uRipple = lb >= slam and score.seconds(lb - slam) or -1 } })
   end)
 
   local sub = snap(lb - 6)
@@ -107,4 +108,4 @@ local function render(f, lb)
   end
 end
 
-return { name = "Title", start = T.TITLE, stop = T.RACE, render = render }
+return { name = "Title", section = "title", render = render }

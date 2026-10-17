@@ -208,27 +208,26 @@ end)
   pattern) and add the offset in `gbeat`. Check alignment with `audio at` on a cue time and a
   `frame` of the same time.
 
-### An original soundtrack synthesized in Lua
+### An original soundtrack composed with song{}
 
-When no music is supplied (or licensing matters), the script can write its own track from the
-same timeline, so every hit is on the picture's beats by construction:
+When no music is supplied (or licensing matters), compose it with `song{}` (audio.md, "Songs and
+sounds"), and let the picture follow the song, so every hit is on the music by construction:
 
-1. `track.lua` arranges instruments from `examples/common/synth.lua` (copy it beside the
-   script): kick, clap and hats, bass side-chained under the kick (`s.kicks(times)`), chords,
-   plucks/arps, risers and impacts on the timeline's cues.
-2. `build()` returns `s.finish()`: the mix (an `audio_buffer`) low-passed and normalised.
-3. `video.lua` registers it with `audio_add("track", track.build)` (built when sound is
-   needed, once per render, in a fresh load of the script: use only what it computes at
-   load) and lists `{ "track", start = 0 }` in `audio`. `audio_spectrum`
-   and `audio_onsets` work on it. A long video: a clip per section (`examples/onimite_saga`).
-4. Seed the randomness (`synth.new(seconds, { seed = BPM })`) so every render makes the same
-   track. Expect about a second of Lua for 40 s of music.
-5. Name the cues the hits sit on (`cue()`) and put the scenes on them (`cue = ...`) so `inspect`
-   catches a scene that slides off the grid.
+1. `track.lua` returns the song: sections named after the scenes (`duration = "4m"`, `style`,
+   `energy`, `chords`, a `transition` for risers and impacts), and parts for what the picture
+   answers to (a crash on each scene's downbeat, a blip per item that appears).
+2. The timeline reads it back: `score.time("race")` for a scene's start, `score.hits { part =
+   "ticks", range = "bill" }` for the beats something lands on, `score.snap(t, "8n")` to put a
+   computed time on the grid. Scenes start on their sections (`section = "race"`), so `inspect`
+   catches a scene that slides off.
+3. `video.lua` lists `{ score, start = 0 }` in `audio`; `audio_energy` and `audio_spectrum`
+   read it like any track. Sound effects are `sound{}` tracks on their own bus.
+4. Set `seed` so every render makes the same music.
 
-`examples/why_onimite/track.lua` (140 BPM, A minor) is a complete arrangement to copy from;
-`examples/suite/track.lua` reuses the instruments in D minor. Tell the user the music is
-synthesized and offer to swap in a real track.
+`examples/why_onimite/track.lua` (140 BPM, A minor, house into acid) is a complete song to copy
+from; `examples/suite/track.lua` is synthwave in D minor; `examples/onimite_saga/music/` is a
+long one with tempo ramps, a section per scene. Tell the user the music is composed and offer
+to swap in a real track.
 
 ## Review checklist
 

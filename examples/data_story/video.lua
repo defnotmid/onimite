@@ -7,11 +7,7 @@
 --     onimite render examples/data_story/video.lua --props examples/data_story/data.json -o story.mp4
 --     onimite render examples/data_story/video.lua --batch examples/data_story/rows.json -o out/{name}.mp4
 
-local T = require("timeline")
 local ui = require("ui")
-local track = require("track")
-
-local clock, FPS, BEAT = T.clock, T.FPS, T.BEAT
 
 -- ---- data (defaults = data.json, so the script renders on its own) --------
 
@@ -106,30 +102,33 @@ end
 
 -- ---- music and captions ------------------------------------------------------
 
-audio_add("bed.wav", function() return track.build(D.months, #CROPS) end)
+-- The score (track.lua) is composed from the data; every cue the picture
+-- uses is read back from it (timeline.lua).
+local score = require("track")(D.months, #CROPS)
+local T = require("timeline")(score)
 
 local CAPTIONS = { src = "story.json", x = 160, y = 985, w = 1600, valign = "middle",
   font = ui.DISPLAY, weight = 800, size = 46, fill = ui.TEXT, upcoming_fill = "#f4f1ea66",
   active_fill = ACCENT, highlight = "fill", active_scale = 1.1, max_words = 5, hold = 0.4 }
 
--- ---- sections (gb: beats on the video clock, lb: beats into the section) ----
+-- ---- sections (t: video seconds, at: seconds into the section) -------------
 
-local function title(f, gb, lb)
+local function title(f, t, at)
   ui.backdrop(f, ACCENT, 960, 480)
-  local e = ease(ui.SOFT, (gb - T.EMOJI) * BEAT)
+  local e = ease(ui.SOFT, t - T.EMOJI)
   if e > 0 then
     group({ transform = { scale = 0.6 + 0.4 * e, rotate = (1 - e) * -12, origin = { 960, 380 } }, opacity = clamp01(e * 2) }, function()
       text { D.emoji, x = 960, y = 380, align = "center", baseline = "middle", size = 200 }
     end)
   end
-  local n = ease(ui.SNAP, (gb - T.NAME) * BEAT)
+  local n = ease(ui.SNAP, t - T.NAME)
   if n > 0 then
     group({ transform = { translate = { 0, (1 - n) * 80 }, scale = 1.06 - 0.06 * n, origin = { 960, 600 } }, opacity = clamp01(n * 3) }, function()
       text { D.name, x = 960, y = 640, align = "center", font = ui.DISPLAY, size = NAME_SIZE, weight = 800,
         letter_spacing = -3, fill = ui.TEXT }
     end)
   end
-  local s = ease(ui.SNAP, (gb - T.SUB) * BEAT)
+  local s = ease(ui.SNAP, t - T.SUB)
   if s > 0 then
     local w = 520 * s
     rect { x = 960 - w / 2, y = 690, w = w, h = 6, rx = 3, fill = ACCENT }
@@ -138,14 +137,14 @@ local function title(f, gb, lb)
   end
 end
 
-local function bars(f, gb, lb)
+local function bars(f, t, at)
   ui.backdrop(f, ACCENT, 1300, 500)
-  ui.header(lb, "Harvest per month", D.unit .. " · January to December")
-  local focus = ease(ease_in_out, (gb - T.PEAK) * BEAT, 0.4)
+  ui.header(at + T.BEAT, "Harvest per month", D.unit .. " · January to December")
+  local focus = ease(ease_in_out, t - T.PEAK, 0.4)
   rect { x = ui.X0 - 20, y = ui.BASE, w = ui.X1 - ui.X0 + 40, h = 2, fill = ui.LINE }
   for m, v in ipairs(D.months) do
     local x = month_x(m)
-    local s = ease(ui.SOFT, (gb - T.BARS_GO - stagger(m, T.BARS_STEP)) * BEAT)
+    local s = ease(ui.SOFT, t - T.MONTHS[m])
     local is_peak = m == PEAK
     local dim = is_peak and 1 or 1 - 0.6 * focus
     if s > 0 then
@@ -161,10 +160,10 @@ local function bars(f, gb, lb)
         fill = is_peak and focus > 0 and ACCENT or ui.TEXT, opacity = clamp01(s * 3) * dim }
     end
     text { MONTH_NAMES[m], x = x, y = ui.BASE + 46, align = "center", font = ui.MONO, size = 28,
-      fill = is_peak and focus > 0.5 and ACCENT or ui.DIM, opacity = clamp01((gb - T.BARS_GO + 1) * 2) }
+      fill = is_peak and focus > 0.5 and ACCENT or ui.DIM, opacity = clamp01(at * 4) }
   end
   -- the callout over the best month
-  local c = ease(ui.SNAP, (gb - T.PEAK) * BEAT)
+  local c = ease(ui.SNAP, t - T.PEAK)
   if c > 0 then
     local label = "Best month " .. D.emoji
     local w = text_width { label, font = ui.SANS, size = 40 } + 48
@@ -177,13 +176,13 @@ local function bars(f, gb, lb)
   end
 end
 
-local function line_chart(f, gb, lb)
+local function line_chart(f, t, at)
   ui.backdrop(f, ACCENT2, 700, 600)
-  ui.header(lb, "Running total", D.unit .. ", each month added to the last")
+  ui.header(at + T.BEAT, "Running total", D.unit .. ", each month added to the last")
   -- grid: quarters of the year's total
   for q = 1, 4 do
     local y = value_y(TOTAL * q / 4, TOTAL)
-    local a = clamp01((lb + 0.6 - q * 0.2) * 2)
+    local a = clamp01((at + 0.3 - q * 0.1) * 4)
     rect { x = ui.X0, y = y, w = ui.X1 - ui.X0, h = 1, fill = ui.LINE, opacity = a }
     text { ui.thousands(TOTAL * q / 4), x = ui.X0 - 24, y = y + 10, align = "right", font = ui.MONO, size = 28,
       fill = ui.DIM, opacity = a }
@@ -192,7 +191,7 @@ local function line_chart(f, gb, lb)
   for m = 1, 12 do
     text { MONTH_NAMES[m], x = month_x(m), y = ui.BASE + 46, align = "center", font = ui.MONO, size = 28, fill = ui.DIM }
   end
-  local p = ease(cubic_bezier(0.65, 0, 0.35, 1), (gb - T.LINE_GO) * BEAT, (T.LINE_END - T.LINE_GO) * BEAT)
+  local p = ease(cubic_bezier(0.65, 0, 0.35, 1), t - T.LINE_GO, T.LINE_END - T.LINE_GO)
   if p <= 0 then return end
   local x, y, value, months = along(p)
   group({ clip = { x = ui.X0 - 10, y = ui.TOP - 40, w = x - ui.X0 + 10, h = ui.BASE - ui.TOP + 40 } }, function()
@@ -205,26 +204,25 @@ local function line_chart(f, gb, lb)
     circle { cx = LINE_PTS[m][1], cy = LINE_PTS[m][2], r = 7, fill = ui.BG, stroke = ACCENT2, stroke_width = 4 }
   end
   -- the dot and its counter; it pops when the line lands on the total
-  local pop = 1 + 0.35 * pulse(gb - T.LINE_END, 3)
+  local pop = 1 + 0.35 * score.pulse(f, { part = "chimes", decay = 3 })
   group({ blur = 14 }, function() circle { cx = x, cy = y, r = 18 * pop, fill = ACCENT2 } end)
   circle { cx = x, cy = y, r = 12 * pop, fill = ui.TEXT }
   local label = ui.thousands(value) .. " " .. D.unit
   text { label, x = math.min(x, ui.X1 - 140), y = y - 36, align = "center", font = ui.MONO, size = 36, fill = ui.TEXT }
 end
 
-local function donut(f, gb, lb)
+local function donut(f, t, at)
   ui.backdrop(f, ACCENT, 600, 600)
-  ui.header(lb, "What grew", "share of the year's harvest, by crop")
+  ui.header(at + T.BEAT, "What grew", "share of the year's harvest, by crop")
   circle { cx = DONUT_X, cy = DONUT_Y, r = DONUT_R, fill = "none", stroke = ui.BG2, stroke_width = DONUT_W }
   for k, c in ipairs(CROPS) do
-    local at = T.DONUT_GO + (k - 1) * T.DONUT_STEP
-    local p = ease(ui.EXPO, (gb - at) * BEAT, 0.9)
+    local p = ease(ui.EXPO, t - T.SEGMENTS[k], 0.9)
     if p > 0 then
       path { d = c.arc, fill = "none", stroke = c.color, stroke_width = DONUT_W, path_length = 1,
         stroke_dasharray = { 1, 1 }, stroke_dashoffset = 1 - p }
     end
     -- its legend row
-    local s = ease(ui.SNAP, (gb - at) * BEAT)
+    local s = ease(ui.SNAP, t - T.SEGMENTS[k])
     if s > 0 then
       local y = 400 + (k - 1) * (480 / #CROPS)
       group({ transform = translate((1 - s) * 60, 0), opacity = clamp01(s * 2) }, function()
@@ -237,7 +235,7 @@ local function donut(f, gb, lb)
   end
   -- the biggest share in the middle, once its segment is in
   local top = CROPS[TOP]
-  local s = ease(ui.SNAP, (gb - (T.DONUT_GO + (TOP - 1) * T.DONUT_STEP) - 0.5) * BEAT)
+  local s = ease(ui.SNAP, t - T.SEGMENTS[TOP] - T.BEAT / 2)
   if s > 0 then
     group({ transform = { scale = 0.85 + 0.15 * s, origin = { DONUT_X, DONUT_Y } }, opacity = clamp01(s * 2) }, function()
       text { string.format("%d%%", math.floor(top.share * 100 + 0.5)), x = DONUT_X, y = DONUT_Y + 14, align = "center",
@@ -247,14 +245,14 @@ local function donut(f, gb, lb)
   end
 end
 
-local function outro(f, gb, lb)
+local function outro(f, t, at)
   ui.backdrop(f, ACCENT, 960, 560)
-  local n = ease(ui.SNAP, (lb + 1) * BEAT)
+  local n = ease(ui.SNAP, at + T.BEAT)
   text { D.emoji .. "  " .. D.name, x = 960, y = 300 + (1 - n) * 40, align = "center", font = ui.DISPLAY, size = 64,
     weight = 800, letter_spacing = -1, fill = ui.TEXT, opacity = clamp01(n * 2) }
-  local c = ease(ui.EXPO, (gb - T.COUNT_GO) * BEAT, (T.COUNT_END - T.COUNT_GO) * BEAT)
-  local land = 1 + 0.06 * pulse(gb - T.COUNT_END, 4)
-  if gb >= T.COUNT_GO then
+  local c = ease(ui.EXPO, t - T.COUNT_GO, T.COUNT_END - T.COUNT_GO)
+  local land = 1 + 0.06 * score.pulse(f, { part = "chimes", decay = 4 })
+  if t >= T.COUNT_GO then
     group({ transform = { scale = land, origin = { 960, 540 } } }, function()
       text { ui.thousands(TOTAL * c), x = 960, y = 590, align = "center", font = ui.DISPLAY, size = 220, weight = 800,
         letter_spacing = -6, fill = mix_color(ui.TEXT, ACCENT, c) }
@@ -263,7 +261,7 @@ local function outro(f, gb, lb)
       fill = ui.DIM, opacity = c }
   end
   -- the year as a sparkline, coloured low to high
-  local sp = ease(ui.EXPO, (gb - T.COUNT_END) * BEAT, 1.2)
+  local sp = ease(ui.EXPO, t - T.COUNT_END, 1.2)
   if sp > 0 then
     for m, v in ipairs(D.months) do
       local h = math.max(v / MAXV * 90 * sp, 2)
@@ -285,45 +283,41 @@ local NAMES = { "TITLE", "MONTHS", "RUNNING TOTAL", "CROPS", "TOTAL" }
 
 -- ---- video ---------------------------------------------------------------
 
-local function hud(f, gb)
+local function hud(f, t)
   local section = 1
-  for k, s in ipairs(T.SECTIONS) do if gb >= s[1] then section = k end end
+  for k, s in ipairs(T.SCENES) do if t >= score.time(s[1]) then section = k end end
   group({ opacity = 0.85 }, function()
     text { D.emoji .. " " .. D.name, x = 160, y = 84, font = ui.MONO, size = 28, fill = ui.DIM }
-    text { string.format("%02d / %02d  %s", section, #T.SECTIONS, NAMES[section]), x = 1760, y = 84, align = "right",
+    text { string.format("%02d / %02d  %s", section, #T.SCENES, NAMES[section]), x = 1760, y = 84, align = "right",
       font = ui.MONO, size = 28, fill = ui.DIM }
     rect { x = 160, y = 1046, w = 1600, h = 2, fill = ui.LINE }
-    rect { x = 160, y = 1045, w = math.max(1600 * gb / T.TOTAL, 1), h = 4, fill = ACCENT }
+    rect { x = 160, y = 1045, w = math.max(1600 * t / score.duration, 1), h = 4, fill = ACCENT }
   end)
 end
 
 video {
-  width = 1920, height = 1080, fps = FPS, background = ui.BG,
-  audio = { { "bed.wav", start = 0, fade_out = 0.8 } },
-  -- the synth peaks at -1 dBFS: lifted to about -14 LUFS under a limiter
-  -- (audio analyze: -13.9 LUFS, -1.2 dBTP)
-  master_gain_db = 3.0,
-  limiter = { ceiling_db = -2.4 },
+  width = 1920, height = 1080, fps = T.FPS, duration = score.duration, background = ui.BG,
+  audio = { { "score", fade_out = 0.8 } },
+  -- the song lifted to about -14 LUFS under the limiter
+  master_gain_db = 7.9,
+  limiter = { ceiling_db = -1.2 },
   render = function(f)
-    local gb = clock.beat(f.global_seconds)
-    local kick = (gb >= T.KICK_FROM and gb < T.KICK_TO) and pulse(gb, 9) or 0
+    local t = f.global_seconds
+    local kick = score.pulse(f, { part = "drums", note = "kick", decay = 9 })   -- the kicks really played
     group({ transform = { scale = 1 + 0.004 * kick, origin = { 960, 540 } } }, function() render_scenes(f) end)
-    hud(f, gb)
-    captions(f.global_seconds, CAPTIONS)
-    local out = progress(f.global_seconds, T.TOTAL * BEAT - 0.6, T.TOTAL * BEAT)
+    hud(f, t)
+    captions(t, CAPTIONS)
+    local out = progress(t, score.duration - 0.6, score.duration)
     if out > 0 then rect { x = 0, y = 0, w = 1920, h = 1080, fill = ui.BG, opacity = out } end
   end,
 }
 
-for k, s in ipairs(T.SECTIONS) do
-  local start = s[1]
-  local stop = k < #T.SECTIONS and T.SECTIONS[k + 1][1] or T.TOTAL
+-- A scene per section, starting on it; its transition takes the beat before.
+for k, s in ipairs(T.SCENES) do
+  local start = score.time(s[1])
   local tr = TRANSITIONS[k]
-  if tr then tr.duration, tr.easing = BEAT, ease_in_out end
+  if tr then tr.duration, tr.easing = T.BEAT, ease_in_out end
   local render = RENDERERS[k]
-  scene { s[2], duration = { frames = clock.frame(stop, FPS) - clock.frame(start, FPS) }, transition = tr,
-    render = function(f)
-      local gb = clock.beat(f.global_seconds)
-      render(f, gb, gb - start)
-    end }
+  scene { s[2], start = start, transition = tr,
+    render = function(f) render(f, f.global_seconds, f.global_seconds - start) end }
 end

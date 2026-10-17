@@ -7,7 +7,7 @@ description: >-
   social clip, title card, podcast visual, lyric or caption video, or any rendered .mp4 made
   programmatically with onimite, or asks to change, fix, speed up or check an onimite video.
   Covers building onimite, writing the script, designing good-looking motion, beat-synced
-  sound (music files or a soundtrack synthesized in Lua, voice, SFX, loudness), the hot-reload
+  sound (music files or a soundtrack composed with song{}, voice, SFX, loudness), the hot-reload
   preview window, and checking the result without watching it: frames, contact sheets and
   onion skins as PNG, automatic problem detection, loudness numbers, draft and range renders.
 ---
@@ -147,8 +147,8 @@ The examples in the onimite repository are working patterns to read and borrow f
 
 | example | shows |
 | --- | --- |
-| `examples/onimite_saga` | a 2 min film laid out for agents: a manifest, one file per scene on its cue, a tempo map (`examples/common/tempo.lua`), a music clip per act; its README shows how to find and change any part |
-| `examples/why_onimite` | 50 s beat-synced promo: BPM clock (`beat_clock` in `beat.lua`), quick cuts as a `series`, one timeline of beats for picture and sound (`timeline.lua`), sections as sync points (`cue()` and each scene's `cue`), soundtrack synthesized in Lua (`track.lua` on `examples/common/synth.lua`, `audio_add`), glitch cuts, shader title, spectrum outro |
+| `examples/onimite_saga` | a 2 min film laid out for agents: a manifest, one file per scene on its section, a song whose sections follow the scenes with tempo ramps (`music/score.lua`), its parts in their own files, `sound{}` effects; its README shows how to find and change any part |
+| `examples/why_onimite` | 50 s beat-synced promo: BPM clock (`beat_clock` in `beat.lua`), quick cuts as a `series`, one timeline of beats for picture and sound (`timeline.lua`), sections as sync points (`cue()` and each scene's `cue`), soundtrack composed with `song{}` (`track.lua`) and read back for the cuts (`score.time`, `score.hits`), glitch cuts, shader title, spectrum outro |
 | `examples/suite` | one composition per frame: an SkSL world warping a `uniform shader` group child, an SVG animated by id, ProRes 4444 and VP9-alpha clips in masked portals, a WebP skyline, spectrum-driven uniforms |
 | `examples/data_story` | 30 s explainer drawn from `props` (one video per `--batch` row): springy bar chart with `stagger`, a line drawn on, a donut, counters, `mix_color`, scene transitions |
 | `examples/motion_poster` | generative 1080x1350 poster from noise: `turbulence` and animated `morphology` filters, `noise()`, an SkSL warp, beat-synced ripples |
@@ -286,8 +286,8 @@ with commas.
 
 | command | use it to |
 | --- | --- |
-| `show [PATH] [--at T] [--page N]` | explore the video like a debugger's watch window: the video, then `scenes`, `scene/Race`, `scene/Race/nodes`, `cue/drop`, `bus/sfx`, `track/12`, `clip/x`, `says`, `say/intro` (a spoken line's words and times), `say/intro/3` (one word, and when each track playing it says it on the video), `media` and `media/logo.png` (the files besides sounds), `fonts`, `bodies` and `body/ball` (what `physics{}` and `physics3d{}` simulated: start, end, still moving), `node/scenes/race.lua:19[2]`; an unknown path lists the ones there are; each has a summary, its fields, its children by path (20 a page) and the script line that made it |
-| `timeline [RANGE]` | scenes (with their cue and the file and line that defines them), audio tracks, cues; a range lists only what happens in it |
+| `show [PATH] [--at T] [--page N]` | explore the video like a debugger's watch window: the video, then `scenes`, `scene/Race`, `scene/Race/nodes`, `cue/drop`, `bus/sfx`, `track/12`, `clip/x`, `says`, `say/intro` (a spoken line's words and times), `say/intro/3` (one word, and when each track playing it says it on the video), `songs`, `song/score` (a song's sections and parts), `song/score/parts/bass` (every note on the video), `media` and `media/logo.png` (the files besides sounds), `fonts`, `bodies` and `body/ball` (what `physics{}` and `physics3d{}` simulated: start, end, still moving), `node/scenes/race.lua:19[2]`; an unknown path lists the ones there are; each has a summary, its fields, its children by path (20 a page) and the script line that made it |
+| `timeline [RANGE]` | scenes (with their cue and the file and line that defines them), audio tracks, cues, songs (sections, tracks); a range lists only what happens in it |
 | `inspect [RANGE] [--every 0.1s \| --all-frames] [--info] [--fail-on error\|warning\|never]` | find problems without looking (exit 2 on failure; `--info` also lists text entirely off canvas) |
 | `strip [RANGE] -n N [--columns 4] [--width 480] [-o strip.png]` | flow and motion in one image |
 | `frame SPECS [-o frames] [--svg]` | full-size PNGs; `--svg` also writes each frame's node tree as SVG to read positions, text and colours |
@@ -297,7 +297,7 @@ with commas.
 | `render --batch rows.json\|rows.csv [-o out/{name}.mp4] [--rows a..b \| --only N]` | one video per data row, the row as `props` |
 | `snapshot SPECS [--update] [--dir _frame_snapshots] [--threshold 16] [--max-diff 0.001]` | compare frames with approved PNGs; writes `.actual.png`/`.diff.png`, exit 2 on a difference; a PNG of another size (another `--scale`) is the error `snapshot_size` |
 | `audio analyze [RANGE] [--waveform w.png]` | loudness (LUFS, LRA), true peak, clipping, silence, per scene |
-| `audio at SPECS` | which tracks play at a moment, where in their file, how loud, ducking |
+| `audio at SPECS` | which tracks play at a moment, where in their file, how loud, ducking; a song's section and the notes sounding |
 | `audio render [RANGE] [-o audio.wav] [--float]` | the mix as a stereo WAV |
 | `audio onsets [RANGE] [--min 0.1]` | where sounds start (seconds, strength) and the beat (BPM, first beat) |
 | `probe FILE...` | the streams of media files (container, video, audio) |
@@ -469,10 +469,13 @@ video { width = 1920, height = 1080, fps = 30, duration = 10,   -- or scenes
   } }
 ```
 
-Without assets, synthesize an original track in Lua and register it with
-`audio_add("track", build)` (`build` fills an `audio_buffer` and runs only when sound is
-needed; instruments to copy: `examples/common/synth.lua`, an arrangement:
-`examples/why_onimite/track.lua`, a long video: `examples/onimite_saga/music/`).
+Without assets, compose the music with `song{}` (odawg: sections with `bpm`, `style`,
+`energy`, `chords`; parts by role; `references/audio.md`, "Songs and sounds") and place it
+like a clip (`{ "score", bus = "music", ducked = true }`); its sections are cues, and its
+notes drive the picture (`score.time("drop@1m")`, `score.pulse(f, { part = "drums", note =
+"kick" })`, `score.hits { ... }`). Sound effects: `sound { "impact" }`. Lines first, then the
+song, then placement (say → song → placement), one leader per moment (`say_cue` for the
+music following the voice, `say_start` for the voice following the music).
 Time SFX from the same constants that drive the animation. Check with `audio analyze`
 (about -14 LUFS integrated for web video, true peak at or below -1 dBTP, no unintended
 silence) and `audio at`; adjust track `gain_db`, or `master_gain_db` on `video{}` for the

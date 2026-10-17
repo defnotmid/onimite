@@ -1,6 +1,6 @@
 local look = require("look")
 local fx = require("fx")
-local C = require("cues")
+local score = require("music.score")
 local facts = require("facts")
 local W = look.W
 
@@ -31,7 +31,8 @@ local function hush(f, lb, gb)
   line("and we can do all of this.", 6.6, 950, 84, look.LEMON)
 end
 
-scene { "Hush", cue = "HUSH", start = C.time(C.HUSH), render = function(f)
-  local gb = C.beat(f)
-  hush(f, gb - C.HUSH, gb)
+local AT = score.time("hush")
+scene { "Hush", cue = "hush", start = AT, render = function(f)
+  local gb = score.beat(f)
+  hush(f, gb - score.beat(AT), gb)
 end }

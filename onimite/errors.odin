@@ -141,6 +141,8 @@ Diagnostic_Code :: enum u8 {
 	Tts_Unavailable,
 	Tts_Noncommercial,
 	Tts_Not_Kept,
+	// What odawg found reading or composing a song (`song{}`, `sound{}`).
+	Song_Finding,
 }
 
 // A problem found while building or drawing a frame. Which operands a code
@@ -243,6 +245,7 @@ DIAGNOSTIC_TEXT := [Diagnostic_Code]string {
 	.Tts_Unavailable           = "{where}: say {q:line} can not be spoken ({reason}): it is silent and its word times are estimates",
 	.Tts_Noncommercial         = "{where}: say {q:line} uses voice {q:voice}, whose recording is licensed for non-commercial use only",
 	.Tts_Not_Kept              = "{where}: say {q:line} was spoken but could not be kept in the store ({reason}): every run speaks it again",
+	.Song_Finding              = "{where}: song {q:clip}: {reason}",
 }
 
 // What groups a diagnostic across frames (text moving around stays one
@@ -322,6 +325,7 @@ DIAGNOSTIC_KEY := [Diagnostic_Code]string {
 	.Tts_Unavailable           = "tts_unavailable:{line}",
 	.Tts_Noncommercial         = "tts_noncommercial:{line}",
 	.Tts_Not_Kept              = "tts_not_kept:{line}",
+	.Song_Finding              = "song:{clip}:{reason}",
 }
 
 // Which operand a placeholder stands for.

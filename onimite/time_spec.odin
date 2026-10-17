@@ -2,6 +2,7 @@ package onimite
 
 import "core:strconv"
 import "core:strings"
+import osong "deps:odawg/song"
 
 // Addressing frames and ranges from the command line, as in fframes:
 //
@@ -17,6 +18,15 @@ import "core:strings"
 // | `Intro@1.2s`    | 1.2 s into the scene (also `@12`, `@50%`, `@end`) |
 // | `drop`          | the frame of the cue or sync id `drop`            |
 // | `drop@0.5s`     | 0.5 s after it (`@-0.5s` before, `@12` frames)    |
+// | `drop@1m`       | a bar after a song's section or marker `drop`     |
+//
+// A song's section or marker (a cue, with the media's songs given) also
+// takes Tone's lengths on the song's tempo: `@1m`, `@-4n`, `@8n.`, `@8t`
+// and `@2:1:0` (bars:quarters:sixteenths), bars in that section's meter.
+// Those are musical even when a scene shares the name: a unit `m`, `n` or
+// `t`, or three `:` fields. Seconds, frames and `m:ss` keep their meaning,
+// so `race@2:2` is 2:02 into the scene `race`, `race@2:1:0` two bars and a
+// beat into the section (`h:mm:ss` into such a scene: write seconds).
 //
 // Ranges are `a..b` (end exclusive, so `b` may be the frame count), `a..`,
 // `..b`, `all`, or a scene name for the whole scene. A scene name right of
@@ -33,22 +43,29 @@ Named_Time :: struct {
 	seconds: f64,
 }
 
-parse_frame :: proc(t: Timeline, fps: int, spec: string, names: []Named_Time = nil) -> (frame: int, err: Error) {
-	return frame_up_to(t, fps, spec, names, t.duration_frames - 1, false)
+// `m`: the media whose songs' sections and markers take musical offsets.
+parse_frame :: proc(t: Timeline, fps: int, spec: string, names: []Named_Time = nil, m: ^Media = nil) -> (frame: int, err: Error) {
+	return frame_up_to(t, fps, spec, names, m, t.duration_frames - 1, false)
 }
 
 // A frame spec resolving to at most `last`. An offset into a scene must
 // land inside it (`.Past_Scene`), or on its end when `scene_end` (the
 // exclusive end of a range).
 @(private = "file")
-frame_up_to :: proc(t: Timeline, fps: int, spec: string, names: []Named_Time, last: int, scene_end: bool) -> (frame: int, err: Error) {
+frame_up_to :: proc(t: Timeline, fps: int, spec: string, names: []Named_Time, m: ^Media, last: int, scene_end: bool) -> (frame: int, err: Error) {
 	s := strings.trim_space(spec)
 	name, at, offset := strings.partition(s, "@")
 	name = strings.trim_space(name)
 	has_offset := at != ""
 	scene, serr := scene_spec(t, name)
 	named, is_named := named_time(names, name)
+	musical, is_musical := 0.0, false
+	if is_named && has_offset && is_tone_length(offset) {
+		musical, is_musical = song_position(m, name, named, offset)
+	}
 	switch {
+	case is_musical:
+		frame = frame_at(musical, fps)
 	case serr == nil && has_offset:
 		info := t.scenes[scene]
 		local := parse_offset(offset, fps, scene_info_frames(info)) or_return
@@ -93,8 +110,64 @@ named_time :: proc(names: []Named_Time, name: string) -> (seconds: f64, ok: bool
 	return 0, false
 }
 
+// Video seconds of `offset` (a Tone length) from the cue `name` at video
+// seconds `at`: the section or marker of the media's song that is there
+// (case-insensitive; a sound's sections are no cues, and may share it).
+@(private = "file")
+song_position :: proc(m: ^Media, name: string, at: f64, offset: string) -> (seconds: f64, ok: bool) {
+	for sc in media_songs(m) {
+		anchor := ""
+		for sec in sc.song.sections {
+			if equal_fold(sec.name, name) && abs(song_video_seconds(sc, sec.start) - at) < 1e-6 {
+				anchor = sec.name
+				break
+			}
+		}
+		for mk in sc.song.markers {
+			if anchor == "" && equal_fold(mk.name, name) && abs(song_video_seconds(sc, mk.seconds) - at) < 1e-6 {
+				anchor = mk.name
+			}
+		}
+		if anchor == "" {
+			continue
+		}
+		text := strings.concatenate({anchor, "@", strings.trim_space(offset)}, context.temp_allocator)
+		t := osong.seconds_from_position(&sc.song, text) or_return
+		return song_video_seconds(sc, t), true
+	}
+	return 0, false
+}
+
+// Whether an offset is a Tone length rather than one of ours: `1m`, `4n`,
+// `8n.`, `8t` (signed), or three fields `bars:quarters:sixteenths`.
+@(private = "file")
+is_tone_length :: proc(offset: string) -> bool {
+	s := strings.trim_space(offset)
+	if len(s) > 0 && (s[0] == '-' || s[0] == '+') {
+		s = s[1:]
+	}
+	if strings.count(s, ":") == 2 {
+		for part in strings.split(s, ":", context.temp_allocator) {
+			if _, ok := strconv.parse_f64(part); !ok {
+				return false
+			}
+		}
+		return true
+	}
+	s = strings.trim_suffix(s, ".")
+	if len(s) < 2 {
+		return false
+	}
+	unit := s[len(s) - 1]
+	if unit != 'm' && unit != 'n' && unit != 't' {
+		return false
+	}
+	_, ok := strconv.parse_f64(s[:len(s) - 1])
+	return ok
+}
+
 // `[start, end)` frames of a range spec.
-parse_range :: proc(t: Timeline, fps: int, spec: string, names: []Named_Time = nil) -> (start, end: int, err: Error) {
+parse_range :: proc(t: Timeline, fps: int, spec: string, names: []Named_Time = nil, m: ^Media = nil) -> (start, end: int, err: Error) {
 	s := strings.trim_space(spec)
 	if s == "all" || s == "" {
 		return 0, t.duration_frames, nil if t.duration_frames > 0 else .Out_Of_Range
@@ -105,14 +178,14 @@ parse_range :: proc(t: Timeline, fps: int, spec: string, names: []Named_Time = n
 			info := t.scenes[scene]
 			return info.start_frame, min(info.end_frame, t.duration_frames), nil
 		}
-		f := parse_frame(t, fps, s, names) or_return
+		f := parse_frame(t, fps, s, names, m) or_return
 		return f, f + 1, nil
 	}
 	left, right := s[:dots], s[dots + 2:]
 	start = 0
 	end = t.duration_frames
 	if left != "" {
-		start = parse_frame(t, fps, left, names) or_return
+		start = parse_frame(t, fps, left, names, m) or_return
 	}
 	if right != "" {
 		if scene, serr := scene_spec(t, right); serr == nil {
@@ -120,7 +193,7 @@ parse_range :: proc(t: Timeline, fps: int, spec: string, names: []Named_Time = n
 		} else if strings.trim_space(right) == "end" {
 			end = t.duration_frames
 		} else {
-			end = frame_up_to(t, fps, right, names, t.duration_frames, true) or_return
+			end = frame_up_to(t, fps, right, names, m, t.duration_frames, true) or_return
 		}
 	}
 	if end <= start {

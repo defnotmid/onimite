@@ -1,6 +1,6 @@
 local look = require("look")
 local fx = require("fx")
-local C = require("cues")
+local score = require("music.score")
 local sfx = require("sfx")
 local facts = require("facts")
 local snap = look.snap
@@ -43,11 +43,12 @@ end
 -- Its sounds (sfx.lua), in beats into the scene.
 local SOUNDS = {}
 for _, lb in ipairs { 2, 4, 6, 8, 9, 10, 11, 12, 13, 14, 15 } do -- a glitch on every word
-  SOUNDS[#SOUNDS + 1] = sfx.at(C.LAST, lb, sfx.glitch(C.seconds(C.LAST + lb, 0.5)), 0.07)
-  SOUNDS[#SOUNDS + 1] = sfx.at(C.LAST, lb, sfx.hat(0.5, 8), 0.45)
+  SOUNDS[#SOUNDS + 1] = sfx.at("last", lb, sfx.glitch(sfx.seconds("last", lb, 0.5)), 0.07)
+  SOUNDS[#SOUNDS + 1] = sfx.at("last", lb, sfx.hat(0.5, 8), 0.45)
 end
 
-scene { "Last", cue = "LAST", start = C.time(C.LAST), audio = SOUNDS, render = function(f)
-  local gb = C.beat(f)
-  last(f, gb - C.LAST, gb)
+local AT = score.time("last")
+scene { "Last", cue = "last", start = AT, audio = SOUNDS, render = function(f)
+  local gb = score.beat(f)
+  last(f, gb - score.beat(AT), gb)
 end }

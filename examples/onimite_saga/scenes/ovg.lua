@@ -1,6 +1,6 @@
 local look = require("look")
 local fx = require("fx")
-local C = require("cues")
+local score = require("music.score")
 local family = require("scenes.family")
 local snap = look.snap
 
@@ -47,7 +47,8 @@ local function ovg(f, lb, gb)
   end)
 end
 
-scene { "OVG", cue = "OVG", start = C.time(C.OVG), render = function(f)
-  local gb = C.beat(f)
-  ovg(f, gb - C.OVG, gb)
+local AT = score.time("ovg")
+scene { "OVG", cue = "ovg", start = AT, render = function(f)
+  local gb = score.beat(f)
+  ovg(f, gb - score.beat(AT), gb)
 end }

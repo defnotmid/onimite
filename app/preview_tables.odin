@@ -2,6 +2,7 @@ package onimite_app
 
 import "core:fmt"
 import "core:hash"
+import "core:math"
 import "core:os"
 import "core:path/filepath"
 import "core:slice"
@@ -9,6 +10,7 @@ import "core:strconv"
 import "core:strings"
 import "core:thread"
 import om "../onimite"
+import odevice "deps:odawg/device"
 import script "../script"
 
 // What the render worker derives from a load for the preview's panels,
@@ -109,7 +111,7 @@ WAVE_LEVELS :: 20
 // Level-0 buckets filled per idle step (about 4 M samples, a few ms).
 WAVE_CHUNK :: 16384
 
-// One clip's pyramid in `Wave_Table.peaks`; `levels == 0` while it is being
+// One pyramid in `Wave_Table.peaks`; `levels == 0` while it is being
 // computed.
 Wave_Clip :: struct {
 	frames: int,
@@ -118,38 +120,58 @@ Wave_Clip :: struct {
 	count:  [WAVE_LEVELS]u32,
 }
 
-// A placed track: its span on the video timeline and how it is shaped.
+// A stretch of a lane where its source sounds: a view of a pyramid, `at`
+// the pyramid's sample at `start` ([start, end) in mix samples). A clip's
+// lane is one; a song's or a part's, one per stretch it sounds in; a bus's,
+// its tracks' together. Silence has none.
+Wave_Region :: struct {
+	clip:       int,
+	start, end: int,
+	at:         int,
+}
+
+// A placed track's lane: its regions, its span on the video timeline and
+// how it is shaped.
 Wave_Lane :: struct {
-	clip:              int,
-	// [start, end) in mix samples from the video start; `file_start` the
-	// first clip sample played.
-	start, end:        int,
-	file_start:        int,
+	regions:           [2]i32, // first, count into regions
+	start, end:        int, // mix samples from the video start
 	gain_db:           f32,
 	fade_in, fade_out: int, // samples
 	curve:             om.Fade_Curve,
 	name, scene:       Text_Span,
 }
 
-// What a timeline item is: its kind decides how the UI draws it, whether
-// it expands and what hovering it says (preview_timeline.odin).
+// What a timeline item is: its kind decides how the UI draws it and what
+// it holds (TIMELINE_KINDS), each a view of the data under it, as a watch
+// window's rows are.
 Timeline_Kind :: enum u8 {
 	Scenes, // the scene segments with thumbnails
 	Cues, // the cues as marks on the time
 	Group, // the tracks a bus mixes (or that no bus does): their sound together
 	Track, // one placed sound
+	Part, // a part of a placed song: its stem where it sounds
+	Notes, // a part's pitched notes, by pitch
+	Hits, // a part's hits on one pad
 }
 
-// Items are in drawing order, each group followed by its tracks.
+// Items are in drawing order, each item followed by its children.
 Timeline_Item :: struct {
 	kind:     Timeline_Kind,
 	parent:   i32, // -1: top level
-	children: i32, // tracks in a group: it expands when > 0
-	lane:     i32, // Group, Track: the lane drawn (-1: none)
+	children: i32, // it opens when > 0
+	lane:     i32, // the lane drawn (-1: none)
+	notes:    [2]i32, // Notes, Hits: first, count into notes
 	// As `onimite show` names it ("bus/sfx", "track/12"), what it says.
 	path:     Text_Span,
 	label:    Text_Span,
 	summary:  Text_Span,
+}
+
+// A note on the video timeline (mix samples).
+Timeline_Note :: struct {
+	start, end: int,
+	pitch:      f32,
+	velocity:   f32,
 }
 
 Timeline_Cue :: struct {
@@ -158,53 +180,172 @@ Timeline_Cue :: struct {
 }
 
 Wave_Table :: struct {
-	clips: [dynamic]Wave_Clip,
-	lanes: [dynamic]Wave_Lane,
-	peaks: [dynamic][2]i8, // min, max in 1/127
-	items: [dynamic]Timeline_Item,
-	cues:  [dynamic]Timeline_Cue,
-	text:  [dynamic]u8,
+	clips:   [dynamic]Wave_Clip,
+	regions: [dynamic]Wave_Region,
+	lanes:   [dynamic]Wave_Lane,
+	peaks:   [dynamic][2]i8, // min, max in 1/127
+	items:   [dynamic]Timeline_Item,
+	notes:   [dynamic]Timeline_Note,
+	cues:    [dynamic]Timeline_Cue,
+	text:    [dynamic]u8,
 }
 
 wave_table_destroy :: proc(t: ^Wave_Table) {
 	delete(t.clips)
+	delete(t.regions)
 	delete(t.lanes)
 	delete(t.peaks)
 	delete(t.items)
+	delete(t.notes)
 	delete(t.cues)
 	delete(t.text)
 }
 
 wave_table_copy :: proc(dst: ^Wave_Table, src: ^Wave_Table) {
 	table_copy(&dst.clips, src.clips[:])
+	table_copy(&dst.regions, src.regions[:])
 	table_copy(&dst.lanes, src.lanes[:])
 	table_copy(&dst.peaks, src.peaks[:])
 	table_copy(&dst.items, src.items[:])
+	table_copy(&dst.notes, src.notes[:])
 	table_copy(&dst.cues, src.cues[:])
 	table_copy(&dst.text, src.text[:])
 }
 
-// The worker's waveform state: the table it publishes, and which media clip
-// each pyramid belongs to (pyramids live until the media reloads). The
-// clips from `media_clips` on are groups' pyramids, made again with the
-// lanes from their tracks' pyramids.
-Wave_Builder :: struct {
-	table:       Wave_Table,
-	// Parallel to the media clips' pyramids: the clips (headers; the samples
-	// are the media's, matched by address since the media's table moves
-	// clips as it grows).
-	sources:     [dynamic]om.Audio_Clip,
-	filled:      [dynamic]int, // level-0 buckets computed, parallel to `sources`
-	media_clips: int,
-	media_peaks: int,
-	// The groups' pyramids: each one's clip and its lanes (in group_lanes).
-	groups:      [dynamic]Wave_Group,
-	group_lanes: [dynamic]int,
+// Where a pyramid's level 0 comes from, as rows: a region is a view of a
+// pyramid, and a pyramid of a source; only its kind's rule
+// (WAVE_SOURCE_KINDS) differs. A clip's are its samples, a song's (its mix
+// or a part's stem, over one stretch it sounds in) its peaks table's rows
+// there, built by the music's builder, a group's its tracks' regions.
+Wave_Source_Kind :: enum u8 {
+	Clip,
+	Song,
+	Group,
 }
 
-Wave_Group :: struct {
-	clip:         int,
-	first, count: int,
+Wave_Source :: struct {
+	kind:       Wave_Source_Kind,
+	clip:       int, // its pyramid (into table.clips)
+	audio:      om.Audio_Clip, // Clip: the header (the samples are the media's, matched by address)
+	song:       ^om.Song_Clip, // Song
+	part:       i32, // Song: one part's stem (-1: the mix)
+	span:       int, // Song: which stretch of its table (into the table's spans)
+	filled:     int, // Clip: level-0 buckets so far
+	waiting:    bool, // Song: its table is being built
+	first:      int, // Group: its tracks' lanes, into group_lanes
+	count:      int,
+	region:     int, // Group: its own
+}
+
+// What a step of a source's rule did.
+Wave_Fill :: enum u8 {
+	Working, // more to do
+	Done, // level 0 is complete
+	Waiting, // on something else (a table being built, a track's pyramid)
+}
+
+WAVE_SOURCE_KINDS := [Wave_Source_Kind]proc(b: ^Wave_Builder, src: ^Wave_Source) -> Wave_Fill {
+	// up to WAVE_CHUNK buckets of its samples a step
+	.Clip = proc(b: ^Wave_Builder, src: ^Wave_Source) -> Wave_Fill {
+		t := &b.table
+		c := &t.clips[src.clip]
+		data := src.audio.samples
+		n0 := int(c.count[0])
+		hi := min(src.filled + WAVE_CHUNK, n0)
+		level0 := t.peaks[c.offset[0]:][:n0]
+		for bucket in src.filled ..< hi {
+			s0 := bucket * WAVE_BUCKET * 2
+			s1 := min(s0 + WAVE_BUCKET * 2, len(data))
+			mn, mx: f32
+			for x in data[s0:s1] {
+				mn = min(mn, x)
+				mx = max(mx, x)
+			}
+			level0[bucket] = {i8(clamp(mn, -1, 1) * 127), i8(clamp(mx, -1, 1) * 127)}
+		}
+		src.filled = hi
+		return hi < n0 ? .Working : .Done
+	},
+	// its stretch of the peaks table, once the table has landed
+	.Song = proc(b: ^Wave_Builder, src: ^Wave_Source) -> Wave_Fill {
+		st := om.song_table(src.song, .Peaks, src.part, WAVE_BUCKET, 1)
+		if !om.song_table_later(src.song, st) {
+			return .Waiting
+		}
+		t := &b.table
+		c := &t.clips[src.clip]
+		from := st.table.spans[src.span].from
+		for &pk, k in t.peaks[c.offset[0]:][:c.count[0]] {
+			if row := om.song_table_row(st, from + k); row != nil {
+				pk = {i8(clamp(row[0], -1, 1) * 127), i8(clamp(row[1], -1, 1) * 127)}
+			}
+		}
+		return .Done
+	},
+	// its tracks' regions at their places, shaped by their fades, once all
+	// have their pyramids
+	.Group = proc(b: ^Wave_Builder, src: ^Wave_Source) -> Wave_Fill {
+		t := &b.table
+		lanes := b.group_lanes[src.first:][:src.count]
+		for k in lanes {
+			for r in lane_regions(t, k) {
+				if t.clips[r.clip].levels == 0 {
+					return .Waiting
+				}
+			}
+		}
+		own := t.regions[src.region]
+		c := &t.clips[src.clip]
+		level0 := t.peaks[c.offset[0]:][:c.count[0]]
+		for k in lanes {
+			l := t.lanes[k]
+			length := l.end - l.start
+			for r in lane_regions(t, k) {
+				if r.end <= own.start || r.start >= own.end {
+					continue
+				}
+				tc := t.clips[r.clip]
+				from := t.peaks[tc.offset[0]:][:tc.count[0]]
+				for tb := max(r.start - own.start, 0) / WAVE_BUCKET; tb < len(level0); tb += 1 {
+					at := own.start + tb * WAVE_BUCKET // mix sample
+					if at >= r.end {
+						break
+					}
+					cb := (at - r.start + r.at) / WAVE_BUCKET
+					if cb < 0 || cb >= len(from) {
+						continue
+					}
+					into := at - l.start
+					env := om.track_envelope_peak(into, into + WAVE_BUCKET, length, l.fade_in, l.fade_out, l.curve)
+					pk := from[cb]
+					mn, mx := i8(f32(pk[0]) * env), i8(f32(pk[1]) * env)
+					level0[tb] = {min(level0[tb][0], mn), max(level0[tb][1], mx)}
+				}
+			}
+		}
+		return .Done
+	},
+}
+
+lane_regions :: proc(t: ^Wave_Table, lane: $I) -> []Wave_Region {
+	if lane < 0 || int(lane) >= len(t.lanes) {
+		return nil
+	}
+	l := t.lanes[lane]
+	return t.regions[l.regions[0]:][:l.regions[1]]
+}
+
+// The worker's waveform state: the table it publishes and the sources of
+// its pyramids. The media's sources (clips, songs' stretches) live until
+// the media reloads; those from `media_sources` on are groups', made again
+// with the lanes.
+Wave_Builder :: struct {
+	table:         Wave_Table,
+	sources:       [dynamic]Wave_Source,
+	media_sources: int,
+	media_clips:   int,
+	media_peaks:   int,
+	group_lanes:   [dynamic]int, // the lanes of each group (Wave_Source.first, count)
 }
 
 // Tracks on no bus show as rows of their own up to this many, else as one
@@ -214,24 +355,22 @@ TIMELINE_LOOSE_TRACKS :: 6
 wave_builder_destroy :: proc(b: ^Wave_Builder) {
 	wave_table_destroy(&b.table)
 	delete(b.sources)
-	delete(b.filled)
-	delete(b.groups)
 	delete(b.group_lanes)
 }
 
 // Forgets every pyramid (the media they came from is gone).
 wave_builder_reset :: proc(b: ^Wave_Builder) {
 	clear(&b.table.clips)
+	clear(&b.table.regions)
 	clear(&b.table.peaks)
 	clear(&b.table.lanes)
 	clear(&b.table.items)
+	clear(&b.table.notes)
 	clear(&b.table.cues)
 	clear(&b.table.text)
 	clear(&b.sources)
-	clear(&b.filled)
-	clear(&b.groups)
 	clear(&b.group_lanes)
-	b.media_clips, b.media_peaks = 0, 0
+	b.media_sources, b.media_clips, b.media_peaks = 0, 0, 0
 }
 
 // Room for a pyramid of `frames` samples at the end of the peaks.
@@ -274,210 +413,438 @@ pyramid_levels :: proc(t: ^Wave_Table, c: ^Wave_Clip) {
 	c.levels = levels
 }
 
-// Rebuilds the timeline from the placed tracks: a lane per track (a pyramid
-// reserved for each clip not seen before, filled by wave_builder_step), the
-// items (scenes, cues, then each bus's tracks as a group, in time order) and
-// a lane per group.
-wave_builder_lanes :: proc(b: ^Wave_Builder, placed: []om.Placed_Track, order: []int, v: ^om.Video, scenes: int, cues: []script.Cue) {
-	t := &b.table
-	resize(&t.clips, b.media_clips)
-	resize(&t.peaks, b.media_peaks)
-	clear(&t.lanes)
-	clear(&t.items)
-	clear(&t.cues)
-	clear(&t.text)
-	clear(&b.groups)
-	clear(&b.group_lanes)
-	for p in placed {
-		clip := -1
-		for src, i in b.sources {
-			if raw_data(src.samples) == raw_data(p.clip.samples) {
-				clip = i
-				break
+// The pyramid of a media source, made the first time a region shows it.
+@(private = "file")
+media_source :: proc(b: ^Wave_Builder, want: Wave_Source, frames: int) -> int {
+	for src in b.sources[:b.media_sources] {
+		if src.kind != want.kind {
+			continue
+		}
+		switch src.kind {
+		case .Clip:
+			if raw_data(src.audio.samples) == raw_data(want.audio.samples) {
+				return src.clip
 			}
+		case .Song:
+			if src.song == want.song && src.part == want.part && src.span == want.span {
+				return src.clip
+			}
+		case .Group:
 		}
-		if clip < 0 {
-			clip = pyramid_reserve(t, p.clip.frames)
-			append(&b.sources, p.clip^)
-			append(&b.filled, 0)
-		}
-		tr := p.track
-		append(
-			&t.lanes,
-			Wave_Lane {
-				clip = clip,
-				start = p.start,
-				end = p.end,
-				file_start = p.file_start,
-				gain_db = tr.gain_db,
-				fade_in = om.seconds_to_samples(tr.fade_in),
-				fade_out = om.seconds_to_samples(tr.fade_out),
-				curve = tr.curve,
-				name = text_push(&t.text, tr.src),
-				scene = text_push(&t.text, p.scene),
-			},
-		)
 	}
-	b.media_clips, b.media_peaks = len(t.clips), len(t.peaks)
+	src := want
+	src.clip = pyramid_reserve(&b.table, frames)
+	inject_at(&b.sources, b.media_sources, src)
+	b.media_sources += 1
+	return src.clip
+}
 
-	// A track's place in time (`order`, Placed_Audio's) is its path
-	// (`onimite show` names it so).
-	rank := make([]int, len(placed), context.temp_allocator)
-	for k, i in order {
-		rank[k] = i
-	}
+// The timeline is built by its kinds' rules: each adds its item, the lane
+// it draws (regions, each a view of a source's pyramid) and its children,
+// each built by its own kind's rule: a bus's group holds its tracks, a song
+// track its parts, a part the views of its notes. Only the roots are placed
+// by wave_builder_lanes: the scenes, the cues, the buses (and the tracks on
+// none, loose when they are few).
+Timeline_Build :: struct {
+	b:      ^Wave_Builder,
+	placed: []om.Placed_Track,
+	order:  []int, // the tracks in time order (Placed_Audio's)
+	rank:   []int, // a track's place in time: its path, `track/N`
+	video:  ^om.Video,
+	scenes: int,
+	cues:   []script.Cue,
+	buses:  []string, // a Group's: the bus it mixes ("": the tracks on none)
+}
 
-	item :: proc(t: ^Wave_Table, kind: Timeline_Kind, parent, lane: int, path, label, summary: string) -> int {
-		append(&t.items, Timeline_Item{kind, i32(parent), 0, i32(lane), text_push(&t.text, path), text_push(&t.text, label), text_push(&t.text, summary)})
-		return len(t.items) - 1
-	}
-	item(t, .Scenes, -1, -1, "scenes", "scenes", fmt.tprintf("%d scenes", scenes))
-	if len(cues) > 0 {
-		item(t, .Cues, -1, -1, "cues", "cues", fmt.tprintf("%d cues", len(cues)))
-		for c in cues {
+// What an item shows, as its kind reads it: a bus, a placed track, a part
+// of its song, a pad of that part.
+Timeline_Ref :: struct {
+	bus:   int,
+	track: int,
+	part:  int,
+	pad:   odevice.Pad,
+}
+
+// A kind's rule: the item for `ref` under `parent`, returning it.
+TIMELINE_KINDS := [Timeline_Kind]proc(x: ^Timeline_Build, parent: int, ref: Timeline_Ref) -> int {
+	.Scenes = proc(x: ^Timeline_Build, parent: int, ref: Timeline_Ref) -> int {
+		return timeline_item(x, .Scenes, parent, -1, "scenes", "scenes", fmt.tprintf("%d scenes", x.scenes))
+	},
+	.Cues = proc(x: ^Timeline_Build, parent: int, ref: Timeline_Ref) -> int {
+		t := &x.b.table
+		for c in x.cues {
 			append(&t.cues, Timeline_Cue{c.seconds, text_push(&t.text, c.name)})
 		}
-	}
-	track_item :: proc(t: ^Wave_Table, p: om.Placed_Track, parent, lane, rank: int) {
+		return timeline_item(x, .Cues, parent, -1, "cues", "cues", fmt.tprintf("%d cues", len(x.cues)))
+	},
+	// the bus's tracks together: a region where any of them sounds
+	.Group = proc(x: ^Timeline_Build, parent: int, ref: Timeline_Ref) -> int {
+		b, t := x.b, &x.b.table
+		name := x.buses[ref.bus]
+		start, end, n := max(int), 0, 0
+		for k in x.order {
+			if p := x.placed[k]; p.track.bus == name {
+				start, end, n = min(start, p.start), max(end, p.end), n + 1
+			}
+		}
+		gain: f32
+		for bus in x.video.buses {
+			if bus.name == name {
+				gain = bus.gain_db
+			}
+		}
+		label := fmt.tprintf("bus %s", name) if name != "" else "tracks"
+		lane := len(t.lanes)
+		append(&t.lanes, Wave_Lane{start = start, end = end, name = text_push(&t.text, label)})
+		path := fmt.tprintf("bus/%s", name) if name != "" else "tracks"
+		g := timeline_item(x, .Group, parent, lane, path, label, bus_summary(name, n, gain))
+		first := len(b.group_lanes)
+		for k in x.order {
+			if x.placed[k].track.bus == name && placements(x, k)[0] == k {
+				it := timeline_add(x, .Track, g, {track = k})
+				append(&b.group_lanes, int(t.items[it].lane))
+			}
+		}
+		// its regions: its tracks' merged (pyramids reserved after the media's)
+		spans := make([dynamic][2]int, context.temp_allocator)
+		for k in b.group_lanes[first:] {
+			for r in lane_regions(t, k) {
+				append(&spans, [2]int{r.start, r.end})
+			}
+		}
+		slice.sort_by(spans[:], proc(a, b: [2]int) -> bool {return a[0] < b[0]})
+		t.lanes[lane].regions[0] = i32(len(t.regions))
+		for sp in spans {
+			if n := len(t.regions); n > int(t.lanes[lane].regions[0]) && sp[0] <= t.regions[n - 1].end {
+				t.regions[n - 1].end = max(t.regions[n - 1].end, sp[1])
+				continue
+			}
+			append(&t.regions, Wave_Region{clip = -1, start = sp[0], end = sp[1]})
+		}
+		t.lanes[lane].regions[1] = i32(len(t.regions)) - t.lanes[lane].regions[0]
+		for r in t.lanes[lane].regions[0] ..< t.lanes[lane].regions[0] + t.lanes[lane].regions[1] {
+			append(&b.sources, Wave_Source{kind = .Group, clip = -1, first = first, count = len(b.group_lanes) - first, region = int(r)})
+		}
+		return g
+	},
+	// a sound and every place it plays on its bus: a clip's, or a song's mix
+	// where it sounds, a region each time; and the song's parts
+	.Track = proc(x: ^Timeline_Build, parent: int, ref: Timeline_Ref) -> int {
+		ks := placements(x, ref.track)
+		p := x.placed[ref.track]
+		what := sound_kind(p)
+		lane := placed_lane(x, ks, -1, what)
 		summary := track_summary(p)
 		if p.track.source != "" {
 			summary = fmt.tprintf("%s  %s", summary, p.track.source)
 		}
-		item(t, .Track, parent, lane, fmt.tprintf("track/%d", rank), p.track.src, summary)
+		path := fmt.tprintf("track/%d", x.rank[ref.track])
+		if len(ks) > 1 {
+			summary = fmt.tprintf("%s  %d times from %.3fs", what, len(ks), f64(p.start) / om.MIX_RATE)
+		}
+		it := timeline_item(x, .Track, parent, lane, path, what, summary)
+		// the parts that play (a region or more)
+		if p.song != nil && p.song.ok && len(p.song.song.parts) > 1 {
+			for _, i in p.song.song.parts {
+				for r in p.song.song.regions {
+					if int(r.part) == i {
+						timeline_add(x, .Part, it, {track = ref.track, part = i})
+						break
+					}
+				}
+			}
+		}
+		return it
+	},
+	// a part of a placed song: its stem where it sounds, and its notes'
+	// views: its pitched notes, its hits per pad
+	.Part = proc(x: ^Timeline_Build, parent: int, ref: Timeline_Ref) -> int {
+		p := x.placed[ref.track]
+		s := &p.song.song
+		name := s.parts[ref.part]
+		lane := placed_lane(x, placements(x, ref.track), i32(ref.part), name)
+		pitched := false
+		pads: bit_set[odevice.Pad]
+		notes := 0
+		for tr in s.tracks {
+			if int(tr.part) != ref.part {
+				continue
+			}
+			notes += int(tr.notes.count)
+			for i in tr.notes.first ..< tr.notes.first + tr.notes.count {
+				if pad := s.notes.pad[i]; pad != .None {
+					pads += {pad}
+				} else {
+					pitched = true
+				}
+			}
+		}
+		it := timeline_item(x, .Part, parent, lane, fmt.tprintf("song/%s/parts/%s", p.song.name, name), name, fmt.tprintf("part %s of %s  %d notes", name, p.song.name, notes))
+		if pitched {
+			timeline_add(x, .Notes, it, ref)
+		}
+		for pad in pads {
+			r := ref
+			r.pad = pad
+			timeline_add(x, .Hits, it, r)
+		}
+		return it
+	},
+	.Notes = proc(x: ^Timeline_Build, parent: int, ref: Timeline_Ref) -> int {
+		it := timeline_item(x, .Notes, parent, int(x.b.table.items[parent].lane), strings.clone(text_of(x.b.table.text[:], x.b.table.items[parent].path), context.temp_allocator), "notes", "")
+		part_notes(x, it, ref)
+		return it
+	},
+	.Hits = proc(x: ^Timeline_Build, parent: int, ref: Timeline_Ref) -> int {
+		name := odevice.PAD_NAMES[ref.pad]
+		it := timeline_item(x, .Hits, parent, int(x.b.table.items[parent].lane), strings.clone(text_of(x.b.table.text[:], x.b.table.items[parent].path), context.temp_allocator), name, "")
+		part_notes(x, it, ref)
+		return it
+	},
+}
+
+// An item by its kind's rule, its children counted.
+timeline_add :: proc(x: ^Timeline_Build, kind: Timeline_Kind, parent: int, ref: Timeline_Ref) -> int {
+	it := TIMELINE_KINDS[kind](x, parent, ref)
+	items := x.b.table.items[:]
+	n: i32
+	for c in items[it + 1:] {
+		n += i32(c.parent == i32(it))
 	}
+	items[it].children = n
+	return it
+}
+
+@(private = "file")
+timeline_item :: proc(x: ^Timeline_Build, kind: Timeline_Kind, parent, lane: int, path, label, summary: string) -> int {
+	t := &x.b.table
+	append(&t.items, Timeline_Item{kind = kind, parent = i32(parent), lane = i32(lane), path = text_push(&t.text, path), label = text_push(&t.text, label), summary = text_push(&t.text, summary)})
+	return len(t.items) - 1
+}
+
+// Every placement on `k`'s bus of what `k` plays, in time order (`k`'s
+// first): one effect is one row however often, and at whatever pitch, it
+// plays.
+@(private = "file")
+placements :: proc(x: ^Timeline_Build, k: int) -> []int {
+	out := make([dynamic]int, context.temp_allocator)
+	p := x.placed[k]
+	what := sound_kind(p)
+	for q in x.order {
+		if o := x.placed[q]; o.track.bus == p.track.bus && sound_kind(o) == what {
+			append(&out, q)
+		}
+	}
+	return out[:]
+}
+
+// What a placement plays: a sound (a one-track song) is its instrument
+// ("tick", "Synth"), a clip or a song its own name.
+sound_kind :: proc(p: om.Placed_Track) -> string {
+	if p.song != nil && p.song.ok && len(p.song.song.tracks) == 1 {
+		s := &p.song.song
+		return odevice.DEVICE_TABLE[s.devices[s.tracks[0].instrument]].name
+	}
+	return p.track.src
+}
+
+// A lane for the placements `ks` of one sound (a song's part: `part`; -1
+// its mix, or a clip): its span and shape (the first's), and a region per
+// stretch its source sounds in, each time it plays.
+@(private = "file")
+placed_lane :: proc(x: ^Timeline_Build, ks: []int, part: i32, name: string) -> int {
+	t := &x.b.table
+	first := x.placed[ks[0]]
+	tr := first.track
+	l := Wave_Lane {
+		start = first.start,
+		end = first.end,
+		gain_db = tr.gain_db,
+		fade_in = om.seconds_to_samples(tr.fade_in),
+		fade_out = om.seconds_to_samples(tr.fade_out),
+		curve = tr.curve,
+		name = text_push(&t.text, name),
+		scene = text_push(&t.text, first.scene),
+	}
+	l.regions[0] = i32(len(t.regions))
+	for k in ks {
+		p := x.placed[k]
+		l.end = max(l.end, p.end)
+		switch {
+		case p.clip != nil:
+			clip := media_source(x.b, {kind = .Clip, audio = p.clip^}, p.clip.frames)
+			append(&t.regions, Wave_Region{clip, p.start, p.end, p.file_start})
+		case p.song != nil && p.song.ok:
+			// the song's sample 0 on the video
+			zero := p.start - p.file_start
+			st := om.song_table(p.song, .Peaks, part, WAVE_BUCKET, 1)
+			for sp, i in st.table.spans {
+				a, z := zero + sp.from * WAVE_BUCKET, zero + sp.to * WAVE_BUCKET
+				start, end := max(a, p.start), min(z, p.end)
+				if end <= start {
+					continue
+				}
+				clip := media_source(x.b, {kind = .Song, song = p.song, part = part, span = i}, z - a)
+				append(&t.regions, Wave_Region{clip, start, end, start - a})
+			}
+		}
+	}
+	l.regions[1] = i32(len(t.regions)) - l.regions[0]
+	append(&t.lanes, l)
+	return len(t.lanes) - 1
+}
+
+// A notes view's notes: the part's pitched ones, or its hits on one pad,
+// where the track lets them through.
+@(private = "file")
+part_notes :: proc(x: ^Timeline_Build, it: int, ref: Timeline_Ref) {
+	t := &x.b.table
+	first := len(t.notes)
+	for k in placements(x, ref.track) {
+		p := x.placed[k]
+		s := &p.song.song
+		zero := p.start - p.file_start
+		for tr in s.tracks {
+			if int(tr.part) != ref.part {
+				continue
+			}
+			for i in tr.notes.first ..< tr.notes.first + tr.notes.count {
+				n := s.notes[i]
+				if n.pad != ref.pad {
+					continue
+				}
+				a := zero + int(n.time * om.MIX_RATE)
+				z := a + max(int(n.duration * om.MIX_RATE), 1)
+				if z <= p.start || a >= p.end {
+					continue
+				}
+				append(&t.notes, Timeline_Note{a, z, n.pitch, n.velocity})
+			}
+		}
+	}
+	t.items[it].notes = {i32(first), i32(len(t.notes) - first)}
+	what := "notes" if ref.pad == .None else odevice.PAD_NAMES[ref.pad]
+	t.items[it].summary = text_push(&t.text, fmt.tprintf("%d %s of %s", len(t.notes) - first, what, x.placed[ref.track].song.song.parts[ref.part]))
+}
+
+// Rebuilds the timeline from the placed tracks: its roots, each built by
+// its kind's rule with everything under it.
+wave_builder_lanes :: proc(b: ^Wave_Builder, placed: []om.Placed_Track, order: []int, v: ^om.Video, scenes: int, cues: []script.Cue) {
+	t := &b.table
+	// the media's sources and pyramids are kept (first in the tables), the
+	// groups' made again after them
+	resize(&b.sources, b.media_sources)
+	resize(&t.clips, b.media_clips)
+	resize(&t.peaks, b.media_peaks)
+	clear(&t.regions)
+	clear(&t.lanes)
+	clear(&t.items)
+	clear(&t.notes)
+	clear(&t.cues)
+	clear(&t.text)
+	clear(&b.group_lanes)
+	rank := make([]int, len(placed), context.temp_allocator)
+	for k, i in order {
+		rank[k] = i
+	}
+	x := Timeline_Build{b = b, placed = placed, order = order, rank = rank, video = v, scenes = scenes, cues = cues}
 	// Buses by when they first play (then by name: a script's table of
 	// buses has no order), then the tracks on none.
 	Named :: struct {
 		name:  string,
 		first: int,
 	}
-	buses := make([]Named, len(v.buses), context.temp_allocator)
-	for bus, i in v.buses {
-		buses[i] = {bus.name, max(int)}
+	named := make([dynamic]Named, 0, len(v.buses) + 1, context.temp_allocator)
+	for bus in v.buses {
+		n := Named{bus.name, max(int)}
 		for p in placed {
 			if p.track.bus == bus.name {
-				buses[i].first = min(buses[i].first, p.start)
+				n.first = min(n.first, p.start)
 			}
 		}
+		if n.first < max(int) {
+			append(&named, n)
+		}
 	}
-	slice.sort_by(buses, proc(a, b: Named) -> bool {return a.first < b.first || (a.first == b.first && a.name < b.name)})
-	names := make([dynamic]string, 0, len(v.buses) + 1, context.temp_allocator)
-	for bus in buses {
-		append(&names, bus.name)
+	slice.sort_by(named[:], proc(a, b: Named) -> bool {return a.first < b.first || (a.first == b.first && a.name < b.name)})
+	buses := make([dynamic]string, 0, len(named) + 1, context.temp_allocator)
+	for n in named {
+		append(&buses, n.name)
 	}
-	append(&names, "")
-	for name in names {
-		first := len(b.group_lanes)
+	loose := 0
+	for p in placed {
+		loose += int(p.track.bus == "")
+	}
+	if loose > TIMELINE_LOOSE_TRACKS {
+		append(&buses, "")
+	}
+	x.buses = buses[:]
+	timeline_add(&x, .Scenes, -1, {})
+	if len(cues) > 0 {
+		timeline_add(&x, .Cues, -1, {})
+	}
+	for _, i in x.buses {
+		timeline_add(&x, .Group, -1, {bus = i})
+	}
+	if loose <= TIMELINE_LOOSE_TRACKS {
 		for k in order {
-			if placed[k].track.bus == name {
-				append(&b.group_lanes, k)
+			if placed[k].track.bus == "" && placements(&x, k)[0] == k {
+				timeline_add(&x, .Track, -1, {track = k})
 			}
 		}
-		mine := b.group_lanes[first:]
-		if len(mine) == 0 {
-			continue
-		}
-		if name == "" && len(mine) <= TIMELINE_LOOSE_TRACKS {
-			for k in mine {
-				track_item(t, placed[k], -1, k, rank[k])
-			}
-			resize(&b.group_lanes, first)
-			continue
-		}
-		start, end := max(int), 0
-		for k in mine {
-			start, end = min(start, t.lanes[k].start), max(end, t.lanes[k].end)
-		}
-		clip := pyramid_reserve(t, end - start)
-		append(&b.groups, Wave_Group{clip, first, len(mine)})
-		label := fmt.tprintf("bus %s", name) if name != "" else "tracks"
-		append(&t.lanes, Wave_Lane{clip = clip, start = start, end = end, name = text_push(&t.text, label)})
-		gain: f32
-		for bus in v.buses {
-			if bus.name == name {
-				gain = bus.gain_db
-			}
-		}
-		path := fmt.tprintf("bus/%s", name) if name != "" else "tracks"
-		g := item(t, .Group, -1, len(t.lanes) - 1, path, label, bus_summary(name, len(mine), gain))
-		t.items[g].children = i32(len(mine))
-		for k in mine {
-			track_item(t, placed[k], g, k, rank[k])
+	}
+	// pyramids for the sources made from others, after the media's
+	b.media_clips, b.media_peaks = len(t.clips), len(t.peaks)
+	for &src in b.sources[b.media_sources:] {
+		r := &t.regions[src.region]
+		src.clip = pyramid_reserve(t, r.end - r.start)
+		r.clip = src.clip
+	}
+	// the songs' tables asked now, with the first frame's (the worker
+	// drains them after it): each song is built once for both
+	for src in b.sources {
+		if src.kind == .Song {
+			om.song_table_later(src.song, om.song_table(src.song, .Peaks, src.part, WAVE_BUCKET, 1))
 		}
 	}
 }
 
+// Whether a source has a step to take (not complete, not waiting).
 wave_builder_pending :: proc(b: ^Wave_Builder) -> bool {
-	for c in b.table.clips {
-		if c.levels == 0 {
+	for src in b.sources {
+		if b.table.clips[src.clip].levels == 0 && !src.waiting {
 			return true
 		}
 	}
 	return false
 }
 
-// One bounded step of pyramid work: up to WAVE_CHUNK level-0 buckets of the
-// first unfinished clip, then its upper levels when level 0 is complete.
-// True when a clip finished (the table should be published).
+// Something a source waited for landed (a song's table): it steps again.
+wave_builder_landed :: proc(b: ^Wave_Builder) {
+	for &src in b.sources {
+		src.waiting = false
+	}
+}
+
+// One bounded step of pyramid work: the first source with work, by its
+// kind's rule; its upper levels once its level 0 is complete. True when a
+// pyramid finished (the table should be published).
 wave_builder_step :: proc(b: ^Wave_Builder) -> (finished: bool) {
 	t := &b.table
-	for &c, i in t.clips[:b.media_clips] {
-		if c.levels > 0 {
+	for &src in b.sources {
+		c := &t.clips[src.clip]
+		if c.levels > 0 || src.waiting {
 			continue
 		}
-		src := b.sources[i].samples
-		n0 := int(c.count[0])
-		lo := b.filled[i]
-		hi := min(lo + WAVE_CHUNK, n0)
-		level0 := t.peaks[c.offset[0]:][:n0]
-		for bucket in lo ..< hi {
-			s0 := bucket * WAVE_BUCKET * 2
-			s1 := min(s0 + WAVE_BUCKET * 2, len(src))
-			mn, mx: f32
-			for x in src[s0:s1] {
-				mn = min(mn, x)
-				mx = max(mx, x)
-			}
-			level0[bucket] = {i8(clamp(mn, -1, 1) * 127), i8(clamp(mx, -1, 1) * 127)}
-		}
-		b.filled[i] = hi
-		if hi < n0 {
+		switch WAVE_SOURCE_KINDS[src.kind](b, &src) {
+		case .Working:
 			return false
+		case .Done:
+			pyramid_levels(t, c)
+			return true
+		case .Waiting:
+			src.waiting = true
 		}
-		pyramid_levels(t, &c)
-		return true
-	}
-	// A group's sound once its tracks' is known: each track's level 0 at its
-	// place, shaped by its fades.
-	for g in b.groups {
-		c := &t.clips[g.clip]
-		if c.levels > 0 {
-			continue
-		}
-		level0 := t.peaks[c.offset[0]:][:c.count[0]]
-		start := max(int)
-		for k in b.group_lanes[g.first:][:g.count] {
-			start = min(start, t.lanes[k].start)
-		}
-		for k in b.group_lanes[g.first:][:g.count] {
-			l := t.lanes[k]
-			tc := t.clips[l.clip]
-			src := t.peaks[tc.offset[0]:][:tc.count[0]]
-			length := l.end - l.start
-			for tb := (l.start - start) / WAVE_BUCKET; tb * WAVE_BUCKET + start < l.end && tb < len(level0); tb += 1 {
-				into := max(tb * WAVE_BUCKET + start - l.start, 0)
-				cb := (l.file_start + into) / WAVE_BUCKET
-				if cb < 0 || cb >= len(src) {
-					continue
-				}
-				env := om.track_envelope_peak(into, into + WAVE_BUCKET, length, l.fade_in, l.fade_out, l.curve)
-				pk := src[cb]
-				mn, mx := i8(f32(pk[0]) * env), i8(f32(pk[1]) * env)
-				level0[tb] = {min(level0[tb][0], mn), max(level0[tb][1], mx)}
-			}
-		}
-		pyramid_levels(t, c)
-		return true
 	}
 	return false
 }

@@ -1,6 +1,6 @@
 local look = require("look")
 local fx = require("fx")
-local C = require("cues")
+local score = require("music.score")
 local sfx = require("sfx")
 local facts = require("facts")
 local snap = look.snap
@@ -61,10 +61,11 @@ end
 -- Its sounds (sfx.lua), in beats into the scene.
 local SOUNDS = {}
 for _, r in ipairs(facts.RACE) do -- a DONE as each onimite bar finishes
-  SOUNDS[#SOUNDS + 1] = sfx.at(C.RACE, finish(r), sfx.done(), 0.14)
+  SOUNDS[#SOUNDS + 1] = sfx.at("race", finish(r), sfx.done(), 0.14)
 end
 
-scene { "Race", cue = "RACE", start = C.time(C.RACE), audio = SOUNDS, render = function(f)
-  local gb = C.beat(f)
-  race(f, gb - C.RACE, gb)
+local AT = score.time("race")
+scene { "Race", cue = "race", start = AT, audio = SOUNDS, render = function(f)
+  local gb = score.beat(f)
+  race(f, gb - score.beat(AT), gb)
 end }
