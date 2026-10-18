@@ -94,16 +94,16 @@
     // octave disco bass, played on the strings' fingers (velocity layers and
     // round robins from Karoryfer's own mapping)
     "bass": {
-      "instrument": { "name": "Sampler", "set": "fashionbass/fashionbass_clean.sfz", "release": 0.08 },
-      "gain_db": 1.5,
+      "instrument": { "name": "fashionbass/fashionbass_clean.sfz", "ampeg_release": 0.08 },
+      "gain_db": -0.5,
       "play": [
         { "energy": [0.5, 1], "octave": 1, "humanize": 0.004, "degrees": "1 . 8 . 1 8 . 1 . 1 8 . 1 . 8 7", "subdivision": "16n", "duration": "16n" }
       ]
     },
     // clean funk chops: ninth chords, sixteenth stabs off the beat
     "guitar": {
-      "instrument": { "name": "Sampler", "set": "emily/emily_clean.sfz", "release": 0.05 },
-      "gain_db": -2,
+      "instrument": { "name": "emily/emily_clean.sfz", "ampeg_release": 0.05 },
+      "gain_db": -4.8,
       "pan": -0.35,
       "sends": { "room": -14 },
       "play": [
@@ -111,7 +111,7 @@
       ]
     },
     "violins": {
-      "instrument": { "name": "Sampler", "set": "french_disco/violins_spiccato.sfz" },
+      "instrument": "french_disco/violins_spiccato.sfz",
       "gain_db": -6.5,
       "pan": 0.2,
       "sends": { "hall": -10 },
@@ -120,7 +120,7 @@
       ]
     },
     "brass": {
-      "instrument": { "name": "Sampler", "set": "french_disco/trumpet_staccato.sfz" },
+      "instrument": "french_disco/trumpet_staccato.sfz",
       "gain_db": -5.5,
       "pan": -0.15,
       "sends": { "hall": -12 },
@@ -129,7 +129,7 @@
       ]
     },
     "trombone": {
-      "instrument": { "name": "Sampler", "set": "french_disco/trombone_staccato.sfz" },
+      "instrument": "french_disco/trombone_staccato.sfz",
       "gain_db": -3.5,
       "pan": 0.1,
       "sends": { "hall": -14 },
@@ -138,8 +138,8 @@
       ]
     },
     "strings": {
-      "instrument": { "name": "Sampler", "set": "french_disco/violins_sustain.sfz", "attack": 0.12, "release": 0.8 },
-      "gain_db": 0,
+      "instrument": { "name": "french_disco/violins_sustain.sfz", "ampeg_attack": 0.12, "ampeg_release": 0.8 },
+      "gain_db": 8.5,
       "sends": { "hall": -6 },
       "play": [
         { "energy": [0.15, 0.45], "octave": 4, "chords": { "voicing": "open" }, "velocity": 0.6 }

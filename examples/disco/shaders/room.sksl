@@ -1,0 +1,64 @@
+// The room's surfaces and the ball, the haze over them (common.sksl has
+// the club; this is what the eye sees of it).
+
+uniform shader uHaze;
+
+half4 main(float2 coord) {
+  float3 rd = eyeRay(coord);
+  float3 ro = EYE;
+  float3 nrm;
+  int what;
+  float far = hitRoom(ro, rd, nrm, what);
+  float3 p = ro + rd * far;
+  float3 col;
+  if (what == 0) {
+    col = floorAt(p);
+    // the glass floor's gloss: the ball in it
+    float3 rr = reflect(rd, nrm);
+    float tb = ballHit(p, rr);
+    if (tb > 0.0) {
+      col += float3(0.25, 0.2, 0.35) * 0.35;
+    }
+  } else if (what == 2) {
+    col = float3(0.008, 0.004, 0.014);
+  } else {
+    col = wallAt(p, nrm);
+  }
+  col += flecks(p, nrm);
+
+  // the ball, over the room
+  float tb = ballHit(ro, rd);
+  if (tb > 0.0 && tb < far) {
+    far = tb;
+    float3 q = ro + rd * tb;
+    float3 n = normalize(q - BALL);
+    float2 id;
+    float edge;
+    float3 fb = facet(turn(n, -uSpin), id, edge);
+    float3 fn = turn(fb, uSpin);
+    float3 r = reflect(rd, fn);
+    float grout = smoothstep(0.03, 0.09, edge) * step(abs(fb.y), CAP);
+    float rim = pow(1.0 - max(dot(-rd, n), 0.0), 3.0);
+    col = mirror(q, r, id, smoothstep(0.3, 0.47, edge)) * grout * 0.9 + float3(0.02, 0.01, 0.03) * (1.0 - grout) + float3(0.1, 0.06, 0.16) * rim;
+  }
+
+  // the rod it hangs from
+  float3 oc = ro - float3(BALL.x, 0.0, BALL.z);
+  float a = rd.x * rd.x + rd.z * rd.z;
+  float b = oc.x * rd.x + oc.z * rd.z;
+  float c = oc.x * oc.x + oc.z * oc.z - 0.025 * 0.025;
+  float hh = b * b - a * c;
+  if (hh > 0.0) {
+    float t = (-b - sqrt(hh)) / a;
+    float y = ro.y + rd.y * t;
+    if (t > 0.0 && t < far && y > BALL.y + RADIUS * 0.95 && y < ROOM.y) {
+      col = float3(0.16, 0.13, 0.2);
+      far = t;
+    }
+  }
+
+  col += float3(uHaze.eval(coord).rgb);
+  // the kick lifts the whole room a little
+  col *= 1.0 + 0.25 * uKick * uEnergy;
+  return half4(half3(col), 1.0);
+}

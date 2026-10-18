@@ -409,6 +409,9 @@ song_notes_at :: proc(sc: ^Song_Clip, t: f64) -> []Sounding_Note {
 		p := s.params[tr.instrument]
 		for i in tr.notes.first ..< tr.notes.first + tr.notes.count {
 			n := orender.note_from_row(s, int(i))
+			if n.kind != .Attack {
+				continue // made at compose: it sounds as the played note's tail
+			}
 			env := odevice.Voice_Env{bank = &sc.music.bank}
 			if n.time <= t && t < n.time + odevice.note_tail(kind, &p, n, &env) {
 				append(&out, Sounding_Note{s.parts[tr.part], note_name(s, n.pad, n.pitch), n.time, n.velocity, t < n.time + n.duration})

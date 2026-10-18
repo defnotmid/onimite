@@ -169,8 +169,10 @@ Shader_Error :: struct {
 
 // Compiled programs by their sources' hash: parallel arrays indexed by
 // program. On failure `errors` lists the problems and `ok` is false.
-// `feedback` is the passes that render into feedback buffers. Labels and
-// error lists live in `arena`, the errors' text in the graphs.
+// `feedback` is the passes that render into feedback buffers; `stateful`
+// whether a pass reads a last frame (only then does a frame depend on the
+// frames before it). Labels and error lists live in `arena`, the errors'
+// text in the graphs.
 Shader_Library :: struct {
 	hashes:   [dynamic]u64,
 	labels:   [dynamic]string,
@@ -178,6 +180,7 @@ Shader_Library :: struct {
 	errors:   [dynamic][]Shader_Error,
 	ok:       [dynamic]bool,
 	feedback: [dynamic]Pass_Set,
+	stateful: [dynamic]bool,
 	by_hash:  map[u64]int,
 	arena:    virtual.Arena,
 }
@@ -192,6 +195,7 @@ shader_library_destroy :: proc(l: ^Shader_Library) {
 	delete(l.errors)
 	delete(l.ok)
 	delete(l.feedback)
+	delete(l.stateful)
 	delete(l.by_hash)
 	virtual.arena_destroy(&l.arena)
 	l^ = {}
@@ -300,6 +304,7 @@ shader_library_add :: proc(l: ^Shader_Library, h: u64, label: string, g: ^oksl.P
 	append(&l.errors, errors)
 	append(&l.ok, ok)
 	append(&l.feedback, shader_feedback_passes(g) if ok else {})
+	append(&l.stateful, ok && shader_stateful(g))
 	l.by_hash[h] = i
 	return i
 }
@@ -319,6 +324,19 @@ shader_feedback_passes :: proc(g: ^oksl.Pass_Graph) -> (set: Pass_Set) {
 		}
 	}
 	return set
+}
+
+// Whether a pass of `g` reads a pass's last frame. A pass reading an
+// earlier pass's output of this frame only needs a buffer, not the frames
+// before.
+@(private = "file")
+shader_stateful :: proc(g: ^oksl.Pass_Graph) -> bool {
+	for e in g.edges {
+		if e.source == .Previous {
+			return true
+		}
+	}
+	return false
 }
 
 // The index of the pass named `name`, or -1.

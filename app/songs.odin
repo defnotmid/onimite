@@ -9,6 +9,7 @@ import ocheck "deps:odawg/check"
 import orender "deps:odawg/render"
 import odevice "deps:odawg/device"
 import otheory "deps:odawg/theory"
+import osong "deps:odawg/song"
 
 // Songs as the commands list them (`timeline`, `show song/NAME`): their
 // form and tracks on the video clock, from odawg's composed tables.
@@ -79,7 +80,7 @@ timeline_song :: proc(sc: ^om.Song_Clip, at: string) -> Timeline_Song {
 	}
 	tracks := make([]Timeline_Song_Track, len(g.tracks), context.temp_allocator)
 	for tr, i in g.tracks {
-		tracks[i] = {fmt.tprintf("%s/%s", sc.name, g.parts[tr.part]), tr.variant, g.labels[tr.instrument], int(tr.notes.count), tr.gain_db}
+		tracks[i] = {fmt.tprintf("%s/%s", sc.name, g.parts[tr.part]), tr.variant, g.labels[tr.instrument], osong.track_note_count(g, i), tr.gain_db}
 	}
 	t.sections, t.markers, t.tracks = sections, markers, tracks
 	return t

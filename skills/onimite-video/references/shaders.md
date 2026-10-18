@@ -124,7 +124,8 @@ shader(f, { x = 0, y = 0, w = 1280, h = 720,
   at the box's on-screen pixel size, unless a pass reads it: then its buffer is drawn.
 - Seeking is exact in every dialect (`frame 300` runs the feedback passes for frames 0..299
   first; the preview keeps checkpoints), so keep effects a function of iFrame/iTime, not of
-  wall time.
+  wall time. Only a program where some pass reads a last frame pays that: passes that only
+  read earlier passes' output of this frame draw each frame alone.
 - Uniform values go to every pass that declares them; inputs go in the passes (`uniforms`
   naming an input warns `shader_pass_input`). Errors name the pass: `shader trail.sksl:
   blur:3:9: ...`, `Common:2:1` for the common source; an input naming a pass the program

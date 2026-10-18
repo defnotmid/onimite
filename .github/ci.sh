@@ -86,11 +86,19 @@ songs)
 	# part's notes, its first notes, its level by more than 1 LU) fails
 	# here, naming the part. After a change you mean, write the table
 	# again: onimite audio parts examples/X/video.lua --json > examples/X/parts.json
+	# An example whose script makes a song and has no table fails too, so
+	# none goes unchecked.
 	fail=0
-	for table in examples/*/parts.json; do
-		dir=$(dirname "$table")
+	for script in examples/*/video.lua; do
+		dir=$(dirname "$script")
+		table="$dir/parts.json"
 		echo "::group::$dir"
-		"build/onimite$exe" audio parts "$dir/video.lua" --against "$table" || fail=1
+		if [ -f "$table" ]; then
+			"build/onimite$exe" audio parts "$script" --against "$table" || fail=1
+		elif "build/onimite$exe" audio parts "$script" --json | grep -q '"name"'; then
+			echo "$dir makes songs and has no parts.json: onimite audio parts $script --json > $table"
+			fail=1
+		fi
 		echo "::endgroup::"
 	done
 	exit $fail

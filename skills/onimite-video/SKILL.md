@@ -148,7 +148,7 @@ The examples in the onimite repository are working patterns to read and borrow f
 | example | shows |
 | --- | --- |
 | `examples/onimite_saga` | a 2 min film laid out for agents: a manifest, one file per scene on its section, a song whose sections follow the scenes with tempo ramps (`music/score.lua`), its parts in their own files, `sound{}` effects; its README shows how to find and change any part |
-| `examples/disco` | a song from a JSON5 file on a style of its own (`media/styles/french_disco.json`) whose instruments are other people's CC0 libraries fetched by URL and pinned; buses (a pump keyed by the kick, a dark filter); a picture that reads the song (spectrum floor, kick pulse, a scene per section) |
+| `examples/disco` | a song from a JSON5 file on a style of its own (`media/styles/french_disco.json`) whose instruments are other people's CC0 libraries fetched by URL and pinned; buses (a pump keyed by the kick, a dark filter); a picture that reads the song: a ray-traced club in shader `passes` (a mirror ball throwing flecks, haze traced at half resolution in a scaled shader fed in as an input, a spectrum floor), a scene per section |
 | `examples/why_onimite` | 50 s beat-synced promo: BPM clock (`beat_clock` in `beat.lua`), quick cuts as a `series`, one timeline of beats for picture and sound (`timeline.lua`), sections as sync points (`cue()` and each scene's `cue`), soundtrack composed with `song{}` (`track.lua`) and read back for the cuts (`score.time`, `score.hits`), glitch cuts, shader title, spectrum outro |
 | `examples/suite` | one composition per frame: an SkSL world warping a `uniform shader` group child, an SVG animated by id, ProRes 4444 and VP9-alpha clips in masked portals, a WebP skyline, spectrum-driven uniforms |
 | `examples/data_story` | 30 s explainer drawn from `props` (one video per `--batch` row): springy bar chart with `stagger`, a line drawn on, a donut, counters, `mix_color`, scene transitions |
@@ -475,7 +475,8 @@ Without assets, compose the music with `song{}` (odawg: sections with `bpm`, `st
 `energy`, `chords`; parts, each on an instrument row: Tone.js's synths built in, and in this
 skill's `library/` folder (copy it into `media/`) drums, basses, pads, sound effects, a
 TB-303, the TR-808/909 from their circuits and seven styles, all data to change; sampled
-pianos, strings, bass and a drum kit (CC0, downloaded on first use); `references/audio.md`,
+pianos, strings, bass and a drum kit (CC0, downloaded on first use); any `.sfz` file as
+an instrument (`instrument = "lib/piano.sfz"`); `references/audio.md`,
 "Songs and sounds" and "Instruments") and place it
 like a clip (`{ "score", bus = "music", ducked = true }`); its sections are cues, and its
 notes drive the picture (`score.time("drop@1m")`, `score.pulse(f, { part = "drums", note =

@@ -121,7 +121,8 @@ song_parts :: proc(x: script.Script_Song) -> Song_Parts {
 		if pm.peaks[i] > 0 {
 			row.peak_db = math.round(obase.gain_to_db(f64(pm.peaks[i])) * 10) / 10
 		}
-		// its notes in time order, named as odawg names them
+		// its played notes in time order (not the ones made at compose: a
+		// release trigger's, a keyswitch), named as odawg names them
 		Timed :: struct {
 			time: f64,
 			name: string,
@@ -133,6 +134,9 @@ song_parts :: proc(x: script.Script_Song) -> Song_Parts {
 			}
 			for k in tr.notes.first ..< tr.notes.first + tr.notes.count {
 				nt := g.notes[k]
+				if nt.kind != .Attack {
+					continue
+				}
 				append(&notes, Timed{nt.time, om.note_name(g, nt.pad, nt.pitch)})
 			}
 		}

@@ -1,0 +1,17 @@
+// The haze, softened: its steps are jittered per pixel, so it is noise at
+// its own (half) resolution; a tent of taps over it reads as air.
+
+uniform shader uAir;
+
+half4 main(float2 coord) {
+  float3 c = float3(0.0);
+  float w = 0.0;
+  for (int y = -2; y <= 2; y++) {
+    for (int x = -2; x <= 2; x++) {
+      float k = (3.0 - abs(float(x))) * (3.0 - abs(float(y)));
+      c += float3(uAir.eval(coord + float2(float(x), float(y))).rgb) * k;
+      w += k;
+    }
+  }
+  return half4(half3(c / w), 1.0);
+}

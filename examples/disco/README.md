@@ -3,8 +3,10 @@
 An 80-second French disco house track on a style that isn't one of odawg's. The style brings
 its own band, and every recorded instrument in it is someone else's library: fetched from
 where its authors publish it, pinned by SHA-256, and only the samples the song's notes reach.
-The video reads the song: a scene per section, a dance floor whose tiles are the spectrum, a
-mirror ball that swells on the real kicks.
+The video reads the song over one ray-traced club: a mirror ball of tilted facets that throws
+flecks of three spotlights across the walls and the floor and sparkles on the hats, beams in
+the haze, a light-up floor whose columns are the spectrum, more spots as the song lifts and a
+strobe on the drop's kicks.
 
 ```sh
 onimite preview examples/disco/video.lua
@@ -20,7 +22,10 @@ the user data folder), verified against the pins; after that it renders offline.
 
 | file | what it holds |
 | --- | --- |
-| `video.lua` | the video: the song loaded from `media/song.json`, the floor, the ball, the words per section |
+| `video.lua` | the video: the song loaded from `media/song.json`, what the club reads of it (pulses, spectrum, energy, the spots' colours), the words per section |
+| `shaders/common.sksl` | the club, shared by its passes: the room, the ball's facets, the flecks, the floor, the haze |
+| `shaders/haze.sksl`, `soft.sksl` | the light in the air, traced at half resolution and softened |
+| `shaders/room.sksl`, `glow.sksl` | the surfaces and the ball with the haze over them; the lens (bloom, stars, tone mapping) |
 | `media/song.json` | the song (JSON5): its form (intro, groove, lift, break, drop, outro at 122 BPM in D minor), harmony and buses; odawg's CLI renders the same file |
 | `media/styles/french_disco.json` | the style: its sources, its percussion set, its parts by energy |
 | `media/styles/french_disco/*.sfz` | mappings over VSCO 2 CE's raw WAVs (VSCO's names run an octave low: A3 sounds A4) |

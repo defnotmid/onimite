@@ -29,9 +29,9 @@
     "strings": { "to": "pump" },
     // the chops before the band comes in, through the dark filter
     "guitar_dark": {
-      "instrument": { "name": "Sampler", "set": "emily/emily_clean.sfz", "release": 0.05 },
+      "instrument": { "name": "emily/emily_clean.sfz", "ampeg_release": 0.05 },
       "to": "dark",
-      "gain_db": -1,
+      "gain_db": -4.7,
       "pan": -0.35,
       "play": [
         { "range": "intro", "octave": 4, "humanize": 0.006, "chords": { "rhythm": "..x..x.x..x..x.x", "voicing": "close" }, "duration": "32n", "velocity": 0.75 },

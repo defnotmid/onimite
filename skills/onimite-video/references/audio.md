@@ -242,7 +242,7 @@ local score = song { "score", bpm = 120, key = "C major",
   parts = {
     drums  = { instrument = { "Sampler", set = "kit" } },
     piano  = { instrument = { "Sampler", set = "keys", release = 0.6 } },
-    rhodes = { instrument = { "Sampler", set = "rhodes/rhodes.sfz" } },   -- an SFZ instrument
+    rhodes = { instrument = { "rhodes/rhodes.sfz", ampeg_release = 0.4 } },   -- an SFZ instrument
   },
 }
 video { ..., audio = { { score, start = 0 } } }                -- a song or its name
@@ -253,10 +253,18 @@ video { ..., audio = { { score, start = 0 } } }                -- a song or its 
   halfway to the next root above and below. Zones also take `gain_db`, `one_shot`, `offset`
   (frames into the file), velocity ranges; zones on the same keys and velocities take turns
   (round robins).
-- **SFZ**: `set = "path/to/file.sfz"` reads its regions (`sample`, `key`, `lokey`, `hikey`,
-  `pitch_keycenter`, `lovel`, `hivel`, `volume`, `tune`, `offset`, loops, `seq_position`;
-  `<global>`/`<group>` inheritance, `default_path`). Other opcodes are an
-  `unsupported_opcode` info finding; the rest plays.
+- **SFZ**: an `.sfz` file is an instrument of its own: `instrument = "lib/piano.sfz"`, or
+  `{ "lib/piano.sfz", ampeg_release = 0.4, cc64 = 127 }`. Its regions play as SFZ has them
+  (key, velocity, random and sequence conditions, release triggers, keyswitches, groups and
+  `off_by`, envelopes, filters, LFOs, velocity curves, `#define`/`#include`). Any opcode
+  written on the row sets it for every region. CCs sit at a value: the row's (`cc64 = 127`,
+  or by its `label_ccN` name), else the file's `set_ccN`, else SFZ's defaults (CC 7 at 100,
+  CC 11 at 127). An opcode odawg doesn't play is an `unsupported_opcode` finding (a warning
+  when it changes the sound), one not in the SFZ reference `unknown_opcode`, and a file no
+  region of plays at its CCs `sfz_silent`. `{ "Sampler", set = "lib/piano.sfz", attack,
+  release }` still plays, with an `sfz_instrument` info finding naming the form above. The
+  notes an SFZ makes itself (release triggers, keyswitches) aren't in `score.hits`,
+  `score.events` or `audio parts`.
 - **Style files**: `style = "styles/mine.json"` (a name with a `/` or ending `.json`), the
   same shape as a song's own `styles = { name = { parts, returns, swing } }`. A style's
   parts may name the song's sets.
@@ -267,7 +275,7 @@ video { ..., audio = { { score, start = 0 } } }                -- a song or its 
   licence asks (`credit`).
 - **Sources** (someone else's library by URL): a song or a style declares
   `sources = { lib = { url = "https://...", page, licence = "CC0-1.0", credit, pins = "lib.pins" } }`
-  and names its files under the source (`set = "lib/piano.sfz"`, `pads = { kick = "lib/kick.wav" }`).
+  and names its files under the source (`instrument = "lib/piano.sfz"`, `pads = { kick = "lib/kick.wav" }`).
   A file is fetched over https the first time a note reaches it, into odawg's data folder, and
   checked against the pins (`sha256 size path` lines). An unpinned file plays silent
   (`not_pinned`): `onimite audio pin video.lua` fetches what the songs play and adds the new

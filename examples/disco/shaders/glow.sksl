@@ -1,0 +1,36 @@
+// The room through a lens: the brightest light (the glints, the flecks)
+// spreads into a soft bloom and four-point stars, then the light is tone
+// mapped to the screen.
+
+uniform shader uRoom;
+
+float3 bright(float2 p) {
+  float3 c = float3(uRoom.eval(p).rgb);
+  float m = max(c.r, max(c.g, c.b));
+  return c * smoothstep(2.0, 8.0, m);
+}
+
+half4 main(float2 coord) {
+  float3 base = float3(uRoom.eval(coord).rgb);
+  float3 star = float3(0.0);
+  float3 bloom = float3(0.0);
+  // the stars: thin streaks on the diagonals, decaying
+  for (int i = 1; i <= 12; i++) {
+    float d = float(i) * 2.0;
+    float w = exp(-float(i) * 0.25);
+    star += (bright(coord + float2(d, d)) + bright(coord - float2(d, d)) +
+             bright(coord + float2(d, -d)) + bright(coord - float2(d, -d))) * w;
+  }
+  // the bloom: a wide ring of taps
+  for (int k = 0; k < 8; k++) {
+    float a = float(k) * 0.7854 + 0.39;
+    float2 o = float2(cos(a), sin(a));
+    bloom += bright(coord + o * 6.0) * 0.5 + bright(coord + o * 16.0) * 0.3 + bright(coord + o * 34.0) * 0.2;
+  }
+  float3 c = base + star * 0.09 + bloom * 0.1;
+  // ACES-ish tone map
+  c = (c * (2.51 * c + 0.03)) / (c * (2.43 * c + 0.59) + 0.14);
+  float2 uv = coord / iResolution.xy - 0.5;
+  c *= 1.0 - 0.35 * dot(uv, uv);
+  return half4(half3(clamp(c, 0.0, 1.0)), 1.0);
+}

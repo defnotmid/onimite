@@ -14,6 +14,7 @@ import script "../script"
 import "../speech"
 import odevice "deps:odawg/device"
 import ospec "deps:odawg/spec"
+import osong "deps:odawg/song"
 
 // `onimite show video.lua [path]`: any part of the video looked at the same
 // way, like a debugger's watch window: a summary, its fields (read from the
@@ -630,9 +631,9 @@ show_song :: proc(sh: ^Show, rest: string) -> Error {
 		}
 		for part in g.parts {
 			n := 0
-			for tr in g.tracks {
+			for tr, i in g.tracks {
 				if g.parts[tr.part] == part {
-					n += int(tr.notes.count)
+					n += osong.track_note_count(g, i)
 				}
 			}
 			child(sh, fmt.tprintf("song/%s/parts/%s", name, part), .Part, fmt.tprintf("%d notes", n))
@@ -658,14 +659,17 @@ show_song :: proc(sh: ^Show, rest: string) -> Error {
 		return fail(sh.app, {code = .No_Path, name = fmt.tprintf("song/%s/sections/%s", name, item), names = {fmt.tprintf("song/%s", name)}})
 	case "parts":
 		found := false
-		for tr in g.tracks {
+		for tr, t in g.tracks {
 			if g.parts[tr.part] != item {
 				continue
 			}
 			found = true
-			child(sh, fmt.tprintf("song/%s/parts/%s", name, item), .Part, fmt.tprintf("%s  %s  %d notes  %+.1f dB  pan %.2f", tr.variant, g.labels[tr.instrument], tr.notes.count, tr.gain_db, tr.pan))
+			child(sh, fmt.tprintf("song/%s/parts/%s", name, item), .Part, fmt.tprintf("%s  %s  %d notes  %+.1f dB  pan %.2f", tr.variant, g.labels[tr.instrument], osong.track_note_count(g, t), tr.gain_db, tr.pan))
 			for i in tr.notes.first ..< tr.notes.first + tr.notes.count {
 				n := g.notes[i]
+				if n.kind != .Attack {
+					continue // made at compose (a release trigger's, a keyswitch)
+				}
 				append(&sh.children, Show_Child{fmt.tprintf("%.3fs", g.start + n.time), "note", fmt.tprintf("beat %.2f  %-6s %.3fs  vel %.2f", n.beat, om.note_name(g, n.pad, n.pitch), n.duration, n.velocity)})
 			}
 		}

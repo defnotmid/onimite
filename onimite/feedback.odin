@@ -165,13 +165,13 @@ feedback_destroy :: proc(fb: ^Feedback, c: ^vg.Canvas) {
 	fb^ = {}
 }
 
-// Whether frame `index` has shaders with feedback passes (built on `r`,
-// nothing drawn; what building reported is dropped).
+// Whether frame `index` has shaders whose passes read a last frame (built
+// on `r`, nothing drawn; what building reported is dropped).
 frame_has_feedback :: proc(r: ^Renderer, index: int) -> bool {
 	build_frame(r, index)
 	diagnostics_clear(&r.ctx)
 	for node in r.ctx.tree.nodes {
-		if n, is_shader := node.kind.(Shader); is_shader && r.ctx.shaders.feedback[n.program] != {} {
+		if n, is_shader := node.kind.(Shader); is_shader && r.ctx.shaders.stateful[n.program] {
 			return true
 		}
 	}
@@ -216,7 +216,9 @@ feedback_passes :: proc(r: ^Renderer, n: Shader, g: ^oksl.Pass_Graph, sim: bool)
 		shader_run_pass(r, n, g, pi, prog, outputs.this[pi], outputs, f32(bw) / n.w, f32(bh) / n.h) or_return
 	}
 	fb.frame[i] = frame
-	checkpoint_capture(r, i, frame)
+	if r.ctx.shaders.stateful[n.program] {
+		checkpoint_capture(r, i, frame)
+	}
 	return outputs, true
 }
 
@@ -376,7 +378,7 @@ feedback_catch_up :: proc(r: ^Renderer, index: int, rec: ^Frame_Record = nil) {
 	start := index
 	for node in r.ctx.tree.nodes {
 		n, is_shader := node.kind.(Shader)
-		if !is_shader || lib.feedback[n.program] == {} || n.frame <= 0 {
+		if !is_shader || !lib.stateful[n.program] || n.frame <= 0 {
 			continue
 		}
 		i := -1

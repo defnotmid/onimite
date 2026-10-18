@@ -1,0 +1,15 @@
+// The light in the air along each eye ray, to the first thing it meets.
+// Noisy (the steps are jittered per pixel), and at half the room's
+// resolution: `soft` softens it.
+
+half4 main(float2 coord) {
+  float3 rd = eyeRay(coord);
+  float3 nrm;
+  int what;
+  float far = hitRoom(EYE, rd, nrm, what);
+  float tb = ballHit(EYE, rd);
+  if (tb > 0.0) {
+    far = min(far, tb);
+  }
+  return half4(half3(haze(EYE, rd, far, hash(coord + fract(uBeat)))), 1.0);
+}

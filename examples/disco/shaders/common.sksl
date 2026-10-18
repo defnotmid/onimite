@@ -1,0 +1,288 @@
+// The club, ray traced per pixel (the code every pass of it shares): a
+// mirror ball of flat facets hung in a hazy room, spotlights on it, every
+// facet throwing its own fleck of light across the walls and the floor
+// (and a beam of it through the haze), and a light-up floor whose columns
+// are the spectrum. The passes: `haze` (the light in the air), `room`
+// (the surfaces and the ball, the haze softened over them), `glow` (the
+// lens: bloom, stars, tone mapping). Linear light until `glow`.
+
+uniform float3 iResolution;
+uniform float uSpin;        // the ball's turn, radians
+uniform float uKick;        // 0..1, the kick's pulse
+uniform float uHat;         // 0..1, the hats' pulse
+uniform float uEnergy;      // the section's energy, eased
+uniform float uBeat;        // beats since the song began
+uniform float uLevels[16];  // the spectrum, low in the middle, 0..1
+uniform half4 uCol1;        // the three spots' colours
+uniform half4 uCol2;
+uniform half4 uCol3;
+uniform float3 uLights;     // how bright each spot is
+
+const float PI = 3.14159265;
+const float3 BALL = float3(0.0, 4.6, -6.0);
+const float RADIUS = 1.05;
+const float ROWS = 24.0;   // facet rows pole to pole
+const float CAP = 0.95;    // past this the poles are caps, not mirrors
+const float TILE = 1.25;   // a floor tile, metres
+const float3 EYE = float3(0.0, 1.9, 5.5);
+const float3 AT = float3(0.0, 3.2, -6.0);
+const float3 ROOM = float3(9.5, 8.0, -15.0); // half width, height, back wall
+
+float hash(float2 p) {
+  p = fract(p * float2(123.34, 456.21));
+  p += dot(p, p + 45.32);
+  return fract(p.x * p.y);
+}
+
+float3 turn(float3 p, float a) {
+  float c = cos(a);
+  float s = sin(a);
+  return float3(c * p.x + s * p.z, p.y, -s * p.x + c * p.z);
+}
+
+// The facet a direction from the centre falls on (in the ball's own
+// frame): its normal (a little crooked, as real ones are), its id, and how
+// far in from its edge (0..0.5).
+float3 facet(float3 n, out float2 id, out float edge) {
+  float lat = asin(clamp(n.y, -1.0, 1.0));
+  float step = PI / ROWS;
+  float row = floor((lat + 0.5 * PI) / step);
+  float lc = (row + 0.5) * step - 0.5 * PI;
+  float cols = max(4.0, floor(2.0 * ROWS * cos(lc) + 0.5));
+  float lon = atan(n.z, n.x);
+  float across = 2.0 * PI / cols;
+  float col = floor((lon + PI) / across);
+  float oc = (col + 0.5) * across - PI;
+  float fy = fract((lat + 0.5 * PI) / step);
+  float fx = fract((lon + PI) / across);
+  edge = min(min(fy, 1.0 - fy), min(fx, 1.0 - fx));
+  id = float2(row, col);
+  float tilt = 0.022;
+  lc += (hash(id) - 0.5) * tilt;
+  oc += (hash(id + 17.0) - 0.5) * tilt;
+  return float3(cos(lc) * cos(oc), sin(lc), cos(lc) * sin(oc));
+}
+
+// The light that light `l` (at `lp`) throws through the facets toward
+// point `p`: a facet sends it one way only, so `p` is lit when the facet
+// whose mirror angle points there sends it exactly there.
+float fleck(float3 p, float3 lp, float size) {
+  float3 l = normalize(lp - BALL);
+  float3 d = normalize(p - BALL);
+  float3 h = l + d;
+  if (dot(h, h) < 1e-4) {
+    return 0.0;
+  }
+  float2 id;
+  float edge;
+  float3 nb = facet(turn(normalize(h), -uSpin), id, edge);
+  if (abs(nb.y) > CAP) {
+    return 0.0;
+  }
+  float3 n = turn(nb, uSpin);
+  if (dot(n, l) <= 0.0) {
+    return 0.0;
+  }
+  float3 from = BALL + n * RADIUS;
+  float3 r = reflect(-normalize(lp - from), n);
+  float a = 1.0 - dot(r, normalize(p - from));
+  // a facet the light grazes catches little of it
+  return smoothstep(size, size * 0.55, a) * smoothstep(0.05, 0.45, dot(n, l));
+}
+
+float3 spot(int i) {
+  if (i == 0) {
+    return float3(-6.0, 7.6, 1.5);
+  }
+  if (i == 1) {
+    return float3(6.5, 7.4, 0.5);
+  }
+  return float3(0.0, 7.8, -13.5);
+}
+
+float3 spotColour(int i) {
+  if (i == 0) {
+    return float3(uCol1.rgb) * uLights.x;
+  }
+  if (i == 1) {
+    return float3(uCol2.rgb) * uLights.y;
+  }
+  return float3(uCol3.rgb) * uLights.z;
+}
+
+// Every spot's flecks at `p` on a surface facing `nrm`.
+float3 flecks(float3 p, float3 nrm) {
+  float3 c = float3(0.0);
+  float3 d = normalize(p - BALL);
+  float fall = 14.0 / (6.0 + dot(p - BALL, p - BALL));
+  float facing = max(dot(nrm, -d), 0.0);
+  for (int i = 0; i < 3; i++) {
+    c += spotColour(i) * fleck(p, spot(i), 0.00016);
+  }
+  return c * fall * (0.35 + 0.65 * facing) * 2.6;
+}
+
+float level(float column) {
+  int i = int(clamp(column + 8.0, 0.0, 15.0));
+  return uLevels[i];
+}
+
+float3 neon(float k) {
+  int i = int(mod(k, 5.0));
+  if (i == 0) {
+    return float3(0.96, 0.27, 0.71);
+  }
+  if (i == 1) {
+    return float3(0.98, 0.45, 0.13);
+  }
+  if (i == 2) {
+    return float3(0.98, 0.80, 0.08);
+  }
+  if (i == 3) {
+    return float3(0.55, 0.40, 0.98);
+  }
+  return float3(0.08, 0.80, 0.93);
+}
+
+// The floor: glass tiles lit from below. A column is a band of the
+// spectrum, lit from the back wall forward as far as the band is loud.
+float3 floorAt(float3 p) {
+  float2 cell = floor(p.xz / TILE);
+  float2 in_ = fract(p.xz / TILE);
+  float lv = level(cell.x);
+  float rows = (p.z - ROOM.z) / TILE;           // rows from the back wall
+  float reach = lv * 11.0;
+  float lit = smoothstep(reach + 0.5, reach - 0.5, floor(rows));
+  float chase = 0.5 + 0.5 * cos((cell.x + cell.y - uBeat) * PI * 0.5);
+  float glow = lit * (0.55 + 0.45 * lv) + 0.05 + 0.12 * uKick * chase * uEnergy;
+  float2 e = min(in_, 1.0 - in_);
+  float inner = smoothstep(0.02, 0.09, min(e.x, e.y));
+  float bulb = 1.0 - 0.55 * length(in_ - 0.5);
+  float3 col = neon(cell.x + 8.0) * glow * bulb * inner * 2.2;
+  return col + float3(0.012, 0.008, 0.02) * inner;
+}
+
+float3 wallAt(float3 p, float3 nrm) {
+  float h = clamp(p.y / ROOM.y, 0.0, 1.0);
+  float3 base = mix(float3(0.035, 0.012, 0.06), float3(0.012, 0.006, 0.025), h);
+  // the floor's spill up the walls
+  float spill = exp(-p.y * 0.9) * 0.6;
+  float3 under = neon(floor(p.x / TILE) + 8.0) * spill * (0.3 + level(floor(p.x / TILE)));
+  return base + under * 0.25;
+}
+
+// What the ball's mirrors show in direction `r` from `p`: the spots (a
+// facet aimed just right shows one as a point of light at its middle,
+// `centre` being how near that is), the lit floor below, the dark room
+// above.
+float3 mirror(float3 p, float3 r, float2 id, float centre) {
+  float3 c = float3(0.0);
+  for (int i = 0; i < 3; i++) {
+    float3 l = normalize(spot(i) - p);
+    float k = max(dot(r, l), 0.0);
+    c += spotColour(i) * (pow(k, 250.0) * 60.0 * centre + pow(k, 60.0) * 0.5 + pow(k, 6.0) * 0.08);
+  }
+  c += float3(0.07, 0.065, 0.085);
+  if (r.y < 0.0) {
+    float t = -p.y / r.y;
+    float3 q = p + r * t;
+    c += floorAt(q) * 0.45;
+  } else {
+    c += float3(0.03, 0.012, 0.05) * (1.0 - r.y);
+  }
+  // a facet now and then flashes white on the hats
+  float twinkle = step(0.965, hash(id + floor(uBeat * 4.0)));
+  c += float3(1.0, 0.95, 1.0) * twinkle * uHat * (0.5 + 30.0 * centre);
+  return c;
+}
+
+float ballHit(float3 ro, float3 rd) {
+  float3 oc = ro - BALL;
+  float b = dot(oc, rd);
+  float c = dot(oc, oc) - RADIUS * RADIUS;
+  float h = b * b - c;
+  if (h < 0.0) {
+    return -1.0;
+  }
+  return -b - sqrt(h);
+}
+
+// The eye's ray through pixel `coord`.
+float3 eyeRay(float2 coord) {
+  float2 uv = (coord - 0.5 * iResolution.xy) / iResolution.y;
+  uv.y = -uv.y;
+  float3 fw = normalize(AT - EYE);
+  float3 rt = normalize(cross(fw, float3(0.0, 1.0, 0.0)));
+  float3 up = cross(rt, fw);
+  return normalize(fw * 1.45 + rt * uv.x + up * uv.y);
+}
+
+// How far the eye's ray goes to the room's surfaces (floor, ceiling, back
+// and side walls), the surface's normal, and which it is (0 floor, 1 wall,
+// 2 ceiling).
+float hitRoom(float3 ro, float3 rd, out float3 nrm, out int what) {
+  float far = 1e4;
+  nrm = float3(0.0, 1.0, 0.0);
+  what = 0;
+  if (rd.y < 0.0) {
+    far = -ro.y / rd.y;
+  }
+  if (rd.y > 0.0) {
+    float t = (ROOM.y - ro.y) / rd.y;
+    if (t < far) {
+      far = t;
+      nrm = float3(0.0, -1.0, 0.0);
+      what = 2;
+    }
+  }
+  if (rd.z < 0.0) {
+    float t = (ROOM.z - ro.z) / rd.z;
+    if (t < far) {
+      far = t;
+      nrm = float3(0.0, 0.0, 1.0);
+      what = 1;
+    }
+  }
+  if (rd.x != 0.0) {
+    float wx = rd.x > 0.0 ? ROOM.x : -ROOM.x;
+    float t = (wx - ro.x) / rd.x;
+    if (t < far) {
+      far = t;
+      nrm = float3(-sign(rd.x), 0.0, 0.0);
+      what = 1;
+    }
+  }
+  return far;
+}
+
+// The haze: each spot's cone onto the ball, and the beams the facets
+// send out, summed along the eye's ray up to `far`.
+float3 haze(float3 ro, float3 rd, float far, float jitter) {
+  float3 c = float3(0.0);
+  const int STEPS = 28;
+  float span = min(far, 26.0);
+  float dt = span / float(STEPS);
+  for (int s = 0; s < STEPS; s++) {
+    float t = (float(s) + jitter) * dt;
+    float3 q = ro + rd * t;
+    float density = 0.018 + 0.03 * uEnergy;
+    for (int i = 0; i < 3; i++) {
+      float3 lp = spot(i);
+      float3 axis = normalize(BALL - lp);
+      float along = dot(q - lp, axis);
+      float len = length(BALL - lp);
+      if (along > 0.0 && along < len) {
+        float3 side = q - lp - axis * along;
+        float wide = RADIUS * 1.35 * along / len;
+        float cone = smoothstep(wide, wide * 0.4, length(side));
+        c += spotColour(i) * cone * density * 0.9;
+      }
+      float r2 = dot(q - BALL, q - BALL);
+      if (r2 > RADIUS * RADIUS * 2.5) {
+        c += spotColour(i) * fleck(q, lp, 0.0012) * density * 9.0 / (2.0 + r2);
+      }
+    }
+  }
+  return c * dt;
+}
+

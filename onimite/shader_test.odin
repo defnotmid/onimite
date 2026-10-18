@@ -256,3 +256,37 @@ test_shader_multipass :: proc(t: ^testing.T) {
 	}
 }
 
+
+@(private = "file")
+render_chain_scene :: proc(f: Frame, ctx: ^Context) {
+	// Two passes, the second reading the first's output of this frame:
+	// buffers, but no state across frames.
+	passes := []Shader_Pass {
+		{name = "Buffer A", profile = .Shadertoy, source = "void mainImage(out vec4 o, in vec2 c) { o = vec4(fract(iTime), 0.0, 0.0, 1.0); }"},
+		{
+			name = "Image",
+			profile = .Shadertoy,
+			source = "void mainImage(out vec4 o, in vec2 c) { o = texture(iChannel0, c / iResolution.xy); }",
+			inputs = {{index = 0, pass = "Buffer A"}},
+		},
+	}
+	shader(ctx, f, {passes = passes, x = 0, y = 0, w = 16, h = 8})
+}
+
+@(test)
+test_shader_chain_is_not_feedback :: proc(t: ^testing.T) {
+	@(static) scenes: [1]Scene
+	scenes = [1]Scene{{name = "Only", duration = Frames(40), render = render_chain_scene}}
+	v := Video{width = 16, height = 8, fps = 30, background = BLACK, scenes = scenes[:]}
+	media: Media
+	media_init(&media)
+	defer media_destroy(&media)
+	r: Renderer
+	testing.expect_value(t, renderer_init(&r, &v, &media), Error.None)
+	defer renderer_destroy(&r)
+	// a seek draws the frame alone: no frames before it are run
+	testing.expect(t, !frame_has_feedback(&r, 15))
+	px := render_frame(&r, 15)
+	testing.expectf(t, px[0] >= 126 && px[0] <= 129, "red %d, iTime 0.5 is 127.5", px[0]) // the first pass's, this frame
+	testing.expectf(t, len(r.ctx.diagnostics) == 0, "diagnostics: %v", r.ctx.diagnostics[:])
+}

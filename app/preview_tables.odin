@@ -612,8 +612,11 @@ TIMELINE_KINDS := [Timeline_Kind]proc(x: ^Timeline_Build, parent: int, ref: Time
 			if int(tr.part) != ref.part {
 				continue
 			}
-			notes += int(tr.notes.count)
 			for i in tr.notes.first ..< tr.notes.first + tr.notes.count {
+				if s.notes.kind[i] != .Attack {
+					continue // made at compose (a release trigger's, a keyswitch)
+				}
+				notes += 1
 				if pad := s.notes.pad[i]; pad != 0 {
 					if !slice.contains(pads[:], pad) {
 						append(&pads, pad)
@@ -771,7 +774,7 @@ part_notes :: proc(x: ^Timeline_Build, it: int, ref: Timeline_Ref) {
 			}
 			for i in tr.notes.first ..< tr.notes.first + tr.notes.count {
 				n := s.notes[i]
-				if n.pad != ref.pad {
+				if n.pad != ref.pad || n.kind != .Attack {
 					continue
 				}
 				a := zero + int(n.time * om.MIX_RATE)
