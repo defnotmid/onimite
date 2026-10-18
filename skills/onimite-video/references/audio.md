@@ -341,6 +341,7 @@ Track fields:
 | `voice` | marks a voice track that `ducked` tracks dip under |
 | `ducked` | `true` (fframes' `duck_under_voice`: -12 dB, 0.2 s attack before the voice, 0.3 s hold, 0.8 s release, voice gaps under 0.8 s merged) or `{ depth_db, attack, hold, release, merge_gap }` |
 | `mono` | play a stereo file as mono |
+| `effects` | a clip's effect chain, as a song part's is written: `{ { "Filter", type = "highpass", frequency = 200 }, { "Reverb", wet = 0.2 } }`; a misspelled effect or key is a load finding at the track's line (`effect_finding`); a song's or sound's effects go on its parts or its `sound{}` |
 | `cue` | the cue its first sound should land on (`inspect` checks; see Cues in api.md) |
 | `bus` | the bus it is mixed through (below) |
 

@@ -8,7 +8,7 @@ problems panel agree on a frame. With `--json`, `frame` lists each frame's `diag
 (most severe first) as `{severity, code, message, fields, first_frame, last_frame, ...,
 source}`. What the load found (`unused_field`, `missing_font`, `physics_overlap`,
 `physics_offscreen`, `physics_unsettled`, `physics3d_overlap`, `physics3d_offscreen`, `tts_unavailable`, `tts_noncommercial`,
-`tts_not_kept`, `song_finding`, `missing_track`, `missing_track_time`, `unreadable_media`, `undecodable_media`) is printed as a
+`tts_not_kept`, `song_finding`, `effect_finding`, `missing_track`, `missing_track_time`, `unreadable_media`, `undecodable_media`) is printed as a
 `warning:` line on stderr by every command, and `inspect`, `render` and the preview's panel
 list it with `frames` 0 ("at load" in the text). `render` refuses to start while the load
 found an error (`missing_track`, `missing_track_time`, `tts_unavailable`): error code `load_errors`. Only
@@ -96,6 +96,7 @@ output puts it before the message. Match on `code` and `fields`, not on the mess
 | `tts_unavailable` | error | `{where}: say {q:line} can not be spoken ({reason}): it is silent and its word times are estimates`: found at load; the line can't be synthesized (ottis's download failed, ONNX Runtime or a model didn't load, an unknown voice; `say()` is tested on Linux x86_64 and macOS Apple Silicon, untested on Windows x86_64). The script loads with the line silent; `render` refuses to start (error code `load_errors`) |
 | `tts_not_kept` | warning | `{where}: say {q:line} was spoken but could not be kept in the store ({reason}): every run speaks it again`: found at load; the line plays, but the store under the user data folder could not be written |
 | `song_finding` | as odawg rates it | `{where}: song {q:clip}: {reason}`: found at load (a misspelled key `unknown_key`, a `bad_value`, a timing that can't be met `start_unreachable` / `duration_unreachable` with each section's least length, `no_events` from `pulse`/`hits`/`events` reading nothing, a sample set that can't be fetched `asset_unavailable`) or by `inspect` rendering the song alone (`silent_part`, `clipping`, `true_peak`); the code is at the end of the reason. Errors make `render` refuse (`load_errors`) |
+| `effect_finding` | as odawg rates it | `{where}: audio track {q:clip}: {reason}`: found at load, reading a track's `effects` as the mix will (`bad_value` for an effect that isn't one, `unknown_key` for a misspelled setting); the code is at the end of the reason. Errors make `render` refuse (`load_errors`) |
 | `tts_noncommercial` | warning | `{where}: say {q:line} uses voice {q:voice}, whose recording is licensed for non-commercial use only`: `cosette` and `jean` |
 | `physics_unsettled` | warning | `{where}: physics body {q:body} is still moving at {s:time}s, the end of the simulation: later frames hold it there mid-motion (simulate longer)`: a frame samples (`physics_at`) past the end while the body still moved there |
 | `physics3d_overlap` | warning | `{where}: physics3d body {q:body} starts {r:depth} cm inside {q:with} at {s:time}s, so they fly apart (move it or give it room)`: found when `physics3d{}` simulates (at load), more than 3 cm deep at the body's first step |
