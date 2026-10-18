@@ -73,6 +73,11 @@ binary. Every source is CC0 1.0:
 | Growlybass, Karoryfer Samples | github.com/sfzinstruments/karoryfer.growlybass |
 | Virtuosity Drums, Versilian Studios and Karoryfer Samples | github.com/sfzinstruments/virtuosity_drums |
 
+`examples/disco` names four more CC0 1.0 libraries as sources, fetched the same way when it
+plays (pinned by SHA-256, never in this repository): Karoryfer Samples' Fashionbass and
+Emilyguitar (github.com/sfzinstruments), and Versilian Studios' VS Chamber Orchestra 2:
+Community Edition and VCSL (github.com/sgossner).
+
 ## Ported from
 
 - fframes (https://github.com/dmtrKovalenko/fframes): onimite ports its

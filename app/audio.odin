@@ -5,6 +5,7 @@ import "core:math"
 import "core:os"
 import "core:slice"
 import "core:strings"
+import orender "deps:odawg/render"
 import om "../onimite"
 import script "../script"
 import vg "deps:ovg"
@@ -170,6 +171,12 @@ Audio_Section :: struct {
 	end_seconds:     f64          `json:"end_seconds"`,
 	integrated_lufs: Maybe(f64)   `json:"integrated_lufs"`,
 	true_peak_dbtp:  Maybe(f64)   `json:"true_peak_dbtp"`,
+	// What the stretch is made of (put_sound): its crest, stereo width and
+	// correlation, and its level in each third octave (`band_hz`).
+	crest_db:        f64          `json:"crest_db"`,
+	width_db:        f64          `json:"width_db"`,
+	correlation:     f64          `json:"correlation"`,
+	bands_db:        []f64        `json:"bands_db"`,
 }
 
 Audio_Report_Doc :: struct {
@@ -181,9 +188,18 @@ Audio_Report_Doc :: struct {
 	true_peak_dbtp:      Maybe(f64)      `json:"true_peak_dbtp"`,
 	clipped_samples:     int             `json:"clipped_samples"`,
 	silent_ranges:       [][2]f64        `json:"silent_ranges"`,
+	crest_db:            f64              `json:"crest_db"`,
+	width_db:            f64              `json:"width_db"`,
+	correlation:     f64              `json:"correlation"`,
+	bands_db:            []f64            `json:"bands_db"`,
+	// The bands' centres (Hz), for every `bands_db`.
+	band_hz:             []f64           `json:"band_hz"`,
 	sections:            []Audio_Section `json:"sections"`,
 	// Each bus alone (its tracks as they sound in the mix).
 	buses:               []Audio_Bus     `json:"buses"`,
+	// Buses crowding each other in a band, per scene: within 6 dB of each
+	// other there, the quieter within 15 dB of the mix (odawg's rule).
+	masking:             []orender.Masking_Row `json:"masking"`,
 	loudness:            Loudness_Curve  `json:"loudness"`,
 }
 
@@ -192,6 +208,55 @@ Audio_Bus :: struct {
 	tracks:          int        `json:"tracks"`,
 	integrated_lufs: Maybe(f64) `json:"integrated_lufs"`,
 	true_peak_dbtp:  Maybe(f64) `json:"true_peak_dbtp"`,
+	crest_db:        f64          `json:"crest_db"`,
+	width_db:        f64          `json:"width_db"`,
+	correlation:     f64          `json:"correlation"`,
+	bands_db:        []f64        `json:"bands_db"`,
+}
+
+// A step of the analysis tables: 50 ms.
+ANALYSIS_STEP :: om.MIX_RATE / 20
+
+// The tables odawg measures a stretch of sound by (bands, stereo, crest),
+// a row every ANALYSIS_STEP, over interleaved stereo `mix`; temp memory.
+Analysis_Tables :: struct {
+	bands, stereo, crest: orender.Table,
+}
+
+@(private)
+analysis_tables :: proc(mix: []f32) -> (t: Analysis_Tables) {
+	n := len(mix) / 2
+	buf := make([]f32, 2 * n, context.temp_allocator)
+	l, r := buf[:n], buf[n:]
+	for i in 0 ..< n {
+		l[i], r[i] = mix[2 * i], mix[2 * i + 1]
+	}
+	a := context.temp_allocator
+	orender.table_init_frames(&t.bands, .Bands, n, ANALYSIS_STEP, 1, allocator = a)
+	orender.table_init_frames(&t.stereo, .Stereo, n, ANALYSIS_STEP, 1, allocator = a)
+	orender.table_init_frames(&t.crest, .Crest, n, ANALYSIS_STEP, 1, allocator = a)
+	orender.tables_fill(nil, {&t.bands, &t.stereo, &t.crest}, {l, r}, nil)
+	return
+}
+
+// odawg's measures of samples [a, b) of the tables' source.
+@(private)
+analysis_measures :: proc(t: ^Analysis_Tables, a, b: int, name := "") -> orender.Measures {
+	m := orender.measures_from_tables(&t.bands, &t.stereo, &t.crest, {a / ANALYSIS_STEP, (b + ANALYSIS_STEP - 1) / ANALYSIS_STEP}, context.temp_allocator)
+	m.name = name
+	return m
+}
+
+// Puts odawg's measures `m` in a report entry (a scene, a bus, the whole),
+// rounded to what a reader uses.
+@(private)
+put_sound :: proc(x: ^$T, m: orender.Measures) {
+	round :: proc(v: f64) -> f64 {return math.round(v * 10) / 10}
+	bands := make([]f64, len(m.bands_db), context.temp_allocator)
+	for v, i in m.bands_db {
+		bands[i] = round(v)
+	}
+	x.crest_db, x.width_db, x.correlation, x.bands_db = round(m.crest_db), round(m.width_db), math.round(m.correlation * 100) / 100, bands
 }
 
 // Momentary loudness (400 ms windows) every 100 ms: where the music gets
@@ -256,6 +321,14 @@ audio_analyze :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 	doc.silent_ranges = silent
 	from := om.frames_to_samples(start, fps)
 	n := len(mix) / 2
+	tables := analysis_tables(mix)
+	mix_whole := analysis_measures(&tables, 0, n)
+	put_sound(&doc, mix_whole)
+	band_hz := make([]f64, len(orender.BAND_HZ), context.temp_allocator)
+	for hz, i in orender.BAND_HZ {
+		band_hz[i] = f64(hz)
+	}
+	doc.band_hz = band_hz
 	sections := make([dynamic]Audio_Section, context.temp_allocator)
 	for s in r.timeline.scenes {
 		if s.start_frame >= end || s.end_frame <= start {
@@ -268,22 +341,44 @@ audio_analyze :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 			part := om.analyze_audio(mix[a * 2:b * 2], context.temp_allocator)
 			sec.integrated_lufs = level(part.integrated_lufs)
 			sec.true_peak_dbtp = level(part.true_peak_db)
+			put_sound(&sec, analysis_measures(&tables, a, b))
 		}
 		append(&sections, sec)
 	}
 	doc.sections = sections[:]
-	// Each bus alone: the effects against the music.
+	// Each bus alone: the effects against the music; and per scene, where
+	// buses crowd each other.
 	buses := make([dynamic]Audio_Bus, context.temp_allocator)
+	bus_tables := make([dynamic]Analysis_Tables, context.temp_allocator)
 	if regs.track == "" {
 		bus_placed := slice.clone(placed[:], context.temp_allocator)
 		for b in r.video.buses {
 			count := solo(bus_placed, b.name)
 			bm, _ := om.mix_tracks(bus_placed, om.frames_to_samples(start, fps), om.frames_to_samples(end, fps), r.video.mix, context.temp_allocator)
 			br := om.analyze_audio(bm, context.temp_allocator)
-			append(&buses, Audio_Bus{b.name, count, level(br.integrated_lufs), level(br.true_peak_db)})
+			append(&bus_tables, analysis_tables(bm))
+			bus := Audio_Bus{name = b.name, tracks = count, integrated_lufs = level(br.integrated_lufs), true_peak_dbtp = level(br.true_peak_db)}
+			put_sound(&bus, analysis_measures(&bus_tables[len(bus_tables) - 1], 0, len(bm) / 2))
+			append(&buses, bus)
 		}
 	}
 	doc.buses = buses[:]
+	masking := make([dynamic]orender.Masking_Row, context.temp_allocator)
+	if len(bus_tables) >= 2 {
+		for sec in sections {
+			a := int((sec.start_seconds - offset) * om.MIX_RATE)
+			z := int((sec.end_seconds - offset) * om.MIX_RATE)
+			if z <= a {
+				continue
+			}
+			stems := make([]orender.Measures, len(bus_tables), context.temp_allocator)
+			for &bt, i in bus_tables {
+				stems[i] = analysis_measures(&bt, a, z, buses[i].name)
+			}
+			append(&masking, ..orender.masking_from(analysis_measures(&tables, a, z), stems, sec.name, 3, context.temp_allocator))
+		}
+	}
+	doc.masking = masking[:]
 	curve := make([]Maybe(f64), len(rep.momentary_curve), context.temp_allocator)
 	for l, i in rep.momentary_curve {
 		if v, ok := level(l).?; ok {
@@ -294,7 +389,7 @@ audio_analyze :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 
 	res := Audio_Analyze_Result{report = doc, missing_files = missing_audio(app)}
 	if regs.path != "" {
-		if !write_waveform(app, r, regs.path, mix, rep, placed[:], start) {
+		if !write_waveform(app, r, regs.path, mix, rep, &tables.bands, placed[:], start) {
 			return fail(app, {code = .Write, path = regs.path})
 		}
 		res.waveform = regs.path
@@ -327,6 +422,10 @@ audio_analyze :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 	}
 	for bus in doc.buses {
 		fmt.sbprintf(&b, "\nbus %-24s %6s %s / peak %s", bus.name, fmt.tprintf("%d tracks", bus.tracks), level_text(bus.integrated_lufs, "LUFS"), level_text(bus.true_peak_dbtp, "dBTP"))
+	}
+	fmt.sbprintf(&b, "\ncrest %.1f dB, width %.1f dB, correlation %.2f", doc.crest_db, doc.width_db, doc.correlation)
+	for m in doc.masking {
+		fmt.sbprintf(&b, "\nmasking in %s: %s and %s at %.0f Hz (%.1f dB)", m.section, m.a, m.b, m.band_hz, m.overlap_db)
 	}
 	write_loudness_seconds(&b, doc.loudness)
 	if regs.path != "" {
@@ -559,15 +658,60 @@ audio_at :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 
 // ---- waveform -------------------------------------------------------------------------
 
+// Band rows (odawg's .Bands table) drawn as an image `width` x `height` at
+// `top`: the row nearest each column, a band per row of pixels, 20 Hz at
+// the bottom, dB through a dark-to-bright ramp.
+@(private = "file")
+spectrogram :: proc(c: ^vg.Canvas, p: ^vg.Path, table: ^orender.Table, width: int, top, height: f32) {
+	t := table
+	if t.rows == 0 {
+		return
+	}
+	bands := len(orender.BAND_HZ)
+	pixels := make([]u8, 4 * width * bands, context.temp_allocator)
+	for x in 0 ..< width {
+		row := orender.table_row(t, min(x * t.rows / width, t.rows - 1))
+		for b in 0 ..< bands {
+			v := clamp((row[b] + 100) / 90, 0, 1) if row != nil else 0
+			px := pixels[4 * ((bands - 1 - b) * width + x):][:4]
+			px[0], px[1], px[2], px[3] = heat(v)
+		}
+	}
+	id, err := vg.create_image(c, vg.image_source_rgba(pixels, u32(width), u32(bands)), {.Nearest})
+	if err != nil {
+		return
+	}
+	vg.path_reset(p)
+	vg.path_rect(p, 0, top, f32(width), height)
+	vg.fill_path(c, p, vg.paint_image(id, 0, top, f32(width), height, 0))
+}
+
+// A dark-to-bright ramp (black, purple, red, orange, pale yellow) at `v` in
+// 0..1: how a band level is drawn (the waveform PNG, the preview's bands).
+@(private)
+heat :: proc(v: f32) -> (u8, u8, u8, u8) {
+	STOPS :: [5][3]f32{{0, 0, 4}, {87, 16, 110}, {188, 55, 84}, {249, 142, 9}, {252, 255, 164}}
+	stops := STOPS
+	at := clamp(v, 0, 1) * 4
+	i := min(int(at), 3)
+	f := at - f32(i)
+	a, b := stops[i], stops[i + 1]
+	return u8(a[0] + (b[0] - a[0]) * f), u8(a[1] + (b[1] - a[1]) * f), u8(a[2] + (b[2] - a[2]) * f), 255
+}
+
 // fframes' waveform: min/max per column (blue), momentary loudness -60..0
 // LUFS (pink), scene starts (purple), audio cues (yellow), a time axis and a
-// legend.
+// legend; under it the spectrogram: odawg's third-octave band rows of the
+// mix (render.BAND_HZ, a row per column), 20 Hz at the bottom.
 @(private)
-write_waveform :: proc(app: ^App_State, r: ^om.Renderer, path: string, mix: []f32, rep: om.Audio_Report, placed: []om.Placed_Track, start_frame: int) -> bool {
+write_waveform :: proc(app: ^App_State, r: ^om.Renderer, path: string, mix: []f32, rep: om.Audio_Report, bands: ^orender.Table, placed: []om.Placed_Track, start_frame: int) -> bool {
 	W :: 1600
-	H :: 420
 	TOP :: 28
 	WAVE_H :: 300
+	SPEC_TOP :: TOP + WAVE_H + 24
+	BAND_H :: 6
+	SPEC_H :: len(orender.BAND_HZ) * BAND_H
+	H :: SPEC_TOP + SPEC_H + 76
 	sw: vg.Software_Backend
 	vg.software_backend_init(&sw)
 	defer vg.software_backend_destroy(&sw)
@@ -625,6 +769,16 @@ write_waveform :: proc(app: ^App_State, r: ^om.Renderer, path: string, mix: []f3
 	lp.stroke.line_width = 1.5
 	vg.stroke_path(&c, &p, lp)
 
+	spectrogram(&c, &p, bands, W, SPEC_TOP, SPEC_H)
+	// the axis at BAND_HZ's 20 Hz, 100 Hz, 1 kHz and 10 kHz
+	axis := [?]struct {
+		text: string,
+		band: int,
+	}{{"20", 0}, {"100", 7}, {"1k", 17}, {"10k", 27}}
+	for a in axis {
+		label(&c, font, &glyphs, &p, a.text, 4, f32(SPEC_TOP + SPEC_H - a.band * BAND_H - 2), 11, vg.rgb(212, 212, 216))
+	}
+
 	fps := f64(r.video.fps)
 	offset := f64(start_frame) / fps
 	for s in r.timeline.scenes {
@@ -634,6 +788,7 @@ write_waveform :: proc(app: ^App_State, r: ^om.Renderer, path: string, mix: []f3
 		}
 		vg.path_reset(&p)
 		vg.path_rect(&p, x, TOP, 1, WAVE_H)
+		vg.path_rect(&p, x, SPEC_TOP, 1, SPEC_H)
 		vg.fill_path(&c, &p, vg.paint_color(vg.rgb(167, 139, 250)))
 		label(&c, font, &glyphs, &p, s.scene.name, x + 3, TOP - 8, 13, vg.rgb(196, 181, 253))
 	}
@@ -681,7 +836,39 @@ write_waveform :: proc(app: ^App_State, r: ^om.Renderer, path: string, mix: []f3
 		label(&c, font, &glyphs, &p, fmt.tprintf("%.0fs", t + offset), x_of(t, duration) + 2, H - 12, 12, vg.rgb(161, 161, 170))
 	}
 	label(&c, font, &glyphs, &p, "waveform (blue), momentary loudness -60..0 LUFS (pink), scenes (purple), track starts (yellow), onsets (white ticks), cues (green)", 8, H - 30, 12, vg.rgb(161, 161, 170))
+	label(&c, font, &glyphs, &p, "spectrogram: third-octave bands 20 Hz..20 kHz, -100 (dark) .. -10 dBFS (bright)", 8, H - 48, 12, vg.rgb(161, 161, 170))
 	vg.flush(&c)
 	ensure_parent(path)
 	return write_png(path, sw.pixels, W, H) == nil
+}
+
+// ---- pin -------------------------------------------------------------------------------
+
+Audio_Pin_Result :: struct {
+	pins:          []om.Source_Pins `json:"pins"`,
+	missing_files: []string         `json:"missing_files"`,
+}
+
+// Fetches what the songs play from their sources and writes each source's
+// pins (om.music_pin); the songs' findings (a refused path, a licence)
+// are the load's.
+@(private)
+audio_pin :: proc(app: ^App_State, regs: Command_Regs) -> Error {
+	build_audio(app) or_return
+	pins := om.music_pin(app_media(app))
+	res := Audio_Pin_Result{pins = pins, missing_files = missing_audio(app)}
+	b := strings.builder_make(context.temp_allocator)
+	if len(pins) == 0 {
+		strings.write_string(&b, "no song names a source")
+	}
+	for p, i in pins {
+		fmt.sbprintf(&b, "%s%s: %d pinned (%d new) in %s, licence %s", "\n" if i > 0 else "", p.source, p.total, p.added, p.path, p.licence)
+	}
+	for d in load_diagnostics(&app.script, app_media(app)) {
+		if d.severity == .Error {
+			fmt.sbprintf(&b, "\nerror: %s", om.diagnostic_message(d, context.temp_allocator))
+		}
+	}
+	emit(app, res, strings.to_string(b))
+	return nil
 }

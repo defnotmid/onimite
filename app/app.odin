@@ -225,6 +225,8 @@ command_apply :: proc(app: ^App_State, row: Command_Row) -> Error {
 		return audio_at(app, regs)
 	case .Audio_Onsets:
 		return audio_onsets(app, regs)
+	case .Audio_Pin:
+		return audio_pin(app, regs)
 	case .Probe:
 		return probe_print(app, regs)
 	case .Preview:

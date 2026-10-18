@@ -39,6 +39,14 @@ read_audio :: proc(s: ^Script, L: ^lua.State, t: c.int, scene: Maybe(int)) {
 		outer := fields_push(L, e)
 		src := text_arg(L, e)
 		if src == "" {
+			// a song itself (song{} returns its object): played by its name
+			lua.rawgeti(L, e, 1)
+			if lua.istable(L, -1) {
+				src = get_str(L, lua.absindex(L, -1), "name", "")
+			}
+			lua.pop(L, 1)
+		}
+		if src == "" {
 			src = get_str(L, e, "src", "")
 		}
 		tr.src = strings.clone(src)

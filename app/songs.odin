@@ -113,6 +113,8 @@ song_check_diagnostics :: proc(s: ^script.Script, info: bool) -> []om.Diagnostic
 			continue
 		}
 		findings := make(obase.Findings, context.temp_allocator)
+		// its sample sets first: a Sampler not loaded is silent
+		om.song_clip_load(x.clip)
 		render := orender.output_from_song(&x.clip.song, {}, context.temp_allocator)
 		ocheck.findings_from_render(&x.clip.song, &render, &findings)
 		for f in findings {

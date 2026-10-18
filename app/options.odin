@@ -161,7 +161,7 @@ Audio_Render_Args :: struct {
 Audio_Analyze_Args :: struct {
 	using script_arg:     Script_Arg,
 	using range_arg:      Range_Arg,
-	waveform:             string `reg:"path" arg:"PATH" about:"a PNG of the waveform, loudness, scenes and cues"`,
+	waveform:             string `reg:"path" arg:"PATH" about:"a PNG of the waveform, loudness, spectrogram, scenes and cues"`,
 	using track_option:   Track_Option,
 	using script_options: Script_Options `shared:""`,
 }
@@ -178,6 +178,11 @@ Audio_Onsets_Args :: struct {
 	using range_arg:      Range_Arg,
 	min:                  f64 `reg:"ratio" arg:"S" about:"the weakest strength listed; 0 lists every onset" default:"0.1"`,
 	using track_option:   Track_Option,
+	using script_options: Script_Options `shared:""`,
+}
+
+Audio_Pin_Args :: struct {
+	using script_arg:     Script_Arg,
 	using script_options: Script_Options `shared:""`,
 }
 

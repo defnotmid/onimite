@@ -652,7 +652,7 @@ local tokens = json_decode(fh:read("a"))        -- JSON as Lua, like props; inva
 fh:close()
 ```
 
-`json_decode(text)` converts JSON the same way props are read (objects to tables, arrays
+`json_decode(text)` converts JSON (or JSON5: comments, unquoted keys, trailing commas) the same way props are read (objects to tables, arrays
 from 1, integers stay integers, `null` is nil): data and design-token files read at load
 (`examples/designer_handoff`). `props` is always a table: the `--props` JSON object (objects as tables, arrays from 1,
 integers as integers, `null` as nil), the `--batch` row's keys over it, then every

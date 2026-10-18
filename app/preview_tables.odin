@@ -155,6 +155,7 @@ Timeline_Kind :: enum u8 {
 	Part, // a part of a placed song: its stem where it sounds
 	Notes, // a part's pitched notes, by pitch
 	Hits, // a part's hits on one pad
+	Bands, // a song's third-octave bands over time (a spectrogram)
 }
 
 // Items are in drawing order, each item followed by its children.
@@ -164,6 +165,7 @@ Timeline_Item :: struct {
 	children: i32, // it opens when > 0
 	lane:     i32, // the lane drawn (-1: none)
 	notes:    [2]i32, // Notes, Hits: first, count into notes
+	bands:    [2]i32, // Bands: first, count into band_spans
 	// As `onimite show` names it ("bus/sfx", "track/12"), what it says.
 	path:     Text_Span,
 	label:    Text_Span,
@@ -190,7 +192,17 @@ Wave_Table :: struct {
 	items:   [dynamic]Timeline_Item,
 	notes:   [dynamic]Timeline_Note,
 	cues:    [dynamic]Timeline_Cue,
+	// Where each Bands item's source plays: its placements on the video.
+	band_spans: [dynamic]Band_Span,
 	text:    [dynamic]u8,
+}
+
+// A placement of a band source (a song's mix): [start, end) on the video
+// (mix samples), `zero` the video sample of the song's sample 0.
+Band_Span :: struct {
+	source:     i32, // into the worker's band sources, and the published textures
+	start, end: int,
+	zero:       int,
 }
 
 wave_table_destroy :: proc(t: ^Wave_Table) {
@@ -201,6 +213,7 @@ wave_table_destroy :: proc(t: ^Wave_Table) {
 	delete(t.items)
 	delete(t.notes)
 	delete(t.cues)
+	delete(t.band_spans)
 	delete(t.text)
 }
 
@@ -212,6 +225,7 @@ wave_table_copy :: proc(dst: ^Wave_Table, src: ^Wave_Table) {
 	table_copy(&dst.items, src.items[:])
 	table_copy(&dst.notes, src.notes[:])
 	table_copy(&dst.cues, src.cues[:])
+	table_copy(&dst.band_spans, src.band_spans[:])
 	table_copy(&dst.text, src.text[:])
 }
 
@@ -364,6 +378,9 @@ Wave_Builder :: struct {
 	media_clips:   int,
 	media_peaks:   int,
 	group_lanes:   [dynamic]int, // the lanes of each group (Wave_Source.first, count)
+	// The songs whose bands Bands items show, by source (the worker's side
+	// of Band_Span.source).
+	band_songs:    [dynamic]^om.Song_Clip,
 }
 
 // Tracks on no bus show as rows of their own up to this many, else as one
@@ -374,6 +391,7 @@ wave_builder_destroy :: proc(b: ^Wave_Builder) {
 	wave_table_destroy(&b.table)
 	delete(b.sources)
 	delete(b.group_lanes)
+	delete(b.band_songs)
 }
 
 // Forgets every pyramid (the media they came from is gone).
@@ -385,7 +403,9 @@ wave_builder_reset :: proc(b: ^Wave_Builder) {
 	clear(&b.table.items)
 	clear(&b.table.notes)
 	clear(&b.table.cues)
+	clear(&b.table.band_spans)
 	clear(&b.table.text)
+	clear(&b.band_songs)
 	clear(&b.sources)
 	clear(&b.group_lanes)
 	b.media_sources, b.media_clips, b.media_peaks = 0, 0, 0
@@ -561,6 +581,9 @@ TIMELINE_KINDS := [Timeline_Kind]proc(x: ^Timeline_Build, parent: int, ref: Time
 			summary = fmt.tprintf("%s  %d times from %.3fs", what, len(ks), f64(p.start) / om.MIX_RATE)
 		}
 		it := timeline_item(x, .Track, parent, lane, path, what, summary)
+		if p.song != nil && p.song.ok {
+			timeline_add(x, .Bands, it, ref)
+		}
 		// the parts that play (a region or more)
 		if p.song != nil && p.song.ok && len(p.song.song.parts) > 1 {
 			for _, i in p.song.song.parts {
@@ -611,6 +634,21 @@ TIMELINE_KINDS := [Timeline_Kind]proc(x: ^Timeline_Build, parent: int, ref: Time
 	.Notes = proc(x: ^Timeline_Build, parent: int, ref: Timeline_Ref) -> int {
 		it := timeline_item(x, .Notes, parent, int(x.b.table.items[parent].lane), strings.clone(text_of(x.b.table.text[:], x.b.table.items[parent].path), context.temp_allocator), "notes", "")
 		part_notes(x, it, ref)
+		return it
+	},
+	// a song's bands where it plays: a view of its band rows (requested
+	// while the row is shown)
+	.Bands = proc(x: ^Timeline_Build, parent: int, ref: Timeline_Ref) -> int {
+		t := &x.b.table
+		it := timeline_item(x, .Bands, parent, int(t.items[parent].lane), strings.clone(text_of(t.text[:], t.items[parent].path), context.temp_allocator), "bands", "third-octave bands, 20 Hz (bottom) to 20 kHz")
+		source := i32(len(x.b.band_songs))
+		append(&x.b.band_songs, x.placed[ref.track].song)
+		t.items[it].bands[0] = i32(len(t.band_spans))
+		for k in placements(x, ref.track) {
+			p := x.placed[k]
+			append(&t.band_spans, Band_Span{source = source, start = p.start, end = p.end, zero = p.start - p.file_start})
+		}
+		t.items[it].bands[1] = i32(len(t.band_spans)) - t.items[it].bands[0]
 		return it
 	},
 	.Hits = proc(x: ^Timeline_Build, parent: int, ref: Timeline_Ref) -> int {

@@ -1,0 +1,42 @@
+{
+  // A French disco house track on styles/french_disco.json: the style
+  // brings the band (its sources, its mappings, its parts by energy); the
+  // song brings the form, the harmony and the mix. Everything the music
+  // goes through pumps under the kick (the pump bus listens to it), and the
+  // intro and the break come through a dark filter of their own.
+  "name": "French disco",
+  "bpm": 122,
+  "key": "D minor",
+  "seed": 1979,
+  "sections": [
+    { "name": "intro", "duration": "8m", "style": "styles/french_disco.json", "energy": 0.35, "chords": "Dm9 G9 Cmaj9 Am9" },
+    { "name": "groove", "duration": "8m", "energy": 0.6, "chords": "Dm9 G9 Cmaj9 Am9" },
+    { "name": "lift", "duration": "8m", "energy": 0.8, "chords": "Dm9 G9 Cmaj9 Am9" },
+    { "name": "break", "duration": "4m", "energy": 0.3, "chords": "Bbmaj9 Am9 Gm9 A7", "transition": "none" },
+    { "name": "drop", "duration": "8m", "energy": 1, "chords": "Dm9 G9 Cmaj9 Am9", "transition": "none" },
+    { "name": "outro", "duration": "4m", "energy": 0.5, "chords": "Dm9 G9", "transition": "none" }
+  ],
+  "buses": {
+    "dark": { "effects": [ { "name": "Filter", "type": "lowpass", "frequency": 650, "q": 2.5, "rolloff": -24 } ], "to": "pump" },
+    "pump": { "key": "kick", "effects": [ { "name": "Compressor", "threshold": -26, "ratio": 5, "attack": 0.004, "release": 0.16, "knee": 6 } ] }
+  },
+  "parts": {
+    "bass": { "to": "pump" },
+    "guitar": { "to": "pump" },
+    "violins": { "to": "pump" },
+    "brass": { "to": "pump" },
+    "trombone": { "to": "pump" },
+    "strings": { "to": "pump" },
+    // the chops before the band comes in, through the dark filter
+    "guitar_dark": {
+      "instrument": { "name": "Sampler", "set": "emily/emily_clean.sfz", "release": 0.05 },
+      "to": "dark",
+      "gain_db": -1,
+      "pan": -0.35,
+      "play": [
+        { "range": "intro", "octave": 4, "humanize": 0.12, "chords": { "rhythm": "..x..x.x..x..x.x", "voicing": "close" }, "duration": "32n", "velocity": 0.75 },
+        { "range": "break", "octave": 4, "humanize": 0.12, "chords": { "rhythm": "x.....x.....x...", "voicing": "close" }, "duration": "16n", "velocity": 0.7 }
+      ]
+    }
+  }
+}

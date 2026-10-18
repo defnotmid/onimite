@@ -1,7 +1,11 @@
 package onimite
 
+import "core:encoding/endian"
 import "core:encoding/json"
 import "core:math"
+import "core:os"
+import "core:path/filepath"
+import "core:strings"
 import "core:testing"
 import "core:time"
 import orender "deps:odawg/render"
@@ -156,4 +160,49 @@ test_song_tables_are_render :: proc(t: ^testing.T) {
 	// the song's render is 16-bit: its quantization moves the quietest
 	// bins by under a hundredth of a bar
 	testing.expectf(t, worst < 1e-2, "largest difference from the render %e", worst)
+}
+
+// A song is what it is made of: its spec and the files it reads. The same
+// spec and files are the song already there; a sample file changed makes
+// a new song.
+@(test)
+test_song_is_its_files :: proc(t: ^testing.T) {
+	dir, derr := os.make_directory_temp("", "onimite_song_files", context.temp_allocator)
+	testing.expect(t, derr == nil)
+	defer os.remove_all(dir)
+	write_wav :: proc(path: string, frames: int) {
+		data := make([]u8, 44 + 2 * frames, context.temp_allocator)
+		copy(data, "RIFF")
+		endian.unchecked_put_u32le(data[4:], u32(36 + 2 * frames))
+		copy(data[8:], "WAVEfmt ")
+		endian.unchecked_put_u32le(data[16:], 16)
+		endian.unchecked_put_u16le(data[20:], 1)
+		endian.unchecked_put_u16le(data[22:], 1)
+		endian.unchecked_put_u32le(data[24:], MIX_RATE)
+		endian.unchecked_put_u32le(data[28:], 2 * MIX_RATE)
+		endian.unchecked_put_u16le(data[32:], 2)
+		endian.unchecked_put_u16le(data[34:], 16)
+		copy(data[36:], "data")
+		endian.unchecked_put_u32le(data[40:], u32(2 * frames))
+		for i in 0 ..< frames {
+			endian.unchecked_put_u16le(data[44 + 2 * i:], u16(i16(math.sin(f64(i) * 0.05) * 20000)))
+		}
+		_ = os.write_entire_file(path, data)
+	}
+	kick, _ := filepath.join({dir, "kick.wav"}, context.temp_allocator)
+	write_wav(kick, 4800)
+	m: Media
+	media_init(&m)
+	defer media_destroy(&m)
+	m.dir = strings.clone(dir)
+	v, err := json.parse_string(`{ name: "s", bpm: 120, sets: { kit: { pads: { kick: "kick.wav" } } }, sections: [ { name: "a", duration: "1m" } ],
+		parts: { drums: { instrument: { name: "Sampler", set: "kit" }, play: [ { name: "a", steps: { kick: "x...x...x...x..." } } ] } } }`, .JSON5, true, context.temp_allocator)
+	testing.expect(t, err == nil)
+	first, fresh := media_song_put(&m, "s", v, value_key(v))
+	testing.expect(t, fresh && first.ok)
+	again, fresh_again := media_song_put(&m, "s", v, value_key(v))
+	testing.expect(t, !fresh_again && again == first) // the same spec and files: the same song
+	write_wav(kick, 9600) // the sample changed
+	changed, fresh_changed := media_song_put(&m, "s", v, value_key(v))
+	testing.expect(t, fresh_changed && changed != first)
 }

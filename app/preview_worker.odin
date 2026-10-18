@@ -92,6 +92,9 @@ Mailbox :: struct {
 	busy:             bool,
 	thumb_wanted:     [dynamic]int,
 	thumb_wanted_seq: u64,
+	// The band sources the timeline's bands rows show (Band_Span.source).
+	bands_wanted:     [dynamic]i32,
+	bands_wanted_seq: u64,
 	thumb_ack:        u64,
 	bookmark:         int,
 	bookmark_seq:     u64,
@@ -128,6 +131,9 @@ Mailbox :: struct {
 	thumb_gen:        u64, // bumped by every load; thumbnails of older generations are gone
 	thumb_size:       [2]u32,
 	thumbs:           [dynamic]Preview_Thumb, // sorted by frame
+	// The band sources' textures (by source), bumping `bands_seq`.
+	bands_seq:        u64,
+	band_textures:    [dynamic]Band_Texture,
 	// Set by a pool job when a clip it built lands (the worker drains it).
 	clips_landed:     bool,
 }
@@ -137,6 +143,8 @@ mailbox_destroy :: proc(mb: ^Mailbox) {
 	script.failure_destroy(&mb.reload_failure)
 	delete(mb.device_name)
 	delete(mb.thumb_wanted)
+	delete(mb.bands_wanted)
+	delete(mb.band_textures)
 	watch_table_destroy(&mb.watch)
 	wave_table_destroy(&mb.waves)
 	media_table_destroy(&mb.media)
@@ -246,6 +254,12 @@ Render_Worker :: struct {
 	thumb_gen:      u64,
 	thumb_size:     [2]u32,
 	thumb_wanted:   [dynamic]int,
+	// The bands rows' sources: what the timeline shows (by source) and each
+	// one's texture and the rows in it so far.
+	bands_wanted:     [dynamic]i32,
+	bands_wanted_seq: u64,
+	band_views:       [dynamic]Band_View,
+	bands_landed:     bool, // song segments landed since the views were drawn
 	wanted_seq:     u64,
 	// Thumbnails draw video clips from their own decoders (one reader per
 	// clip, opened when the thumbnail renderer is made), so they never pull
@@ -495,9 +509,10 @@ worker_clips :: proc(w: ^Render_Worker) -> bool {
 	if om.music_banks_landed(w.media) > 0 && landed == 0 {
 		worker_place_audio(w)
 	}
-	// Songs' tables that landed: their lanes fill, and a frame that read
-	// one before it did is drawn again.
+	// Songs' tables that landed: their lanes fill, their bands rows draw,
+	// and a frame that read one before it did is drawn again.
 	if om.music_landed(w.media) > 0 {
+		w.bands_landed = true
 		wave_builder_landed(&w.waves)
 		for &t in w.thumbs {
 			if t.audio {
@@ -576,7 +591,7 @@ worker_idle_ready :: proc(w: ^Render_Worker) -> (ready: bool, retry: time.Durati
 		append(&w.thumb_free, ..w.thumb_retired[:])
 		clear(&w.thumb_retired)
 	}
-	if w.mb.clips_landed || clips_built_here(w) || wave_builder_pending(&w.waves) || watch_pending(w) || media_pending(w) || om.music_queued(w.media) {
+	if w.mb.clips_landed || clips_built_here(w) || wave_builder_pending(&w.waves) || watch_pending(w) || media_pending(w) || om.music_queued(w.media) || bands_pending(w) {
 		return true, 0
 	}
 	if thumb_next(w) < 0 {
@@ -655,6 +670,10 @@ worker_idle :: proc(w: ^Render_Worker, busy: bool) {
 	}
 	if watch_pending(w) {
 		worker_watch(w)
+		return
+	}
+	if bands_pending(w) {
+		worker_bands(w)
 		return
 	}
 	if media_pending(w) {
@@ -768,8 +787,9 @@ worker_load :: proc(w: ^Render_Worker, reload_media: bool) {
 		free(w.script)
 	}
 	// The pyramids belong to the clips of the last load (a kept media's may
-	// have been replaced).
+	// have been replaced), and the bands views to its timeline.
 	wave_builder_reset(&w.waves)
+	worker_bands_retire(w)
 	if media != w.media {
 		w.media_gen += 1
 		if w.media != nil {
@@ -1157,7 +1177,7 @@ thumb_render :: proc(w: ^Render_Worker, frame: int) {
 
 // CPU pixels into a texture through a transfer buffer (on this thread's own
 // command buffer, waited on before returning).
-@(private = "file")
+@(private)
 upload_rgba :: proc(device: ^sdl.GPUDevice, tex: ^sdl.GPUTexture, size: [2]u32, pixels: []u8) {
 	n := u32(len(pixels))
 	tb := sdl.CreateGPUTransferBuffer(device, {usage = .UPLOAD, size = n})
@@ -1224,10 +1244,17 @@ worker_release :: proc(w: ^Render_Worker) {
 	for t in w.thumb_retired {
 		sdl.ReleaseGPUTexture(w.device, t)
 	}
+	for v in w.band_views {
+		if v.texture.texture != nil {
+			sdl.ReleaseGPUTexture(w.device, v.texture.texture)
+		}
+	}
 	delete(w.thumbs)
 	delete(w.thumb_free)
 	delete(w.thumb_retired)
 	delete(w.thumb_wanted)
+	delete(w.bands_wanted)
+	delete(w.band_views)
 	om.timeline_destroy(&w.timeline)
 	om.placed_audio_destroy(&w.placed)
 	finding_table_destroy(&w.findings)

@@ -45,11 +45,9 @@ local score = song { "score", key = "A minor", seed = 7,          -- start = 0: 
   parts = { drums = { ... }, bass = { ... } } } }` is a style like the shipped ones (a partial
   spec), used by name in `style = "footwork"`. Parts not given come from the section's style;
   `parts` overrides or adds by role name (`drums`, `bass`, `keys`, `lead`, ...). A style's
-  entries play by the section's `energy` in bands `[lo, hi)`. Instruments: Tone's classes (`{ "MonoSynth", oscillator = { type =
-  "fatsawtooth" } }`), odawg's presets (`"pluck"`, `"sub_bass"`, `"kick"`, ...),
-  `{ "DrumKit", kit = "909" }`, `{ "Sampler", set = "vcsl/upright_piano" }` (a sample set,
-  downloaded the first time into the user data folder; it plays at a synth preset's level; the
-  preview opens without waiting for it, and its notes join the sound once it has loaded).
+  entries play by the section's `energy` in bands `[lo, hi)`. A part's `instrument` is any
+  of "Instruments" below: synths, circuit-modelled drum machines, an acid bass, sampled
+  instruments, presets.
 - Positions (`time`, ranges, `at`): `"drop"`, `"drop@1m"`, `"drop@-4n"`, `"drop@0.5s"`,
   `"2:0:0"`, `"end"`; ranges `"drop..outro"` (to the end of outro), `"drop@4m.."` (to the end
   of drop; `"drop@4m..end"` to the song's end).
@@ -113,9 +111,136 @@ video { width = 1920, height = 1080, fps = 60, duration = score.duration,
   render: made once, kept, only where it sounds); `audio_onsets("score")` and `hits` are its
   notes, exact. A `frame`, `strip` or `onion` makes only the stretch its frames read. In the
   preview a song's lane opens to its parts, a part to its notes (a piano roll, a row per drum
-  pad), each drawn where it plays; a bus opens to a row per sound. The lanes' waveforms fill in
-  as the song renders in the background, the stretch at the playhead first; the sound and the
-  picture never wait for it.
+  pad), each drawn where it plays; a bus opens to a row per sound; a song's track also opens to
+  its `bands` row (a spectrogram: third-octave bands, 20 Hz at the bottom). The lanes'
+  waveforms and the bands fill in as the song renders in the background, the stretch at the
+  playhead first; the sound and the picture never wait for it, and a bands row costs nothing
+  until it is open.
+
+### Instruments
+
+A part's `instrument` is a name (`"pluck"`) or a table whose first entry is the name, then
+its settings. Everything here is odawg's; the names of the synths and their settings are
+Tone.js's.
+
+| instrument | what it is | settings |
+| --- | --- | --- |
+| `"Synth"`, `"MonoSynth"`, `"FMSynth"`, `"AMSynth"`, `"MembraneSynth"`, `"MetalSynth"`, `"NoiseSynth"`, `"PluckSynth"` | Tone.js's synths | Tone's: `oscillator = { type = "fatsawtooth" }`, `envelope = { attack, decay, sustain, release }`, `filter`, ... |
+| `"DrumMachine"` | a TR-808 or TR-909 modelled from its circuits | `machine = "808"` or `"909"`, `tone` (0..1, 0.5), `decay` (1), `tune` |
+| `"AcidSynth"` | a TB-303-style bass: one voice, accents and slides | `oscillator = { type = "sawtooth" }` (or `"square"`), `filter = { frequency = 400, q = 8 }`, `filter_envelope = { octaves = 3 }`, `envelope = { decay = 0.3 }`, `accent` (0.5), `portamento` (0.06 s: the slide) |
+| `"DrumKit"` | a synthesized kit | `kit = "synth"`, `"808"` or `"909"` |
+| `"Sampler"` | a recorded instrument, played at any note | `set` (below), `attack`, `release` (0.1 s) |
+| presets | ready voices | `"kick"`, `"snare"`, `"clap"`, `"hat"`, `"open_hat"`, `"crash"`, `"tom"`, `"bass"`, `"sub_bass"`, `"pad"`, `"stab"`, `"pluck"`, `"lead"`, `"bell"`, `"riser"`, `"whoosh"`, `"impact"`, `"thump"`, `"fall"`, `"tape_chord"`, `"tick"`, `"beep"`, `"crackle"`, `"glitch"`, `"blip"` (also `sound { "impact" }`'s) |
+
+Drum parts play `steps` per pad: `kick`, `snare`, `clap`, `rim`, `hat`, `open_hat`, `crash`,
+`ride`, `tom_low`, `tom_mid`, `tom_high`, `shaker`, `cowbell`, `conga_low`, `conga_mid`,
+`conga_high`, `clave`, `maracas` (what a kit has; `x` hit, `X` accent, `.` rest).
+
+The sample sets a `Sampler` plays, recorded instruments under CC0 (free for any use, no
+credit needed):
+
+| `set` | what it is |
+| --- | --- |
+| `"vcsl/upright_piano"` | Yamaha upright piano: C and G of every octave, three velocity layers |
+| `"vcsl/fm_piano"` | Yamaha TX81Z FM electric piano: major thirds, three velocity layers |
+| `"osiris/soft_piano"` | Yamaha C2 grand, half-stick and soft pedal: quiet, intimate; two velocity layers |
+| `"karoryfer/growlybass"` | Squier Jazz Bass, fingered, recorded direct: three velocity layers, two round robins |
+| `"vsco2/strings"` | string ensemble sustains with vibrato (cello, viola, violin sections); two velocity layers |
+| `"virtuosity/drums"` | jazz kit through a stereo mic: kick, snare, cross-stick, hats, two toms, crash, ride; velocity layers and round robins |
+
+A set downloads the first time a song plays it (only the notes the song reaches), into
+`$ODAWG_DATA` or `odawg/` in the user data folder, each file checked against a pinned
+SHA-256. It plays at a synth preset's level. The preview opens without waiting for it; its
+notes join the sound once it has loaded. Offline, a set that can't be fetched is an
+`asset_unavailable` finding and its notes are silent.
+
+```lua
+parts = {
+  drums = { instrument = { "DrumMachine", machine = "909", tone = 0.55 },
+            play = { { "drop", steps = { kick = "x...x...x...x...", hat = "..x...x...x...x." } } } },
+  bass  = { instrument = { "AcidSynth", filter = { frequency = 320, q = 8.6 }, accent = 0.75 } },
+  keys  = { instrument = { "Sampler", set = "osiris/soft_piano", release = 1.2 }, sends = { hall = -10 } },
+  strings = { instrument = { "Sampler", set = "vsco2/strings", attack = 1.2, release = 2.5 } },
+}
+```
+
+### Your own samples and styles
+
+A `Sampler` also plays sets you bring, and a section can use a style from a file. Paths are
+relative to the media folder (`media/` beside the script); keep sets in a subfolder of it
+(`media/kit/`, `media/keys/`) so they aren't also loaded as tracks. Sample files are WAV or
+FLAC (any rate; a WAV's own loop points are used).
+
+```lua
+local score = song { "score", bpm = 120, key = "C major",
+  sets = {
+    kit  = { pads = { kick = "kit/kick.wav", snare = "kit/snare.wav", hat = "kit/hat.wav" },
+             credit = "my kit (CC0)" },
+    keys = { zones = { { file = "keys/c3.wav", root = "C3" },
+                       { file = "keys/c4.wav", root = "C4", hi_velocity = 90 },
+                       { file = "keys/c4_hard.wav", root = "C4", lo_velocity = 91, gain_db = -2 } },
+             loop = true },                                    -- the files' own loops sustain
+  },
+  sections = { { "a", duration = "8m", style = "styles/mine.json", chords = "C F G C" } },
+  parts = {
+    drums  = { instrument = { "Sampler", set = "kit" } },
+    piano  = { instrument = { "Sampler", set = "keys", release = 0.6 } },
+    rhodes = { instrument = { "Sampler", set = "rhodes/rhodes.sfz" } },   -- an SFZ instrument
+  },
+}
+video { ..., audio = { { score, start = 0 } } }                -- a song or its name
+```
+
+- **Pads** sit on the drum pads (`steps = { kick = "x..." }` plays them), as one-shots.
+  **Zones** answer the keys around their `root`; without `lo` and `hi` each zone's keys run
+  halfway to the next root above and below. Zones also take `gain_db`, `one_shot`, `offset`
+  (frames into the file), velocity ranges; zones on the same keys and velocities take turns
+  (round robins).
+- **SFZ**: `set = "path/to/file.sfz"` reads its regions (`sample`, `key`, `lokey`, `hikey`,
+  `pitch_keycenter`, `lovel`, `hivel`, `volume`, `tune`, `offset`, loops, `seq_position`;
+  `<global>`/`<group>` inheritance, `default_path`). Other opcodes are an
+  `unsupported_opcode` info finding; the rest plays.
+- **Style files**: `style = "styles/mine.json"` (a name with a `/` or ending `.json`), the
+  same shape as a song's own `styles = { name = { parts, returns, swing } }`. A style's
+  parts may name the song's sets.
+- A song is what it is made of: its spec and the files it reads. Editing a sample or a style
+  file and saving makes it a new song (the preview reloads and renders it again); nothing is
+  stale.
+- The samples are yours: onimite never uploads or redistributes them. Credit them as their
+  licence asks (`credit`).
+- **Sources** (someone else's library by URL): a song or a style declares
+  `sources = { lib = { url = "https://...", page, licence = "CC0-1.0", credit, pins = "lib.pins" } }`
+  and names its files under the source (`set = "lib/piano.sfz"`, `pads = { kick = "lib/kick.wav" }`).
+  A file is fetched over https the first time a note reaches it, into odawg's data folder, and
+  checked against the pins (`sha256 size path` lines). An unpinned file plays silent
+  (`not_pinned`): `onimite audio pin video.lua` fetches what the songs play and adds the new
+  files to each source's pins file (in the media folder). A licence other than CC0 or CC-BY is
+  refused (`licence_not_allowed`).
+  Pins say what was trusted the first time it was fetched: treat a song's `sources` like code
+  you run. `examples/disco` is a complete style built this way.
+
+### Routing
+
+Without routing a song is mixed the usual way: each part into the master, its sends into
+shared returns (one reverb for every part that sends to `hall`). Routing is data:
+
+```lua
+buses = { glue = { effects = { { "Compressor", threshold = -18, ratio = 3 } }, to = "master" } },
+parts = {
+  drums = { to = "glue" },                                -- into the bus instead of the master
+  keys  = { sends = { hall = -12, glue = -6 } },          -- a send goes to a return or a bus
+  pad   = { key = "drums",                                -- its compressor hears the drums
+            effects = { { "Compressor", threshold = -30, ratio = 8, attack = 0.001 } } },
+}
+```
+
+- `to` moves a part's or a bus's output onto a bus; `sends` add a path at a gain (dB);
+  `key` is what a part's compressor or gate listens to (a real sidechain on the drums'
+  sound, not only their notes).
+- Paths of different latency are lined up where they meet. A loop is a `routing_loop`
+  finding; the edge closing it is left out and the song still plays.
+- `audio analyze` measures the mix and each bus: their bands, crest, width and correlation,
+  and where buses crowd each other in a band (`masking`).
 
 ## Placing tracks
 
@@ -237,10 +362,11 @@ under -1 dBTP (why_onimite: `master_gain_db = 5.5`, `ceiling_db = -3.4` gives -1
 onimite timeline video.lua                        # every track: span, gain, fades; every sync point; songs: sections, tracks
 onimite show video.lua song/score                 # a song: sections, parts, findings; song/score/parts/bass: every note
 onimite audio at video.lua 3.1s,drop              # what plays at a moment: file position, level, ducking, voice; a song's section and the notes sounding
-onimite audio analyze video.lua                   # loudness report, per scene, and per second
-onimite audio analyze video.lua --waveform w.png  # read the image: waveform, loudness, scenes, onsets, cues
+onimite audio analyze video.lua                   # loudness, crest, width, bands; per scene, per bus, masking; per second
+onimite audio analyze video.lua --waveform w.png  # read the image: waveform, loudness, spectrogram, scenes, onsets, cues
 onimite audio analyze video.lua Intro             # one scene or range
 onimite audio onsets video.lua [range] [--min 0.3] # where sounds start (seconds strength) and the beat
+onimite audio pin video.lua                       # fetch and pin what the songs play from their sources (after not_pinned)
 onimite audio render video.lua Intro -o intro.wav # the mix of a range, for the user to listen to
 ```
 
@@ -257,6 +383,20 @@ Targets for the report:
   parts need balancing (or a long silent intro/outro).
 - Silent ranges only where silence is intended: an unexpected one means a track ends early,
   a file is missing (`inspect` and `timeline` show it) or a start time is wrong.
+
+What the sound is made of (the JSON has each for the mix, each scene and each bus; `band_hz`
+names the 31 third-octave bands of every `bands_db`, 20 Hz to 20 kHz):
+- `crest_db` (peak over RMS): about 8-14 dB for mixed music; much higher is spiky (drums
+  with no body), lower is squashed.
+- `width_db` (side over mid) and `correlation` (1 mono, 0 unrelated, below 0 out of phase):
+  a correlation below 0 means a part will cancel in mono; fix its stereo effect.
+- `bands_db`: where the energy is. A mix with nothing below 60 Hz has no bass; one band far
+  above its neighbours is a resonance.
+- `masking`: two buses within 6 dB of each other in a band, both within 15 dB of the mix
+  there, crowd each other (`{ section, a, b, band_hz, overlap_db }`). Cut one of them there
+  (an EQ on its part or bus), or move one in time or in pitch.
+- The PNG's spectrogram shows the same bands over time under the waveform: a drop's low end,
+  a breakdown's empty bottom, a hi-hat line across the top.
 - Per scene: scenes with voice within ~2 LU of each other.
 
 The per-second loudness line (`--json`: `loudness.momentary_lufs`, every 100 ms) shows the

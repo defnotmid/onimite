@@ -26,6 +26,7 @@ Command_Kind :: enum u8 {
 	Audio_Analyze,
 	Audio_At,
 	Audio_Onsets,
+	Audio_Pin,
 	Preview,
 	Probe,
 	Update,
@@ -213,8 +214,8 @@ COMMAND_KINDS := [Command_Kind]Command_Descriptor {
 	.Audio_Analyze = {
 		help = "regs.spec a range; regs.path a waveform PNG (\"\" = none); regs.track one track (\"\" = the mix)",
 		domain = .Script, flags = FRONT, args = Audio_Analyze_Args, images = .Waveform,
-		about = "loudness, true peak, clipping, silence, loudness per scene and over time",
-		mcp_note = "The waveform PNG comes back as an image.",
+		about = "loudness, true peak, clipping, silence; crest, stereo width, third-octave bands and masking; per scene, per bus and over time",
+		mcp_note = "The waveform PNG (waveform, loudness, spectrogram, scenes, cues) comes back as an image.",
 	},
 	.Audio_At = {
 		help = "regs.spec frame specs; regs.track one track (\"\" = all)",
@@ -225,6 +226,12 @@ COMMAND_KINDS := [Command_Kind]Command_Descriptor {
 		help = "regs.spec a range, regs.ratio the weakest strength listed (0 = all); regs.track one track (\"\" = the mix)",
 		domain = .Script, flags = FRONT, args = Audio_Onsets_Args, regs = {ratio = 0.1},
 		about = "where sounds start (time, strength 0..1) and the beat (BPM, first beat)",
+	},
+	.Audio_Pin = {
+		help = "fetches what the songs play from their sources and writes their pins",
+		domain = .Script, flags = FRONT, args = Audio_Pin_Args,
+		about = "fetches what the songs play from their sources (pinned files, and new ones trusted as they come) and writes each source's pins file",
+		mcp_note = "Run it after a song starts playing notes its sources haven't pinned (a not_pinned finding); it downloads them.",
 	},
 	.Preview = {
 		help = "opens the window and runs it until it closes: regs.spec the start frame, .Paused / .No_Loop / .Mute in regs.flags, regs.count window frames to exit after (0 = never); for measurements, regs.path a PNG of the last window frame and regs.args scripted input (`preview_drive`)",

@@ -115,6 +115,12 @@ Preview_State :: struct {
 	seen_waves:         u64,
 	seen_media:         u64,
 	seen_thumbs:        u64,
+	// The bands rows' sources drawn this window frame (asked of the worker
+	// when they change), the last asked, and the textures it made.
+	bands_shown:        [dynamic]i32,
+	sent_bands:         [dynamic]i32,
+	seen_bands:         u64,
+	band_textures:      [dynamic]Band_Texture,
 	timeline:           Preview_Timeline,
 	shown_frame:        int,
 	shown_size:         [2]u32,
@@ -632,6 +638,9 @@ preview_state_destroy :: proc(pv: ^Preview_State) {
 	delete(pv.rows_open)
 	delete(pv.thumbs)
 	delete(pv.sent_thumbs)
+	delete(pv.bands_shown)
+	delete(pv.sent_bands)
+	delete(pv.band_textures)
 	preview_timeline_destroy(&pv.timeline)
 	delete(pv.ui_ms)
 	delete(pv.interval_ms)
@@ -1302,6 +1311,10 @@ preview_take_published :: proc(app: ^App_State, r: ^render.Renderer, now: f64) {
 		media_table_copy(&pv.media, &mb.media)
 		media_changed = true
 	}
+	if mb.bands_seq != pv.seen_bands {
+		pv.seen_bands = mb.bands_seq
+		table_copy(&pv.band_textures, mb.band_textures[:])
+	}
 	if mb.thumbs_seq != pv.seen_thumbs {
 		pv.seen_thumbs = mb.thumbs_seq
 		table_copy(&pv.thumbs, mb.thumbs[:])
@@ -1374,7 +1387,8 @@ preview_request :: proc(app: ^App_State, p: ^platform.Platform) {
 	busy := pv.playing || pv.scrubbing
 	wanted := thumbs_wanted(app, p)
 	thumbs_changed := !slice.equal(wanted, pv.sent_thumbs[:])
-	if busy != pv.sent_busy || pv.bookmark != pv.sent_bookmark || thumbs_changed {
+	bands_changed := !slice.equal(pv.bands_shown[:], pv.sent_bands[:])
+	if busy != pv.sent_busy || pv.bookmark != pv.sent_bookmark || thumbs_changed || bands_changed {
 		sync.mutex_lock(&mb.mutex)
 		mb.busy = busy
 		if pv.bookmark != pv.sent_bookmark {
@@ -1385,11 +1399,16 @@ preview_request :: proc(app: ^App_State, p: ^platform.Platform) {
 			table_copy(&mb.thumb_wanted, wanted)
 			mb.thumb_wanted_seq += 1
 		}
+		if bands_changed {
+			table_copy(&mb.bands_wanted, pv.bands_shown[:])
+			mb.bands_wanted_seq += 1
+		}
 		sync.cond_signal(&mb.cond)
 		sync.mutex_unlock(&mb.mutex)
 		pv.sent_busy = busy
 		pv.sent_bookmark = pv.bookmark
 		table_copy(&pv.sent_thumbs, wanted)
+		table_copy(&pv.sent_bands, pv.bands_shown[:])
 	}
 
 	// The scale that fits the video's panel (kept while it is hidden),

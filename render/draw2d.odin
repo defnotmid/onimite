@@ -93,6 +93,29 @@ draw_image_rect :: proc(r: ^Renderer, image: ^Image, x, y, w, h: f32, opacity: f
 	)
 }
 
+// draw_image_src draws the texels `src` (x0, y0, x1, y1) of `image` into
+// `(x, y, w, h)`: a stretch of a strip texture (a spectrogram's rows).
+draw_image_src :: proc(r: ^Renderer, image: ^Image, src: [4]f32, x, y, w, h: f32, nearest := false) {
+	if !image_loaded(image) || w <= 0 || h <= 0 {
+		return
+	}
+	color := [4]f32{1, 1, 1, 1}
+	rect_inst(
+		r,
+		{
+			dst = {x, y, x + w, y + h},
+			src = src,
+			col_tl = color,
+			col_tr = color,
+			col_bl = color,
+			col_br = color,
+			style = {0, 0, SAMPLE_RGBA_NEAREST if nearest else SAMPLE_RGBA, 0},
+		},
+		image.texture,
+		{f32(image.width), f32(image.height)},
+	)
+}
+
 // outline (border ring) via the SDF border in the shader. A square ring is
 // drawn with no extra softness so a 1 px border stays 1 px; only rounded
 // rings take the anti-aliasing the corners need.

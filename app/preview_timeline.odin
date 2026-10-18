@@ -58,6 +58,7 @@ TIMELINE_ROW_HEIGHT := [Timeline_Kind]f32 {
 	.Part   = TRACK_HEIGHT,
 	.Notes  = 2 * LANE_HEIGHT,
 	.Hits   = TRACK_HEIGHT,
+	.Bands  = 2 * LANE_HEIGHT,
 }
 
 @(private = "file")
@@ -534,7 +535,9 @@ timeline_draw :: proc(s: ^ui.State, box: ^ui.Box, data: rawptr) {
 		render.clip_pop(r)
 	}
 
-	// The rows below the scenes, each drawn the way its kind says.
+	// The rows below the scenes, each drawn the way its kind says (a bands
+	// row shown asks for its source's rows: bands_shown).
+	clear(&pv.bands_shown)
 	rows := timeline_rows(app)
 	_, shown := rows_points(app, rows)
 	rows_y := y0 + ruler_h + SCENE_HEIGHT * dpi * a.across
@@ -560,6 +563,13 @@ timeline_draw :: proc(s: ^ui.State, box: ^ui.Box, data: rawptr) {
 		case .Scenes:
 		case .Cues:
 			draw_cues(&view, y, rh)
+		case .Bands:
+			draw_bands(&view, it^, y, rh - 2 * dpi)
+			depth := 0
+			for p := it.parent; p >= 0; p = pv.waves.items[p].parent {
+				depth += 1
+			}
+			draw_row_name(&view, text_of(pv.waves.text[:], it.label), y, rh - 2 * dpi, 14 * dpi * f32(depth))
 		case .Group, .Track, .Part, .Notes, .Hits:
 			// a lane: its regions, each with its waveform (a notes view: its
 			// notes over them), its name (and level when it differs from what
@@ -674,6 +684,56 @@ draw_lane :: proc(v: ^Row_View, index: int, y, lane_h: f32, color_index: int) {
 			top := mid - clamp(hi * env, -1, 1) * half
 			bottom := mid - clamp(lo * env, -1, 1) * half
 			fill(r, v.a, cx, top, col_w, max(bottom - top, v.line_w), wave)
+		}
+	}
+}
+
+// A bands view: where its song plays, the song's band rows as the worker
+// made them into its texture (20 Hz at the bottom), a column per row; the
+// rows asked for while shown (bands_shown). Time across only: a tall
+// timeline names the view instead.
+@(private = "file")
+draw_bands :: proc(v: ^Row_View, it: Timeline_Item, y, h: f32) {
+	r := v.s.r
+	pv := &v.d.app.preview
+	fill(r, v.a, v.x0, y, v.w, h, LANE_BG)
+	spans := pv.waves.band_spans[it.bands[0]:][:it.bands[1]]
+	if len(spans) == 0 {
+		return
+	}
+	source := spans[0].source
+	if !slice.contains(pv.bands_shown[:], source) {
+		append(&pv.bands_shown, source)
+	}
+	if v.a.vertical || int(source) >= len(pv.band_textures) {
+		return
+	}
+	bt := pv.band_textures[source]
+	if bt.texture == nil || bt.rows == 0 {
+		return
+	}
+	img := render.Image{bt.texture, u32(bt.width), u32(bt.height)}
+	for sp in spans {
+		xa, xb := max(x_of_sample(v, sp.start), v.x0), min(x_of_sample(v, sp.end), v.x0 + v.w)
+		if xb <= xa {
+			continue
+		}
+		// song rows under [xa, xb): split where a strip ends
+		sample_at :: proc(v: ^Row_View, x: f32) -> f64 {return (v.first + f64(x - v.x0) / v.ppf) * v.samples_per_frame}
+		r0 := (sample_at(v, xa) - f64(sp.zero)) / f64(bt.step)
+		r1 := (sample_at(v, xb) - f64(sp.zero)) / f64(bt.step)
+		for r0 < r1 && r0 < f64(bt.rows) {
+			strip := int(max(r0, 0)) / BAND_STRIP
+			end := min(r1, f64((strip + 1) * BAND_STRIP), f64(bt.rows))
+			if end <= r0 {
+				break
+			}
+			x0 := xa + f32((r0 - (sample_at(v, xa) - f64(sp.zero)) / f64(bt.step)) * f64(bt.step) / v.samples_per_frame * v.ppf)
+			x1 := xa + f32((end - (sample_at(v, xa) - f64(sp.zero)) / f64(bt.step)) * f64(bt.step) / v.samples_per_frame * v.ppf)
+			src := [4]f32{f32(r0 - f64(strip * BAND_STRIP)), f32(strip * om.BAND_COUNT), f32(end - f64(strip * BAND_STRIP)), f32((strip + 1) * om.BAND_COUNT)}
+			wx, wy, ww, wh := axis_rect(v.a, x0, y, x1 - x0, h)
+			render.draw_image_src(r, &img, src, wx, wy, ww, wh, nearest = true)
+			r0 = end
 		}
 	}
 }

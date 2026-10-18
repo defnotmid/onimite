@@ -337,7 +337,7 @@ set_props :: proc(s: ^Script) -> Error {
 	L := s.L
 	lua.createtable(L, 0, 0)
 	for text in s.props {
-		v, err := json.parse_string(text, parse_integers = true, allocator = context.temp_allocator)
+		v, err := json.parse_string(text, .JSON5, parse_integers = true, allocator = context.temp_allocator)
 		if err != nil {
 			return set_error(s, {code = .Props_Json, json = err})
 		}
@@ -1917,8 +1917,9 @@ l_gunzip :: proc "c" (L: ^lua.State) -> c.int {
 	return 1
 }
 
-// json_decode(text) -> value: JSON as Lua, the way `props` reads it (objects
-// as tables, arrays as sequences from 1, integers as integers, null as nil),
+// json_decode(text) -> value: JSON (or JSON5: comments, unquoted keys,
+// trailing commas) as Lua, the way `props` reads it (objects as tables,
+// arrays as sequences from 1, integers as integers, null as nil),
 // e.g. a design-tokens file read at load. Raises a Lua error on invalid JSON.
 @(private)
 l_json_decode :: proc "c" (L: ^lua.State) -> c.int {
@@ -1926,7 +1927,7 @@ l_json_decode :: proc "c" (L: ^lua.State) -> c.int {
 	context = s.odin_context
 	n: c.size_t
 	p := lua.L_checkstring(L, 1, &n)
-	v, err := json.parse_string(strings.string_from_ptr((^u8)(p), int(n)), parse_integers = true)
+	v, err := json.parse_string(strings.string_from_ptr((^u8)(p), int(n)), .JSON5, parse_integers = true)
 	if err != nil {
 		json.destroy_value(v)
 		msg := fmt.tprintf("json_decode: invalid JSON (%v)", err)

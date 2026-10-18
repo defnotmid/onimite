@@ -1,0 +1,153 @@
+{
+  // French disco house: a 909 under live hand percussion, a finger-played
+  // bass guitar on the octaves, clean funk-guitar chord chops, spiccato
+  // violin stabs and staccato brass answering them, sustained violins for
+  // the breaks. Every sound is a device written out here or a recorded
+  // instrument fetched from its source (pinned, CC0); the paths are this
+  // file's folder's, so the style travels with french_disco/.
+  "description": "French disco house: a 909 under live percussion, finger bass on the octaves, funk-guitar chops, violin and brass stabs, all recorded instruments (CC0) fetched from their sources.",
+  "swing": 0.08,
+  "sources": {
+    "fashionbass": {
+      "url": "https://raw.githubusercontent.com/sfzinstruments/karoryfer.fashionbass/0703973b300a6bacb837602be9b588ab64732a72/",
+      "page": "https://github.com/sfzinstruments/karoryfer.fashionbass",
+      "licence": "CC0-1.0",
+      "credit": "Fashionbass by Karoryfer Samples (D. Smolken)",
+      "pins": "french_disco/fashionbass.pins"
+    },
+    "emily": {
+      "url": "https://raw.githubusercontent.com/sfzinstruments/karoryfer.emilyguitar/b4920dc662fd9cad6dcaccdeecffdd91c8725d8c/",
+      "page": "https://github.com/sfzinstruments/karoryfer.emilyguitar",
+      "licence": "CC0-1.0",
+      "credit": "Emilyguitar by Karoryfer Samples (D. Smolken)",
+      "pins": "french_disco/emily.pins"
+    },
+    "vsco": {
+      "url": "https://raw.githubusercontent.com/sgossner/VSCO-2-CE/440300901dfe9275fd84e0b7763af1f8443ae62e/",
+      "page": "https://github.com/sgossner/VSCO-2-CE",
+      "licence": "CC0-1.0",
+      "credit": "VS Chamber Orchestra 2: Community Edition by Versilian Studios",
+      "pins": "french_disco/vsco.pins"
+    },
+    "vcsl": {
+      "url": "https://raw.githubusercontent.com/sgossner/VCSL/c1ea7bcc3c7309650ab0da9d15c9cd1fbc4a4c7e/",
+      "page": "https://github.com/sgossner/VCSL",
+      "licence": "CC0-1.0",
+      "credit": "Versilian Community Sample Library (VCSL) by Versilian Studios",
+      "pins": "french_disco/vcsl.pins"
+    }
+  },
+  "sets": {
+    // hand percussion on its pads, a list a round robin
+    "percussion": {
+      "pads": {
+        "clap": [ "vcsl/Idiophones/Struck Idiophones/Claps/Clap_rr1.wav", "vcsl/Idiophones/Struck Idiophones/Claps/Clap_rr2.wav", "vcsl/Idiophones/Struck Idiophones/Claps/Clap_rr3.wav", "vcsl/Idiophones/Struck Idiophones/Claps/Clap_rr4.wav" ],
+        "tambourine": [
+          { "file": "vcsl/Idiophones/Struck Idiophones/Tambourine 1/Tamb1_Shake_rr1_Mid.wav", "hi_velocity": 90 },
+          { "file": "vcsl/Idiophones/Struck Idiophones/Tambourine 1/Tamb1_Shake_rr2_Mid.wav", "hi_velocity": 90 },
+          { "file": "vcsl/Idiophones/Struck Idiophones/Tambourine 1/Tamb1_Hit_v2_rr1_Mid.wav", "lo_velocity": 91 }
+        ],
+        "shaker": [ "vcsl/Idiophones/Struck Idiophones/Shaker, Small/Mid_ShakerDouble_Down_rr1.wav", "vcsl/Idiophones/Struck Idiophones/Shaker, Small/Mid_ShakerDouble_Up_rr1.wav" ],
+        "conga_mid": [ "vcsl/Membranophones/Struck Membranophones/Conga/Conga_HitN_v2_rr1_Sum.wav", "vcsl/Membranophones/Struck Membranophones/Conga/Conga_HitN_v2_rr2_Sum.wav" ],
+        "conga_high": [ "vcsl/Membranophones/Struck Membranophones/Conga/Quinto_HitN_v2_rr1_Sum.wav", "vcsl/Membranophones/Struck Membranophones/Conga/Quinto_HitFM1_v2_rr1_Sum.wav" ],
+        "cowbell": "vcsl/Idiophones/Struck Idiophones/Cowbells/Cowbell1_Muted_v2_rr1_Mid.wav"
+      }
+    }
+  },
+  "parts": {
+    // the floor: a 909 kick, its own part so the pump can listen to it alone
+    "kick": {
+      "instrument": { "name": "DrumMachine", "machine": "909", "tone": 0.3, "decay": 0.75, "tune": -0.1 },
+      "gain_db": -5.5,
+      "play": [
+        { "energy": [0.45, 1], "steps": { "kick": "X...x...x...x..." } }
+      ]
+    },
+    "hats": {
+      "instrument": { "name": "DrumMachine", "machine": "909", "tone": 0.6, "decay": 0.5 },
+      "gain_db": 2,
+      "pan": 0.3,
+      "sends": { "room": -16 },
+      "play": [
+        { "energy": [0.6, 1], "steps": { "hat": "x.x.x.x.x.x.x.xx", "open_hat": "..x...x...x...x." } },
+        { "energy": [0.2, 0.6], "velocity": 0.7, "steps": { "open_hat": "..x...x...x...x." } }
+      ]
+    },
+    "percussion": {
+      "instrument": { "name": "Sampler", "set": "percussion" },
+      "gain_db": -1.5,
+      "sends": { "room": -12 },
+      "play": [
+        { "energy": [0.7, 1], "humanize": 0.15, "steps": {
+            "clap": "....x.......x...",
+            "tambourine": "x.x.X.x.x.x.X.xx",
+            "shaker": "xxxxxxxxxxxxxxxx",
+            "conga_high": "......x.....x.x.",
+            "conga_mid": "...x.......x....",
+            "cowbell": "..........x....." } },
+        { "energy": [0.45, 0.7], "humanize": 0.15, "velocity": 0.8, "steps": {
+            "clap": "....x.......x...",
+            "tambourine": "..x...x...x...x.",
+            "conga_high": "......x.....x.x." } }
+      ]
+    },
+    // octave disco bass, played on the strings' fingers (velocity layers and
+    // round robins from Karoryfer's own mapping)
+    "bass": {
+      "instrument": { "name": "Sampler", "set": "fashionbass/fashionbass_clean.sfz", "release": 0.08 },
+      "gain_db": 1.5,
+      "play": [
+        { "energy": [0.5, 1], "octave": 1, "humanize": 0.1, "degrees": "1 . 8 . 1 8 . 1 . 1 8 . 1 . 8 7", "subdivision": "16n", "duration": "16n" }
+      ]
+    },
+    // clean funk chops: ninth chords, sixteenth stabs off the beat
+    "guitar": {
+      "instrument": { "name": "Sampler", "set": "emily/emily_clean.sfz", "release": 0.05 },
+      "gain_db": -2,
+      "pan": -0.35,
+      "sends": { "room": -14 },
+      "play": [
+        { "energy": [0.5, 1], "octave": 4, "humanize": 0.12, "chords": { "rhythm": "..x..x.x..x..x.x", "voicing": "close" }, "duration": "32n", "velocity": 0.75 }
+      ]
+    },
+    "violins": {
+      "instrument": { "name": "Sampler", "set": "french_disco/violins_spiccato.sfz" },
+      "gain_db": -6.5,
+      "pan": 0.2,
+      "sends": { "hall": -10 },
+      "play": [
+        { "energy": [0.75, 1], "octave": 5, "chords": { "rhythm": "x.....x.....x...", "voicing": "open" }, "duration": "16n", "velocity": 0.9 }
+      ]
+    },
+    "brass": {
+      "instrument": { "name": "Sampler", "set": "french_disco/trumpet_staccato.sfz" },
+      "gain_db": -5.5,
+      "pan": -0.15,
+      "sends": { "hall": -12 },
+      "play": [
+        { "energy": [0.9, 1], "octave": 4, "chords": { "rhythm": "...........x.x..", "voicing": "close" }, "duration": "16n", "velocity": 0.95 }
+      ]
+    },
+    "trombone": {
+      "instrument": { "name": "Sampler", "set": "french_disco/trombone_staccato.sfz" },
+      "gain_db": -3.5,
+      "pan": 0.1,
+      "sends": { "hall": -14 },
+      "play": [
+        { "energy": [0.9, 1], "octave": 3, "degrees": ". . . . . . . . . . . 1 . 1 . .", "subdivision": "16n", "duration": "16n", "velocity": 0.9 }
+      ]
+    },
+    "strings": {
+      "instrument": { "name": "Sampler", "set": "french_disco/violins_sustain.sfz", "attack": 0.12, "release": 0.8 },
+      "gain_db": 0,
+      "sends": { "hall": -6 },
+      "play": [
+        { "energy": [0.15, 0.45], "octave": 4, "chords": { "voicing": "open" }, "velocity": 0.6 }
+      ]
+    }
+  },
+  "returns": {
+    "room": [ { "name": "Reverb", "decay": 0.7, "pre_delay": 0.004 } ],
+    "hall": [ { "name": "Reverb", "decay": 2.2, "pre_delay": 0.02 } ]
+  }
+}
