@@ -616,7 +616,26 @@ timeline_draw :: proc(s: ^ui.State, box: ^ui.Box, data: rawptr) {
 		render.draw_text(r, s.font, tip, tx + 5 * dpi, ty + 2 * dpi, font_px, {235, 238, 244, 255})
 	}
 
-	// The bookmark, the hovered frame and the playhead over everything.
+	// The marks (ranges as bands, moments as lines, each with its number)
+	// and the pending in point, then the bookmark, the hovered frame and the
+	// playhead over everything.
+	for m in pv.marks {
+		x := x_of(f64(m.at), first, ppf, x0)
+		if m.to >= 0 {
+			x1 := x_of(f64(m.to + 1), first, ppf, x0)
+			fill(r, a, x, y0, max(x1 - x, line_w), h, {COLOR_MARK.r, COLOR_MARK.g, COLOR_MARK.b, 40})
+			fill(r, a, x, y0, max(x1 - x, line_w), 3 * dpi, COLOR_MARK)
+			fill(r, a, x1 - line_w, y0, line_w, h, {COLOR_MARK.r, COLOR_MARK.g, COLOR_MARK.b, 160})
+		}
+		fill(r, a, x, y0, line_w, h, {COLOR_MARK.r, COLOR_MARK.g, COLOR_MARK.b, 200})
+		render.draw_text(r, s.font, fmt.tprintf("%d", m.n), x + 3 * dpi, y0 + 3 * dpi, font_px, COLOR_MARK)
+	}
+	if pv.mark_in >= 0 {
+		x := x_of(f64(pv.mark_in), first, ppf, x0)
+		fill(r, a, x, y0, line_w, h, COLOR_MARK)
+		fill(r, a, x, y0, 7 * dpi, line_w * 2, COLOR_MARK)
+		fill(r, a, x, y0 + h - line_w * 2, 7 * dpi, line_w * 2, COLOR_MARK)
+	}
 	if pv.bookmark >= 0 {
 		x := x_of(f64(pv.bookmark), first, ppf, x0)
 		fill(r, a, x, y0, line_w, h, {COLOR_BOOKMARK.r, COLOR_BOOKMARK.g, COLOR_BOOKMARK.b, 200})
@@ -676,7 +695,10 @@ draw_lane :: proc(v: ^Row_View, index: int, y, lane_h: f32, color_index: int) {
 		for cx := cx0; cx < cx1; cx += col_w {
 			s0 := int((v.first + f64(cx - v.x0) / v.ppf) * v.samples_per_frame)
 			s1 := int((v.first + f64(cx + col_w - v.x0) / v.ppf) * v.samples_per_frame)
-			lo, hi, ok := wave_peak(waves, clip, s0 - reg.start + reg.at, s1 - reg.start + reg.at)
+			// the source samples under the column, either way
+			f0 := reg.at + int(f64(s0 - reg.start) * f64(reg.speed))
+			f1 := reg.at + int(f64(s1 - reg.start) * f64(reg.speed))
+			lo, hi, ok := wave_peak(waves, clip, min(f0, f1), max(f0, f1))
 			if !ok {
 				break // still being computed
 			}

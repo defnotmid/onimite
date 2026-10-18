@@ -49,8 +49,9 @@ test_lister_options :: proc(t: ^testing.T) {
 	testing.expect_value(t, add[0].row.regs.panel, video)
 	testing.expect_value(t, add[3].label, "Watch: Cues")
 	testing.expect_value(t, add[3].row.regs.section, Watch_Section.Cues)
-	testing.expect_value(t, add[6].label, "Split right")
-	testing.expect_value(t, add[6].row.regs.panel, video)
+	testing.expect_value(t, add[6].label, "Watch: Marks")
+	testing.expect_value(t, add[7].label, "Split right")
+	testing.expect_value(t, add[7].row.regs.panel, video)
 
 	// Places first; Media rows are not places.
 	go_to, _ := list(&ws, &w, video, .Go_To, "")

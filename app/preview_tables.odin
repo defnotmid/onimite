@@ -1,5 +1,6 @@
 package onimite_app
 
+import "core:encoding/json"
 import "core:fmt"
 import "core:hash"
 import "core:math"
@@ -132,6 +133,8 @@ Wave_Region :: struct {
 	clip:       int,
 	start, end: int,
 	at:         int,
+	// source samples per video sample (negative: backwards from `at`)
+	speed:      f32,
 }
 
 // A placed track's lane: its regions, its span on the video timeline and
@@ -735,7 +738,7 @@ placed_lane :: proc(x: ^Timeline_Build, ks: []int, part: i32, name: string) -> i
 		switch {
 		case p.clip != nil:
 			clip := media_source(x.b, {kind = .Clip, audio = p.clip^}, p.clip.frames)
-			append(&t.regions, Wave_Region{clip, p.start, p.end, p.file_start})
+			append(&t.regions, Wave_Region{clip, p.start, p.end, p.file_start, om.track_speed(p.track)})
 		case p.song != nil && p.song.ok:
 			// the song's sample 0 on the video
 			zero := p.start - p.file_start
@@ -749,7 +752,7 @@ placed_lane :: proc(x: ^Timeline_Build, ks: []int, part: i32, name: string) -> i
 					continue
 				}
 				clip := media_source(x.b, {kind = .Song, song = p.song, part = part, from = first}, z - a)
-				append(&t.regions, Wave_Region{clip, start, end, start - a})
+				append(&t.regions, Wave_Region{clip, start, end, start - a, 1})
 			}
 		}
 	}
@@ -1062,6 +1065,7 @@ Watch_Section :: enum u8 {
 	Cues,
 	Problems,
 	Media,
+	Marks,
 }
 
 Watch_Status :: enum u8 {
@@ -1117,6 +1121,8 @@ Watch_Sources :: struct {
 	placed:     []om.Placed_Track,
 	// Why the last load failed ("" after a good one).
 	load_error: string,
+	// The marks a person made in the window, in time order.
+	marks:      []Mark,
 }
 
 // Fills `t`: the scenes with the problems seen in each, the cues with
@@ -1207,6 +1213,105 @@ watch_table_build :: proc(t: ^Watch_Table, src: Watch_Sources) {
 			add(t, .Media, status, first, label, detail, k)
 		}
 	}
+
+	for m in src.marks {
+		label, detail := mark_watch(m, fps)
+		add(t, .Marks, .Info, m.at, label, detail)
+	}
+}
+
+// ---- marks file -------------------------------------------------------------------------
+
+// A moment or a range a person marked in the preview for the agent to read:
+// frames `at` (to `to`, inclusive; -1: a moment), numbered `n` in the order
+// they were made (numbers stay when others go).
+Mark :: struct {
+	n:      int,
+	at, to: int,
+}
+
+// Where the marks of a script or clip live: beside it, `video.lua` ->
+// `video.marks.json`, `clip.mp4` -> `clip.marks.json`, where the agent
+// reads them.
+marks_file :: proc(script_path: string, allocator := context.temp_allocator) -> string {
+	return strings.concatenate({strings.trim_suffix(script_path, filepath.ext(script_path)), MARKS_SUFFIX}, allocator)
+}
+
+MARKS_SUFFIX :: ".marks.json"
+
+// A mark in seconds: where it starts and, for a range, the playhead's time
+// at its out point (a moment: its start).
+mark_seconds :: proc(m: Mark, fps: int) -> (from, to: f64) {
+	from = f64(m.at) / f64(fps)
+	to = f64(m.to) / f64(fps) if m.to >= 0 else from
+	return
+}
+
+Marks_File :: struct {
+	source: string `json:"source"`,
+	fps:    int `json:"fps"`,
+	marks:  []Mark_Entry `json:"marks"`,
+}
+
+// A mark as the file has it, in seconds: `at` for a moment, `from` and
+// `to` for a range.
+Mark_Entry :: struct {
+	n:    int `json:"n"`,
+	at:   Maybe(f64) `json:"at"`,
+	from: Maybe(f64) `json:"from"`,
+	to:   Maybe(f64) `json:"to"`,
+}
+
+// The marks of the script (`fps`: the video's rate, for frames), in time
+// order; none when the file is missing or unreadable.
+marks_read :: proc(script_path: string, fps: int, allocator := context.allocator) -> [dynamic]Mark {
+	out := make([dynamic]Mark, allocator)
+	data, err := os.read_entire_file(marks_file(script_path), context.temp_allocator)
+	if err != nil {
+		return out
+	}
+	f: Marks_File
+	if json.unmarshal(data, &f, allocator = context.temp_allocator) != nil {
+		return out
+	}
+	frame :: proc(s: f64, fps: int) -> int {return max(int(math.round(s * f64(fps))), 0)}
+	for e in f.marks {
+		if at, ok := e.at.?; ok {
+			append(&out, Mark{e.n, frame(at, fps), -1})
+		} else if from, ok := e.from.?; ok {
+			append(&out, Mark{e.n, frame(from, fps), max(frame(e.to.? or_else from, fps), frame(from, fps))})
+		}
+	}
+	marks_sort(out[:])
+	return out
+}
+
+marks_sort :: proc(marks: []Mark) {
+	slice.sort_by(marks, proc(a, b: Mark) -> bool {return a.at < b.at || (a.at == b.at && a.n < b.n)})
+}
+
+// Writes the marks beside the script (or removes the file when there are
+// none). Runs on the worker.
+marks_write :: proc(script_path: string, marks: []Mark, fps: int) {
+	path := marks_file(script_path)
+	if len(marks) == 0 {
+		_ = os.remove(path)
+		return
+	}
+	// by hand: seconds to the millisecond, a mark a line
+	b := strings.builder_make(context.temp_allocator)
+	fmt.sbprintf(&b, "{{\n  \"source\": %q,\n  \"fps\": %d,\n  \"marks\": [\n", filepath.base(script_path), fps)
+	for m, i in marks {
+		from, to := mark_seconds(m, fps)
+		if m.to < 0 {
+			fmt.sbprintf(&b, "    {{ \"n\": %d, \"at\": %.3f }}", m.n, from)
+		} else {
+			fmt.sbprintf(&b, "    {{ \"n\": %d, \"from\": %.3f, \"to\": %.3f }}", m.n, from, to)
+		}
+		strings.write_string(&b, ",\n" if i + 1 < len(marks) else "\n")
+	}
+	strings.write_string(&b, "  ]\n}\n")
+	_ = os.write_entire_file(path, transmute([]u8)strings.to_string(b))
 }
 
 // ---- bookmark file ----------------------------------------------------------------------

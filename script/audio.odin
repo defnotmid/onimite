@@ -16,9 +16,10 @@ import lua "vendor:lua/5.4"
 //
 // Track fields: the file (first entry or `src`: a clip, or a song or sound
 // by name), `start` (a song on video{} without one: its own start), `stop`
-// (omitted: to the end of the file, a song's end and tail), `offset` (seconds into the file), `gain_db`,
+// (omitted: to the end of the file, a song's end and tail), `offset` (seconds into the file), `speed` (file seconds per second, pitch with it; negative: backwards from `offset`), `gain_db`,
 // `pan` (-1..1), `fade_in`, `fade_out`, `curve` ("linear" or
-// "equal_power"), `voice`, `ducked` (true for fframes' duck_under_voice, or
+// "equal_power"), `crossfade` (a scene's track: fades over the scene's
+// overlaps with its neighbours, equal power), `voice`, `ducked` (true for fframes' duck_under_voice, or
 // a table `{depth_db, attack, hold, release, merge_gap}`), `mono` (a stereo
 // file as 0.707 * (L + R) on both sides, like fframes' embedded media),
 // `effects` (a clip's, as a song part's: `{ { "Filter", type = "highpass",
@@ -78,12 +79,25 @@ read_audio :: proc(s: ^Script, L: ^lua.State, t: c.int, scene: Maybe(int)) {
 		tr.start_terms = read_terms_field(s, L, e, "start")
 		tr.stop_terms = read_terms_field(s, L, e, "stop")
 		tr.offset = get_num(L, e, "offset", 0)
+		tr.speed = get_num(L, e, "speed", 1)
+		if tr.speed == 0 {
+			lua.L_error(L, "audio track %s: speed 0 never moves (1 plays as recorded, -1 backwards)", strings.clone_to_cstring(tr.src, context.temp_allocator))
+		}
+		if tr.speed != 1 && script_song(s, tr.src) != nil {
+			lua.L_error(L, "audio track %s: a song's speed is its bpm", strings.clone_to_cstring(tr.src, context.temp_allocator))
+		}
 		tr.gain_db = get_num(L, e, "gain_db", 0)
 		tr.pan = clamp(get_num(L, e, "pan", 0), -1, 1)
 		tr.fade_in = get_num(L, e, "fade_in", 0)
 		tr.fade_out = get_num(L, e, "fade_out", 0)
 		if get_str(L, e, "curve", "linear") == "equal_power" {
 			tr.curve = .Equal_Power
+		}
+		field(L, e, "crossfade")
+		tr.crossfade = bool(lua.toboolean(L, -1))
+		lua.pop(L, 1)
+		if tr.crossfade && scene == nil {
+			lua.L_error(L, "audio track %s: crossfade is for a scene's tracks (it fades over the scene's overlaps)", strings.clone_to_cstring(tr.src, context.temp_allocator))
 		}
 		field(L, e, "voice")
 		tr.voice = bool(lua.toboolean(L, -1))

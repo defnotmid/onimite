@@ -168,6 +168,8 @@ The examples in the onimite repository are working patterns to read and borrow f
 | `examples/physics_demo` | rigid bodies: `physics{}` simulated once at load (in `shared`), tiles dropped into a word with `start` staggers, `physics_at` per frame, a pop per impact from `sim.contacts` (the saga's NotNeeded scene: a wrecking ball on a rope; why_onimite's Ship: 311 grains poured) |
 | `examples/audio_demo` | tracks on video and scenes, voice + ducking, SFX on animation constants |
 | `examples/voiceover` | spoken lines made with `say()` (text to speech with word times), their captions, keys and SFX on spoken words (`say_cue`), a pad ducking under the voice; its README explains the `cue_no_hit` findings left on run-together words |
+| `examples/cuts` | an edit as a list of cuts: `scene{ clip = { file, from, to } }` per row, clips of other sizes and frame rates (a 9:16 60 fps phone clip letterboxed, 24 fps footage), whole files and ranges, fade / slide / wipe between cuts with the sound crossfading, a label naming each cut |
+| `examples/footage` | footage anywhere a picture goes: a clip inside an SVG's silhouette (Pip, `mask_type = "alpha"`), inside text, through an SkSL ripple (a clip as a shader child), a grid at four speeds and backwards; each scene's clip row (`picture = false`) places the sound, its render draws the same row's picture |
 | `examples/media_demo` | `video_frame` clip with its sound, WebVTT `subtitle_at`, `audio_spectrum` bars, durations from media |
 | `examples/batch` | data-driven title card: `props` with defaults, `--batch rows.json` / `rows.csv`, `--props`, `--set` |
 | `examples/scenes` | scene structure and overlaps |
@@ -204,6 +206,22 @@ render the whole video as routine. When a change is ready:
    preview reloads on every save of any file in the script's folder (script, modules,
    shaders, data; `media/` changes reload the media), so one open window follows all later
    edits; tell the user that instead of relaunching it.
+
+**Footage and marks.** A video file works wherever a script does: `onimite strip
+/abs/footage/take.mp4 -n 12`, `frame take.mp4 12.5s`, `audio analyze take.mp4`, `timeline take.mp4`
+look through it at its own size and rate (its folder's other files stay unread). To let the
+user point at what they want (where to cut, where a fade should start), open the clip, or the
+script, in the preview and tell them the keys: `[` then `]` mark a range, `P` a moment, Delete
+removes the mark under the playhead. The marks are written beside it (`take.mp4` ->
+`take.marks.json`, `video.lua` -> `video.marks.json`), numbered as made, in seconds:
+
+```json
+{ "source": "take.mp4", "fps": 30, "marks": [ { "n": 1, "from": 12.4, "to": 15.9 }, { "n": 2, "at": 31.0 } ] }
+```
+
+Read them with `onimite show take.mp4 marks` (or the file) and write the edit from them, e.g.
+`scene { clip = { "take.mp4", from = 12.4, to = 15.9 } }`. Marks are the user's pointers, not
+edits: the agent makes every change; when the user says "mark 2", it is that row.
 
 After every change:
 
@@ -287,7 +305,7 @@ with commas.
 
 | command | use it to |
 | --- | --- |
-| `show [PATH] [--at T] [--page N]` | explore the video like a debugger's watch window: the video, then `scenes`, `scene/Race`, `scene/Race/nodes`, `cue/drop`, `bus/sfx`, `track/12`, `clip/x`, `says`, `say/intro` (a spoken line's words and times), `say/intro/3` (one word, and when each track playing it says it on the video), `songs`, `song/score` (a song's sections and parts), `song/score/parts/bass` (every note on the video), `instruments` and `instrument/MonoSynth` (the built-in rows, as data to copy), `media` and `media/logo.png` (the files besides sounds), `fonts`, `bodies` and `body/ball` (what `physics{}` and `physics3d{}` simulated: start, end, still moving), `node/scenes/race.lua:19[2]`; an unknown path lists the ones there are; each has a summary, its fields, its children by path (20 a page) and the script line that made it |
+| `show [PATH] [--at T] [--page N]` | explore the video like a debugger's watch window: the video, then `scenes`, `scene/Race`, `scene/Race/nodes`, `cue/drop`, `bus/sfx`, `track/12`, `clip/x`, `says`, `say/intro` (a spoken line's words and times), `say/intro/3` (one word, and when each track playing it says it on the video), `songs`, `song/score` (a song's sections and parts), `song/score/parts/bass` (every note on the video), `instruments` and `instrument/MonoSynth` (the built-in rows, as data to copy), `media` and `media/logo.png` (the files besides sounds), `fonts`, `bodies` and `body/ball` (what `physics{}` and `physics3d{}` simulated: start, end, still moving), `marks` and `mark/2` (what the user marked in the preview), `node/scenes/race.lua:19[2]`; an unknown path lists the ones there are; each has a summary, its fields, its children by path (20 a page) and the script line that made it |
 | `timeline [RANGE]` | scenes (with their cue and the file and line that defines them), audio tracks, cues, songs (sections, tracks); a range lists only what happens in it |
 | `inspect [RANGE] [--every 0.1s \| --all-frames] [--info] [--fail-on error\|warning\|never]` | find problems without looking (exit 2 on failure; `--info` also lists text entirely off canvas) |
 | `strip [RANGE] -n N [--columns 4] [--width 480] [-o strip.png]` | flow and motion in one image |
@@ -340,9 +358,11 @@ are not kept). A failing command is an error result with its code; an `inspect` 
 Space play/pause · Left/Right or J/K step a frame · Ctrl+Left/Right one second · Home/0
 (Shift+J, Shift+Left) the bookmark, then the start · End (Shift+G, Shift+Right) last frame ·
 PgDn/S/W, PgUp/B/Shift+S next/previous scene · M set the bookmark (reloads return to it) ·
+`[` / `]` mark a range's in / out · P mark a moment (again: unmark) · Delete / Backspace remove
+the mark under the playhead (the marks file beside the script, `show marks`) ·
 Up/L, Down/H volume · Ctrl+Down/Ctrl+H mute · Shift+L loop · =/- zoom the timeline, Ctrl+0
 fit it · Z fit the video in its panel · T hide timeline · F fullscreen · D/I the Watch on problems/media · N/Shift+N
-next/previous row with a warning or error · Ctrl+P go to a scene, cue or problem (type to
+next/previous row with a warning or error · Ctrl+P go to a scene, cue, problem or mark (type to
 filter, Up/Down, Enter) · R reload · Ctrl+O open a script · Esc closes the list, the
 Watch, fullscreen, then the window · Q close.
 Click or drag the timeline to scrub; once zoomed, it stops following the playhead when you
@@ -350,7 +370,7 @@ scroll it, and its Follow button brings it back. Over the video, the wheel zooms
 cursor and dragging pans (a click still plays/pauses). Views are tabs in panels: drag a tab to another panel or
 its edge, `+` lists the views to open in that panel and its splits (type to filter). A timeline
 in a panel at the side, taller than wide, runs top to bottom. The Watch lists scenes, cues (with drift / missing-hit
-findings), problems and media (failed, unused sounds); a click on a row goes to its frame. A
+findings), problems, media (failed, unused sounds) and marks; a click on a row goes to its frame. A
 script that fails to load shows its error in the window while the last good version keeps
 playing.
 
@@ -381,6 +401,11 @@ playing.
   starts at 0 (`g.progress` 0..1), `series(f, { {dur, fn}, ... })` plays parts back to
   back, `loop(f, period, fn)` and `freeze(f, at, fn)` wrap or stop the clock (clips and
   shaders follow), `stagger(i, each, { n, from = "center" })` offsets item starts.
+- Footage: `scene { clip = { "a.mp4", from = 12, to = 15.5 } }` is a cut of a file with its
+  sound (crossfading with any transition); `speed` (slow motion, fast, negative backwards),
+  `picture = { fit, fade_out, ... }` and `sound = { lead, extend, gain_db, speed, ... }` set
+  each side; a list of such scenes joins or edits clips (`references/media.md`, "Cuts and
+  joining clips").
 - A scene without `render` is fine as a label (for `Card@2s` addressing and per-scene
   loudness) when the video-level `render` draws everything.
 - Debug values with `io.stderr:write(...)` inside `render` and run `frame` on one frame

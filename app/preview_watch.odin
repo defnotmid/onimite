@@ -52,6 +52,7 @@ WATCH_SECTIONS := [Watch_Section]Watch_Section_Descriptor {
 	.Cues     = {"Cues", "Cue", "No cues.", true},
 	.Problems = {"Problems", "Problem", "No problems at load or in the frames shown since.", true},
 	.Media    = {"Media", "Media file", "No media loaded.", false},
+	.Marks    = {"Marks", "Mark", "No marks: [ and ] mark a range, P a moment; the agent reads them.", true},
 }
 
 // What a click on a Watch row pushes: the playhead to its frame.

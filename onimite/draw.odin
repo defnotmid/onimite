@@ -298,13 +298,23 @@ render_node :: proc(r: ^Renderer, i: i32, box: vg.Rect, pw, ph: u32) -> []u8 {
 // whose images it shows.
 @(private = "file")
 flush_frame :: proc(r: ^Renderer, output: vg.Render_Output) {
-	if jobs := &r.view3d.jobs; jobs.count > 0 {
-		if err := view3d_gpu_render(r.gpu3d, &r.media.view3d, jobs.list[:jobs.count], &r.canvas.images); err != nil {
-			report(&r.ctx, .Error, {code = .View3d_Render, o3d = err})
-		}
-		jobs.count = 0
+	jobs := &r.view3d.jobs
+	if jobs.count == 0 {
+		vg.flush(&r.canvas, output)
+		return
+	}
+	list := jobs.list[:jobs.count]
+	err, locked := view3d_gpu_prepare(r.gpu3d, &r.media.view3d, list, &r.canvas.images)
+	if err != nil {
+		report(&r.ctx, .Error, {code = .View3d_Render, o3d = err})
 	}
 	vg.flush(&r.canvas, output)
+	if locked {
+		if err := view3d_gpu_done(&r.media.view3d, list); err != nil {
+			report(&r.ctx, .Error, {code = .View3d_Render, o3d = err})
+		}
+	}
+	jobs.count = 0
 }
 
 @(private = "file")

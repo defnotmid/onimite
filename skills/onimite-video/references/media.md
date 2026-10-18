@@ -87,18 +87,61 @@ local info = video_info("clip.mp4")            -- {width, height, duration, fps,
 video_frame(f, { src = "clip.mp4", x = 100, y = 100, w = 960, h = 540, fit = "cover",
   start_from = 0.5,      -- when playback starts on the frame clock (nothing before)
   clip_start = 1.0,      -- skip into the clip
+  speed = 1,             -- clip seconds per second (negative: backwards from clip_start)
   looping = true, opacity = 1 })
 video_frame(f, { src = "transparent.mov", x = 1200, y = 300, w = 500, h = 500 })   -- ProRes 4444 / VP9 alpha keep alpha
 text { string.format("%dx%d %.1fs", info.width, info.height, info.duration),
   x = 100, y = 700, font = "DM Sans", size = 40, fill = "#fff" }
 ```
 
-`.mp4` (fragmented MP4 too, as screen recorders and browsers write it), `.mov`, `.m4v`, `.webm` in `media/`. The frame fits its box like an image: `fit`
+`.mp4` (fragmented MP4 too, as screen recorders and browsers write it), `.mov`, `.m4v`, `.webm` in `media/`. A track no decoder takes (H.264 4:4:4 or 12-bit, interlaced H.264) is `undecodable_video` when the media loads; its sound still plays (convert the picture: `ffmpeg -i in.mp4 -pix_fmt yuv420p -c:v libx264 -c:a copy out.mp4`). `video_info` works at load too, so a clip's length can lay out scenes. The frame fits its box like an image: `fit`
 (`contain` default, `cover`, `fill`, or `preserve_aspect_ratio`), `align = {x, y}` (0..1),
 and a missing `w` or `h` follows the clip's aspect (neither: its own size; a rotated phone
 clip counts upright). The clock is the frame's (scene-relative in a scene). Past the end the clip disappears unless it loops. A clip's sound is used by putting
 its file name in an `audio` list (`offset` to start inside it). Renders wait for exact
 frames; the preview shows the nearest decoded one.
+
+## Cuts and joining clips
+
+A scene with a `clip` shows a stretch of a file and plays its sound over the same stretch:
+
+```lua
+scene { "Hello", clip = { "interview.mp4", from = 12.0, to = 15.5 } }       -- 3.5 s of the file
+scene { "Trip", clip = "trip.mov", transition = { "fade", duration = 0.5 } } -- the whole file
+scene { "Close", clip = { "interview.mp4", from = 31, to = 35,
+    picture = { fit = "cover", fade_out = 1.5 },       -- fades to black over its last 1.5 s
+    sound = { gain_db = -3, extend = 3, fade_out = 2 } }, -- runs 3 s past the cut (an L-cut)
+  transition = { "slide", duration = 0.4 },
+  render = function(f) text { "Thanks", x = 80, y = 120, font = "DM Sans", size = 72, fill = "#fff" } end }
+scene { "Rewind", clip = { "interview.mp4", from = 20, to = 24, speed = -2 } }  -- 2 s, backwards
+```
+
+- The clip row: `src` (or the first entry), `from` / `to` (seconds of the file, 0 and its end
+  by default), `speed` (file seconds per second: 0.5 slow motion, 2 fast, negative backwards
+  from `to` to `from`), `name`, then its two sides, `picture` and `sound`. Both read the same
+  stretch at the same speed unless the sound is given a clock of its own.
+- The scene shows exactly `[from, to)`: it lasts `(to - from) / |speed|` including its overlaps,
+  so a transition crosses inside the cut and joined cuts are their lengths minus the
+  transitions. `duration = s` in place of `to` takes `s` seconds of the scene from `from`.
+- `picture = { x, y, w, h, fit, align, opacity, fade_in, fade_out }` (the whole video and
+  `contain` by default: mixed sizes and phone clips letterbox) drawn under the scene's
+  `render`; `picture = false` keeps only the sound.
+- `sound = { gain_db, fade_in, fade_out, lead, extend, speed, offset, effects }`: a scene track
+  of the file, crossfading where the scene overlaps its neighbours; `lead` starts it that many
+  seconds before the picture (a J-cut), `extend` keeps it after (an L-cut); `speed` and
+  `offset` (the file second it starts at) give it a clock apart from the picture's (slow
+  motion over sound at its own speed: `sound = { speed = 1 }`). The sound follows `speed`
+  tape-style (its pitch with it). `sound = false` leaves it out; a file without sound has none.
+- Clips of other frame rates play at the video's fps (sampled by time). A cut past the end
+  of the file, an empty one, one shorter than its overlaps, or a sound reaching outside its
+  file is an error at the scene's line.
+- A cut list is rows: `for _, c in ipairs(CUTS) do scene { c.name, clip = c } end` with
+  `CUTS = { { "a.mp4", from = 3, to = 7, name = "Hook" }, ... }` (from the user's marks:
+  "Footage and marks" in SKILL.md).
+- For footage anywhere else (inside a mask, in a grid, through a shader), keep the clip row
+  for the sound and the scene's length with `picture = false`, and draw the same row's
+  picture in `render` with `video_frame` (`clip_start = from`, or `to` played backwards, and
+  `speed`): `examples/footage`.
 
 ## Subtitles
 

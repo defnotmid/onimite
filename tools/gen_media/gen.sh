@@ -21,6 +21,9 @@
 #   examples/onimite_saga/media transparent.mov
 #   examples/social_clip_kit/media  mascot.webm
 #   examples/three_d/media      sky.png, checker.png (three_d.lua)
+#   examples/cuts/media         street.mp4 (street.lua: 9:16, 60 fps), surf.mp4 (surf.lua:
+#                               24 fps), clip.mp4 (as media_demo's)
+#   examples/footage/media      the same three as cuts'
 #   testdata                    clip_baseline.mp4 (H.264 Constrained Baseline + mono AAC),
 #                               clip_high.mp4 (H.264 High, B-frames, no audio): clip.lua's
 #                               first 3 s at 320x240, a keyframe every 15 frames, for the
@@ -70,6 +73,12 @@ cp "$EX/suite/media/avatar_vp9_alpha.webm" "$EX/social_clip_kit/media/mascot.web
 
 echo "clip"
 "$OF" render "$HERE/clip.lua" --qp 26 -o "$EX/media_demo/media/clip.mp4"
+
+echo "cuts clips"
+"$OF" render "$HERE/street.lua" --qp 32 -o "$EX/cuts/media/street.mp4"
+"$OF" render "$HERE/surf.lua" --qp 26 -o "$EX/cuts/media/surf.mp4"
+cp "$EX/media_demo/media/clip.mp4" "$EX/cuts/media/clip.mp4"
+cp "$EX/cuts/media/street.mp4" "$EX/cuts/media/surf.mp4" "$EX/cuts/media/clip.mp4" "$EX/footage/media/"
 
 echo "testdata clips"
 "$OF" render "$HERE/clip.lua" 0..90 --scale 0.5 -o "$TMP/clip/"

@@ -4,6 +4,7 @@ import "core:container/lru"
 import "core:fmt"
 import "core:hash"
 import "core:os"
+import "core:path/filepath"
 import "core:slice"
 import "core:strings"
 import "core:sync"
@@ -650,6 +651,12 @@ put_audio :: proc(m: ^Media, name: string, clip: Audio_Clip) {
 // (`media_image`); audio, SVG and Lottie files decode as tasks on `pool`
 // (borrowed; nil decodes here) and are added in directory order.
 media_load_dir :: proc(m: ^Media, dir: string, pool: ^thread.Pool = nil) -> Error {
+	// A file in place of a directory is the media alone (a video file
+	// previewed or rendered as itself): its folder's other files stay unread.
+	dir, only := dir, ""
+	if os.is_file(dir) {
+		dir, only = filepath.split(dir)
+	}
 	infos, err := os.read_all_directory_by_path(dir, context.allocator)
 	if err != nil {
 		return .Io
@@ -665,7 +672,7 @@ media_load_dir :: proc(m: ^Media, dir: string, pool: ^thread.Pool = nil) -> Erro
 		delete(jobs)
 	}
 	for fi in infos {
-		if fi.type != .Regular {
+		if fi.type != .Regular || (only != "" && fi.name != only) {
 			continue
 		}
 		kind := media_kind_of(fi.name) or_continue

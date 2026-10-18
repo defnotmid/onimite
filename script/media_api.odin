@@ -256,7 +256,7 @@ frame_clock :: proc(L: ^lua.State, idx: c.int) -> (index: int, fps: int, seconds
 	return index, fps, f32(index) / f32(fps)
 }
 
-// video_frame(f, { src, x, y, w, h, start_from, clip_start, looping, fit, align, opacity })
+// video_frame(f, { src, x, y, w, h, start_from, clip_start, speed, looping, fit, align, opacity })
 @(private)
 l_video_frame :: proc "c" (L: ^lua.State) -> c.int {
 	s := host(L)
@@ -279,6 +279,7 @@ l_video_frame :: proc "c" (L: ^lua.State) -> c.int {
 			h = get_num(L, 2, "h", get_num(L, 2, "height", 0)),
 			start_from = get_num(L, 2, "start_from", 0),
 			clip_start = get_num(L, 2, "clip_start", 0),
+			speed = get_num(L, 2, "speed", 1),
 			looping = looping,
 			fit = read_fit(L, 2),
 			align = read_align(L, 2),
@@ -289,23 +290,35 @@ l_video_frame :: proc "c" (L: ^lua.State) -> c.int {
 	return 0
 }
 
-// video_info("clip.mp4") -> { width, height, duration, fps, frames } or nil
+// video_info("clip.mp4") -> { width, height, duration, fps, frames, rotation, audio } or nil
 @(private)
 l_video_info :: proc "c" (L: ^lua.State) -> c.int {
 	s := host(L)
 	context = s.odin_context
-	ctx := render_ctx(L, s)
-	info, ok := om.media_video_info(ctx.media, string(lua.L_checkstring(L, 1)))
+	// at load too: a clip's length places scenes (scene{ clip })
+	media := measure_media(L, s, "video_info")
+	name := string(lua.L_checkstring(L, 1))
+	info: om.Video_Info
+	ok: bool
+	if s.ctx != nil {
+		info, ok = om.media_video_info(media, name)
+	} else {
+		info, ok = om.media_video_open(media, name)
+	}
 	if !ok {
 		lua.pushnil(L)
 		return 1
 	}
-	lua.createtable(L, 0, 5)
+	lua.createtable(L, 0, 7)
 	set_int(L, "width", info.width)
 	set_int(L, "height", info.height)
 	set_num(L, "duration", f32(info.duration))
 	set_num(L, "fps", f32(info.fps))
 	set_int(L, "frames", info.frames)
+	set_int(L, "rotation", info.rotation)
+	// whether it has sound (its sound is a clip of the same name)
+	lua.pushboolean(L, b32(info.sound))
+	lua.setfield(L, -2, "audio")
 	return 1
 }
 

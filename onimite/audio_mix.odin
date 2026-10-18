@@ -58,6 +58,27 @@ seconds_to_samples :: #force_inline proc "contextless" (s: f32) -> int {
 	return int(math.round(f64(s) * MIX_RATE))
 }
 
+// A track's speed: file seconds per second (0, unset, is 1).
+track_speed :: #force_inline proc "contextless" (tr: Audio_Track) -> f32 {
+	return tr.speed if tr.speed != 0 else 1
+}
+
+// Where in its file placed track `p` is at video sample `s` (file samples;
+// a song's: its render's).
+placed_file_sample :: #force_inline proc "contextless" (p: Placed_Track, s: int) -> int {
+	return p.file_start + int(math.round(f64(s - p.start) * f64(track_speed(p.track))))
+}
+
+// When placed track `p` plays its file's second `seconds` (video seconds),
+// false when it never does (before where it starts, or behind it played
+// backwards).
+placed_file_time :: proc "contextless" (p: Placed_Track, seconds: f64) -> (t: f64, ok: bool) {
+	from := f64(p.file_start) / MIX_RATE
+	speed := f64(track_speed(p.track))
+	t = f64(p.start) / MIX_RATE + (seconds - from) / speed
+	return t, t >= f64(p.start) / MIX_RATE - 0.002 && t < f64(p.end) / MIX_RATE
+}
+
 // Where track `tr`'s clock starts on timeline `t`, in mix samples: its
 // scene's first frame, or the video start.
 track_origin :: proc(tr: Audio_Track, t: Timeline, fps: int) -> int {
@@ -84,6 +105,19 @@ track_times :: proc(tr: Audio_Track, t: Timeline, fps: int, m: ^Media) -> (start
 	start = origin + int(math.round(start_s * MIX_RATE))
 	stop = origin + int(math.round(stop_s * MIX_RATE))
 	return start, stop, has_stop, true
+}
+
+// The frames scene `i` shares with the scene before it (`enter`) and the
+// scene after it (`leave`) on timeline `t`.
+scene_overlaps :: proc(t: Timeline, i: int) -> (enter, leave: int) {
+	s := t.scenes[i]
+	if i > 0 {
+		enter = clamp(t.scenes[i - 1].end_frame - s.start_frame, 0, scene_info_frames(s))
+	}
+	if i + 1 < len(t.scenes) {
+		leave = clamp(s.end_frame - t.scenes[i + 1].start_frame, 0, scene_info_frames(s))
+	}
+	return
 }
 
 // A context's tracks placed on its timeline (`placed_audio`): placed once,
@@ -138,7 +172,15 @@ placed_audio_update :: proc(p: ^Placed_Audio, v: ^Video, t: Timeline, m: ^Media)
 			continue
 		}
 		file_start := seconds_to_samples(tr.offset)
-		end := start + max(length - file_start, 0)
+		speed := f64(track_speed(tr))
+		if start < 0 && clip != nil {
+			// starts before the video: what plays at the video's start
+			file_start += int(math.round(f64(-start) * speed))
+			start = 0
+		}
+		// how long the file lasts from file_start at this speed, either way
+		left := length - file_start if speed > 0 else file_start
+		end := start + max(int(f64(left) / abs(speed)), 0)
 		if has_stop {
 			end = min(end, stop)
 		}
@@ -147,8 +189,17 @@ placed_audio_update :: proc(p: ^Placed_Audio, v: ^Video, t: Timeline, m: ^Media)
 			continue
 		}
 		scene := ""
+		tr := tr
 		if i, in_scene := tr.scene.?; in_scene {
 			scene = v.scenes[i].name
+			if tr.crossfade {
+				enter, leave := scene_overlaps(t, i)
+				tr.fade_in += f32(enter) / f32(v.fps)
+				tr.fade_out += f32(leave) / f32(v.fps)
+				if enter > 0 || leave > 0 {
+					tr.curve = .Equal_Power
+				}
+			}
 		}
 		append(&p.tracks, Placed_Track{track = tr, clip = clip, song = song, start = start, end = end, file_start = file_start, scene = scene})
 	}
@@ -254,6 +305,7 @@ mix_init :: proc(mx: ^Mix, placed: []Placed_Track, opts: Mix_Options, samples :=
 				start    = f64(p.start) / MIX_RATE,
 				stop     = f64(p.end) / MIX_RATE,
 				offset   = f64(p.file_start) / MIX_RATE,
+				rate     = f64(track_speed(tr)),
 				gain_db  = f64(tr.gain_db),
 				pan      = f64(tr.pan),
 				fade_in  = f64(tr.fade_in),

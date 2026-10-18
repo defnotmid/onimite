@@ -324,17 +324,101 @@ local function window(slot, fps) -- frames both scenes are on screen
   return floor(slot.overlap * fps + EPS) + (slot.prev and floor(slot.prev.next * fps + EPS) or 0)
 end
 
+-- scene{ clip = "a.mp4" } or clip = { "a.mp4", from = 12, to = 15.5, speed = 1, name,
+--   picture = { x, y, w, h, fit, align, opacity, fade_in, fade_out } or false,
+--   sound = { gain_db, fade_in, fade_out, lead, extend, speed, offset, effects } or false }:
+-- the scene shows the clip's [from, to) at `speed` (negative: from `to` back to `from`),
+-- overlaps included (a transition crosses inside the cut), under its render. Its sound
+-- reads the same stretch at the same speed (pitch moves with it), crossfading where the
+-- scene overlaps its neighbours; `lead` starts it earlier, `extend` keeps it after the
+-- picture, `speed` / `offset` give it a clock of its own.
+local CLIP_KEYS = { "src", "from", "to", "speed", "name", "picture", "sound" }
+local PICTURE_KEYS = { "x", "y", "w", "h", "fit", "align", "opacity", "fade_in", "fade_out" }
+local SOUND_KEYS = { "gain_db", "fade_in", "fade_out", "lead", "extend", "speed", "offset", "effects" }
+
+local function clip_scene(t, overlap)
+  local c = t.clip
+  t.clip = nil
+  if type(c) == "string" then c = { c } end
+  check_fields(c, "clip", CLIP_KEYS)
+  local src = c[1] or c.src
+  local function fail(fmt, ...) error(string.format("scene: clip %s " .. fmt, src, ...), 4) end
+  if type(src) ~= "string" then error("scene: clip needs a video file, { \"clip.mp4\", from = ..., to = ... }", 3) end
+  local info = video_info(src)
+  if not info then error("scene: clip " .. src .. " is not a video in the media", 3) end
+  local speed = c.speed or 1
+  if speed == 0 then fail("speed 0 never moves (a still: picture = ..., or freeze())") end
+  local from = c.from or 0
+  local lap = (overlap.previous or 0) + (overlap.next or 0)
+  local to = c.to
+  if t.duration ~= nil then
+    if to then fail("takes `to` or a scene duration, not both") end
+    if type(t.duration) ~= "number" then fail("duration is seconds") end
+    to = from + (t.duration + lap) * math.abs(speed)
+  end
+  to = to or info.duration
+  if from < 0 or to <= from then fail("from %.3f to %.3f is empty", from, to) end
+  if to > info.duration + 1e-3 then
+    fail("is %.3f s; the cut %.3f..%.3f runs past its end", info.duration, from, to)
+  end
+  local span = (to - from) / math.abs(speed) -- seconds on the video
+  if span <= lap then fail("from %.3f to %.3f is shorter than its overlaps (%.3f s)", from, to, lap) end
+  t.duration = span - lap
+  if t[1] == nil and t.name == nil then t.name = c.name end
+  local first = speed > 0 and from or to -- where in the file the scene starts
+
+  local snd = c.sound
+  if snd ~= false and info.audio then
+    snd = snd or EMPTY
+    check_fields(snd, "clip sound", SOUND_KEYS)
+    local sspeed = snd.speed or speed
+    local lead, extend = snd.lead or 0, snd.extend or 0
+    local offset = (snd.offset or first) - lead * sspeed
+    if offset < -1e-3 or offset > info.duration + 1e-3 then
+      fail("sound starts at %.3f s of the file, outside it (lead %.3f)", offset, lead)
+    end
+    local audio = { { src, start = -lead, stop = span + extend, offset = math.max(offset, 0), speed = sspeed,
+      gain_db = snd.gain_db, fade_in = snd.fade_in, fade_out = snd.fade_out, effects = snd.effects,
+      crossfade = lead == 0 and extend == 0 } }
+    for _, a in ipairs(t.audio or EMPTY) do audio[#audio + 1] = a end
+    t.audio = audio
+  elseif snd ~= nil and snd ~= false then
+    check_fields(snd, "clip sound", SOUND_KEYS)
+  end
+
+  local render = t.render
+  local pic = c.picture
+  if pic == false then
+    t.render = render
+    return
+  end
+  pic = pic or EMPTY
+  check_fields(pic, "clip picture", PICTURE_KEYS)
+  local fade_in, fade_out, opacity = pic.fade_in or 0, pic.fade_out or 0, pic.opacity or 1
+  local frame = { src = src, x = pic.x or 0, y = pic.y or 0, w = pic.w or W, h = pic.h or H, fit = pic.fit,
+    align = pic.align, clip_start = first, speed = speed }
+  t.render = function(f)
+    local k = opacity
+    if fade_in > 0 then k = k * clamp01(f.seconds / fade_in) end
+    if fade_out > 0 then k = k * clamp01((span - f.seconds) / fade_out) end
+    frame.opacity = k
+    video_frame(f, frame)
+    if render then return render(f) end
+  end
+end
+
 function scene(t)
   if type(t) ~= "table" then return native_scene(t) end
   local overlap = t.overlap or {}
-  local slot = { render = t.render, next = overlap.next or 0 }
   local tr = t.transition
+  if tr and overlap.previous == nil then
+    overlap.previous = tr.duration or 0.5
+    t.overlap = overlap
+  end
+  if t.clip ~= nil then clip_scene(t, overlap) end
+  local slot = { render = t.render, next = overlap.next or 0 }
   if tr then
     t.transition = nil
-    if overlap.previous == nil then
-      overlap.previous = tr.duration or 0.5
-      t.overlap = overlap
-    end
     slot.enter, slot.overlap, slot.prev = tr, overlap.previous, last
     if last then last.leave = slot end
   end

@@ -1,6 +1,8 @@
 package onimite
 
 import "core:math"
+import "core:os"
+import "core:path/filepath"
 import "core:strings"
 import vg "deps:ovg"
 
@@ -18,6 +20,8 @@ Video_Info :: struct {
 	// Clockwise degrees (0, 90, 180, 270) the container asks players to
 	// rotate by; frames arrive unrotated and are turned when drawn.
 	rotation:      int,
+	// The file has a sound track (its sound is a clip of the same name).
+	sound:         bool,
 	// How its frames' planes read.
 	format:        Video_Format,
 }
@@ -64,6 +68,8 @@ Video_Frame :: struct {
 	// False when a nearer frame is still being decoded (`.Nearest`).
 	exact:         bool,
 	ok:            bool,
+	// Set (and `ok` false) when the clip failed to decode after it opened.
+	failure:       Video_Failure,
 }
 
 // The host's decoder. Every procedure is safe to call from any thread.
@@ -142,6 +148,20 @@ video_clips_add :: proc(v: ^Video_Clips, name, path: string) -> Error {
 	return err
 }
 
+// The clip's header from the media folder when the media wasn't loaded (a
+// script loaded without it, as the preview's first load is): only the clip
+// asked for is opened. Not while other threads share `m`.
+media_video_open :: proc(m: ^Media, name: string) -> (Video_Info, bool) {
+	if _, known := m.videos.by_name[name]; !known && m.dir != "" {
+		// the media may be the clip itself (`onimite preview clip.mp4`)
+		path := m.dir if os.is_file(m.dir) else filepath.join({m.dir, name}, context.temp_allocator) or_else ""
+		if filepath.base(path) == name && os.is_file(path) {
+			media_add_video(m, name, path)
+		}
+	}
+	return media_video_info(m, name)
+}
+
 media_video_info :: proc(m: ^Media, name: string) -> (Video_Info, bool) {
 	i, ok := m.videos.by_name[name]
 	if !ok || m.videos.handles[i] < 0 {
@@ -155,12 +175,14 @@ media_video_info :: proc(m: ^Media, name: string) -> (Video_Info, bool) {
 // A clip frame placed like an image. `start_from` is the time on the frame
 // clock where playback begins (before it, nothing is drawn); past the end
 // the clip disappears unless it loops (fframes semantics). `clip_start`
-// skips into the clip.
+// skips into the clip; `speed` is clip seconds per second (negative plays
+// backwards from `clip_start`, 0 holds it).
 Video_Clip_Params :: struct {
 	src:          string,
 	x, y, w, h:   f32,
 	start_from:   f32,
 	clip_start:   f32,
+	speed:        f32,
 	looping:      bool,
 	// How the frame fits the box and sits in it (`fit_box`).
 	fit:          Image_Fit,
@@ -192,7 +214,7 @@ video_clip :: proc(ctx: ^Context, f: Frame, p: Video_Clip_Params) -> bool {
 		report(ctx, .Error, {code = .Undecodable_Video, name = p.src, video = v.failures[i]})
 		return false
 	}
-	t, showing := video_clip_time(v.infos[i], f, p.start_from, p.clip_start, p.looping)
+	t, showing := video_clip_time(v.infos[i], f, p.start_from, p.clip_start, p.speed, p.looping)
 	if !showing {
 		return true
 	}
@@ -204,17 +226,21 @@ video_clip :: proc(ctx: ^Context, f: Frame, p: Video_Clip_Params) -> bool {
 }
 
 // The clip time frame `f` shows: playback starts at `start_from` on the
-// frame clock, `clip_start` seconds into the clip; false before the start
-// or after a non-looping clip ends.
-video_clip_time :: proc(info: Video_Info, f: Frame, start_from, clip_start: f32, looping: bool) -> (t: f64, showing: bool) {
+// frame clock, `clip_start` seconds into the clip, `speed` clip seconds a
+// second; false before the start or after a non-looping clip runs off
+// either end.
+video_clip_time :: proc(info: Video_Info, f: Frame, start_from, clip_start, speed: f32, looping: bool) -> (t: f64, showing: bool) {
 	start_frame := frame_at(f64(start_from), f.fps)
 	if f.index < start_frame {
 		return 0, false
 	}
-	t = f64(f.index - start_frame) / f64(f.fps) + f64(clip_start)
+	t = f64(f.index - start_frame) / f64(f.fps) * f64(speed) + f64(clip_start)
 	if looping && info.duration > 0 {
 		t = math.mod(t, info.duration)
-	} else if t > info.duration {
+		if t < 0 {
+			t += info.duration
+		}
+	} else if t > info.duration || t < 0 {
 		return t, false
 	}
 	// fframes shows the first clip frame whose timestamp is at or after this
@@ -289,6 +315,10 @@ video_clip_image :: proc(r: ^Renderer, clip: int, seconds: f64) -> (slot: int, o
 	handle := v.handles[clip]
 	frame := src.request(src.data, handle, seconds, vi.wait)
 	defer src.release(src.data, handle)
+	if frame.failure.code != nil {
+		report(&r.ctx, .Error, {code = .Undecodable_Video, name = v.names[clip], video = frame.failure})
+		return -1, false
+	}
 	if !frame.exact {
 		vi.pending += 1
 	}

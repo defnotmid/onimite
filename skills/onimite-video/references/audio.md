@@ -344,10 +344,12 @@ Track fields:
 | `start` | when it starts: seconds, `{ frame = n }`, `{ minutes = 1, seconds = 5 }`, `{ audio = "f" }`, with `plus` / `minus`, or a list (summed); a song on `video{}` without one: its own start |
 | `stop` | when it ends, same forms; omitted = to the end of the file; `stop = { audio = "f" }` is the file's length on the timeline |
 | `offset` | seconds into the file to start from |
+| `speed` | file seconds per second, tape-style (pitch moves with it): 0.5 half speed, -1 backwards from `offset`; not on songs (their tempo is their bpm) |
 | `gain_db` | level in dB (0 = as recorded) |
 | `pan` | -1 (left) .. 1 (right) |
 | `fade_in`, `fade_out` | seconds |
 | `curve` | `"linear"` (default) or `"equal_power"` (for crossfades between two tracks) |
+| `crossfade` | a scene's track: fades in over the scene's overlap with the previous scene and out over its overlap with the next, equal power, added to `fade_in` / `fade_out` (a `clip` scene's sound has it) |
 | `voice` | marks a voice track that `ducked` tracks dip under |
 | `ducked` | `true` (fframes' `duck_under_voice`: -12 dB, 0.2 s attack before the voice, 0.3 s hold, 0.8 s release, voice gaps under 0.8 s merged) or `{ depth_db, attack, hold, release, merge_gap }` |
 | `mono` | play a stereo file as mono |

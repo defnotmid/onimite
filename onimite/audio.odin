@@ -17,12 +17,19 @@ Audio_Track :: struct {
 	stop:     f32,
 	// Seconds into the file where playback begins.
 	offset:   f32,
+	// File seconds per second, tape-style (pitch moves with it); negative
+	// plays backwards from `offset`. 0 reads as 1.
+	speed:    f32,
 	gain_db:  f32,
 	// -1 (left) to 1 (right).
 	pan:      f32,
 	fade_in:  f32,
 	fade_out: f32,
 	curve:    Fade_Curve,
+	// A scene's track fades in over the scene's overlap with the previous
+	// scene and out over its overlap with the next (equal power), added to
+	// fade_in / fade_out when placed: its sound crosses with the picture.
+	crossfade: bool,
 	// Plays a stereo file as `0.707 * (L + R)` on both sides, ffmpeg's mono
 	// downmix (fframes' include_media_dir! media). Mono files play as is.
 	mono:     bool,

@@ -47,6 +47,13 @@ Preview_State :: struct {
 	// first load brings the saved one.
 	bookmark:           int,
 	bookmark_unread:    bool,
+	// The marks a person made for the agent (time order) and the pending in
+	// point (-1: none); the script's first load brings the saved ones.
+	// `marks_changed`: to be written (by the worker).
+	marks:              [dynamic]Mark,
+	mark_in:            int,
+	marks_unread:       bool,
+	marks_changed:      bool,
 	// The timeline view: 1 = the whole video; the frame at the left edge;
 	// the playhead frame the view last followed; oasic's motion tracks and
 	// cursor anchor for logarithmic zoom and pan smoothing.
@@ -190,7 +197,7 @@ preview_open :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 		if err != nil {
 			// The script was loaded without its media (the worker loads it);
 			// a timeline that needs it (audio lengths) loads it here.
-			if os.is_dir(app.media_dir) {
+			if os.exists(app.media_dir) {
 				om.media_load_dir(&app.media, app.media_dir, app.pool)
 			}
 			tl, err = om.resolve_timeline(&app.script.video, &app.media, context.temp_allocator)
@@ -226,6 +233,8 @@ preview_run :: proc(app: ^App_State, capture, drive: string) -> Error {
 	pv.bookmark = -1
 	pv.sent_bookmark = -1
 	pv.bookmark_unread = true
+	pv.mark_in = -1
+	pv.marks_unread = true
 	pv.zoom = 1
 	pv.zoom_track.target = 1
 	pv.video_zoom = 1
@@ -449,7 +458,8 @@ preview_report :: proc(app: ^App_State) {
 // widgets would push. "scrub" sweeps the playhead back and forth over the
 // whole video as a drag, "slowscrub" two frames per window frame;
 // "zoom" zooms in and out around the playhead; "pause" pauses first (so
-// thumbnails render); "mark" toggles the bookmark at frame 42; "reload"
+// thumbnails render); "mark" toggles the bookmark at frame 42; "marks"
+// marks frames 30..90 and 120 and shows them in the Watch; "reload"
 // reloads at window frame 60; "lanes" shows every audio lane; "seek" jumps
 // to frame 130, 75 and 340, then back to the start frame (40 window frames
 // apart; feedback buffers' checkpoints); "fullscreen" toggles fullscreen
@@ -513,6 +523,26 @@ preview_drive :: proc(app: ^App_State, s: ^ui.State, drive: string, frames: int)
 			command_push(c, .Frame_Set, {count = 42})
 		} else if frames == 21 {
 			command_push(c, .Bookmark_Toggle)
+		}
+	}
+	if strings.contains(drive, "marks") {
+		// a range from frame 30 to 90 and a moment at 120, then the Watch
+		// on the marks
+		switch frames {
+		case 20:
+			command_push(c, .Frame_Set, {count = 30})
+		case 22:
+			command_push(c, .Mark_In)
+		case 24:
+			command_push(c, .Frame_Set, {count = 90})
+		case 26:
+			command_push(c, .Mark_Out)
+		case 28:
+			command_push(c, .Frame_Set, {count = 120})
+		case 30:
+			command_push(c, .Mark_Point)
+		case 32:
+			command_push(c, .Watch_Show, {section = .Marks})
 		}
 	}
 	if strings.contains(drive, "seek") {
@@ -636,6 +666,7 @@ preview_state_destroy :: proc(pv: ^Preview_State) {
 	media_table_destroy(&pv.media)
 	delete(pv.media_images)
 	delete(pv.rows_open)
+	delete(pv.marks)
 	delete(pv.thumbs)
 	delete(pv.sent_thumbs)
 	delete(pv.bands_shown)
@@ -657,6 +688,10 @@ media_images_release :: proc(pv: ^Preview_State, r: ^render.Renderer) {
 
 @(private)
 default_media_dir :: proc(script_path: string) -> string {
+	// a video file loads as a video of itself: its media is the file alone
+	if kind, ok := om.media_kind_of(script_path); ok && kind == .Video {
+		return script_path
+	}
 	return filepath.join({filepath.dir(script_path), "media"}, context.temp_allocator) or_else "media"
 }
 
@@ -830,6 +865,39 @@ preview_apply :: proc(app: ^App_State, kind: Command_Kind, regs: Command_Regs) {
 		preview_sync_audio(app)
 	case .Bookmark_Toggle:
 		pv.bookmark = -1 if pv.bookmark == pv.frame else pv.frame
+	case .Mark_In:
+		pv.mark_in = -1 if pv.mark_in == pv.frame else pv.frame
+	case .Mark_Out:
+		from := max(pv.mark_in, 0)
+		pv.mark_in = -1
+		mark_add(pv, min(from, pv.frame), max(from, pv.frame))
+	case .Mark_Point:
+		on := -1
+		for m, i in pv.marks {
+			if m.to < 0 && m.at == pv.frame {
+				on = i
+			}
+		}
+		if on >= 0 {
+			ordered_remove(&pv.marks, on)
+			pv.marks_changed = true
+		} else {
+			mark_add(pv, pv.frame, -1)
+		}
+	case .Mark_Delete:
+		newest := -1
+		for m, i in pv.marks {
+			under := m.at == pv.frame if m.to < 0 else m.at <= pv.frame && pv.frame <= m.to
+			if under && (newest < 0 || m.n > pv.marks[newest].n) {
+				newest = i
+			}
+		}
+		if newest >= 0 {
+			ordered_remove(&pv.marks, newest)
+			pv.marks_changed = true
+		} else {
+			pv.mark_in = -1
+		}
 	case .Timeline_Zoom:
 		// Logarithmic zoom pinned to the cursor's fractional position, after
 		// oasic's space_zoom_2d: rapid wheel ticks accumulate on zoom_track.target
@@ -1104,10 +1172,14 @@ preview_switch_script :: proc(app: ^App_State, path: string) {
 	pv.media_dir = strings.clone(default_media_dir(path))
 	file_watcher_stop(&pv.watcher)
 	file_watcher_start(&pv.watcher, pv.script_path, pv.media_dir)
-	// The new script brings its own bookmark.
+	// The new script brings its own bookmark and marks.
 	pv.bookmark = -1
 	pv.sent_bookmark = -1
 	pv.bookmark_unread = true
+	clear(&pv.marks)
+	pv.mark_in = -1
+	pv.marks_unread = true
+	pv.marks_changed = false
 	pv.zoom = 1
 	pv.view_first = 0
 	pv.zoom_track = {target = 1}
@@ -1135,6 +1207,9 @@ preview_switch_script :: proc(app: ^App_State, path: string) {
 		mb.bookmark = -1
 		mb.bookmark_seq = 0
 		mb.bookmark_loaded = -1
+		clear(&mb.marks)
+		mb.marks_seq = 0
+		clear(&mb.marks_loaded)
 		clear(&mb.thumbs)
 		mb.thumb_gen = 0
 		mb.thumb_ack = 0
@@ -1278,6 +1353,7 @@ preview_take_published :: proc(app: ^App_State, r: ^render.Renderer, now: f64) {
 	mb := pv.mailbox
 	timeline_changed, media_changed := false, false
 	bookmark_loaded := -1
+	marks_loaded := false
 	sync.mutex_lock(&mb.mutex)
 	if mb.published_seq != pv.seen_publish && mb.slot >= 0 {
 		pv.fps_count += int(mb.published_seq - pv.seen_publish)
@@ -1296,6 +1372,12 @@ preview_take_published :: proc(app: ^App_State, r: ^render.Renderer, now: f64) {
 		pv.seen_timeline = mb.timeline_seq
 		preview_timeline_copy(&pv.timeline, &mb.timeline)
 		bookmark_loaded = mb.bookmark_loaded
+		if pv.marks_unread {
+			// the saved marks, read with the script's first load
+			table_copy(&pv.marks, mb.marks_loaded[:])
+			pv.marks_unread = false
+			marks_loaded = true
+		}
 		timeline_changed = true
 	}
 	if mb.watch_seq != pv.seen_watch {
@@ -1388,9 +1470,14 @@ preview_request :: proc(app: ^App_State, p: ^platform.Platform) {
 	wanted := thumbs_wanted(app, p)
 	thumbs_changed := !slice.equal(wanted, pv.sent_thumbs[:])
 	bands_changed := !slice.equal(pv.bands_shown[:], pv.sent_bands[:])
-	if busy != pv.sent_busy || pv.bookmark != pv.sent_bookmark || thumbs_changed || bands_changed {
+	if busy != pv.sent_busy || pv.bookmark != pv.sent_bookmark || pv.marks_changed || thumbs_changed || bands_changed {
 		sync.mutex_lock(&mb.mutex)
 		mb.busy = busy
+		if pv.marks_changed {
+			pv.marks_changed = false
+			table_copy(&mb.marks, pv.marks[:])
+			mb.marks_seq += 1
+		}
 		if pv.bookmark != pv.sent_bookmark {
 			mb.bookmark = pv.bookmark
 			mb.bookmark_seq += 1
@@ -1493,6 +1580,7 @@ COLOR_WARNING :: [4]u8{230, 180, 80, 255}
 COLOR_PLAYHEAD :: [4]u8{250, 250, 250, 255}
 COLOR_HOVER :: [4]u8{250, 250, 250, 110}
 COLOR_BOOKMARK :: [4]u8{255, 196, 64, 255}
+COLOR_MARK :: [4]u8{96, 200, 255, 255}
 COLOR_TRACK :: [4]u8{30, 33, 41, 255}
 // Scene segments and audio lanes cycle through these.
 SCENE_COLORS := [?][4]u8{{58, 96, 160, 255}, {92, 70, 150, 255}, {48, 120, 110, 255}, {140, 90, 60, 255}, {120, 60, 100, 255}}
@@ -1795,4 +1883,17 @@ status_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32) {
 	if ui.clicked(ui.signal_from_box(s, b)) {
 		command_push(&app.commands, .Watch_Show, {section = .Problems})
 	}
+}
+
+// Adds a mark (frames `at` to `to`, -1: a moment) numbered after the
+// highest, in time order, to be written.
+@(private)
+mark_add :: proc(pv: ^Preview_State, at, to: int) {
+	n := 0
+	for m in pv.marks {
+		n = max(n, m.n)
+	}
+	append(&pv.marks, Mark{n + 1, at, to})
+	marks_sort(pv.marks[:])
+	pv.marks_changed = true
 }

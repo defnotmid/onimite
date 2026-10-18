@@ -235,7 +235,7 @@ command_apply :: proc(app: ^App_State, row: Command_Row) -> Error {
 		return preview_open(app, regs)
 	case .Update:
 		return update_run(app, regs)
-	case .Playback_Toggle, .Playback_Set, .Frame_Set, .Frame_Step, .Frame_Start, .Seconds_Step, .Scene_Step, .Script_Reload, .Script_Open, .File_Dialog, .Loop_Toggle, .Loop_Set, .Mute_Toggle, .Mute_Set, .Volume_Set, .Volume_Step, .Bookmark_Toggle, .Timeline_Zoom, .Timeline_Fit, .Timeline_Pan, .Timeline_Follow, .Timeline_Toggle, .Timeline_Row_Toggle, .Timeline_Rows_Scroll, .Video_Zoom, .Video_Pan, .Video_Fit, .Fullscreen_Toggle, .Cursor_Hover, .Dismiss, .Watch_Show, .Watch_Section_Set, .Watch_Scroll, .Problem_Step, .Quit:
+	case .Playback_Toggle, .Playback_Set, .Frame_Set, .Frame_Step, .Frame_Start, .Seconds_Step, .Scene_Step, .Script_Reload, .Script_Open, .File_Dialog, .Loop_Toggle, .Loop_Set, .Mute_Toggle, .Mute_Set, .Volume_Set, .Volume_Step, .Bookmark_Toggle, .Mark_In, .Mark_Out, .Mark_Point, .Mark_Delete, .Timeline_Zoom, .Timeline_Fit, .Timeline_Pan, .Timeline_Follow, .Timeline_Toggle, .Timeline_Row_Toggle, .Timeline_Rows_Scroll, .Video_Zoom, .Video_Pan, .Video_Fit, .Fullscreen_Toggle, .Cursor_Hover, .Dismiss, .Watch_Show, .Watch_Section_Set, .Watch_Scroll, .Problem_Step, .Quit:
 		preview_apply(app, row.kind, regs)
 	case .Panel_Split, .Panel_Close, .Panel_Resize, .View_Open, .View_Close, .View_Select, .View_Move, .Lister_Open, .Lister_Filter, .Lister_Close:
 		workspace_apply(&app.preview.workspace, row.kind, regs)
@@ -266,14 +266,14 @@ script_load :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 	app.media_loaded = .No_Media not_in regs.flags
 	if app.media_loaded {
 		dir := app.media_dir
-		if os.is_dir(dir) {
+		if os.exists(dir) {
 			if om.media_load_dir(&app.media, dir, app.pool) != nil {
 				fmt.eprintfln("can not read media directory %s", dir)
 			}
 		} else if regs.media != "" {
 			return fail(app, {code = .No_Media_Dir, path = dir})
 		}
-	} else if os.is_dir(app.media_dir) {
+	} else if os.exists(app.media_dir) {
 		// Its files unread (the preview's worker reads them), but where it is:
 		// songs read their own files (style files, sets) from it at load.
 		delete(app.media.dir)

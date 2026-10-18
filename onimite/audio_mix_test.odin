@@ -206,3 +206,43 @@ test_song_is_its_files :: proc(t: ^testing.T) {
 	changed, fresh_changed := media_song_put(&m, "s", v, value_key(v))
 	testing.expect(t, fresh_changed && changed != first)
 }
+
+// A scene's crossfade track fades in over its overlap with the scene
+// before and out over its overlap with the scene after (equal power, on
+// top of its own fades); a scene with no neighbour overlapping keeps its
+// own fades and curve.
+@(test)
+test_crossfade_placement :: proc(t: ^testing.T) {
+	samples := make([]f32, MIX_RATE * 20)
+	defer delete(samples)
+	m: Media
+	m.audio = make(map[string]Audio_Clip)
+	defer delete(m.audio)
+	m.audio["a"] = Audio_Clip{samples = samples, frames = MIX_RATE * 10, source_channels = 2}
+	scenes := []Scene {
+		{name = "A", duration = Seconds(3)},
+		{name = "B", duration = Seconds(3), overlap = {previous = 0.5}},
+		{name = "C", duration = Seconds(2), overlap = {previous = 0.4}},
+		{name = "D", duration = Seconds(1)},
+	}
+	audio := []Audio_Track {
+		{src = "a", scene = 0, crossfade = true},
+		{src = "a", scene = 1, crossfade = true, fade_in = 0.1},
+		{src = "a", scene = 2, crossfade = true},
+		{src = "a", scene = 3, crossfade = true, fade_out = 0.2},
+	}
+	v := Video{width = 64, height = 64, fps = 30, scenes = scenes, audio = audio}
+	tl, err := resolve_timeline(&v, &m)
+	testing.expect_value(t, err, nil)
+	defer delete(tl.scenes)
+	p: Placed_Audio
+	defer placed_audio_destroy(&p)
+	placed_audio_update(&p, &v, tl, &m)
+	testing.expect_value(t, len(p.tracks), 4)
+	want := [4][2]f32{{0, 0.5}, {0.6, 0.4}, {0.4, 0}, {0, 0.2}}
+	for tr, i in p.tracks {
+		testing.expectf(t, abs(tr.track.fade_in - want[i][0]) < 1e-4 && abs(tr.track.fade_out - want[i][1]) < 1e-4,
+			"scene %d fades %.3f/%.3f, want %.3f/%.3f", i, tr.track.fade_in, tr.track.fade_out, want[i][0], want[i][1])
+		testing.expect_value(t, tr.track.curve, Fade_Curve.Linear if i == 3 else .Equal_Power)
+	}
+}

@@ -46,6 +46,8 @@ scene { "Main", duration = 5, overlap = { previous = 0.5 },
 ```
 
 - Without a video `render`, a frame is the background plus the active scenes.
+- `clip = { "a.mp4", from = 12, to = 15.5 }` (or `clip = "a.mp4"`) makes the scene a cut of a
+  video file, its sound included: see "Cuts and joining clips" in media.md.
 - `start = t` (video seconds) lands the scene at `t` instead of right after the previous one:
   put scenes on cues (`start = clock.time(32)`). Without a `duration` the scene lasts until the
   next scene's `start` (the last one until the video's `duration`). A transition or

@@ -146,6 +146,15 @@ vs_open :: proc(data: rawptr, path: string) -> (clip: int, info: om.Video_Info, 
 		return -1, {}, {code = .No_Video_Track}, .No_Video_Track
 	}
 	v := w.reader.video
+	if !v.decodable {
+		// No decoder admits the track (probed at open): found when the
+		// media loads, not at the first frame drawn.
+		why = decode_failure(.Unsupported, w.reader.error_detail)
+		movie.close_reader(&w.reader)
+		delete(w.path)
+		free(w)
+		return -1, {}, why, why.code
+	}
 	w.info = v
 	w.format = clip_format(&w.reader, path, cfg)
 	fps := f64(v.fps_num) / f64(max(v.fps_den, 1)) if v.fps_num > 0 else 30
@@ -154,7 +163,7 @@ vs_open :: proc(data: rawptr, path: string) -> (clip: int, info: om.Video_Info, 
 	clip = len(d.workers)
 	append(&d.workers, w)
 	sync.mutex_unlock(&d.mutex)
-	return clip, {v.width, v.height, v.duration, fps, v.frame_count, v.rotation, w.format}, {}, nil
+	return clip, {v.width, v.height, v.duration, fps, v.frame_count, v.rotation, w.reader.audio_index >= 0, w.format}, {}, nil
 }
 
 // How the clip's planes read. The header says it all except, for VP9, the
@@ -348,11 +357,14 @@ vs_request :: proc(data: rawptr, clip: int, seconds: f64, wait: om.Video_Wait) -
 		}
 	}
 	if s < 0 {
+		if w.failed {
+			f.failure = w.failure
+		}
 		return
 	}
 	w.state[s] = .Leased
 	w.leased = s
-	return {w.planes[s], w.format, w.info.width, w.info.height, w.index[s], w.seconds[s], exact, true}
+	return {w.planes[s], w.format, w.info.width, w.info.height, w.index[s], w.seconds[s], exact, true, {}}
 }
 
 @(private = "file")

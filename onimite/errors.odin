@@ -105,6 +105,7 @@ Diagnostic_Code :: enum u8 {
 	Missing_Animation,
 	Missing_Morph_Target,
 	View3d_Zero_Size,
+	View3d_Video_Software,
 	Geometry_Growth,
 	View3d_Render,
 	// Nodes.
@@ -218,6 +219,7 @@ DIAGNOSTIC_TEXT := [Diagnostic_Code]string {
 	.Missing_Animation         = "glTF model {q:name} has no animation {q:animation}",
 	.Missing_Morph_Target      = "glTF model {q:name} has no morph target {q:target}",
 	.View3d_Zero_Size          = "view3d with zero size at ({x}, {y}) is skipped",
+	.View3d_Video_Software     = "video {q:name} as a 3D texture plays on the GPU only: drawn in the material's colour on the CPU (--software)",
 	.Geometry_Growth           = "{kind} made again with other parameters on a later frame of its scene: each new set of geometry parameters makes and keeps a mesh, so change a size through the mesh's `scale`, not its geometry's parameters",
 	.View3d_Render             = "view3d could not be drawn: {o3d}",
 	.Rect_Zero_Size            = "rect with zero size at ({x}, {y}) is skipped",
@@ -299,6 +301,7 @@ DIAGNOSTIC_KEY := [Diagnostic_Code]string {
 	.Missing_Animation         = "model_animation:{name}:{animation}",
 	.Missing_Morph_Target      = "model_morph:{name}:{target}",
 	.View3d_Zero_Size          = "",
+	.View3d_Video_Software     = "view3d_video_software:{name}",
 	.Geometry_Growth           = "geometry_growth:{kind}",
 	.View3d_Render             = "",
 	.Rect_Zero_Size            = "",

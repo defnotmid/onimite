@@ -135,6 +135,18 @@ STD_LUA :: #load("std.lua", string)
 // it must outlive them. `props` are JSON objects (texts) merged into the
 // `props` global. `say` synthesizes the lines neither `shared` nor the store
 // has, on this thread, one at a time.
+// The script a video file loads as (`onimite preview clip.mp4`): the clip
+// at its own size (upright) and frame rate, its sound included, as one
+// scene named by the file.
+@(private = "file")
+CLIP_SCRIPT :: `
+local i = video_info(NAME) or error(NAME .. ": not a video onimite can read", 0)
+local w, h = i.width, i.height
+if i.rotation == 90 or i.rotation == 270 then w, h = h, w end
+video { width = w, height = h, fps = math.max(1, math.floor(i.fps + 0.5)), background = "#000" }
+scene { NAME, clip = NAME }
+`
+
 load :: proc(s: ^Script, path: string, args: []string = nil, media: ^om.Media = nil, shared: ^Shared = nil, props: []string = nil) -> Error {
 	unload(s)
 	// A load that synthesized lines lets go of the engine when it ends (the
@@ -160,9 +172,16 @@ load :: proc(s: ^Script, path: string, args: []string = nil, media: ^om.Media = 
 	s.scenes = make([dynamic]om.Scene)
 	s.slots = make([dynamic]Scene_Slot)
 
-	data, err := os.read_entire_file(path, context.allocator)
-	if err != nil {
-		return set_error(s, {code = .Read, path = path, os = err})
+	data: []u8
+	if kind, is_media := om.media_kind_of(path); is_media && kind == .Video {
+		// A video file is a video: itself, at its own size and rate.
+		data = transmute([]u8)strings.concatenate({"local NAME = [==[", filepath.base(path), "]==]", CLIP_SCRIPT})
+	} else {
+		err: os.Error
+		data, err = os.read_entire_file(path, context.allocator)
+		if err != nil {
+			return set_error(s, {code = .Read, path = path, os = err})
+		}
 	}
 	defer delete(data)
 
@@ -681,7 +700,7 @@ API := [?]Api_Function {
 	{"shader", l_shader, .Render},
 	{"view3d", l_view3d, .Render},
 	{"video_frame", l_video_frame, .Render},
-	{"video_info", l_video_info, .Render},
+	{"video_info", l_video_info, .Both},
 	{"subtitle_at", l_subtitle_at, .Render},
 	{"subtitles", l_subtitles, .Render},
 	{"caption_words", l_caption_words, .Render},

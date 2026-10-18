@@ -1,5 +1,6 @@
 package onimite
 
+import "deps:o3d"
 import vg "deps:ovg"
 
 // Frames built on one thread and drawn on another: a recording renderer
@@ -30,6 +31,8 @@ Frame_Record :: struct {
 	video:       [dynamic]Video_Upload,
 	// The 3D layers' renders, run on the GPU before the frame is drawn.
 	view3d:      View3d_Jobs,
+	// Its 3D jobs are prepared and the 3D tables read-locked until drawn.
+	view3d_locked: bool,
 	// What building and drawing the frame reported.
 	diagnostics: [dynamic]Diagnostic,
 	// Earlier frames' feedback buffer passes to play first, when the
@@ -148,10 +151,13 @@ play_frame_images :: proc(p: ^Frame_Player, f: ^Frame_Record) {
 	}
 	vg.player_apply(&p.player, &f.canvas)
 	for up in f.video {
-		play_video_upload(p, up)
+		play_video_upload(p, f, up)
 	}
 	if jobs := &f.view3d; jobs.count > 0 && p.gpu3d != nil {
-		if err := view3d_gpu_render(p.gpu3d, &p.media.view3d, jobs.list[:jobs.count], &p.player.images); err != nil {
+		// recorded by their canvas rows as the frame is drawn
+		err: o3d.Error
+		err, f.view3d_locked = view3d_gpu_prepare(p.gpu3d, &p.media.view3d, jobs.list[:jobs.count], &p.player.images)
+		if err != nil {
 			append(&f.diagnostics, Diagnostic{severity = .Error, code = .View3d_Render, frame = f.frame, o3d = err})
 		}
 	}
@@ -160,13 +166,30 @@ play_frame_images :: proc(p: ^Frame_Player, f: ^Frame_Record) {
 // The second half of `play_frame`: draws the record with the backend.
 play_frame_draw :: proc(p: ^Frame_Player, f: ^Frame_Record, output: vg.Render_Output = 0) {
 	vg.player_render(&p.player, &f.canvas, output)
+	if f.view3d_locked {
+		f.view3d_locked = false
+		if err := view3d_gpu_done(&p.media.view3d, f.view3d.list[:f.view3d.count]); err != nil {
+			append(&f.diagnostics, Diagnostic{severity = .Error, code = .View3d_Render, frame = f.frame, o3d = err})
+		}
+	}
 }
 
 @(private = "file")
-play_video_upload :: proc(p: ^Frame_Player, up: Video_Upload) {
-	src := p.media.videos.source
+play_video_upload :: proc(p: ^Frame_Player, f: ^Frame_Record, up: Video_Upload) {
+	v := p.media.videos
+	src := v.source
 	frame := src.request(src.data, up.clip, up.seconds, .Block)
 	defer src.release(src.data, up.clip)
+	if frame.failure.code != nil {
+		name := ""
+		for h, i in v.handles {
+			if h == up.clip {
+				name = v.names[i]
+			}
+		}
+		append(&f.diagnostics, Diagnostic{severity = .Error, code = .Undecodable_Video, frame = f.frame, name = name, video = frame.failure})
+		return
+	}
 	if !frame.ok {
 		return
 	}

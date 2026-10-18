@@ -178,6 +178,16 @@ scene_watch :: proc(s: om.Scene_Info, fps: int, problems: int) -> (label, detail
 	return s.scene.name, detail
 }
 
+// A mark: its number; when it is (a moment, or a range and its length).
+mark_watch :: proc(m: Mark, fps: int) -> (label, detail: string) {
+	label = fmt.tprintf("Mark %d", m.n)
+	from, to := mark_seconds(m, fps)
+	if m.to < 0 {
+		return label, fmt.tprintf("at %.2fs", from)
+	}
+	return label, fmt.tprintf("%.2fs to %.2fs  %.2fs long", from, to, to - from)
+}
+
 // A cue: its name; its sync finding (`finding`, "" for none) and what
 // `show` says of it.
 cue_watch :: proc(c: script.Cue, fps: int, finding: string) -> (label, detail: string) {

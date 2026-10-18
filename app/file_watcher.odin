@@ -127,7 +127,8 @@ file_watcher_stamp :: proc(dir, skip, fallback: string) -> u64 {
 			return
 		}
 		for fi in infos {
-			if strings.has_prefix(fi.name, ".") || fi.fullpath == skip {
+			// the preview's own marks file is no change to the script
+			if strings.has_prefix(fi.name, ".") || fi.fullpath == skip || strings.has_suffix(fi.name, MARKS_SUFFIX) {
 				continue
 			}
 			if fi.type == .Directory {

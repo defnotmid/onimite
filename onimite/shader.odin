@@ -61,6 +61,7 @@ Shader_Input :: struct {
 	// clip, looping (as `video_clip`).
 	start_from: f32,
 	clip_start: f32,
+	speed:      f32,
 	looping:    bool,
 }
 
@@ -627,7 +628,7 @@ shader_channel :: proc(ctx: ^Context, f: Frame, label: string, in_: Shader_Input
 			report(ctx, .Error, {code = .Undecodable_Video, name = in_.src, video = v.failures[i]})
 			return {}
 		}
-		t, showing := video_clip_time(v.infos[i], f, in_.start_from, in_.clip_start, in_.looping)
+		t, showing := video_clip_time(v.infos[i], f, in_.start_from, in_.clip_start, in_.speed, in_.looping)
 		if !showing {
 			return {}
 		}

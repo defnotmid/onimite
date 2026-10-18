@@ -95,15 +95,16 @@ placed_onsets :: proc(m: ^om.Media, p: om.Placed_Track, min_strength: f32) -> []
 		}
 	}
 	out := make([dynamic]Onset_At, context.temp_allocator)
-	from := f64(p.file_start) / om.MIX_RATE
-	start := f64(p.start) / om.MIX_RATE
-	end := f64(p.end) / om.MIX_RATE
+	if om.track_speed(p.track) < 0 {
+		// played backwards, a sound swells in: no attack to place
+		return out[:]
+	}
 	for o in rep.onsets {
-		if o.strength < min_strength || f64(o.time) < from - 0.002 {
+		if o.strength < min_strength {
 			continue
 		}
-		if t := start + max(f64(o.time) - from, 0); t < end {
-			append(&out, Onset_At{t, f64(o.strength)})
+		if t, ok := om.placed_file_time(p, f64(o.time)); ok {
+			append(&out, Onset_At{max(t, f64(p.start) / om.MIX_RATE), f64(o.strength)})
 		}
 	}
 	return out[:]
@@ -450,7 +451,7 @@ off_beat_check :: proc(app: ^App_State, r: ^om.Renderer) -> []om.Diagnostic {
 		SWELL :: 0.05
 		start := f64(p.start) / om.MIX_RATE
 		t := -1.0
-		if starts_loud(p.clip.samples, p.file_start, peak) {
+		if om.track_speed(p.track) > 0 && starts_loud(p.clip.samples, p.file_start, peak) {
 			t = start
 		} else if strong := placed_onsets(&app.media, p, 0.5); len(strong) > 0 && strong[0].seconds - start <= SWELL {
 			t = strong[0].seconds

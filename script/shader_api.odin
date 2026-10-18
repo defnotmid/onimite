@@ -464,7 +464,7 @@ read_input :: proc(L: ^lua.State, idx: c.int, arena := context.allocator) -> (in
 		if strings.has_prefix(name, "#") || name == "white" || name == "black" || name == "transparent" {
 			return {}, false
 		}
-		return {src = strings.clone(name, arena)}, true
+		return {src = strings.clone(name, arena), speed = 1}, true
 	case .TABLE:
 		if !has_field(L, idx, "src") {
 			return {}, false
@@ -472,6 +472,7 @@ read_input :: proc(L: ^lua.State, idx: c.int, arena := context.allocator) -> (in
 		in_.src = strings.clone(get_str(L, idx, "src", ""), arena)
 		in_.start_from = get_num(L, idx, "start_from", 0)
 		in_.clip_start = get_num(L, idx, "clip_start", 0)
+		in_.speed = get_num(L, idx, "speed", 1)
 		field(L, idx, "looping")
 		in_.looping = bool(lua.toboolean(L, -1))
 		lua.pop(L, 1)

@@ -1,5 +1,8 @@
 package onimite_app
 
+import "core:os"
+import "core:path/filepath"
+import "core:strings"
 import "core:testing"
 import om "../onimite"
 import script "../script"
@@ -138,3 +141,28 @@ test_watch_rows :: proc(t: ^testing.T) {
 	testing.expect_value(t, text_of(table.text[:], row(&table, .Problems, 1).detail), "Warning 0.40s..0.67s (frames 12..20, seen in 3) [Intro]")
 	testing.expect_value(t, table.sections[.Media].count, 0)
 }
+
+// Marks written beside a clip read back as they were (moments and ranges,
+// their numbers, in time order), in seconds a person and an agent read;
+// none written removes the file.
+@(test)
+test_marks_file :: proc(t: ^testing.T) {
+	dir, derr := os.make_directory_temp("", "onimite_marks_*", context.temp_allocator)
+	testing.expect(t, derr == nil)
+	defer os.remove_all(dir)
+	clip, _ := filepath.join({dir, "take.mp4"}, context.temp_allocator)
+	marks := []Mark{{2, 30, 90}, {1, 120, -1}, {3, 150, 151}}
+	marks_write(clip, marks, 60)
+	text, err := os.read_entire_file(marks_file(clip), context.temp_allocator)
+	testing.expect(t, err == nil)
+	testing.expectf(t, strings.contains(string(text), `{ "n": 2, "from": 0.500, "to": 1.500 }`), "the file says %s", string(text))
+	testing.expect(t, strings.contains(string(text), `{ "n": 1, "at": 2.000 }`))
+	back := marks_read(clip, 60, context.temp_allocator)
+	testing.expect_value(t, len(back), 3)
+	for m, i in marks {
+		testing.expectf(t, back[i] == m, "mark %d read back as %v, not %v", i, back[i], m)
+	}
+	marks_write(clip, nil, 60)
+	testing.expect(t, !os.exists(marks_file(clip)))
+}
+

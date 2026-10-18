@@ -98,6 +98,9 @@ Mailbox :: struct {
 	thumb_ack:        u64,
 	bookmark:         int,
 	bookmark_seq:     u64,
+	// The marks to write, bumping `marks_seq` (the UI's copy).
+	marks:            [dynamic]Mark,
+	marks_seq:        u64,
 
 	// Published by the worker.
 	published_seq:    u64,
@@ -116,6 +119,8 @@ Mailbox :: struct {
 	timeline:         Preview_Timeline, // owned
 	// The bookmark file's frame, read on the script's first load (-1: none).
 	bookmark_loaded:  int,
+	// The marks file's marks, read on the script's first load.
+	marks_loaded:     [dynamic]Mark,
 	// Why the last load failed (owned; `.None` after a good one), bumping
 	// `reload_seq`.
 	reload_failure:   script.Failure,
@@ -143,6 +148,8 @@ mailbox_destroy :: proc(mb: ^Mailbox) {
 	script.failure_destroy(&mb.reload_failure)
 	delete(mb.device_name)
 	delete(mb.thumb_wanted)
+	delete(mb.marks)
+	delete(mb.marks_loaded)
 	delete(mb.bands_wanted)
 	delete(mb.band_textures)
 	watch_table_destroy(&mb.watch)
@@ -209,6 +216,9 @@ Render_Worker :: struct {
 	// ONIMITE_CLIP_LOG: print the video clip frames each published frame shows.
 	log_clips:      bool,
 	bookmark_seq:   u64,
+	// The marks as last written (they make the Watch's Marks section).
+	marks:          [dynamic]Mark,
+	marks_seq:      u64,
 
 	// The loaded video's timeline (false: it does not resolve) and its
 	// tracks placed on it, again as clips land.
@@ -301,7 +311,7 @@ worker_main :: proc(w: ^Render_Worker) {
 	defer worker_release(w)
 	for {
 		sync.mutex_lock(&w.mb.mutex)
-		for !w.mb.quit && w.mb.request_seq == w.handled_seq && w.mb.bookmark_seq == w.bookmark_seq {
+		for !w.mb.quit && w.mb.request_seq == w.handled_seq && w.mb.bookmark_seq == w.bookmark_seq && w.mb.marks_seq == w.marks_seq {
 			ready, retry := worker_idle_ready(w)
 			if ready {
 				break
@@ -321,6 +331,17 @@ worker_main :: proc(w: ^Render_Worker) {
 			frame := w.mb.bookmark
 			sync.mutex_unlock(&w.mb.mutex)
 			bookmark_write(w.script_path, frame)
+			free_all(context.temp_allocator)
+			continue
+		}
+		if w.mb.marks_seq != w.marks_seq {
+			w.marks_seq = w.mb.marks_seq
+			table_copy(&w.marks, w.mb.marks[:])
+			sync.mutex_unlock(&w.mb.mutex)
+			if w.script != nil {
+				marks_write(w.script_path, w.marks[:], w.script.video.fps)
+			}
+			w.watch_dirty = true
 			free_all(context.temp_allocator)
 			continue
 		}
@@ -610,7 +631,7 @@ watch_pending :: proc(w: ^Render_Worker) -> bool {
 @(private = "file")
 worker_watch :: proc(w: ^Render_Worker) {
 	w.watch_dirty = false
-	src := Watch_Sources{fps = 1, findings = &w.findings, media = w.media, load_error = w.load_error}
+	src := Watch_Sources{fps = 1, findings = &w.findings, media = w.media, load_error = w.load_error, marks = w.marks[:]}
 	if s := w.script; s != nil {
 		w.watch_keys = len(s.key_anchors)
 		src.fps, src.cues, src.placed = s.video.fps, s.cues[:], w.placed.tracks[:]
@@ -725,7 +746,7 @@ worker_load :: proc(w: ^Render_Worker, reload_media: bool) {
 		media_open(media, w.image_budget, w.video)
 		// songs' tables built in the background wake the worker when they land
 		om.music_set_wake(media, worker_wake, w)
-		if os.is_dir(w.media_dir) {
+		if os.exists(w.media_dir) {
 			files := 0
 			if infos, err := os.read_all_directory_by_path(w.media_dir, context.temp_allocator); err == nil {
 				files = len(infos)
@@ -846,6 +867,10 @@ worker_load :: proc(w: ^Render_Worker, reload_media: bool) {
 	worker_lanes(w)
 	w.media_dirty = true
 	bookmark := bookmark_read(w.script_path) if first_load else -1
+	if first_load {
+		marks := marks_read(w.script_path, next.video.fps, context.temp_allocator)
+		table_copy(&w.marks, marks[:])
+	}
 	steps[4] = time.tick_now()
 	if err == nil {
 		// Sound plays at once from what is ready; the rest joins as it lands.
@@ -859,6 +884,7 @@ worker_load :: proc(w: ^Render_Worker, reload_media: bool) {
 	w.mb.timeline_seq += 1
 	if first_load {
 		w.mb.bookmark_loaded = bookmark
+		table_copy(&w.mb.marks_loaded, w.marks[:])
 	}
 	if w.mb.reload_failure.code != .None {
 		script.failure_destroy(&w.mb.reload_failure)
@@ -1255,6 +1281,7 @@ worker_release :: proc(w: ^Render_Worker) {
 	delete(w.thumb_free)
 	delete(w.thumb_retired)
 	delete(w.thumb_wanted)
+	delete(w.marks)
 	delete(w.bands_wanted)
 	delete(w.band_views)
 	om.timeline_destroy(&w.timeline)

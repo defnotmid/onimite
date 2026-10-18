@@ -48,6 +48,10 @@ View3d :: struct {
 	// The timeline index of the scene that drew it (-1: the video's own
 	// render), for `geometry_growth`.
 	scene_index:           int,
+	// The clock of the frame that drew it (scene-relative in a scene): video
+	// clips used as maps play on it from its start, looping.
+	clock_index:           int,
+	clock_fps:             int,
 }
 
 // A custom shader material (`type = "ShaderMaterial"`): its GLSL ES
@@ -219,6 +223,7 @@ view3d :: proc(ctx: ^Context, f: Frame, v: View3d) {
 	v.environment = strings.clone(v.environment, arena)
 	v.background = strings.clone(v.background, arena)
 	v.scene_index = f.scene.index if f.scene != nil else -1
+	v.clock_index, v.clock_fps = f.index, f.fps
 	tree_add(&ctx.tree, v)
 }
 
@@ -396,6 +401,15 @@ view3d_texture_make :: proc(m: ^Media, name: string, frame: int, environment: bo
 		return
 	}
 	v := &m.view3d
+	if clip, is_video := m.videos.by_name[name]; is_video && !environment {
+		// a video: its frames bound on the GPU each render (view3d_videos)
+		sync.guard(&v.lock)
+		if _, added := v.textures_of[name]; !added {
+			info := m.videos.infos[clip]
+			v.textures_of[strings.clone(name)] = o3d.texture_add_external(&v.textures, info.width, info.height)
+		}
+		return
+	}
 	sync.shared_lock(&v.lock)
 	id, added := v.textures_of[name]
 	_, _, prefiltered := o3d.texture_environment(&v.textures, id)
@@ -462,18 +476,37 @@ View3d_Job :: struct {
 	image:         vg.Image_Id,
 	width, height: u32,
 	scene:         o3d.Scene,
+	// The video maps' frames, each bound to its texture for this render.
+	videos:        [dynamic]Video_Binding,
+	// Set by `view3d_gpu_prepare` for the canvas row that records it
+	// (`view3d_job_run`): the GPU and its o3d job, the tables, the image
+	// store its images are in; what the record said.
+	gpu:           ^View3d_Gpu,
+	slot:          int,
+	media:         ^View3d_Media,
+	images:        ^vg.Image_Store,
+	prepared:      bool,
+	err:           o3d.Error,
 }
 
-// The jobs of a frame, the first `count` of `list`; the list and its
-// scenes' arrays are reused frame after frame.
+Video_Binding :: struct {
+	texture: o3d.Texture_Id,
+	image:   vg.Image_Id,
+}
+
+// The jobs of a frame, the first `count` of `list`; the jobs and their
+// scenes' arrays are reused frame after frame. Each job keeps its address
+// (the frame's canvas rows point at them).
 View3d_Jobs :: struct {
-	list:  [dynamic]View3d_Job,
+	list:  [dynamic]^View3d_Job,
 	count: int,
 }
 
 view3d_jobs_destroy :: proc(j: ^View3d_Jobs) {
-	for &job in j.list {
+	for job in j.list {
 		o3d.scene_destroy(&job.scene)
+		delete(job.videos)
+		free(job)
 	}
 	delete(j.list)
 	j^ = {}
@@ -482,10 +515,10 @@ view3d_jobs_destroy :: proc(j: ^View3d_Jobs) {
 @(private = "file")
 view3d_jobs_next :: proc(j: ^View3d_Jobs) -> ^View3d_Job {
 	if j.count == len(j.list) {
-		append(&j.list, View3d_Job{})
+		append(&j.list, new(View3d_Job))
 	}
 	j.count += 1
-	return &j.list[j.count - 1]
+	return j.list[j.count - 1]
 }
 
 // A renderer's 3D state: the CPU renderer, the frame's GPU jobs, and per
@@ -541,6 +574,7 @@ draw_view3d :: proc(r: ^Renderer, n: View3d) {
 	s := &r.view3d
 	job := view3d_jobs_next(&s.jobs)
 	job.image, job.width, job.height = image, pw, ph
+	view3d_videos(r, n, job)
 	sync.shared_lock(&v.lock)
 	view3d_scene(r, n, &job.scene)
 	if r.gpu3d == nil {
@@ -554,8 +588,52 @@ draw_view3d :: proc(r: ^Renderer, n: View3d) {
 		}
 	} else {
 		sync.shared_unlock(&v.lock)
+		// rendered at this point of the canvas's rows: after the clips' frames
+		// it samples were made, before the layer shows it
+		vg.run_external(c, view3d_job_run, job)
 	}
 	fill_layer(r, image, {n.x, n.y, n.w, n.h}, n.opacity)
+}
+
+// The frames the video maps of node `n` show on its clock (from its start,
+// looping), each an image of the renderer's bound to its texture when the
+// job renders on the GPU; on the CPU they stay the material's colour.
+@(private = "file")
+view3d_videos :: proc(r: ^Renderer, n: View3d, job: ^View3d_Job) {
+	clear(&job.videos)
+	add :: proc(r: ^Renderer, n: View3d, job: ^View3d_Job, name: string) {
+		v := r.ctx.videos
+		clip, is_video := v.by_name[name]
+		if name == "" || !is_video || v.handles[clip] < 0 {
+			return
+		}
+		if r.gpu3d == nil {
+			report(&r.ctx, .Warning, {code = .View3d_Video_Software, name = name})
+			return
+		}
+		texture := r.media.view3d.textures_of[name]
+		for b in job.videos {
+			if b.texture == texture {
+				return
+			}
+		}
+		t, _ := video_clip_time(v.infos[clip], {index = n.clock_index, fps = n.clock_fps}, 0, 0, 1, true)
+		if slot, ok := video_clip_image(r, clip, t); ok {
+			append(&job.videos, Video_Binding{texture, r.video_images.image[slot]})
+		}
+	}
+	for mesh in n.meshes {
+		for name in mesh.maps {
+			add(r, n, job, name)
+		}
+	}
+	for pose in n.models {
+		if over, ok := pose.material.?; ok {
+			for name in over.maps {
+				add(r, n, job, name)
+			}
+		}
+	}
 }
 
 // Fills `scene` with node `n` from the media's 3D tables (holding its

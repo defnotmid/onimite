@@ -5,6 +5,7 @@ import "core:encoding/hex"
 import "core:encoding/json"
 import "core:fmt"
 import "core:math"
+import "core:path/filepath"
 import "core:reflect"
 import "core:slice"
 import "core:strconv"
@@ -144,6 +145,7 @@ Show_Kind :: enum u8 {
 	Media,
 	Font,
 	Body,
+	Mark,
 }
 
 @(private = "file")
@@ -184,6 +186,8 @@ SHOW_PATHS := [?]Show_Path {
 	{"font", "font/FAMILY", show_font},
 	{"bodies", "bodies", show_bodies},
 	{"body", "body/NAME", show_body},
+	{"marks", "marks", show_marks},
+	{"mark", "mark/N", show_mark},
 	{"nodes", "nodes", show_nodes},
 	{"node", "node/FILE:LINE", show_node},
 }
@@ -232,8 +236,55 @@ show_video :: proc(sh: ^Show, _: string) -> Error {
 	if n := len(script.physics_bodies(&sh.app.script)); n > 0 {
 		child(sh, "bodies", .List, fmt.tprintf("%d physics bodies", n))
 	}
+	if marks := marks_read(sh.app.script_path, v.fps, context.temp_allocator); len(marks) > 0 {
+		child(sh, "marks", .List, fmt.tprintf("%d marks made in the preview", len(marks)))
+	}
 	child(sh, "nodes", .List, "what is drawn at a time (--at)")
 	return nil
+}
+
+// ---- marks --------------------------------------------------------------------------
+
+// The marks a person made in the preview ([ ] a range, P a moment), from
+// the file beside the script.
+@(private = "file")
+show_marks :: proc(sh: ^Show, _: string) -> Error {
+	marks := marks_read(sh.app.script_path, sh.r.video.fps, context.temp_allocator)
+	sh.res.kind = show_kind(.List)
+	sh.res.summary = fmt.tprintf("%d marks made in the preview (%s)", len(marks), filepath.base(marks_file(sh.app.script_path)))
+	for m in marks {
+		_, detail := mark_watch(m, sh.r.video.fps)
+		child(sh, fmt.tprintf("mark/%d", m.n), .Mark, detail)
+	}
+	return nil
+}
+
+@(private = "file")
+show_mark :: proc(sh: ^Show, rest: string) -> Error {
+	n, _ := strconv.parse_int(rest)
+	fps := sh.r.video.fps
+	for m in marks_read(sh.app.script_path, fps, context.temp_allocator) {
+		if m.n != n {
+			continue
+		}
+		label, detail := mark_watch(m, fps)
+		from, to := mark_seconds(m, fps)
+		sh.res.kind = show_kind(.Mark)
+		sh.res.summary = fmt.tprintf("%s: %s", label, detail)
+		sh.res.fields = make(json.Object, context.temp_allocator)
+		sh.res.fields["n"] = json.Integer(m.n)
+		if m.to < 0 {
+			sh.res.fields["at"] = json.Float(from)
+			sh.res.fields["frame"] = json.Integer(m.at)
+		} else {
+			sh.res.fields["from"] = json.Float(from)
+			sh.res.fields["to"] = json.Float(to)
+			sh.res.fields["frame"] = json.Integer(m.at)
+			sh.res.fields["to_frame"] = json.Integer(m.to)
+		}
+		return nil
+	}
+	return fail(sh.app, {code = .No_Path, name = fmt.tprintf("mark/%s", rest), names = {"marks"}})
 }
 
 @(private = "file")
@@ -556,8 +607,9 @@ show_say :: proc(sh: ^Show, rest: string) -> Error {
 		for k, idx in order {
 			p := placed[k]
 			if p.track.src == name {
-				at := f64(p.start - p.file_start) / om.MIX_RATE + f64(w.start)
-				child(sh, fmt.tprintf("track/%d", idx), .Track, fmt.tprintf("says it at %.3fs on the video", at))
+				if at, ok := om.placed_file_time(p, f64(w.start)); ok {
+					child(sh, fmt.tprintf("track/%d", idx), .Track, fmt.tprintf("says it at %.3fs on the video", at))
+				}
 			}
 		}
 		child(sh, fmt.tprintf("say/%s", name), .Say, "the line")

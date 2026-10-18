@@ -596,7 +596,7 @@ audio_at :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 			at := Active_Track {
 				file         = tr.src,
 				bus          = tr.bus,
-				file_seconds = f64(p.file_start + k) / om.MIX_RATE,
+				file_seconds = f64(om.placed_file_sample(p, s)) / om.MIX_RATE,
 				gain_db      = f64(gain) if env * duck > 0 else nil,
 				voice        = tr.voice,
 			}

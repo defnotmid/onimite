@@ -410,6 +410,9 @@ callback is the playback clock, and the UI thread only draws.
 | Up, L / Down, H | volume up / down |
 | Ctrl+Down, Ctrl+H | mute |
 | M | set / clear the bookmark (reloads return to it) |
+| [ / ] | mark a range's in / out point, for the agent (`NAME.marks.json` beside the script or clip; `onimite show NAME marks`) |
+| P | mark a moment (again on it: unmark) |
+| Delete, Backspace | remove the mark under the playhead |
 | = / - | zoom the timeline (also Ctrl+wheel; a zoomed timeline you scroll stops following the playhead until Follow); Ctrl+0 fits it |
 | T | collapse / expand the timeline |
 | Z | fit the video in its panel (the wheel over the video zooms around the cursor, dragging pans) |

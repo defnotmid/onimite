@@ -220,7 +220,7 @@ clip_job_build :: proc(j: ^Clip_Job) -> bool {
 	}
 	if j.script == nil {
 		media_open(&j.media, om.IMAGE_BUDGET_DEFAULT, b.video)
-		if os.is_dir(b.media_dir) {
+		if os.exists(b.media_dir) {
 			om.media_load_dir(&j.media, b.media_dir)
 		}
 		j.script = new(script.Script)

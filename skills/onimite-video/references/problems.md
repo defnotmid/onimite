@@ -33,7 +33,7 @@ output puts it before the message. Match on `code` and `fields`, not on the mess
 | `missing_svg` | error | `SVG "{name}" is not in the media provider` |
 | `missing_lottie` | error | `Lottie "{name}" is not in the media provider` |
 | `missing_video` | error | `no video {q:name} in the media` |
-| `undecodable_video` | error | `video {q:name} can not be decoded: {video}` |
+| `undecodable_video` | error | `video {q:name} can not be decoded: {video}`: no video track, a track no decoder takes (found when the media loads; convert it with ffmpeg, see media.md), or a decode that failed partway |
 | `missing_audio` | error | `no audio {q:name} in the media` |
 | `missing_track` | error | `{where}: the track plays {q:clip}, which is not in the media`: found at load; a track of `video{}` or `scene{}` names a sound the media lacks (missing, or a file that did not decode: see `undecodable_media`); `render` refuses to start (`load_errors`), the preview plays without it |
 | `missing_track_time` | error | `{where}: the track is timed by the length of {q:clip}, which is not in the media`: found at load; a track's `start` or `stop` adds the length of a sound or video the media lacks; like `missing_track` |
@@ -70,6 +70,7 @@ output puts it before the message. Match on `code` and `fields`, not on the mess
 | `missing_animation` | error | `glTF model {q:name} has no animation {q:animation}`: a model's `animation` names none of its clips (or its index is past them); the model is drawn in its rest pose |
 | `missing_morph_target` | error | `glTF model {q:name} has no morph target {q:target}`: a model's `morphs` names a target the model lacks (or an index outside `1..N`); that override is ignored |
 | `view3d_zero_size` | warning | `view3d with zero size at ({x}, {y}) is skipped` |
+| `view3d_video_software` | warning | `video {q:name} as a 3D texture plays on the GPU only: drawn in the material's colour on the CPU (--software)` |
 | `geometry_growth` | warning | ``{kind} made again with other parameters on a later frame of its scene: each new set of geometry parameters makes and keeps a mesh, so change a size through the mesh's `scale`, not its geometry's parameters``: a `view3d` mesh's geometry parameters (`radius`, `width`, segment counts) change from frame to frame, so every frame makes a mesh that stays for the whole render; `{kind}` is the three.js type (`SphereGeometry`). Animate `scale` (and `position`, `rotation`) instead (3d.md) |
 | `view3d_render` | error | `view3d could not be drawn: {o3d}`: the 3D renderer failed (`{o3d}`: `Device`, no GPU device that can draw it; `Out_Of_Memory`; `Shader`) |
 | `rect_zero_size` | warning | `rect with zero size at ({x}, {y}) is skipped` |
