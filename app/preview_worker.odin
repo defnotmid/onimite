@@ -1248,6 +1248,8 @@ worker_release :: proc(w: ^Render_Worker) {
 		if v.texture.texture != nil {
 			sdl.ReleaseGPUTexture(w.device, v.texture.texture)
 		}
+		delete(v.levels)
+		delete(v.drawn)
 	}
 	delete(w.thumbs)
 	delete(w.thumb_free)

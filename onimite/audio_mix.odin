@@ -10,7 +10,7 @@ import orender "deps:odawg/render"
 import osong "deps:odawg/song"
 
 // The mix: every track placed on the video timeline, as one odawg song
-// (odawg's song/mix.odin) that odawg's engine streams: a clip is a Player
+// (odawg's song/mix.odin) that odawg's engine streams: a clip is a Clip node
 // playing its samples (gain, balance, offset, fades, mono, ducking under
 // the voice tracks), a song or sound its own tracks moved to where it
 // starts, let through its track's window. Then `master_gain_db` and the
@@ -182,7 +182,7 @@ frames_to_samples :: #force_inline proc "contextless" (frames, fps: int) -> int 
 // ---- the mix as an odawg song ---------------------------------------------------------
 
 // The placed tracks as one song: `song` streams the mix; `bank` holds what
-// its Players and Samplers play: the video's sample sets first (a view of
+// its Clip nodes and Samplers play: the video's sample sets first (a view of
 // its bank, at the indices its songs were composed with: rows copied, no
 // audio), then a set per clip (lent by the media, not copied). `tracks[i]`
 // is placed track i's tracks in the song (first, count). All in `arena`.
@@ -263,6 +263,7 @@ mix_init :: proc(mx: ^Mix, placed: []Placed_Track, opts: Mix_Options, samples :=
 				mono     = tr.mono && p.clip.source_channels >= 2,
 				voice    = tr.voice,
 				ducked   = tr.ducked,
+				effects  = tr.effects,
 			}
 			c.duck = {f64(d.depth_db), f64(d.attack), f64(d.hold), f64(d.release), f64(d.merge_gap)}
 			ti := osong.append_clip(&mx.song, c)
@@ -287,6 +288,7 @@ mix_init :: proc(mx: ^Mix, placed: []Placed_Track, opts: Mix_Options, samples :=
 		p[.Threshold] = opts.ceiling_db if opts.ceiling_db != 0 else -1
 		p[.Release] = LIMITER_RELEASE
 		append(&mx.song.devices, odevice.Device_Kind.Limiter)
+		append(&mx.song.labels, odevice.DEVICE_TABLE[.Limiter].name)
 		append(&mx.song.params, p)
 		append(&mx.song.chain, i32(len(mx.song.devices) - 1))
 		mx.song.master = {i32(len(mx.song.chain) - 1), 1}
@@ -411,7 +413,7 @@ mix_duck_gain :: proc(mx: ^Mix, i: int, at: int) -> f32 {
 }
 
 // The shortest fade a track starts and ends with (no click): 3 ms, as
-// odawg's Player and a song's window play it.
+// odawg's Clip node and a song's window play it.
 DECLICK :: MIX_RATE * 3 / 1000
 
 // A track's fade gain (0 to 1) `k` samples into its `length` samples: its

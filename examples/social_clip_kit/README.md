@@ -45,7 +45,7 @@ The pieces the brief asks for:
   every two seconds (four beats), so it dances on the beat in every
   section.
 - **Music with beat-synced cuts**: `track.lua` is an odawg `song{}`,
-  Chicago house in C (C G Am F) on a swung 909 (`DrumMachine`), a rolling
+  Chicago house in C (C G Am F) on a swung 909 (the library's `machines/909.json`), a rolling
   bass, organ stabs and, at the outro, piano chords on a sampled upright
   (`Sampler`, vcsl), a section per part of the promo. The picture reads the
   song (`timeline.lua`): the scenes start on its sections, the headline

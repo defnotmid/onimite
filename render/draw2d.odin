@@ -94,8 +94,9 @@ draw_image_rect :: proc(r: ^Renderer, image: ^Image, x, y, w, h: f32, opacity: f
 }
 
 // draw_image_src draws the texels `src` (x0, y0, x1, y1) of `image` into
-// `(x, y, w, h)`: a stretch of a strip texture (a spectrogram's rows).
-draw_image_src :: proc(r: ^Renderer, image: ^Image, src: [4]f32, x, y, w, h: f32, nearest := false) {
+// `(x, y, w, h)` by a sample mode: a stretch of a strip texture (a
+// spectrogram's rows, SAMPLE_HEAT).
+draw_image_src :: proc(r: ^Renderer, image: ^Image, src: [4]f32, x, y, w, h: f32, sample := SAMPLE_RGBA) {
 	if !image_loaded(image) || w <= 0 || h <= 0 {
 		return
 	}
@@ -109,7 +110,7 @@ draw_image_src :: proc(r: ^Renderer, image: ^Image, src: [4]f32, x, y, w, h: f32
 			col_tr = color,
 			col_bl = color,
 			col_br = color,
-			style = {0, 0, SAMPLE_RGBA_NEAREST if nearest else SAMPLE_RGBA, 0},
+			style = {0, 0, sample, 0},
 		},
 		image.texture,
 		{f32(image.width), f32(image.height)},

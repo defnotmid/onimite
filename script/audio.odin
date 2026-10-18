@@ -1,7 +1,12 @@
 package onimite_script
 
 import "core:c"
+import "core:encoding/json"
+import "core:fmt"
+import "core:mem/virtual"
 import "core:strings"
+import obase "deps:odawg/base"
+import ospec "deps:odawg/spec"
 import om "../onimite"
 import lua "vendor:lua/5.4"
 
@@ -15,7 +20,9 @@ import lua "vendor:lua/5.4"
 // `pan` (-1..1), `fade_in`, `fade_out`, `curve` ("linear" or
 // "equal_power"), `voice`, `ducked` (true for fframes' duck_under_voice, or
 // a table `{depth_db, attack, hold, release, merge_gap}`), `mono` (a stereo
-// file as 0.707 * (L + R) on both sides, like fframes' embedded media).
+// file as 0.707 * (L + R) on both sides, like fframes' embedded media),
+// `effects` (a clip's, as a song part's: `{ { "Filter", type = "highpass",
+// frequency = 200 }, { "Reverb", wet = 0.2 } }`).
 
 // Reads field `audio` of the table at `t` into the video's tracks, placed
 // by `scene` (an index into the scenes, or none for video{}). The strings
@@ -100,10 +107,50 @@ read_audio :: proc(s: ^Script, L: ^lua.State, t: c.int, scene: Maybe(int)) {
 			tr.ducked = bool(lua.toboolean(L, -1))
 		}
 		lua.pop(L, 1)
+		field(L, e, "effects")
+		if !lua.isnil(L, -1) {
+			if script_song(s, tr.src) != nil {
+				lua.L_error(L, "audio track %s: a song's effects go on its parts (or its sound{}'s effects)", strings.clone_to_cstring(tr.src, context.temp_allocator))
+			}
+			tr.effects = json.clone_value(value_from_lua(L, s, -1, "audio track", "effects", "effects"))
+			append(&s.owned_values, tr.effects)
+			effects_check(L, s, tr.src, tr.effects)
+		}
+		lua.pop(L, 1)
 		fields_pop(L, s, e, "audio track", outer)
 		lua.pop(L, 1)
 	}
 	append(&s.tracks, ..tracks)
+}
+
+// What odawg finds reading a track's effects (as the mix will), at the
+// script line: a misspelled effect or key is found at load, not heard.
+@(private = "file")
+effects_check :: proc(L: ^lua.State, s: ^Script, src: string, effects: json.Value) {
+	// odawg's reading in an arena of its own; the findings as load problems
+	// (cloned) after it
+	arena: virtual.Arena
+	_ = virtual.arena_init_growing(&arena)
+	defer virtual.arena_destroy(&arena)
+	findings: obase.Findings
+	{
+		context.allocator = virtual.arena_allocator(&arena)
+		fx: ospec.Spec
+		ospec.spec_init(&fx)
+		findings = make(obase.Findings)
+		ospec.effects_from_value(&fx, effects, "effects", &findings)
+	}
+	for f in findings {
+		severity := om.Severity.Warning
+		switch f.severity {
+		case .Info:
+			severity = .Info
+		case .Warning:
+		case .Error:
+			severity = .Error
+		}
+		report_warning(L, s, {code = .Effect_Finding, a = src, b = fmt.tprintf("%s (%s)", f.message, f.code)}, severity)
+	}
 }
 
 // `buses = { sfx = { gain_db = -4 }, music = { gain_db = 0 } }` on video{}:

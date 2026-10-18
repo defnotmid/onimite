@@ -6,6 +6,7 @@
 local beat = require("beat")
 local ui = require("ui")
 local T = require("timeline")
+local INSTRUMENTS = require("library").INSTRUMENTS
 local facts = require("facts")
 local snap, soft = beat.snap, beat.soft
 
@@ -58,8 +59,8 @@ local function render(f, lb)
 end
 
 local audio = {
-  { sound { "done", duration = "16n" }, start = T.at.CPU_RATIO, gain_db = -6 },
-  { sound { "done", duration = "16n" }, start = T.at.MEMORY_RATIO, gain_db = -6 },
+  { sound { "done", instruments = INSTRUMENTS, duration = "16n" }, start = T.at.CPU_RATIO, gain_db = -6 },
+  { sound { "done", instruments = INSTRUMENTS, duration = "16n" }, start = T.at.MEMORY_RATIO, gain_db = -6 },
 }
 
 return { name = "Bill", section = "bill", render = render, audio = audio }

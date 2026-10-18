@@ -57,14 +57,14 @@
   "parts": {
     // the floor: a 909 kick, its own part so the pump can listen to it alone
     "kick": {
-      "instrument": { "name": "DrumMachine", "machine": "909", "tone": 0.3, "decay": 0.75, "tune": -0.1 },
+      "instrument": { "name": "../machines/909.json", "tone": 0.3, "decay": 0.75, "tune": -0.1 },
       "gain_db": -5.5,
       "play": [
         { "energy": [0.45, 1], "steps": { "kick": "X...x...x...x..." } }
       ]
     },
     "hats": {
-      "instrument": { "name": "DrumMachine", "machine": "909", "tone": 0.6, "decay": 0.5 },
+      "instrument": { "name": "../machines/909.json", "tone": 0.6, "decay": 0.5 },
       "gain_db": 2,
       "pan": 0.3,
       "sends": { "room": -16 },
@@ -78,14 +78,14 @@
       "gain_db": -1.5,
       "sends": { "room": -12 },
       "play": [
-        { "energy": [0.7, 1], "humanize": 0.15, "steps": {
+        { "energy": [0.7, 1], "humanize": 0.004, "steps": {
             "clap": "....x.......x...",
             "tambourine": "x.x.X.x.x.x.X.xx",
             "shaker": "xxxxxxxxxxxxxxxx",
             "conga_high": "......x.....x.x.",
             "conga_mid": "...x.......x....",
             "cowbell": "..........x....." } },
-        { "energy": [0.45, 0.7], "humanize": 0.15, "velocity": 0.8, "steps": {
+        { "energy": [0.45, 0.7], "humanize": 0.004, "velocity": 0.8, "steps": {
             "clap": "....x.......x...",
             "tambourine": "..x...x...x...x.",
             "conga_high": "......x.....x.x." } }
@@ -97,7 +97,7 @@
       "instrument": { "name": "Sampler", "set": "fashionbass/fashionbass_clean.sfz", "release": 0.08 },
       "gain_db": 1.5,
       "play": [
-        { "energy": [0.5, 1], "octave": 1, "humanize": 0.1, "degrees": "1 . 8 . 1 8 . 1 . 1 8 . 1 . 8 7", "subdivision": "16n", "duration": "16n" }
+        { "energy": [0.5, 1], "octave": 1, "humanize": 0.004, "degrees": "1 . 8 . 1 8 . 1 . 1 8 . 1 . 8 7", "subdivision": "16n", "duration": "16n" }
       ]
     },
     // clean funk chops: ninth chords, sixteenth stabs off the beat
@@ -107,7 +107,7 @@
       "pan": -0.35,
       "sends": { "room": -14 },
       "play": [
-        { "energy": [0.5, 1], "octave": 4, "humanize": 0.12, "chords": { "rhythm": "..x..x.x..x..x.x", "voicing": "close" }, "duration": "32n", "velocity": 0.75 }
+        { "energy": [0.5, 1], "octave": 4, "humanize": 0.006, "chords": { "rhythm": "..x..x.x..x..x.x", "voicing": "close" }, "duration": "32n", "velocity": 0.75 }
       ]
     },
     "violins": {

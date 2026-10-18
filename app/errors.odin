@@ -48,6 +48,8 @@ Error :: enum u8 {
 	No_Sheet_Frames,
 	// snapshot: an approved PNG of another size than the frame.
 	Snapshot_Size,
+	// audio parts --against: a file that isn't an earlier --json of it.
+	Parts_Read,
 	Encoder,
 	Read_Back,
 	// Batches.
@@ -128,6 +130,7 @@ FAILURE_TEXT := [Error]string {
 	.Snapshot_Size      = "snapshot {path} is {n}x{m} but frame {spec} renders at {frame_size}: check it at the --scale it was approved at, or accept the new size with --update",
 	.Encoder            = "{encoder}",
 	.Read_Back          = "can not read frame {n} back from the GPU ({gpu})",
+	.Parts_Read         = "can not read {path} as `audio parts --json` output",
 	.Batch_Read         = "can not read the batch rows {path}: {os}",
 	.Batch_Json         = "{path}: invalid JSON ({json})",
 	.Batch_Not_Array    = "{path}: the JSON must be an array of objects, one per video",

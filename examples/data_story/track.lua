@@ -7,10 +7,15 @@
 -- draws, a blip per crop, the count's ticks up the scale, crashes on the
 -- scenes' downbeats. timeline.lua reads them back as the picture's cues.
 
+-- The skill's library (skills/onimite-video/library: rows and styles to
+-- copy into your media folder), from this example's media folder.
+local LIB = "../../../skills/onimite-video/library/"
+local INSTRUMENTS = { LIB .. "instruments/classic.json", LIB .. "instruments/sfx.json" }
+
 -- C major pentatonic, two octaves: a month's value picks its blip's note.
 local PENTA = { "C5", "D5", "E5", "G5", "A5", "C6", "D6", "E6", "G6", "A6" }
 local SCALE = { "C5", "D5", "E5", "F5", "G5", "A5", "B5", "C6", "D6", "E6", "F6", "G6" }
-local MACHINE = { "DrumMachine", machine = "909" }
+local MACHINE = { LIB .. "machines/909.json" }
 
 -- A position in a section: beats and sixteenths from its start.
 local function at(beat, sixteenth) return string.format("0:%d:%d", beat, sixteenth or 0) end
@@ -33,18 +38,18 @@ return function(months, crops)
     crashes[#crashes + 1] = { s, events = { { time = 0, note = "crash" } } }
   end
 
-  return song { "score", key = "C major", bpm = 120, seed = 120, gain_db = -13,
+  return song { "score", instruments = INSTRUMENTS, key = "C major", bpm = 120, seed = 120, gain_db = -13,
     sections = {
-      { "title", duration = "2m", style = "house", energy = 0.35, chords = "C Am" },
+      { "title", duration = "2m", style = LIB .. "styles/house.json", energy = 0.35, chords = "C Am" },
       { "bars", duration = "4m", energy = 0.72, chords = "F G C Am" },
       { "line", duration = "3m", energy = 0.8, chords = "F G C" },
       { "donut", duration = "3m", energy = 0.95, chords = "Am F G" },
       { "outro", duration = "2m", energy = 1, chords = "C Am" },
-      { "tail", duration = "1m", style = "ambient", energy = 0.3, chords = "C", transition = "cut" },
+      { "tail", duration = "1m", style = LIB .. "styles/ambient.json", energy = 0.3, chords = "C", transition = "cut" },
     },
     parts = {
       -- the kick and the bass come in on the title's second bar; one last kick on the tail
-      drums = { gain_db = 4, play = { { "title@1m..", steps = { kick = "x...x...x...x...", hat = "o.o.o.o.o.o.o.o." } },
+      drums = { gain_db = 1, play = { { "title@1m..", steps = { kick = "x...x...x...x...", hat = "o.o.o.o.o.o.o.o." } },
                          { "tail", events = { { time = 0, note = "kick" } } } } },
       bass = { gain_db = 3, play = { { "title@1m..", degrees = ". . 1 . . . 1 8 . . 1 . . . 1 .", subdivision = "16n" } } },
       pad = { gain_db = -16 },
@@ -59,6 +64,9 @@ return function(months, crops)
         { "line", events = { { time = "1:3:0" } } },     -- the line lands on the total
         { "outro", events = { { time = "1m" } } },       -- the count lands
       } },
+      -- the riser into the bars (v0.0.7 picked it from the energy; transitions are written out now)
+      rise = { instrument = "riser", gain_db = -4,
+        play = { { "title", events = { { time = 0, duration = "2m", note = "C4", velocity = 0.35 } } } } },
       riser = { instrument = "riser", gain_db = -10,     -- while the line draws
         play = { { "line", events = { { time = "4n", duration = "1:2:0" } } } } },
     },

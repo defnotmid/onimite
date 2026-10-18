@@ -1,0 +1,118 @@
+{
+  "description": "Ghetto (booty) house, 130-140 BPM: an 808 kick on every beat, claps on two and four with rolls into every fourth bar, busy accented sixteenth hats, a syncopated cowbell and tom answers, the 808 itself as the sub bass in short stabs ducking under the kick, sparse chant-like synth hits through an echo, and a stab chord at full energy. No vocals.",
+  "swing": 0.12,
+  "swing_subdivision": "16n",
+  "instruments": "../instruments/classic.json",
+  "parts": {
+    "drums": {
+      "instrument": { "name": "../machines/808.json", "decay": 0.9, "tone": 0.6 },
+      "octave": 3,
+      "gain_db": 0,
+      "room_db": 0,
+      "sends": { "room": -20 },
+      "play": [
+        {
+          "energy": [0.75, 1],
+          "humanize": 0.002,
+          "steps": {
+            "kick": [ "X...x...x...x...", "X...x...x...x...", "X...x...x...x...", "X...x...x...x.x." ],
+            "clap": [ "....X.......X...", "....X.......X...", "....X.......X..o", "....X.......XoxX" ],
+            "hat": [ "xoxXxoxXxoxXxoxX", "xoxXxoxXxoxXxoxX", "xoxXxoxXxoxXxoxX", "xoxXxoxXxoxXXXXX" ],
+            "open_hat": "..o...o...o...o.",
+            "cowbell": [ "..X..x....x..x.x", "..X..x....x..x..", "..X..x....x..x.x", "..X..x....x....." ],
+            "tom_high": [ "......x.........", "................", "......x.....x...", "................" ],
+            "tom_low": [ "...........x....", "...........x.x..", "...........x....", "..........xxXX.." ],
+            "rim": "...o...o...o...o"
+          }
+        },
+        {
+          "energy": [0.45, 0.75],
+          "humanize": 0.002,
+          "steps": {
+            "kick": "X...x...x...x...",
+            "clap": [ "....X.......X...", "....X.......X...", "....X.......X...", "....X.......XoxX" ],
+            "hat": "xoxXxoxXxoxXxoxX",
+            "cowbell": "..X..x....x..x.."
+          }
+        },
+        {
+          "energy": [0.2, 0.45],
+          "humanize": 0.002,
+          "velocity": 0.7,
+          "steps": { "kick": "x...x...x...x...", "hat": "xoxoxoxoxoxoxoxo" }
+        },
+        { "energy": [0, 0.2], "velocity": 0.55, "steps": { "hat": "x.x.x.x.x.x.x.x.", "clap": "....x.......x..." } }
+      ]
+    },
+    "sub": {
+      "instrument": { "name": "../instruments/808_bass.json", "decay": 0.7 },
+      "octave": 1,
+      "gain_db": -1,
+      "room_db": 0,
+      "sidechain": { "name": "drums/kick", "depth": 0.5, "release": 0.06 },
+      "play": [
+        {
+          "energy": [0.6, 1],
+          "degrees": ". . 1 . . . 1 . . 1 . . 8 . 1 . | . . 1 . . . 1 . . 1 . . 5 . 7 .",
+          "subdivision": "16n",
+          "velocity": 0.9
+        },
+        {
+          "energy": [0.35, 0.6],
+          "degrees": ". . 1 . . . . . . 1 . . . . . .",
+          "subdivision": "16n",
+          "velocity": 0.85
+        }
+      ]
+    },
+    "chant": {
+      "instrument": {
+        "name": "FMSynth",
+        "harmonicity": 1.5,
+        "modulation_index": 5,
+        "oscillator": { "type": "square" },
+        "modulation": { "type": "sine" },
+        "envelope": { "attack": 0.004, "decay": 0.12, "sustain": 0.25, "release": 0.07 },
+        "modulation_envelope": { "attack": 0.02, "decay": 0.09, "sustain": 0.3, "release": 0.05 }
+      },
+      "octave": 4,
+      "gain_db": -6,
+      "room_db": -3,
+      "pan": 0.15,
+      "effects": [ { "name": "Filter", "type": "bandpass", "frequency": 1100, "q": 1.4 } ],
+      "sends": { "echo": -8, "room": -12 },
+      "play": [
+        {
+          "energy": [0.6, 1],
+          "steps": [ "................", "x..x............", "................", "........x.x.X..." ],
+          "note": "5",
+          "duration": "16n",
+          "velocity": 0.8
+        },
+        {
+          "energy": [0.8, 1],
+          "steps": [ "................", "................", "................", "............x..." ],
+          "note": "8",
+          "duration": "16n",
+          "velocity": 0.7
+        }
+      ]
+    },
+    "keys": {
+      "instrument": "stab",
+      "octave": 4,
+      "gain_db": -10,
+      "room_db": -3,
+      "sidechain": { "name": "drums/kick", "depth": 0.5 },
+      "sends": { "room": -10 },
+      "play": [ { "energy": [0.85, 1], "chords": { "rhythm": "x.........x....." }, "duration": "16n" } ]
+    }
+  },
+  "returns": {
+    "room": [ { "name": "Reverb", "decay": 0.6, "pre_delay": 0.003 } ],
+    "echo": [
+      { "name": "FeedbackDelay", "delay_time": "8n.", "feedback": 0.35 },
+      { "name": "Filter", "type": "highpass", "frequency": 500 }
+    ]
+  }
+}

@@ -100,7 +100,7 @@ end
 -- Feature cards: the visual and its title, side by side when wide.
 local FEATURES = {
   { title = "Word-level captions", code = 'captions{ highlight = "box" }' },
-  { title = "Music made in Lua", code = 'song { "score", style = "chicago_house" }' },
+  { title = "Music made in Lua", code = 'song { "score", style = "styles/chicago_house.json" }' },
   { title = "Cuts on the beat", code = 'score.hits { part = "crash" }' },
   { title = "Alpha video", code = 'video_frame{ src = "mascot.webm" }' },
 }

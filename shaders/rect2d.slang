@@ -1,10 +1,8 @@
 // pipe_rect2d: one instanced quad per UI/2D rect, four vertices from the
 // vertex id (triangle strip), every attribute per instance; the fragment
 // stage is an SDF rounded rect with border, edge softness, and a sample mode
-// (solid, rgba texture, alpha glyph, nearest texel, palette over a
-// single-channel texture: the colour carries max_raw, invalid_raw,
-// palette (0 ramp, 1 grey, 2 heat), and log (1 for log(1 + value));
-// polar over a float texture whose
+// (solid, rgba texture, alpha glyph, nearest texel, heat over a level
+// texture (a spectrogram, filtered); polar over a float texture whose
 // rows are ranges and columns angles: the quad is the sector's square,
 // the radii carry angle_min, angle_increment, and the inner range as a
 // fraction of the outer). Vulkan y-down NDC.
@@ -69,9 +67,10 @@ Varyings vs_main(Instance a, uint vertex_id : SV_VertexID) {
     return o;
 }
 
-// palette_rgb colours a value against its maximum: 0 the ramp (yellow
-// near to blue far), 1 grey, 2 heat (black, red, yellow, white); with
-// `log` the position on the palette is log(1 + value) against log(1 + max)
+// palette_rgb (the polar mode's) colours a value against its maximum: 0
+// the ramp (yellow near to blue far), 1 grey, 2 heat (black, red, yellow,
+// white); with `log` the position on the palette is log(1 + value)
+// against log(1 + max)
 float3 palette_rgb(float raw, float max_raw, float palette, float log_curve) {
     float t;
     if (log_curve > 0.5) t = clamp(log(1.0 + max(raw, 0.0)) / log(1.0 + max(max_raw, 1e-6)), 0.0, 1.0);
@@ -85,6 +84,18 @@ float3 palette_rgb(float raw, float max_raw, float palette, float log_curve) {
     }
     if (palette > 0.5) return float3(t, t, t);
     return lerp(float3(250.0, 204.0, 21.0), float3(40.0, 90.0, 200.0), t) / 255.0;
+}
+
+// heat colours a level 0..1: inferno's five stops, dark to bright (the
+// waveform image's ramp, app/audio.odin heat).
+static const float3 HEAT_STOPS[5] = {
+    float3(0.0, 0.0, 4.0), float3(87.0, 16.0, 110.0), float3(188.0, 55.0, 84.0),
+    float3(249.0, 142.0, 9.0), float3(252.0, 255.0, 164.0)
+};
+float3 heat(float t) {
+    float at = clamp(t, 0.0, 1.0) * 4.0;
+    int i = min(int(at), 3);
+    return lerp(HEAT_STOPS[i], HEAT_STOPS[i + 1], at - float(i)) / 255.0;
 }
 
 float rounded_box_sdf(float2 p, float2 half_size, float r) {
@@ -104,7 +115,7 @@ float4 fs_main(Varyings v) : SV_Target {
 
     float border   = v.style.x;
     float softness = max(v.style.y, 0.0);
-    int   mode     = int(v.style.z + 0.5); // 0 solid, 1 rgba tex, 2 alpha glyph, 3 nearest texel, 4 palette, 5 polar
+    int   mode     = int(v.style.z + 0.5); // 0 solid, 1 rgba tex, 2 alpha glyph, 3 nearest texel, 4 heat, 5 polar
 
     if (mode == 5) {
         // a sector: the fragment's range and angle from the square's
@@ -152,16 +163,11 @@ float4 fs_main(Varyings v) : SV_Target {
         tex = u_tex.Sample((pixel + float2(0.5, 0.5)) / size);
     }
     else if (mode == 4) {
-        // a frame's elements through its palette, on the GPU: the texel is
-        // a raw value over 65535, the colour holds the raw value at the far
-        // end of the ramp, the raw value meaning "no reading" (-1 for
-        // none), and the palette (0 ramp, 1 grey)
-        float2 size = max(v.tex_size, float2(1.0, 1.0));
-        float2 pixel = clamp(floor(v.uv * size), float2(0.0, 0.0), size - float2(1.0, 1.0));
-        float raw = u_tex.Sample((pixel + float2(0.5, 0.5)) / size).r * 65535.0;
-        bool invalid = v.color.y >= 0.0 && abs(raw - v.color.y) < 0.5;
-        float3 rgb = invalid ? float3(28.0, 30.0, 38.0) / 255.0 : palette_rgb(raw, v.color.x, v.color.z, v.color.w);
-        float4 o = float4(rgb, alpha);
+        // a level texture as heat, filtered between texels (a spectrogram's
+        // bands and rows blend): the texel 0 is no reading (clear), 1..255
+        // the level 0..1
+        float raw = u_tex.Sample(v.uv).r * 255.0;
+        float4 o = float4(heat((raw - 1.0) / 254.0), clamp(raw, 0.0, 1.0) * alpha * v.color.a);
         return o;
     }
     else                tex = float4(1.0, 1.0, 1.0, 1.0);

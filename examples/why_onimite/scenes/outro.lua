@@ -4,6 +4,7 @@
 local beat = require("beat")
 local ui = require("ui")
 local T = require("timeline")
+local INSTRUMENTS = require("library").INSTRUMENTS
 local snap, soft = beat.snap, beat.soft
 
 local LINES = {
@@ -58,7 +59,7 @@ local function render(f, lb)
 end
 
 local audio = {}
-for i = 2, #T.at.OUTRO_LINES do audio[#audio + 1] = { sound { "crash", duration = "2n" }, start = T.at.OUTRO_LINES[i], gain_db = -8 } end
-audio[#audio + 1] = { sound { "crash", duration = "2n" }, start = T.at.WORDMARK, gain_db = -6 }
+for i = 2, #T.at.OUTRO_LINES do audio[#audio + 1] = { sound { "crash", instruments = INSTRUMENTS, duration = "2n" }, start = T.at.OUTRO_LINES[i], gain_db = -8 } end
+audio[#audio + 1] = { sound { "crash", instruments = INSTRUMENTS, duration = "2n" }, start = T.at.WORDMARK, gain_db = -6 }
 
 return { name = "Outro", section = "outro", render = render, audio = audio }

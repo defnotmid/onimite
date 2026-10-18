@@ -24,11 +24,12 @@ the same samples. The spec's fields are odawg's; the ones a video uses are below
 ```lua
 local VO = require("vo")                          -- say → song → placement: the lines first
 local score = song { "score", key = "A minor", seed = 7,          -- start = 0: where it sits on the video
+  instruments = { "instruments/classic.json", "instruments/sfx.json" },  -- files of rows (the library's, copied into media/)
   sections = {
     { "intro", duration = { audio = "intro", plus = { seconds = 1 } },   -- as long as a line: any duration form
-      bpm = 84, style = "lofi", energy = 0.3, chords = "Am7 Fmaj7 C G" },
+      bpm = 84, style = "styles/lofi.json", energy = 0.3, chords = "Am7 Fmaj7 C G" },
     { "build", duration = "2m", bpm = { 84, 124 } },                     -- a ramp
-    { "drop",  duration = "8m", flex = { "4m", "8m" }, bpm = 124, style = "house", energy = 1 },
+    { "drop",  duration = "8m", flex = { "4m", "8m" }, bpm = 124, style = "styles/house.json", energy = 1 },
   },
   parts = { lead = { instrument = "pluck",
     play = { { "drop@4m..", notes = "E5 G5 A5 - G5 E5 D5 -", subdivision = "8n" } } } },
@@ -40,21 +41,30 @@ local score = song { "score", key = "A minor", seed = 7,          -- start = 0: 
   `"2:1:0"` (bars:quarters:sixteenths). A section's `duration` (rounded up to whole bars) and
   `start` (exactly there: odawg resizes `flex` sections and nudges tempi before it) and the
   song's `start` take onimite's time forms too (`{ frame = n }` after `video{}`).
-- Styles: `acid_house`, `ambient`, `booty_house`, `chicago_house`, `house`, `lofi`,
-  `synthwave`, or the song's own: `styles = { footwork = { swing = 0.1,
-  parts = { drums = { ... }, bass = { ... } } } }` is a style like the shipped ones (a partial
-  spec), used by name in `style = "footwork"`. Parts not given come from the section's style;
-  `parts` overrides or adds by role name (`drums`, `bass`, `keys`, `lead`, ...). A style's
-  entries play by the section's `energy` in bands `[lo, hi)`. A part's `instrument` is any
-  of "Instruments" below: synths, circuit-modelled drum machines, an acid bass, sampled
-  instruments, presets.
+- Styles are data: a style file (`style = "styles/house.json"`, from the media folder; the
+  skill's `library/styles/` has `acid_house`, `ambient`, `booty_house`, `chicago_house`,
+  `house`, `lofi` and `synthwave` to copy and change) or the song's own: `styles = { footwork =
+  { swing = 0.1, parts = { drums = { ... }, bass = { ... } } } }` (a partial spec, used as
+  `style = "footwork"`). Parts not given come from the section's style. A song's part of the
+  same name is changes over the style's (what it doesn't set, the style's part gives:
+  instrument, octave, level, sends); a new name adds a part. A style's entries play by the
+  section's `energy` in bands `[lo, hi)`. A part's `instrument` is a row (below).
+- Transitions are written, never picked: `transition = "riser"`, `"impact"` or `"fill"` with
+  `transition_part = "fx"` (or `"drums/snare"` for a fill) plays one note on that part (a
+  riser 0.35, an impact 0.8), and `"cut"`/`"pause"`/`"none"` shape the change. A drop that
+  sounds like one is three parts' notes: a riser over the two bars before, an impact and a
+  crash on the downbeat (`play` entries; `examples/suite/track.lua`).
 - Positions (`time`, ranges, `at`): `"drop"`, `"drop@1m"`, `"drop@-4n"`, `"drop@0.5s"`,
   `"2:0:0"`, `"end"`; ranges `"drop..outro"` (to the end of outro), `"drop@4m.."` (to the end
   of drop; `"drop@4m..end"` to the song's end).
+- A play entry's `humanize` is seconds, as in Tone.js: each note moves by up to ± that much
+  (and its velocity a little). A player is within about ±0.01; `0.004`-`0.008` keeps a groove
+  tight, and anything over 0.03 is a warning (`0.12` moves notes up to ±120 ms, most of a
+  sixteenth at 120 BPM: it sounds out of time). Swing is the style's `swing` (0..1).
 - The song's `gain_db` (default -10, headroom for the mix) replaces the default: `gain_db = -3`
   is 7 dB louder, not 3 dB quieter. `room = { { from, to }, ... }` (seconds) or
-  `room = "voice"` (where the voice bus plays): the parts whose role makes room (pads, keys)
-  dip there.
+  `room = "voice"` (where the voice bus plays): each part dips there by its `room_db` (default
+  0: the styles give their pads, keys and leads some).
 - A misspelled key or a bad value is a warning or error at the script line
   (`song_finding`, problems.md); a song that can't be composed is a load error.
 - Section and marker names are cues (`frame video.lua drop@1m`), so they must be unique
@@ -83,19 +93,21 @@ score.seconds("1m")`: under a tempo change the sum is wrong. `pulse`/`hits` read
 or note with nothing there warn (`no_events`: a style without that part).
 
 `sound{ instrument, note, duration = "8n", velocity = 1, effects, sends, pan, sidechain,
-gain_db }` is a one-note song, named by its content (`"impact~3f2a9c01"`): place it like a
-clip, as often as needed. With no `note` it plays the instrument's own pitch (a `done` chime
-is high, a `thump` low); its other keys are a part's (`effects = { { "FeedbackDelay",
-delay_time = "8n", wet = 0.3 } }`).
+gain_db, instruments }` is a one-note song, named by its content (`"impact~3f2a9c01"`): place
+it like a clip, as often as needed. Its instrument is a row as a part's is: `sound { "impact",
+instruments = "instruments/sfx.json" }`, `sound { { "Synth", oscillator = { type = "sine" } } }`.
+With no `note` it plays the row's own pitch (a `done` chime is high, a `thump` low); its other
+keys are a part's (`effects = { { "FeedbackDelay", delay_time = "8n", wet = 0.3 } }`).
 
 ```lua
+local SFX = "instruments/sfx.json"                      -- the library's sound effects, in media/
 video { width = 1920, height = 1080, fps = 60, duration = score.duration,
   buses = { music = {}, voice = {}, sfx = { gain_db = -6 } },
   audio = {
     { "score", bus = "music", ducked = true },          -- start: the song's own start
     { "intro", start = T("intro@4n") },                 -- a say line
-    { sound { "impact" }, start = T("drop"), bus = "sfx" },
-    { sound { "blip", note = score.note("5", "explain"), duration = "16n" }, start = T("explain") + 0.8, bus = "sfx" },
+    { sound { "impact", instruments = SFX }, start = T("drop"), bus = "sfx" },
+    { sound { "blip", instruments = SFX, note = score.note("5", "explain"), duration = "16n" }, start = T("explain") + 0.8, bus = "sfx" },
   } }
 ```
 
@@ -119,22 +131,67 @@ video { width = 1920, height = 1080, fps = 60, duration = score.duration,
 
 ### Instruments
 
-A part's `instrument` is a name (`"pluck"`) or a table whose first entry is the name, then
-its settings. Everything here is odawg's; the names of the synths and their settings are
-Tone.js's.
+An instrument is a row of data: nodes wired by name, and options (the settings it takes,
+each a name for one or more of its nodes' fields). Nothing is built in but Tone.js's classes;
+everything else is a file of rows you copy and change. A part's `instrument` is:
 
-| instrument | what it is | settings |
+- a built-in row: `"Synth"`, `"MonoSynth"`, `"FMSynth"`, `"AMSynth"`, `"MembraneSynth"`,
+  `"MetalSynth"`, `"NoiseSynth"`, `"PluckSynth"`, `"Sampler"`, `"Player"`, with Tone's
+  settings as changes: `{ "MonoSynth", oscillator = { type = "fatsawtooth" }, filter = { q = 4 } }`.
+  `onimite show video.lua instruments` lists them; `show video.lua instrument/MonoSynth` prints
+  one as data, its options and nodes;
+- a name from the files the song (or its style) names: `instruments = { "instruments/classic.json",
+  "instruments/sfx.json" }`, then `instrument = "pluck"` or `{ "pad", cutoff = 300, cutoff2 = 1200,
+  envelope = { attack = 2 } }`;
+- a file of one row: `instrument = "machines/909.json"`, `{ "instruments/tb303.json", cutoff = 500 }`;
+- a row of your own, in the song's `instruments = { name = row }` or a file (below).
+
+The skill's `library/` folder is a set of such files: copy it (or the files you use) into the
+media folder, `media/instruments/...`, and change anything. A style file names its rows the
+same way (`../instruments/classic.json`), so `library/styles/` works where it lands beside them.
+
+| file | rows | options |
 | --- | --- | --- |
-| `"Synth"`, `"MonoSynth"`, `"FMSynth"`, `"AMSynth"`, `"MembraneSynth"`, `"MetalSynth"`, `"NoiseSynth"`, `"PluckSynth"` | Tone.js's synths | Tone's: `oscillator = { type = "fatsawtooth" }`, `envelope = { attack, decay, sustain, release }`, `filter`, ... |
-| `"DrumMachine"` | a TR-808 or TR-909 modelled from its circuits | `machine = "808"` or `"909"`, `tone` (0..1, 0.5), `decay` (1), `tune` |
-| `"AcidSynth"` | a TB-303-style bass: one voice, accents and slides | `oscillator = { type = "sawtooth" }` (or `"square"`), `filter = { frequency = 400, q = 8 }`, `filter_envelope = { octaves = 3 }`, `envelope = { decay = 0.3 }`, `accent` (0.5), `portamento` (0.06 s: the slide) |
-| `"DrumKit"` | a synthesized kit | `kit = "synth"`, `"808"` or `"909"` |
-| `"Sampler"` | a recorded instrument, played at any note | `set` (below), `attack`, `release` (0.1 s) |
-| presets | ready voices | `"kick"`, `"snare"`, `"clap"`, `"hat"`, `"open_hat"`, `"crash"`, `"tom"`, `"bass"`, `"sub_bass"`, `"pad"`, `"stab"`, `"pluck"`, `"lead"`, `"bell"`, `"riser"`, `"whoosh"`, `"impact"`, `"thump"`, `"fall"`, `"tape_chord"`, `"tick"`, `"beep"`, `"crackle"`, `"glitch"`, `"blip"` (also `sound { "impact" }`'s) |
+| `instruments/classic.json` | drums `kick`, `snare`, `clap`, `hat`, `open_hat`, `crash`, `tom`; `bass`, `sub_bass`, `pad`, `stab`, `pluck`, `lead`, `bell`; `synth_kit` (a machine of the drums) | `cutoff`, `cutoff2` (Hz: where a filter starts and ends), `decay` (seconds: the fall's time constant), `envelope = { attack }` |
+| `instruments/sfx.json` | `riser`, `whoosh`, `impact`, `thump`, `fall`, `tape_chord`, `tick`, `beep`, `crackle`, `glitch`, `blip`, `done` | `cutoff`, `cutoff2`, `tone` (riser, whoosh: the rising tone's level) |
+| `instruments/tb303.json` | a TB-303: one voice, accents and slides (`portamento`) | `oscillator = { type }`, `tune`, `cutoff`, `resonance`, `filter_envelope = { octaves }`, `decay`, `accent` |
+| `instruments/808_bass.json`, `909_bass.json` | a machine's kick as a bass, tuned to the note | `decay` (1), `tone` (0.5), `tune` (semitones) |
+| `machines/808.json`, `machines/909.json` | the TR-808 and TR-909 from their circuits, 18 pads | `decay` (1: as built), `tone` (0.5), `tune` (semitones) |
+| `styles/*.json` | seven styles (above) | |
 
-Drum parts play `steps` per pad: `kick`, `snare`, `clap`, `rim`, `hat`, `open_hat`, `crash`,
-`ride`, `tom_low`, `tom_mid`, `tom_high`, `shaker`, `cowbell`, `conga_low`, `conga_mid`,
-`conga_high`, `clave`, `maracas` (what a kit has; `x` hit, `X` accent, `.` rest).
+A machine's notes play its pads by name (`steps = { kick = "x...x..." }`), else the pad at
+the note's pitch: `kick`, `snare`, `clap`, `rim`, `hat`, `open_hat`, `crash`, `ride`, `tom_low`,
+`tom_mid`, `tom_high`, `shaker`, `cowbell`, `conga_low`, `conga_mid`, `conga_high`, `clave`,
+`maracas` (`x` hit, `X` accent, `.` rest); `synth_kit` has the seven drums above.
+
+A row, as the files write it (the Lua is the same data: a node's kind first, then its
+inputs; a field's base first, then what moves it):
+
+```lua
+instruments = { wobble = {
+  nodes = {
+    osc = { "Osc", wave = "sawtooth" },
+    lfo = { "Lfo", rate = "8n" },                                     -- a Tone length: per beat
+    env = { "Env", attack = 0.01, release = 0.3 },
+    out = { "Filter", "osc", frequency = { 400, by = "lfo", octaves = 2 }, q = 6, amp = "env" },
+  },
+  out = "out",                                                        -- what it plays
+  options = { cutoff = "out/frequency", speed = "lfo/rate" },          -- { "wobble", cutoff = 300 }
+} }
+```
+
+- Node kinds: `Osc`, `Noise`, `Random`, `Env`, `Decay`, `Ramp`, `Lfo`, `Filter`, `Drive`, `Slew`,
+  `Map`, `Mix`, `Mul`, `Comb`, `Sampler`, `Clip`; every node also has `gain_db`, `pan` and `amp`.
+  A field is a number, a choice, a Tone length, or `{ base, by, octaves | ratio | sweep |
+  index | amount | depth | at_most }` (or a list of those); `by` is a node or the note's
+  `velocity`, `accent`, `slide`, `gate`. The order of the nodes means nothing.
+- A row also takes `length` (a one-shot's seconds), `note` (the pitch with none given), `mono`,
+  `portamento`, `velocity`. A machine is `{ pads = { kick = { instrument, key, choke, gain_db } } }`.
+- An option's target is `"node/field"`, `"node/field/octaves"`, or `{ path, op = "mul" | "add" |
+  "octaves", scale, offset }` (a list for several). A key the row doesn't read, a target that
+  reaches nothing or a field an option shadows is a warning at the script line
+  (`song_finding`: `unknown_key`, `unknown_option_target`, `control_shadows_field`).
+- Read a file's rows for more: `library/instruments/*.json` are written this way.
 
 The sample sets a `Sampler` plays, recorded instruments under CC0 (free for any use, no
 credit needed):
@@ -150,15 +207,15 @@ credit needed):
 
 A set downloads the first time a song plays it (only the notes the song reaches), into
 `$ODAWG_DATA` or `odawg/` in the user data folder, each file checked against a pinned
-SHA-256. It plays at a synth preset's level. The preview opens without waiting for it; its
+SHA-256. The preview opens without waiting for it; its
 notes join the sound once it has loaded. Offline, a set that can't be fetched is an
 `asset_unavailable` finding and its notes are silent.
 
 ```lua
 parts = {
-  drums = { instrument = { "DrumMachine", machine = "909", tone = 0.55 },
+  drums = { instrument = { "machines/909.json", tone = 0.55 },
             play = { { "drop", steps = { kick = "x...x...x...x...", hat = "..x...x...x...x." } } } },
-  bass  = { instrument = { "AcidSynth", filter = { frequency = 320, q = 8.6 }, accent = 0.75 } },
+  bass  = { instrument = { "instruments/tb303.json", cutoff = 320, resonance = 8.6, accent = 0.75 } },
   keys  = { instrument = { "Sampler", set = "osiris/soft_piano", release = 1.2 }, sends = { hall = -10 } },
   strings = { instrument = { "Sampler", set = "vsco2/strings", attack = 1.2, release = 2.5 } },
 }

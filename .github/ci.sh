@@ -5,6 +5,7 @@
 #   bash .github/ci.sh build   # build/onimite, -o:speed, version v0.0.0-ci (it can update)
 #   bash .github/ci.sh test    # odin test, every package that has tests
 #   bash .github/ci.sh smoke   # the built binary draws a frame, renders a clip (software), serves MCP, updates itself
+#   bash .github/ci.sh songs   # every example song part by part against its parts.json (audio parts --against)
 #
 # ONIMITE_TEST_LDFLAGS (set by .github/actions/setup-toolchain) points the
 # links at CI's SDL3; unset, the system's is used.
@@ -80,8 +81,22 @@ smoke)
 	fi
 	"$upd/installed/onimite$exe" --version
 	;;
+songs)
+	# An odawg pin or an edit that changes how an example song sounds (a
+	# part's notes, its first notes, its level by more than 1 LU) fails
+	# here, naming the part. After a change you mean, write the table
+	# again: onimite audio parts examples/X/video.lua --json > examples/X/parts.json
+	fail=0
+	for table in examples/*/parts.json; do
+		dir=$(dirname "$table")
+		echo "::group::$dir"
+		"build/onimite$exe" audio parts "$dir/video.lua" --against "$table" || fail=1
+		echo "::endgroup::"
+	done
+	exit $fail
+	;;
 *)
-	echo "usage: bash .github/ci.sh build | test | smoke" >&2
+	echo "usage: bash .github/ci.sh build | test | smoke | songs" >&2
 	exit 2
 	;;
 esac

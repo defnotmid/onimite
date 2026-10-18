@@ -48,6 +48,7 @@ Script :: struct {
 	tracks:        [dynamic]om.Audio_Track,
 	owned_buses:   [dynamic][]om.Bus,
 	owned_strings: [dynamic]string,
+	owned_values:  [dynamic]json.Value, // tracks' effects
 	// Duration and timestamp terms (media_api.odin), freed on unload.
 	owned_terms:   [dynamic][]om.Time_Term,
 	// Shader files read beside the script, by path (shader_api.odin).
@@ -256,6 +257,10 @@ unload :: proc(s: ^Script) {
 		delete(str)
 	}
 	delete(s.owned_strings)
+	for v in s.owned_values {
+		json.destroy_value(v)
+	}
+	delete(s.owned_values)
 	for t in s.owned_terms {
 		delete(t)
 	}

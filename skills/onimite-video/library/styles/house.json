@@ -1,0 +1,67 @@
+{
+  "description": "House: four on the floor. Kick on every beat, claps on two and four, off-beat open hats over ghosted eighths, an off-beat bass ducking under the kick, chord stabs, a pad for the quieter parts, a pluck arpeggio at full energy.",
+  "instruments": "../instruments/classic.json",
+  "parts": {
+    "drums": {
+      "instrument": "../machines/909.json",
+      "octave": 3,
+      "gain_db": -3,
+      "room_db": 0,
+      "sends": { "room": -18 },
+      "play": [
+        {
+          "energy": [0.7, 1],
+          "steps": {
+            "kick": "x...x...x...x...",
+            "clap": "....x.......x...",
+            "hat": "o.o.o.o.o.o.o.o.",
+            "open_hat": "..x...x...x...x."
+          }
+        },
+        {
+          "energy": [0.4, 0.7],
+          "steps": { "kick": "x...x...x...x...", "hat": "o.o.o.o.o.o.o.o.", "open_hat": "..x...x...x...x." }
+        },
+        { "energy": [0, 0.4], "velocity": 0.55, "steps": { "open_hat": "..x...x...x...x." } }
+      ]
+    },
+    "bass": {
+      "instrument": "bass",
+      "octave": 2,
+      "gain_db": -3,
+      "room_db": 0,
+      "sidechain": "drums/kick",
+      "play": [ { "energy": [0.4, 1], "degrees": ". . 1 . . . 1 8 . . 1 . . . 1 .", "subdivision": "16n" } ]
+    },
+    "keys": {
+      "instrument": "stab",
+      "octave": 4,
+      "gain_db": -7,
+      "room_db": -3,
+      "sidechain": { "name": "drums/kick", "depth": 0.5 },
+      "sends": { "hall": -14 },
+      "play": [ { "energy": [0.6, 1], "chords": { "rhythm": "x.....x.....x..." }, "duration": "8n" } ]
+    },
+    "pad": {
+      "instrument": "pad",
+      "octave": 3,
+      "gain_db": -9,
+      "room_db": -2,
+      "sends": { "hall": -10 },
+      "play": [ { "energy": [0.2, 0.75], "chords": { "voicing": "open" } } ]
+    },
+    "arp": {
+      "instrument": "pluck",
+      "octave": 4,
+      "gain_db": -12,
+      "room_db": -6,
+      "pan": 0.2,
+      "sends": { "hall": -12 },
+      "play": [ { "energy": [0.9, 1], "arpeggio": { "pattern": "upDown", "interval": "16n", "octaves": 2 } } ]
+    }
+  },
+  "returns": {
+    "hall": [ { "name": "Reverb", "decay": 2.4, "pre_delay": 0.02 } ],
+    "room": [ { "name": "Reverb", "decay": 0.8, "pre_delay": 0.005 } ]
+  }
+}

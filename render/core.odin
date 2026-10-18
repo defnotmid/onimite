@@ -58,6 +58,10 @@ Renderer :: struct {
 	// per-frame GPU handles (valid between begin_frame/end_frame)
 	cmd_buf:         ^sdl.GPUCommandBuffer,
 	swap_tex:        ^sdl.GPUTexture,
+	// Mailbox presents don't wait for vsync: end_frame paces the window at
+	// the display's refresh (paced; next_ns the next frame's start).
+	paced:           bool,
+	next_ns:         u64,
 	pass:            ^sdl.GPURenderPass,
 	frame_active:    bool,
 }
@@ -76,6 +80,12 @@ init :: proc(r: ^Renderer, device: ^sdl.GPUDevice, window: ^sdl.Window, fb_w, fb
 	r.window = window
 	r.color_format = sdl.GetGPUSwapchainTextureFormat(device, window)
 	r.fb_w, r.fb_h = fb_w, fb_h
+	// Mailbox where the window takes it: the compositor gives back a buffer
+	// a newer one replaced, so taking the next image never waits on it. With
+	// FIFO it waits for the display, forever when the display is asleep.
+	if sdl.WindowSupportsGPUPresentMode(device, window, .MAILBOX) {
+		r.paced = sdl.SetGPUSwapchainParameters(device, window, .SDR, .MAILBOX)
+	}
 	r.retired_gpu = gpu_release_queue_make()
 	r.releasable_gpu = gpu_release_queue_make()
 
@@ -294,18 +304,25 @@ end_frame :: proc(r: ^Renderer) {
 	r.cmd_buf = cmd
 
 	sw, sh: u32
-	// A window nobody sees (hidden, minimized, or occluded: the compositor
-	// suspended it) may never get a swapchain image back, so it presents
-	// nothing; the sleep stands in for the vsync wait.
+	// The window's thread never waits on the compositor: a window nobody
+	// sees (hidden, minimized, occluded, or on a display that's asleep, which
+	// no flag tells) may never get a swapchain image back. No image ready
+	// presents nothing this time; the sleep stands in for the vsync wait.
 	unseen := sdl.GetWindowFlags(r.window) & {.HIDDEN, .MINIMIZED, .OCCLUDED} != {}
-	if unseen {
-		sdl.Delay(16)
+	if !unseen && !sdl.AcquireGPUSwapchainTexture(cmd, r.window, &r.swap_tex, &sw, &sh) {
+		r.swap_tex = nil
 	}
-	if unseen || !sdl.WaitAndAcquireGPUSwapchainTexture(cmd, r.window, &r.swap_tex, &sw, &sh) ||
-	   r.swap_tex == nil {
-		// Even when minimized, prior frame work may have completed; free safe.
-		release_gpu_queue(r, &r.releasable_gpu)
+	if unseen || r.swap_tex == nil {
+		if unseen {
+			// Even when minimized, prior frame work may have completed; free safe.
+			release_gpu_queue(r, &r.releasable_gpu)
+		}
+		// (No image: frames still in flight may use what's queued; it waits.)
+		if unseen || !r.paced {
+			sdl.Delay(16 if unseen else 2)
+		}
 		_ = sdl.SubmitGPUCommandBuffer(cmd)
+		pace(r)
 		return
 	}
 	// Previous submitted frames that may have bound mesh/stream buffers are
@@ -316,6 +333,31 @@ end_frame :: proc(r: ^Renderer) {
 	_record_pass(r, cmd, r.swap_tex)
 	_ = sdl.SubmitGPUCommandBuffer(cmd)
 	r.swap_tex = nil
+	pace(r)
+}
+
+// A mailbox window's frames a display refresh apart (as FIFO's vsync wait
+// spaces them): sleeps to the next frame's start, from the display's mode
+// now (the window may have moved displays).
+@(private = "file")
+pace :: proc(r: ^Renderer) {
+	if !r.paced {
+		return
+	}
+	hz: f32 = 60
+	if mode := sdl.GetCurrentDisplayMode(sdl.GetDisplayForWindow(r.window)); mode != nil && mode.refresh_rate > 0 {
+		hz = mode.refresh_rate
+	}
+	period := u64(1e9 / hz)
+	now := sdl.GetTicksNS()
+	if r.next_ns > now {
+		sdl.DelayPrecise(r.next_ns - now)
+		now = r.next_ns
+	}
+	r.next_ns += period
+	if r.next_ns <= now {
+		r.next_ns = now + period // late: start again from now, no burst to catch up
+	}
 }
 
 // Streams this frame's geometry and replays its commands into `target`.

@@ -25,7 +25,7 @@ frame is one composition that uses all of them:
   shader world. In the kaleidoscope the VP9 clip is drawn *inside* the
   shader's child group, so the fold multiplies it.
 - **onimite** runs the Lua script, composes the soundtrack with odawg
-  (`track.lua`, a `song{}`: synthwave on 909 `DrumMachine`s, octave saw
+  (`track.lua`, a `song{}`: synthwave on the library's 909 machine, octave saw
   bass, wide pads, a dotted-eighth arp, a lead in the kaleidoscope) and feeds
   its kicks (`score.pulse`) and `audio_spectrum` into the shader's uniforms
   (bulge, fringes, floor glow).

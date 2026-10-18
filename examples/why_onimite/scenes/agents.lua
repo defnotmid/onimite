@@ -8,6 +8,7 @@ local beat = require("beat")
 local score = require("track")
 local ui = require("ui")
 local T = require("timeline")
+local INSTRUMENTS = require("library").INSTRUMENTS
 local snap = beat.snap
 
 local X, Y, W, H = 120, 290, 1680, 620
@@ -79,9 +80,9 @@ end
 -- A blip for the finding and for the new number, in the chord sounding
 -- there; a DONE when it runs clean.
 local audio = {
-  { sound { "blip", note = score.note("5", T.at.AGENT_FOUND, 4), duration = "16n" }, start = T.at.AGENT_FOUND, gain_db = -6 },
-  { sound { "blip", note = score.note("3", T.at.AGENT_NUMBER, 5), duration = "16n" }, start = T.at.AGENT_NUMBER, gain_db = -7 },
-  { sound { "done", note = "E6", duration = "16n" }, start = T.at.AGENT_CLEAN, gain_db = -6 },
+  { sound { "blip", instruments = INSTRUMENTS, note = score.note("5", T.at.AGENT_FOUND, 4), duration = "16n" }, start = T.at.AGENT_FOUND, gain_db = -6 },
+  { sound { "blip", instruments = INSTRUMENTS, note = score.note("3", T.at.AGENT_NUMBER, 5), duration = "16n" }, start = T.at.AGENT_NUMBER, gain_db = -7 },
+  { sound { "done", instruments = INSTRUMENTS, note = "E6", duration = "16n" }, start = T.at.AGENT_CLEAN, gain_db = -6 },
 }
 
 return { name = "Agents", section = "agents", render = render, audio = audio }

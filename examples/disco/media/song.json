@@ -34,8 +34,8 @@
       "gain_db": -1,
       "pan": -0.35,
       "play": [
-        { "range": "intro", "octave": 4, "humanize": 0.12, "chords": { "rhythm": "..x..x.x..x..x.x", "voicing": "close" }, "duration": "32n", "velocity": 0.75 },
-        { "range": "break", "octave": 4, "humanize": 0.12, "chords": { "rhythm": "x.....x.....x...", "voicing": "close" }, "duration": "16n", "velocity": 0.7 }
+        { "range": "intro", "octave": 4, "humanize": 0.006, "chords": { "rhythm": "..x..x.x..x..x.x", "voicing": "close" }, "duration": "32n", "velocity": 0.75 },
+        { "range": "break", "octave": 4, "humanize": 0.006, "chords": { "rhythm": "x.....x.....x...", "voicing": "close" }, "duration": "16n", "velocity": 0.7 }
       ]
     }
   }

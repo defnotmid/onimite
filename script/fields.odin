@@ -254,9 +254,11 @@ load_error :: proc(L: ^lua.State, fn: cstring, d: om.Diagnostic) {
 	lua.L_error(L, "%s: %s", fn, strings.clone_to_cstring(message, context.temp_allocator))
 }
 
+// One problem at one place: its code, line and subject, and what groups it
+// (diagnostic_key: two of odawg's findings on one song are two problems).
 @(private = "file")
 same_problem :: proc(x, y: om.Diagnostic) -> bool {
-	return x.code == y.code && x.name == y.name && x.a == y.a
+	return x.code == y.code && x.name == y.name && x.a == y.a && om.diagnostic_key(x, context.temp_allocator) == om.diagnostic_key(y, context.temp_allocator)
 }
 
 // check_fields(t, name, keys): the standard library's check of an option

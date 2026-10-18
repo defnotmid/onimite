@@ -57,8 +57,6 @@ Music :: struct {
 	landed:    int,
 	whole:     int,
 	landing:   sync.Cond,
-	// What makes band rows of the songs as they render (music_set_bands).
-	bands:     Band_Host,
 	// The media folder: where songs' own files are (their sets, SFZ and
 	// style files), under bank_lock.
 	host_root: string,
@@ -209,7 +207,8 @@ media_songs :: proc(m: ^Media) -> []^Song_Clip {
 
 // Song `name` composed from spec `v` (`key`: its value's content,
 // value_key). A song is what it is made of: the spec and the content of
-// every file it reads (its sample sets' files, an SFZ, a style file), all
+// every file it reads (its sample sets' files, an SFZ, a style file, an
+// instrument file), all
 // in its key, so the same song in the same media is the one already there
 // (its render with it) and anything changed is a new song. Its sample sets
 // are declared in the video's bank (read from the media folder: WAV and
@@ -231,23 +230,14 @@ media_song_put :: proc(m: ^Media, name: string, v: json.Value, key: u64) -> (sc:
 		sc.name = strings.clone(name)
 		sc.findings = make(obase.Findings)
 		if ospec.spec_from_value(v, &sc.spec, &sc.findings) {
-			// style files first: their parts may name sets
-			styles := make([dynamic]string, context.temp_allocator)
-			ospec.style_files(&sc.spec, &styles)
-			for path in styles {
-				text, err := os.read_entire_file(oassets.host_path(&host, path), context.allocator)
-				if err != nil {
-					obase.report(&sc.findings, "missing_file", .Error, path, "no style file %q in the media folder", path)
-					continue
-				}
-				full = hash.fnv64a(text, hash.fnv64a(transmute([]u8)path, full))
-				ospec.spec_add_style_text(&sc.spec, path, string(text), &sc.findings)
-			}
+			// the files beside the spec first (style files, the instrument
+			// files they and it name): their parts may name sets
 			files := make([dynamic]string, context.temp_allocator)
 			{
-				context.allocator = runtime.heap_allocator()
 				sync.guard(&mu.bank_lock)
 				mu.host_root = m.dir
+				oassets.spec_read_files(&sc.spec, &sc.findings, &host, &files, &mu.bank)
+				context.allocator = runtime.heap_allocator()
 				oassets.bank_declare_spec(&mu.bank, &sc.spec, &sc.findings, &host, &files)
 			}
 			for path in files {
@@ -421,7 +411,7 @@ song_notes_at :: proc(sc: ^Song_Clip, t: f64) -> []Sounding_Note {
 			n := orender.note_from_row(s, int(i))
 			env := odevice.Voice_Env{bank = &sc.music.bank}
 			if n.time <= t && t < n.time + odevice.note_tail(kind, &p, n, &env) {
-				append(&out, Sounding_Note{s.parts[tr.part], note_name(n.pad, n.pitch), n.time, n.velocity, t < n.time + n.duration})
+				append(&out, Sounding_Note{s.parts[tr.part], note_name(s, n.pad, n.pitch), n.time, n.velocity, t < n.time + n.duration})
 			}
 		}
 	}
@@ -429,9 +419,9 @@ song_notes_at :: proc(sc: ^Song_Clip, t: f64) -> []Sounding_Note {
 }
 
 // A note as odawg names it: a drum pad ("kick") or a pitch ("A2").
-note_name :: proc(pad: odevice.Pad, pitch: f32) -> string {
-	if pad != .None {
-		return odevice.PAD_NAMES[pad]
+note_name :: proc(s: ^osong.Song, pad: u32, pitch: f32) -> string {
+	if pad != 0 {
+		return osong.pad_name(s, pad)
 	}
 	return otheory.string_from_pitch(pitch)
 }
@@ -454,7 +444,7 @@ song_off_grid :: proc(sc: ^Song_Clip, t: f64) -> (off, beat: f64, ok: bool) {
 		}
 		for i in 0 ..< len(s.notes) {
 			n := s.notes[i]
-			beaten ||= n.pad != .None && n.time >= sec.start && n.time < sec.stop
+			beaten ||= n.pad != 0 && n.time >= sec.start && n.time < sec.stop
 		}
 	}
 	if !beaten {
@@ -498,18 +488,6 @@ Song_Render :: struct {
 	wanted:    bool, // the renderers make it (under the music's lock)
 }
 
-// What a host makes of a song's sound as it is rendered (the preview's
-// band rows on the GPU): every run hands it each block it makes, the mix
-// and each part's stem, from its first sample (a band window before its
-// first segment, so a row across two segments is whole). `begin` returns
-// the run's state for `block` and `end`; it runs on the renderer's thread.
-Band_Host :: struct {
-	data:  rawptr,
-	begin: proc(data: rawptr, sc: ^Song_Clip, at: int) -> rawptr,
-	block: proc(run: rawptr, l, r: []f32, stems: [][2][]f32),
-	end:   proc(run: rawptr),
-}
-
 // A song's band rows (a spectrogram) are a .Bands table of its mix, a row
 // every SONG_BAND_STEP samples (85 ms: a row a pixel or two across a whole
 // song), filled from its render like any table.
@@ -519,14 +497,6 @@ BAND_COUNT :: len(orender.BAND_HZ)
 
 song_bands :: proc(sc: ^Song_Clip) -> ^Song_Table {
 	return song_table(sc, .Bands, SONG_BAND_STEP, 1)
-}
-
-// The first sample a run starting at segment `g` makes: a band window
-// before it (odawg's BANDS_FFT), less one, so the row ending exactly at
-// the segment's start is the run before's.
-song_run_start :: proc(g: int) -> int {
-	from := g * SONG_SEGMENT
-	return max(from - orender.BANDS_FFT + 1, 0) if from > 0 else 0
 }
 
 // A table of a song's mix (a frame's spectrum or energy): odawg's rows,
@@ -652,24 +622,11 @@ render_run :: proc(sc: ^Song_Clip, g: int) {
 		return
 	}
 	defer orender.engine_destroy(&run.engine)
-	from := g * SONG_SEGMENT
-	early := from
-	if mu.bands.begin != nil {
-		early = song_run_start(g)
-		run.host = &mu.bands
-		run.state = mu.bands.begin(mu.bands.data, sc, early)
-	}
-	defer if run.host != nil {
-		run.host.end(run.state)
-	}
-	orender.engine_seek(&run.engine, i64(early), true)
+	orender.engine_seek(&run.engine, i64(g * SONG_SEGMENT), true)
 	parts := len(sc.song.parts)
 	BLOCK :: orender.BLOCK
 	run.buf = make([]f32, 2 * BLOCK * (1 + parts), context.temp_allocator)
 	run.stems = make([][2][]f32, parts, context.temp_allocator)
-	for at := early; at < from; at += BLOCK {
-		run_block(&run, min(BLOCK, from - at))
-	}
 	for g := g; ; g += 1 {
 		render_segment(sc, &run, g)
 		sync.guard(&mu.lock)
@@ -680,19 +637,17 @@ render_run :: proc(sc: ^Song_Clip, g: int) {
 	}
 }
 
-// A run: its engine, a block of the mix and of each part's stem, and the
-// band host's state for it (nil host: none). Temp memory.
+// A run: its engine, a block of the mix and of each part's stem. Temp
+// memory.
 @(private = "file")
 Song_Run :: struct {
 	engine: orender.Engine,
 	buf:    []f32,
 	stems:  [][2][]f32,
-	host:   ^Band_Host,
-	state:  rawptr,
 }
 
 // The run's next `n` samples (at most a block): the mix and the stems into
-// its block, handed to the band host. Returns the mix.
+// its block. Returns the mix.
 @(private = "file")
 run_block :: proc(run: ^Song_Run, n: int) -> (l, r: []f32) {
 	BLOCK :: orender.BLOCK
@@ -701,9 +656,6 @@ run_block :: proc(run: ^Song_Run, n: int) -> (l, r: []f32) {
 		st = {run.buf[2 * BLOCK * (p + 1):][:n], run.buf[2 * BLOCK * (p + 1) + BLOCK:][:n]}
 	}
 	orender.engine_process(&run.engine, l, r, run.stems)
-	if run.host != nil {
-		run.host.block(run.state, l, r, run.stems)
-	}
 	return
 }
 
@@ -1036,15 +988,6 @@ music_pin :: proc(m: ^Media) -> []Source_Pins {
 		}
 	}
 	return out[:]
-}
-
-// Installs the band host (the preview's GPU rows); before any render.
-music_set_bands :: proc(m: ^Media, host: Band_Host) {
-	if m == nil || m.music == nil {
-		return
-	}
-	sync.guard(&m.music.lock)
-	m.music.bands = host
 }
 
 // Who the renderers tell when segments land (the preview's worker).

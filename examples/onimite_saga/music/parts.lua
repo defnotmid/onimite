@@ -4,12 +4,17 @@
 -- plays where; music/score.lua puts the sections and the acts together.
 -- A part's gain_db sets it in the mix, a note's velocity (0..1) its dynamics.
 
+-- The skill's library (skills/onimite-video/library: rows and styles to
+-- copy into your media folder), from this example's media folder.
+local LIB = "../../../skills/onimite-video/library/"
+local INSTRUMENTS = { LIB .. "instruments/classic.json", LIB .. "instruments/sfx.json" }
+
 local M = {}
 
 -- ---- the instruments ---------------------------------------------------------
 
 -- The TR-909's circuits: the build, the K-pop acts and the tape stop.
-local MACHINE = { "DrumMachine", machine = "909", tone = 0.55 }
+local MACHINE = { LIB .. "machines/909.json", tone = 0.55 }
 -- What ducks under the kick: the pumping bass, the stabs, the arp, the hook.
 local DUCK = { "drums/kick", depth = 0.55, release = 0.18 }
 

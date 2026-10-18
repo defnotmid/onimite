@@ -1,0 +1,37 @@
+{
+  "description": "A TB-303: a saw (or square) through a saturating diode ladder. The filter envelope (meg) opens the cutoff from its base by `octaves` and falls with its decay (on an accent at most the circuit's own 0.2 s); an accented note (!) is louder, its envelope shorter, and charges a capacitor that lifts the cutoff and drains slower than it fills, so accents close together build on each other. One voice plays the track: a note held into the next (~) slides there over `portamento`, nothing restarting.",
+  "mono": true,
+  "portamento": 0.06,
+  "note": "C2",
+  "velocity": "none",
+  "out": "ladder",
+  "options": {
+    "oscillator/type": "saw/wave",
+    "tune": "saw/tune",
+    "filter/frequency": "ladder/frequency",
+    "cutoff": "ladder/frequency",
+    "filter/q": "ladder/q",
+    "resonance": "ladder/q",
+    "filter_envelope/octaves": "ladder/frequency/octaves",
+    "envelope/decay": [ { "path": "meg/time", "scale": 0.43478 }, { "path": "hit/time", "scale": 0.43478 } ],
+    "decay": [ { "path": "meg/time", "scale": 0.43478 }, { "path": "hit/time", "scale": 0.43478 } ],
+    "accent": [ "ladder/amp/amount", { "path": "meg/amp/amount", "scale": -0.5 }, { "path": "charge/gain_db", "op": "mul", "scale": 2 } ]
+  },
+  "nodes": {
+    "saw": { "class": "Osc", "wave": "sawtooth" },
+    "vca": { "class": "Decay", "attack": 0.0015, "time": 1.6, "release": 0.004 },
+    "meg": { "class": "Decay", "time": { "base": 0.13, "by": "accent", "at_most": 0.087 }, "amp": { "by": "accent", "amount": -0.25 } },
+    "hit": { "class": "Decay", "time": { "base": 0.13, "by": "accent", "at_most": 0.087 }, "amp": "accent" },
+    "charge": { "class": "Slew", "input": "hit", "rise": 0.012, "fall": 0.3, "gain_db": -6.0206 },
+    "level": { "class": "Map", "input": "velocity", "scale": 1.25, "max": 1 },
+    "ladder": {
+      "class": "Filter",
+      "input": "saw",
+      "type": "diode",
+      "q": 8,
+      "frequency": [ { "base": 400, "by": "meg", "octaves": 3 }, { "by": "charge", "octaves": 2.5 } ],
+      "gain_db": -7.535,
+      "amp": [ { "by": "accent", "amount": 0.5 }, "vca", "level" ]
+    }
+  }
+}

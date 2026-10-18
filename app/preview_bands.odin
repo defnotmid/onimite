@@ -1,5 +1,6 @@
 package onimite_app
 
+import "base:runtime"
 import "core:sync"
 import om "../onimite"
 import sdl "vendor:sdl3"
@@ -9,8 +10,10 @@ import sdl "vendor:sdl3"
 // song for its band rows (a .Bands table read from its render, made as
 // the render lands, om.song_bands) and draws the rows made so far into the
 // source's texture, which the UI draws a stretch of. The texture is a view
-// of the rows: a row a column, a band a pixel (20 Hz at the bottom), the
+// of the rows: a row a column, a band a texel (20 Hz at the bottom), the
 // rows in strips BAND_STRIP wide stacked down (every GPU takes 4096 wide).
+// A texel is a level (R8: 0 no row yet, 1..255 -100..-10 dB), coloured as
+// heat by the UI's shader.
 
 BAND_STRIP :: 4096
 
@@ -22,14 +25,16 @@ Band_Texture :: struct {
 	width, height: int,
 }
 
-// A shown source on the worker: its song, its table, its texture and the
-// rows drawn into it.
+// A shown source on the worker: its song, its table, its texture, and the
+// texture's levels with the rows written into them (made with the
+// texture: a row is written once, when it lands).
 Band_View :: struct {
 	source:  i32,
 	song:    ^om.Song_Clip,
 	table:   ^om.Song_Table,
 	texture: Band_Texture,
-	drawn:   int, // rows filled when last drawn
+	levels:  []u8,
+	drawn:   []bool,
 }
 
 // The latest request rows: views for the sources shown, no others. True
@@ -77,16 +82,9 @@ worker_bands :: proc(w: ^Render_Worker) {
 	changed := worker_bands_take(w)
 	for &v in w.band_views {
 		om.song_table_later(v.song, v.table)
-		filled := 0
-		for x in v.table.filled {
-			filled += int(x)
+		if bands_draw(w, &v) {
+			changed = true
 		}
-		if filled == v.drawn {
-			continue
-		}
-		bands_draw(w, &v)
-		v.drawn = filled
-		changed = true
 	}
 	if !changed {
 		return
@@ -103,26 +101,37 @@ worker_bands :: proc(w: ^Render_Worker) {
 	sync.mutex_unlock(&w.mb.mutex)
 }
 
-// The view's filled rows coloured into its texture (made the first time),
-// an unfilled row left clear.
+// The rows filled since the view was drawn written into its levels (the
+// texture, levels and rows drawn made the first time, all clear), and the
+// columns they touched uploaded, a strip at a time. True when it changed.
 @(private = "file")
-bands_draw :: proc(w: ^Render_Worker, v: ^Band_View) {
+bands_draw :: proc(w: ^Render_Worker, v: ^Band_View) -> bool {
 	t := &v.table.table
 	rows := len(v.table.filled)
 	if rows == 0 {
-		return
+		return false
 	}
 	bt := &v.texture
 	if bt.texture == nil {
 		strips := (rows + BAND_STRIP - 1) / BAND_STRIP
 		bt^ = {rows = rows, step = t.step_num / max(t.step_den, 1), width = min(rows, BAND_STRIP), height = strips * om.BAND_COUNT}
-		bt.texture = sdl.CreateGPUTexture(w.device, {type = .D2, format = .R8G8B8A8_UNORM, usage = {.SAMPLER}, width = u32(bt.width), height = u32(bt.height), layer_count_or_depth = 1, num_levels = 1})
+		bt.texture = sdl.CreateGPUTexture(w.device, {type = .D2, format = .R8_UNORM, usage = {.SAMPLER}, width = u32(bt.width), height = u32(bt.height), layer_count_or_depth = 1, num_levels = 1})
 		if bt.texture == nil {
-			return
+			return false
 		}
+		v.levels = make([]u8, bt.width * bt.height)
+		v.drawn = make([]bool, rows)
+		upload_levels(w.device, bt, v.levels, {0, 0, bt.width, bt.height})
 	}
-	pixels := make([]u8, 4 * bt.width * bt.height, context.temp_allocator)
+	// each strip's columns written: [lo, hi]
+	touched := make([][2]int, bt.height / om.BAND_COUNT, context.temp_allocator)
+	for &c in touched {
+		c = {BAND_STRIP, -1}
+	}
 	for k in 0 ..< rows {
+		if v.drawn[k] {
+			continue
+		}
 		row := om.song_table_row(v.table, k)
 		if row == nil {
 			continue
@@ -130,11 +139,45 @@ bands_draw :: proc(w: ^Render_Worker, v: ^Band_View) {
 		strip, x := k / BAND_STRIP, k % BAND_STRIP
 		for b in 0 ..< om.BAND_COUNT {
 			y := strip * om.BAND_COUNT + (om.BAND_COUNT - 1 - b)
-			px := pixels[4 * (y * bt.width + x):][:4]
-			px[0], px[1], px[2], px[3] = heat(clamp((row[b] + 100) / 90, 0, 1))
+			v.levels[y * bt.width + x] = u8(1.5 + 254 * clamp((row[b] + 100) / 90, 0, 1))
+		}
+		v.drawn[k] = true
+		touched[strip] = {min(touched[strip][0], x), max(touched[strip][1], x)}
+	}
+	changed := false
+	for c, strip in touched {
+		if c[1] >= c[0] {
+			upload_levels(w.device, bt, v.levels, {c[0], strip * om.BAND_COUNT, c[1] - c[0] + 1, om.BAND_COUNT})
+			changed = true
 		}
 	}
-	upload_rgba(w.device, bt.texture, {u32(bt.width), u32(bt.height)}, pixels)
+	return changed
+}
+
+// The levels in `rect` (x, y, w, h) into the texture: a copy pass on this
+// thread's command buffer, not waited on (the queue runs it before any frame
+// the texture is published to; SDL frees the transfer buffer when done).
+@(private = "file")
+upload_levels :: proc(device: ^sdl.GPUDevice, bt: ^Band_Texture, levels: []u8, rect: [4]int) {
+	x, y, w, h := rect[0], rect[1], rect[2], rect[3]
+	tb := sdl.CreateGPUTransferBuffer(device, {usage = .UPLOAD, size = u32(w * h)})
+	if tb == nil {
+		return
+	}
+	defer sdl.ReleaseGPUTransferBuffer(device, tb)
+	dst := ([^]u8)(sdl.MapGPUTransferBuffer(device, tb, false))
+	if dst == nil {
+		return
+	}
+	for r in 0 ..< h {
+		runtime.mem_copy_non_overlapping(dst[r * w:], raw_data(levels[(y + r) * bt.width + x:]), w)
+	}
+	sdl.UnmapGPUTransferBuffer(device, tb)
+	cb := sdl.AcquireGPUCommandBuffer(device)
+	pass := sdl.BeginGPUCopyPass(cb)
+	sdl.UploadToGPUTexture(pass, {transfer_buffer = tb, pixels_per_row = u32(w), rows_per_layer = u32(h)}, {texture = bt.texture, x = u32(x), y = u32(y), w = u32(w), h = u32(h), d = 1}, false)
+	sdl.EndGPUCopyPass(pass)
+	_ = sdl.SubmitGPUCommandBuffer(cb)
 }
 
 // Every view goes (a load: the sources are numbered again); the textures
@@ -145,6 +188,8 @@ worker_bands_retire :: proc(w: ^Render_Worker) {
 		if v.texture.texture != nil {
 			append(&w.thumb_retired, v.texture.texture)
 		}
+		delete(v.levels)
+		delete(v.drawn)
 	}
 	clear(&w.band_views)
 	w.bands_wanted_seq = 0

@@ -27,6 +27,7 @@ Command_Kind :: enum u8 {
 	Audio_At,
 	Audio_Onsets,
 	Audio_Pin,
+	Audio_Parts,
 	Preview,
 	Probe,
 	Update,
@@ -232,6 +233,12 @@ COMMAND_KINDS := [Command_Kind]Command_Descriptor {
 		domain = .Script, flags = FRONT, args = Audio_Pin_Args,
 		about = "fetches what the songs play from their sources (pinned files, and new ones trusted as they come) and writes each source's pins file",
 		mcp_note = "Run it after a song starts playing notes its sources haven't pinned (a not_pinned finding); it downloads them.",
+	},
+	.Audio_Parts = {
+		help = "regs.path an earlier --json to compare with (\"\" = none)",
+		domain = .Script, flags = FRONT, args = Audio_Parts_Args,
+		about = "each song rendered alone, part by part: notes, the first of them, loudness and peak; --against an earlier --json says what drifted and fails",
+		mcp_note = "Keep a --json of a song you like; after changing it (or updating onimite), --against that file names every part that moved.",
 	},
 	.Preview = {
 		help = "opens the window and runs it until it closes: regs.spec the start frame, .Paused / .No_Loop / .Mute in regs.flags, regs.count window frames to exit after (0 = never); for measurements, regs.path a PNG of the last window frame and regs.args scripted input (`preview_drive`)",

@@ -2,17 +2,22 @@
 -- (Am9 Fmaj7 C G, a chord a bar), 10 bars in four sections named after the
 -- scenes. The ambient style gives the pad, and from the groove the strings
 -- and the bells, through its long hall; the parts below add the techno: a
--- TR-909 (DrumMachine) whose kick plays in the groove and the finale, a sine
+-- 909 machine (machines/909.json) whose kick plays in the groove and the finale, a sine
 -- sub on the off-beats ducking under it, plucks a dotted eighth apart
 -- echoing from side to side, a riser over the break's last bar and the
 -- impact on the finale. timeline.lua reads the picture's cues from it.
 
-local MACHINE = { "DrumMachine", machine = "909", tone = 0.4 }
+-- The skill's library (skills/onimite-video/library: rows and styles to
+-- copy into your media folder), from this example's media folder.
+local LIB = "../../../skills/onimite-video/library/"
+local INSTRUMENTS = { LIB .. "instruments/classic.json", LIB .. "instruments/sfx.json" }
+
+local MACHINE = { LIB .. "machines/909.json", tone = 0.4 }
 local FOUR = "x...x...x...x..."
 
-return song { "score", key = "A minor", bpm = 120, seed = 120,
+return song { "score", instruments = INSTRUMENTS, key = "A minor", bpm = 120, seed = 120,
   sections = {
-    { "intro", duration = "2m", style = "ambient", energy = 0.2, chords = "Am9 Fmaj7" },
+    { "intro", duration = "2m", style = LIB .. "styles/ambient.json", energy = 0.2, chords = "Am9 Fmaj7" },
     { "groove", duration = "4m", energy = 0.35, chords = "C G Am9 Fmaj7" },
     { "break", duration = "2m", energy = 0.25, chords = "C G" },
     { "finale", duration = "2m", energy = 0.38, chords = "Am9 Fmaj7" },

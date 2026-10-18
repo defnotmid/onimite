@@ -13,6 +13,7 @@ import om "../onimite"
 import script "../script"
 import "../speech"
 import odevice "deps:odawg/device"
+import ospec "deps:odawg/spec"
 
 // `onimite show video.lua [path]`: any part of the video looked at the same
 // way, like a debugger's watch window: a summary, its fields (read from the
@@ -137,6 +138,7 @@ Show_Kind :: enum u8 {
 	Song,
 	Section,
 	Part,
+	Instrument,
 	Node,
 	Media,
 	Font,
@@ -174,6 +176,8 @@ SHOW_PATHS := [?]Show_Path {
 	{"say", "say/NAME", show_say},
 	{"songs", "songs", show_songs},
 	{"song", "song/NAME[/sections/NAME|/parts/NAME]", show_song},
+	{"instruments", "instruments", show_instruments},
+	{"instrument", "instrument/NAME", show_instrument},
 	{"media", "media, media/FILE", show_media},
 	{"fonts", "fonts", show_fonts},
 	{"font", "font/FAMILY", show_font},
@@ -659,10 +663,10 @@ show_song :: proc(sh: ^Show, rest: string) -> Error {
 				continue
 			}
 			found = true
-			child(sh, fmt.tprintf("song/%s/parts/%s", name, item), .Part, fmt.tprintf("%s  %s  %d notes  %+.1f dB  pan %.2f", tr.variant, odevice.DEVICE_TABLE[g.devices[tr.instrument]].name, tr.notes.count, tr.gain_db, tr.pan))
+			child(sh, fmt.tprintf("song/%s/parts/%s", name, item), .Part, fmt.tprintf("%s  %s  %d notes  %+.1f dB  pan %.2f", tr.variant, g.labels[tr.instrument], tr.notes.count, tr.gain_db, tr.pan))
 			for i in tr.notes.first ..< tr.notes.first + tr.notes.count {
 				n := g.notes[i]
-				append(&sh.children, Show_Child{fmt.tprintf("%.3fs", g.start + n.time), "note", fmt.tprintf("beat %.2f  %-6s %.3fs  vel %.2f", n.beat, om.note_name(n.pad, n.pitch), n.duration, n.velocity)})
+				append(&sh.children, Show_Child{fmt.tprintf("%.3fs", g.start + n.time), "note", fmt.tprintf("beat %.2f  %-6s %.3fs  vel %.2f", n.beat, om.note_name(g, n.pad, n.pitch), n.duration, n.velocity)})
 			}
 		}
 		if !found {
@@ -838,6 +842,40 @@ show_font :: proc(sh: ^Show, family: string) -> Error {
 	sh.res.summary = fmt.tprintf("%s  %d faces", family, len(faces))
 	sh.res.fields["family"] = json.String(family)
 	sh.res.fields["faces"] = faces
+	return nil
+}
+
+// The rows odawg has built in (Tone's classes): what a part's `instrument`
+// names without a file of rows; the skill's library has the rest.
+@(private = "file")
+show_instruments :: proc(sh: ^Show, _: string) -> Error {
+	names := ospec.tone_row_names()
+	sh.res.kind = show_kind(.List)
+	sh.res.summary = fmt.tprintf("%d built-in instrument rows (copy one with show instrument/NAME; the skill's library/ has drums, basses, pads, sound effects, machines and styles as files)", len(names))
+	for name in names {
+		text, _ := ospec.tone_row_text(name)
+		v, _ := json.parse_string(text, .JSON5, true, context.temp_allocator)
+		about := ""
+		if o, ok := v.(json.Object); ok {
+			about, _ = o["description"].(json.String)
+		}
+		child(sh, fmt.tprintf("instrument/%s", name), .Instrument, about)
+	}
+	return nil
+}
+
+// A built-in row as data: its nodes, options and the rest, to copy into a
+// song's `instruments` and change.
+@(private = "file")
+show_instrument :: proc(sh: ^Show, name: string) -> Error {
+	text, found := ospec.tone_row_text(name)
+	if !found {
+		return fail(sh.app, {code = .No_Path, name = fmt.tprintf("instrument/%s", name), names = {"instruments"}})
+	}
+	v, _ := json.parse_string(text, .JSON5, true, context.temp_allocator)
+	sh.res.kind = show_kind(.Instrument)
+	sh.res.summary = fmt.tprintf("%s  a built-in row: copy it into `instruments = {{ my_%s = ... }}` and change it, or play it with changes: {{ \"%s\", ... }}", name, strings.to_lower(name, context.temp_allocator), name)
+	sh.res.fields["row"] = v
 	return nil
 }
 

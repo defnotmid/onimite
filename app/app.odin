@@ -227,6 +227,8 @@ command_apply :: proc(app: ^App_State, row: Command_Row) -> Error {
 		return audio_onsets(app, regs)
 	case .Audio_Pin:
 		return audio_pin(app, regs)
+	case .Audio_Parts:
+		return audio_parts(app, regs)
 	case .Probe:
 		return probe_print(app, regs)
 	case .Preview:
@@ -271,6 +273,11 @@ script_load :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 		} else if regs.media != "" {
 			return fail(app, {code = .No_Media_Dir, path = dir})
 		}
+	} else if os.is_dir(app.media_dir) {
+		// Its files unread (the preview's worker reads them), but where it is:
+		// songs read their own files (style files, sets) from it at load.
+		delete(app.media.dir)
+		app.media.dir = strings.clone(app.media_dir)
 	}
 	if .No_Script not_in regs.flags {
 		return script_reload(app, "")

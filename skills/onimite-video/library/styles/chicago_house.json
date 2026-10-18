@@ -1,0 +1,151 @@
+{
+  "description": "Chicago (jackin') house, 122-126 BPM: a 909 four on the floor, off-beat open hats over swung, ghosted sixteenth hats and a shaker, claps with a snare under them on two and four and a fill every fourth bar, a jackin' rim, a rolling sixteenth bass ducking under the kick, M1-style organ stabs on the off-beats and house piano chords at full energy, strings in the quieter parts.",
+  "swing": 0.55,
+  "swing_subdivision": "16n",
+  "parts": {
+    "drums": {
+      "instrument": { "name": "../machines/909.json", "tone": 0.55 },
+      "octave": 3,
+      "gain_db": 0,
+      "room_db": 0,
+      "sends": { "room": -16 },
+      "play": [
+        {
+          "energy": [0.75, 1],
+          "humanize": 0.004,
+          "steps": {
+            "kick": "X...x...x...x...",
+            "clap": [ "....x.......x...", "....x.......x...", "....x.......x...", "....x.......x.oX" ],
+            "snare": [ "....o.......o...", "....o.......o...", "....o.......o...", "....o.....o.oooX" ],
+            "hat": [ "ox.xoxoxox.xoxox", "ox.xoxoxox.xoxXo", "ox.xoxoxox.xoxox", "ox.xoxoxox.x...." ],
+            "open_hat": "..x...x...x...x.",
+            "shaker": "oxooxoxooxooxoxo",
+            "rim": [ "...x..o....x..o.", "...x..o....x....", "...x..o....x..o.", "...x..o........." ],
+            "crash": [
+              "X...............",
+              "................",
+              "................",
+              "................",
+              "................",
+              "................",
+              "................",
+              "................"
+            ]
+          }
+        },
+        {
+          "energy": [0.45, 0.75],
+          "humanize": 0.004,
+          "steps": {
+            "kick": "X...x...x...x...",
+            "clap": [ "....x.......x...", "....x.......x...", "....x.......x...", "....x.......x.ox" ],
+            "open_hat": "..x...x...x...x.",
+            "shaker": "oxooxoxooxooxoxo",
+            "rim": "...x.......x...."
+          }
+        },
+        {
+          "energy": [0.2, 0.45],
+          "humanize": 0.004,
+          "velocity": 0.7,
+          "steps": { "hat": "ox.xoxoxox.xoxox", "open_hat": "..x...x...x...x.", "shaker": "oxooxoxooxooxoxo" }
+        },
+        { "energy": [0, 0.2], "velocity": 0.5, "humanize": 0.004, "steps": { "shaker": "oxooxoxooxooxoxo" } }
+      ]
+    },
+    "bass": {
+      "instrument": {
+        "name": "MonoSynth",
+        "oscillator": { "type": "sawtooth" },
+        "envelope": { "attack": 0.003, "decay": 0.18, "sustain": 0.5, "release": 0.06 },
+        "filter": { "type": "lowpass", "q": 3, "rolloff": -24 },
+        "filter_envelope": { "attack": 0.002, "decay": 0.14, "sustain": 0.2, "release": 0.1, "base_frequency": 120, "octaves": 3.4 }
+      },
+      "octave": 2,
+      "gain_db": -4,
+      "room_db": 0,
+      "sidechain": { "name": "drums/kick", "depth": 0.6, "release": 0.09 },
+      "play": [
+        {
+          "energy": [0.45, 1],
+          "degrees": ". 1 8 1 . 1 8 1! . 1 8 1 . 5 7 8!",
+          "subdivision": "16n",
+          "duration": "32n.",
+          "velocity": 0.75
+        }
+      ]
+    },
+    "organ": {
+      "instrument": {
+        "name": "FMSynth",
+        "harmonicity": 2,
+        "modulation_index": 2.6,
+        "oscillator": { "type": "sine" },
+        "modulation": { "type": "sine" },
+        "envelope": { "attack": 0.002, "decay": 0.22, "sustain": 0.35, "release": 0.08 },
+        "modulation_envelope": { "attack": 0.001, "decay": 0.12, "sustain": 0.45, "release": 0.08 }
+      },
+      "octave": 4,
+      "gain_db": -10,
+      "room_db": -3,
+      "sidechain": { "name": "drums/kick", "depth": 0.4 },
+      "sends": { "room": -10, "echo": -16 },
+      "play": [
+        {
+          "energy": [0.6, 1],
+          "chords": { "rhythm": "..x..x....x..X..", "voicing": "close" },
+          "duration": "16n",
+          "velocity": 0.75,
+          "humanize": 0.003
+        }
+      ]
+    },
+    "piano": {
+      "instrument": {
+        "name": "FMSynth",
+        "harmonicity": 1,
+        "modulation_index": 3.2,
+        "oscillator": { "type": "sine" },
+        "modulation": { "type": "triangle" },
+        "envelope": { "attack": 0.002, "decay": 1.1, "sustain": 0.12, "release": 0.35 },
+        "modulation_envelope": { "attack": 0.001, "decay": 0.35, "sustain": 0.1, "release": 0.3 }
+      },
+      "octave": 4,
+      "gain_db": -12,
+      "room_db": -3,
+      "pan": -0.12,
+      "sidechain": { "name": "drums/kick", "depth": 0.3 },
+      "sends": { "hall": -12 },
+      "play": [
+        {
+          "energy": [0.85, 1],
+          "chords": { "rhythm": "x..x..x.....x...", "voicing": "open" },
+          "duration": "8n",
+          "velocity": 0.7,
+          "humanize": 0.006
+        }
+      ]
+    },
+    "pad": {
+      "instrument": {
+        "name": "Synth",
+        "oscillator": { "type": "fatsawtooth", "count": 4, "spread": 18 },
+        "envelope": { "attack": 0.6, "decay": 0.5, "sustain": 0.8, "release": 1.4 }
+      },
+      "octave": 3,
+      "gain_db": -18,
+      "room_db": -2,
+      "effects": [ { "name": "Filter", "type": "lowpass", "frequency": 1800, "q": 0.7 } ],
+      "sends": { "hall": -8 },
+      "play": [ { "energy": [0.15, 0.75], "chords": { "voicing": "open" }, "velocity": 0.6 } ]
+    }
+  },
+  "returns": {
+    "room": [ { "name": "Reverb", "decay": 0.7, "pre_delay": 0.004 } ],
+    "hall": [ { "name": "Reverb", "decay": 2.2, "pre_delay": 0.02 } ],
+    "echo": [
+      { "name": "FeedbackDelay", "delay_time": "8n.", "feedback": 0.28 },
+      { "name": "Filter", "type": "highpass", "frequency": 400 }
+    ]
+  }
+}

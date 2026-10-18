@@ -7,8 +7,13 @@
 -- music and the sounds after it together.
 --
 -- The parts are music/parts.lua's instruments, playing what each act
--- (music/act1.lua ...) gives them. The drops are the song's own
--- transitions: a riser over the two bars before, an impact and a crash.
+-- (music/act1.lua ...) gives them. The drops are written out below: a
+-- riser over the two bars before, an impact and a crash.
+
+-- The skill's library (skills/onimite-video/library: rows and styles to
+-- copy into your media folder), from this example's media folder.
+local LIB = "../../../skills/onimite-video/library/"
+local INSTRUMENTS = { LIB .. "instruments/classic.json", LIB .. "instruments/sfx.json" }
 
 local P = require("music.parts")
 
@@ -25,14 +30,25 @@ for _, act in ipairs { "act1", "act2", "act3", "act4" } do
   end
 end
 
-return song { "score", key = "A minor", seed = 204, gain_db = -10,
+-- the two drops (one, montage): a riser into each, an impact and a crash on its downbeat
+parts.rise = { instrument = "riser", gain_db = -4, play = {
+  { "spark", events = { { time = "2m", duration = "2m", note = "C4", velocity = 0.35 } } },
+  { "rise", events = { { time = 0, duration = "1m", note = "C4", velocity = 0.35 } } } } }
+parts.fx = { instrument = "impact", gain_db = -4, play = {
+  { "one", events = { { time = 0, duration = 2.5, note = "C2", velocity = 0.8 } } },
+  { "montage", events = { { time = 0, duration = 2.5, note = "C2", velocity = 0.8 } } } } }
+parts.fx_crash = { instrument = "crash", gain_db = -4, play = {
+  { "one", events = { { time = 0, duration = 1.6, note = "C4", velocity = 0.7 } } },
+  { "montage", events = { { time = 0, duration = 1.6, note = "C4", velocity = 0.7 } } } } }
+
+return song { "score", instruments = INSTRUMENTS, key = "A minor", seed = 204, gain_db = -10,
   sections = {
     -- act I: the void, slow and dramatic
     { "before", duration = "2m", bpm = 60, energy = 0.2, chords = "Am" },
     { "weight", duration = "2m", energy = 0.25, chords = "Fm" },
     { "spark", duration = "4m", bpm = { 60, 128 }, energy = 0.5, chords = "Am" },
     -- act II: K-pop
-    { "one", duration = "2m", bpm = 128, energy = 1, chords = "Am F", transition = "impact" },
+    { "one", duration = "2m", bpm = 128, energy = 1, chords = "Am F" },
     { "download", duration = "2m", energy = 0.9, chords = "C G" },
     { "race", duration = "2m", chords = "Am F" },
     { "bill", duration = "2m", chords = "C G" },
@@ -41,7 +57,7 @@ return song { "score", key = "A minor", seed = 204, gain_db = -10,
     { "hush", duration = "4m", time_signature = 2, bpm = 64, energy = 0.2, chords = "Am F Dm C" }, -- half time
     { "rise", duration = "1m", time_signature = 4, bpm = { 64, 144 }, energy = 0.4, chords = "Am" }, -- and back up
     -- act III: all it does (the montage), then what it is built on (the family)
-    { "montage", duration = "4m", bpm = 144, energy = 1, chords = "C G Am F", transition = "impact" },
+    { "montage", duration = "4m", bpm = 144, energy = 1, chords = "C G Am F" },
     { "ovg", duration = "2m", energy = 0.9, chords = "C G" },
     { "odecs", duration = "2m", chords = "Am F" },
     { "oksl", duration = "2m", chords = "C G" },

@@ -21,7 +21,7 @@ any part of it by reading only that part.
 | `video.lua` | the manifest: the video, its music, the pumping and the flashes, the scenes in order |
 | `music/score.lua` | the song: a section per scene (its bars, tempo and ramps, chords, energy), the drops' transitions; each section is a cue |
 | `music/act1.lua` ... | what each part plays in that act's sections (play entries: steps, degrees, chords, notes, events) |
-| `music/parts.lua` | the instruments (a part each: DrumMachine, presets, Samplers, effects, sends, side-chain), the hook, the builders the acts use |
+| `music/parts.lua` | the instruments (a part each: the 909, rows of the skill's library, Samplers, effects, sends, side-chain), the hook, the builders the acts use |
 | `scenes/<name>.lua` | one scene: its own constants and drawing, then the `scene{}` call that places it on its section |
 | `scenes/family.lua` | the cards OVG, ODECS and OKSL share |
 | `look.lua` | palette, type, springs and the parts several scenes share |

@@ -1,0 +1,59 @@
+{
+  "description": "Ambient: slow pads and a string layer swelling through a long hall, sparse bells on the chord tones, a sub under the roots, and only at higher energy a soft heartbeat kick.",
+  "instruments": "../instruments/classic.json",
+  "parts": {
+    "pad": {
+      "instrument": "pad",
+      "octave": 3,
+      "gain_db": -5,
+      "room_db": -2,
+      "sends": { "hall": -6 },
+      "play": [ { "energy": [0, 1], "chords": { "voicing": "open" }, "velocity": 0.7 } ]
+    },
+    "strings": {
+      "instrument": {
+        "name": "Synth",
+        "oscillator": { "type": "fatsawtooth", "count": 3, "spread": 30 },
+        "envelope": { "attack": 1.8, "decay": 1, "sustain": 0.8, "release": 3.5 }
+      },
+      "octave": 3,
+      "gain_db": -16,
+      "room_db": -2,
+      "effects": [ { "name": "Filter", "type": "lowpass", "frequency": 1600, "q": 0.6 } ],
+      "sends": { "hall": -4 },
+      "play": [ { "energy": [0.3, 1], "chords": { "voicing": "spread" }, "velocity": 0.6 } ]
+    },
+    "bells": {
+      "instrument": "bell",
+      "octave": 5,
+      "gain_db": -14,
+      "room_db": -6,
+      "pan": -0.15,
+      "sends": { "hall": -2 },
+      "play": [
+        {
+          "energy": [0.25, 1],
+          "arpeggio": { "pattern": "random", "interval": "2n", "octaves": 2 },
+          "velocity": 0.45,
+          "humanize": 0.02
+        }
+      ]
+    },
+    "sub": {
+      "instrument": "sub_bass",
+      "octave": 1,
+      "gain_db": -8,
+      "room_db": 0,
+      "play": [ { "energy": [0.4, 1], "degrees": "1 - - - - - - -", "subdivision": "8n", "velocity": 0.6 } ]
+    },
+    "drums": {
+      "instrument": "synth_kit",
+      "octave": 3,
+      "gain_db": -8,
+      "room_db": 0,
+      "sends": { "hall": -10 },
+      "play": [ { "energy": [0.6, 1], "steps": { "kick": "x.......x......." }, "velocity": 0.5 } ]
+    }
+  },
+  "returns": { "hall": [ { "name": "Reverb", "decay": 6, "pre_delay": 0.05 } ] }
+}

@@ -66,8 +66,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/odawg
-          # Pinned like ottis: odawg is released on its own (v0.0.7).
-          ref: v0.0.7
+          # Pinned like ottis: odawg is released on its own (v0.0.9).
+          ref: v0.0.9
           path: odawg
 
       - uses: ./onimite/.github/actions/setup-toolchain
@@ -78,6 +78,10 @@ jobs:
         run: bash onimite/.github/ci.sh test
       - name: Smoke test (software renderer)
         run: bash onimite/.github/ci.sh smoke
+      # once: it fetches the examples' sample sets
+      - name: Example songs unchanged
+        if: matrix.os == 'ubuntu-latest'
+        run: bash onimite/.github/ci.sh songs
 
   # Best effort until the Windows build is verified on real hardware: Odin
   # ships SDL3.dll and lua54.dll, but nobody has built or run onimite on
@@ -121,8 +125,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/odawg
-          # Pinned like ottis: odawg is released on its own (v0.0.7).
-          ref: v0.0.7
+          # Pinned like ottis: odawg is released on its own (v0.0.9).
+          ref: v0.0.9
           path: odawg
 
       - uses: ./onimite/.github/actions/setup-toolchain

@@ -38,7 +38,7 @@ picture answers to are placed in the sections and pitched from the data: a
 blip per month (a sixteenth apart, higher for a bigger month), a chime on
 the best month, a riser while the line draws and a chime as it lands, a
 blip per crop, twelve ticks up the scale under the count, crashes on the
-scenes' downbeats (a `DrumMachine` 909).
+scenes' downbeats (the library's 909 machine).
 
 The picture reads them back (`timeline.lua`): the bars rise on
 `score.hits { part = "months" }`, the callout on the chime in `bars`, the

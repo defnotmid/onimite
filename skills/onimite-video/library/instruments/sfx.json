@@ -1,0 +1,748 @@
+{
+  "riser": {
+    "description": "Noise through a low-pass opening from 300 Hz (cutoff) to 9300 (cutoff2) and a sine rising from 180 Hz (at the level tone, 0.15), swelling over the note.",
+    "nodes": {
+      "level": {
+        "class": "Map",
+        "inputs": [
+          "velocity"
+        ],
+        "offset": 0.15,
+        "scale": 0
+      },
+      "lp": {
+        "class": "Filter",
+        "inputs": [
+          "noise"
+        ],
+        "frequency": {
+          "base": 0,
+          "amount": 1,
+          "by": "sweep"
+        },
+        "gain_db": -1.938,
+        "type": "onepole"
+      },
+      "noise": {
+        "class": "Noise"
+      },
+      "open": {
+        "class": "Ramp",
+        "curve": 2
+      },
+      "out": {
+        "class": "Mix",
+        "inputs": [
+          "lp",
+          "tone"
+        ],
+        "amp": "open"
+      },
+      "sine": {
+        "class": "Osc",
+        "frequency": {
+          "base": 180,
+          "amount": 900,
+          "by": "open"
+        },
+        "wave": "sine"
+      },
+      "sweep": {
+        "class": "Ramp",
+        "curve": 2,
+        "from": 300,
+        "to": 9300
+      },
+      "tone": {
+        "class": "Mul",
+        "inputs": [
+          "sine",
+          "level"
+        ]
+      }
+    },
+    "options": {
+      "cutoff": "sweep/from",
+      "cutoff2": "sweep/to",
+      "tone": "level/offset"
+    }
+  },
+  "whoosh": {
+    "description": "The riser with no tone (give it one: tone = 0.1).",
+    "nodes": {
+      "level": {
+        "class": "Map",
+        "inputs": [
+          "velocity"
+        ],
+        "offset": 0,
+        "scale": 0
+      },
+      "lp": {
+        "class": "Filter",
+        "inputs": [
+          "noise"
+        ],
+        "frequency": {
+          "base": 0,
+          "amount": 1,
+          "by": "sweep"
+        },
+        "gain_db": -1.938,
+        "type": "onepole"
+      },
+      "noise": {
+        "class": "Noise"
+      },
+      "open": {
+        "class": "Ramp",
+        "curve": 2
+      },
+      "out": {
+        "class": "Mix",
+        "inputs": [
+          "lp",
+          "tone"
+        ],
+        "amp": "open"
+      },
+      "sine": {
+        "class": "Osc",
+        "frequency": {
+          "base": 180,
+          "amount": 900,
+          "by": "open"
+        },
+        "wave": "sine"
+      },
+      "sweep": {
+        "class": "Ramp",
+        "curve": 2,
+        "from": 300,
+        "to": 9300
+      },
+      "tone": {
+        "class": "Mul",
+        "inputs": [
+          "sine",
+          "level"
+        ]
+      }
+    },
+    "options": {
+      "cutoff": "sweep/from",
+      "cutoff2": "sweep/to",
+      "tone": "level/offset"
+    }
+  },
+  "impact": {
+    "description": "The big hit: a sub boom falling from 100 Hz to 30 and a burst of dark noise (low-passed at 900 Hz, cutoff), saturated.",
+    "length": 2.5,
+    "nodes": {
+      "body": {
+        "class": "Osc",
+        "amp": "boom",
+        "frequency": {
+          "base": 30,
+          "amount": 70,
+          "by": "fall"
+        },
+        "wave": "sine"
+      },
+      "boom": {
+        "class": "Decay",
+        "time": 0.625
+      },
+      "dust": {
+        "class": "Decay",
+        "time": 0.25
+      },
+      "fall": {
+        "class": "Decay",
+        "time": 0.16667
+      },
+      "lp": {
+        "class": "Filter",
+        "inputs": [
+          "noise"
+        ],
+        "amp": "dust",
+        "frequency": 900,
+        "gain_db": 3.522,
+        "type": "onepole"
+      },
+      "noise": {
+        "class": "Noise"
+      },
+      "out": {
+        "class": "Drive",
+        "inputs": [
+          "sum"
+        ],
+        "amount": 1.915,
+        "gain_db": -0.944
+      },
+      "sum": {
+        "class": "Mix",
+        "inputs": [
+          "body",
+          "lp"
+        ]
+      }
+    },
+    "options": {
+      "cutoff": "lp/frequency"
+    }
+  },
+  "thump": {
+    "description": "A heavy landing: a low sine (55 Hz) dropping from 1.8 times its pitch, a click on top.",
+    "length": 0.7,
+    "nodes": {
+      "body": {
+        "class": "Osc",
+        "amp": "env",
+        "frequency": {
+          "by": "drop",
+          "index": 0.8
+        },
+        "wave": "sine"
+      },
+      "click": {
+        "class": "Noise",
+        "amp": "tick",
+        "gain_db": -10.458
+      },
+      "drop": {
+        "class": "Decay",
+        "time": 0.025
+      },
+      "env": {
+        "class": "Decay",
+        "time": 0.16667
+      },
+      "out": {
+        "class": "Mix",
+        "inputs": [
+          "body",
+          "click"
+        ]
+      },
+      "tick": {
+        "class": "Decay",
+        "time": 0.002
+      }
+    },
+    "note": 33
+  },
+  "fall": {
+    "description": "Tape slowing, a boot: a sine and its octave gliding down to a fifteenth of the note (220 Hz to 14.7) and fading over it.",
+    "nodes": {
+      "env": {
+        "class": "Env",
+        "attack": 0.0042,
+        "decay": 0,
+        "release": 0,
+        "sustain": 1
+      },
+      "f1": {
+        "class": "Osc",
+        "frequency": {
+          "by": "glide",
+          "octaves": -3.9069
+        },
+        "wave": "sine"
+      },
+      "f2": {
+        "class": "Osc",
+        "frequency": {
+          "by": "glide",
+          "octaves": -3.9069
+        },
+        "gain_db": -7.959,
+        "ratio": 2,
+        "wave": "sine"
+      },
+      "fade": {
+        "class": "Ramp",
+        "from": 1,
+        "to": 0
+      },
+      "glide": {
+        "class": "Ramp"
+      },
+      "out": {
+        "class": "Mix",
+        "inputs": [
+          "f1",
+          "f2"
+        ],
+        "amp": [
+          "env",
+          {
+            "by": "fade",
+            "exponent": 1.5
+          }
+        ]
+      }
+    },
+    "note": 57
+  },
+  "tape_chord": {
+    "description": "One note of a chord on a stopping tape: a saw whose pitch falls to nothing over the note, low-passed at 2500 Hz (cutoff), fading.",
+    "nodes": {
+      "env": {
+        "class": "Env",
+        "attack": 0.0021,
+        "decay": 0,
+        "release": 0,
+        "sustain": 1
+      },
+      "fade": {
+        "class": "Ramp",
+        "from": 1,
+        "to": 0
+      },
+      "lp": {
+        "class": "Filter",
+        "inputs": [
+          "saw"
+        ],
+        "frequency": 2500,
+        "type": "onepole"
+      },
+      "out": {
+        "class": "Mix",
+        "inputs": [
+          "lp"
+        ],
+        "amp": [
+          "env",
+          "fade"
+        ],
+        "gain_db": 1.5
+      },
+      "saw": {
+        "class": "Osc",
+        "frequency": [
+          {
+            "by": "u",
+            "index": -2
+          },
+          {
+            "by": "u",
+            "exponent": 2,
+            "index": 1
+          }
+        ],
+        "phase": "random",
+        "wave": "sawtooth"
+      },
+      "u": {
+        "class": "Ramp"
+      }
+    },
+    "note": 60,
+    "options": {
+      "cutoff": "lp/frequency"
+    }
+  },
+  "tick": {
+    "description": "A key: a click of differenced noise over a short tap at the note (2600 Hz).",
+    "length": 0.025,
+    "nodes": {
+      "click": {
+        "class": "Mix",
+        "inputs": [
+          "hp"
+        ],
+        "amp": "click_env",
+        "gain_db": -6.021
+      },
+      "click_env": {
+        "class": "Decay",
+        "time": 0.002
+      },
+      "hp": {
+        "class": "Filter",
+        "inputs": [
+          "noise"
+        ],
+        "type": "difference"
+      },
+      "noise": {
+        "class": "Noise"
+      },
+      "out": {
+        "class": "Mix",
+        "inputs": [
+          "click",
+          "tap"
+        ]
+      },
+      "tap": {
+        "class": "Osc",
+        "amp": "tap_env",
+        "gain_db": -6.021,
+        "wave": "sine"
+      },
+      "tap_env": {
+        "class": "Decay",
+        "time": 0.0033333
+      }
+    },
+    "note": 100.1
+  },
+  "beep": {
+    "description": "A terminal's beep: a short square at the note (880 Hz).",
+    "length": 0.03,
+    "nodes": {
+      "env": {
+        "class": "Decay",
+        "attack": 0.00125,
+        "time": 0.011111
+      },
+      "out": {
+        "class": "Osc",
+        "amp": "env",
+        "wave": "square"
+      }
+    },
+    "note": 81
+  },
+  "crackle": {
+    "description": "A tiny ember popping: 12 ms of differenced noise.",
+    "length": 0.012,
+    "nodes": {
+      "env": {
+        "class": "Decay",
+        "time": 0.0011111
+      },
+      "noise": {
+        "class": "Noise"
+      },
+      "out": {
+        "class": "Filter",
+        "inputs": [
+          "noise"
+        ],
+        "amp": "env",
+        "type": "difference"
+      }
+    }
+  },
+  "glitch": {
+    "description": "A stutter: eight grains of square tone and noise at pitches drawn per note, bouncing left and right, 0.24 s.",
+    "length": 0.24,
+    "nodes": {
+      "even": {
+        "class": "Decay",
+        "bursts": 4,
+        "hold": 0.021,
+        "spacing": 0.06,
+        "time": 0.0005
+      },
+      "g1": {
+        "class": "Osc",
+        "amp": "w1",
+        "frequency": {
+          "base": 1046.5,
+          "by": "p1",
+          "octaves": 1
+        },
+        "gain_db": -6.021,
+        "pan": -0.6,
+        "wave": "square"
+      },
+      "g2": {
+        "class": "Osc",
+        "amp": "w2",
+        "frequency": {
+          "base": 1046.5,
+          "by": "p2",
+          "octaves": 1
+        },
+        "gain_db": -6.021,
+        "pan": 0.6,
+        "wave": "square"
+      },
+      "g3": {
+        "class": "Osc",
+        "amp": "w3",
+        "frequency": {
+          "base": 1046.5,
+          "by": "p3",
+          "octaves": 1
+        },
+        "gain_db": -6.021,
+        "pan": -0.6,
+        "wave": "square"
+      },
+      "g4": {
+        "class": "Osc",
+        "amp": "w4",
+        "frequency": {
+          "base": 1046.5,
+          "by": "p4",
+          "octaves": 1
+        },
+        "gain_db": -6.021,
+        "pan": 0.6,
+        "wave": "square"
+      },
+      "g5": {
+        "class": "Osc",
+        "amp": "w5",
+        "frequency": {
+          "base": 1046.5,
+          "by": "p5",
+          "octaves": 1
+        },
+        "gain_db": -6.021,
+        "pan": -0.6,
+        "wave": "square"
+      },
+      "g6": {
+        "class": "Osc",
+        "amp": "w6",
+        "frequency": {
+          "base": 1046.5,
+          "by": "p6",
+          "octaves": 1
+        },
+        "gain_db": -6.021,
+        "pan": 0.6,
+        "wave": "square"
+      },
+      "g7": {
+        "class": "Osc",
+        "amp": "w7",
+        "frequency": {
+          "base": 1046.5,
+          "by": "p7",
+          "octaves": 1
+        },
+        "gain_db": -6.021,
+        "pan": -0.6,
+        "wave": "square"
+      },
+      "g8": {
+        "class": "Osc",
+        "amp": "w8",
+        "frequency": {
+          "base": 1046.5,
+          "by": "p8",
+          "octaves": 1
+        },
+        "gain_db": -6.021,
+        "pan": 0.6,
+        "wave": "square"
+      },
+      "hiss_l": {
+        "class": "Mix",
+        "inputs": [
+          "noise"
+        ],
+        "amp": "even",
+        "gain_db": -10.458,
+        "pan": -0.6
+      },
+      "hiss_r": {
+        "class": "Mix",
+        "inputs": [
+          "noise"
+        ],
+        "amp": "odd",
+        "gain_db": -10.458,
+        "pan": 0.6
+      },
+      "noise": {
+        "class": "Noise"
+      },
+      "odd": {
+        "class": "Decay",
+        "bursts": 4,
+        "delay": 0.03,
+        "hold": 0.021,
+        "spacing": 0.06,
+        "time": 0.0005
+      },
+      "out": {
+        "class": "Mix",
+        "inputs": [
+          "hiss_l",
+          "hiss_r",
+          "g1",
+          "g2",
+          "g3",
+          "g4",
+          "g5",
+          "g6",
+          "g7",
+          "g8"
+        ],
+        "gain_db": 1.5
+      },
+      "p1": {
+        "class": "Random"
+      },
+      "p2": {
+        "class": "Random"
+      },
+      "p3": {
+        "class": "Random"
+      },
+      "p4": {
+        "class": "Random"
+      },
+      "p5": {
+        "class": "Random"
+      },
+      "p6": {
+        "class": "Random"
+      },
+      "p7": {
+        "class": "Random"
+      },
+      "p8": {
+        "class": "Random"
+      },
+      "w1": {
+        "class": "Decay",
+        "delay": 0,
+        "hold": 0.021,
+        "time": 0.0005
+      },
+      "w2": {
+        "class": "Decay",
+        "delay": 0.03,
+        "hold": 0.021,
+        "time": 0.0005
+      },
+      "w3": {
+        "class": "Decay",
+        "delay": 0.06,
+        "hold": 0.021,
+        "time": 0.0005
+      },
+      "w4": {
+        "class": "Decay",
+        "delay": 0.09,
+        "hold": 0.021,
+        "time": 0.0005
+      },
+      "w5": {
+        "class": "Decay",
+        "delay": 0.12,
+        "hold": 0.021,
+        "time": 0.0005
+      },
+      "w6": {
+        "class": "Decay",
+        "delay": 0.15,
+        "hold": 0.021,
+        "time": 0.0005
+      },
+      "w7": {
+        "class": "Decay",
+        "delay": 0.18,
+        "hold": 0.021,
+        "time": 0.0005
+      },
+      "w8": {
+        "class": "Decay",
+        "delay": 0.21,
+        "hold": 0.021,
+        "time": 0.0005
+      }
+    }
+  },
+  "blip": {
+    "description": "A short sine blip with an octave on top, at the note (1320 Hz).",
+    "length": 0.09,
+    "nodes": {
+      "env": {
+        "class": "Decay",
+        "time": 0.022222
+      },
+      "f1": {
+        "class": "Osc",
+        "wave": "sine"
+      },
+      "f2": {
+        "class": "Osc",
+        "gain_db": -10.458,
+        "ratio": 2,
+        "wave": "sine"
+      },
+      "out": {
+        "class": "Mix",
+        "inputs": [
+          "f1",
+          "f2"
+        ],
+        "amp": "env"
+      }
+    },
+    "note": 88.02
+  },
+  "done": {
+    "description": "Two rising blips 0.12 s apart: the note (1320 Hz), then a fifth up.",
+    "length": 0.21,
+    "nodes": {
+      "a": {
+        "class": "Mix",
+        "inputs": [
+          "f1",
+          "f2"
+        ],
+        "amp": "first"
+      },
+      "b": {
+        "class": "Mix",
+        "inputs": [
+          "g1",
+          "g2"
+        ],
+        "amp": "second"
+      },
+      "f1": {
+        "class": "Osc",
+        "wave": "sine"
+      },
+      "f2": {
+        "class": "Osc",
+        "gain_db": -10.458,
+        "ratio": 2,
+        "wave": "sine"
+      },
+      "first": {
+        "class": "Decay",
+        "time": 0.022222
+      },
+      "g1": {
+        "class": "Osc",
+        "ratio": 1.5,
+        "wave": "sine"
+      },
+      "g2": {
+        "class": "Osc",
+        "gain_db": -10.458,
+        "ratio": 3,
+        "wave": "sine"
+      },
+      "out": {
+        "class": "Mix",
+        "inputs": [
+          "a",
+          "b"
+        ]
+      },
+      "second": {
+        "class": "Decay",
+        "delay": 0.12,
+        "time": 0.022222
+      }
+    },
+    "note": 88.02
+  }
+}

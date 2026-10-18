@@ -30,7 +30,7 @@ the user data folder), verified against the pins; after that it renders offline.
 
 | part | played on | through |
 | --- | --- | --- |
-| kick, hats | odawg's 909 (`DrumMachine`) | the master; the kick is the pump's key |
+| kick, hats | the library's 909 (`media/machines/909.json`, copied in) | the master; the kick is the pump's key |
 | percussion | VCSL claps, tambourine, shaker, congas, cowbell | a set the style writes out (`pads`, a list is a round robin) |
 | bass | Karoryfer Fashionbass, its authors' own `fashionbass_clean.sfz` | the pump |
 | guitar | Karoryfer Emilyguitar, its authors' own `emily_clean.sfz`, voiced as ninth chords | the pump; the intro and break chops through the dark filter first |

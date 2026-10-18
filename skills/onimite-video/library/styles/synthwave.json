@@ -1,0 +1,63 @@
+{
+  "description": "Synthwave: a driving kick and a big snare in a hall, eighth hats, an octave-jumping saw bass ducking under the kick, wide detuned pads, and a dotted-eighth delayed arpeggio at higher energy.",
+  "instruments": "../instruments/classic.json",
+  "parts": {
+    "drums": {
+      "instrument": "../machines/909.json",
+      "octave": 3,
+      "gain_db": -3,
+      "room_db": 0,
+      "sends": { "hall": -14 },
+      "play": [
+        {
+          "energy": [0.6, 1],
+          "steps": { "kick": "x...x...x...x...", "snare": "....X.......X...", "hat": "x.x.x.x.x.x.x.x." }
+        },
+        { "energy": [0.3, 0.6], "steps": { "kick": "x.......x.......", "hat": "x.x.x.x.x.x.x.x." }, "velocity": 0.7 }
+      ]
+    },
+    "bass": {
+      "instrument": {
+        "name": "MonoSynth",
+        "oscillator": { "type": "sawtooth" },
+        "envelope": { "attack": 0.005, "decay": 0.2, "sustain": 0.7, "release": 0.12 },
+        "filter": { "type": "lowpass", "q": 2, "rolloff": -24 },
+        "filter_envelope": { "attack": 0.005, "decay": 0.18, "sustain": 0.3, "release": 0.2, "base_frequency": 110, "octaves": 3.2 }
+      },
+      "octave": 2,
+      "gain_db": -6,
+      "room_db": 0,
+      "sidechain": { "name": "drums/kick", "depth": 0.5 },
+      "play": [ { "energy": [0.4, 1], "degrees": "1 8 1 8 1 8 1 8", "subdivision": "8n", "duration": "16n" } ]
+    },
+    "pad": {
+      "instrument": {
+        "name": "Synth",
+        "oscillator": { "type": "fatsawtooth", "count": 3, "spread": 24 },
+        "envelope": { "attack": 0.4, "decay": 0.6, "sustain": 0.8, "release": 1.6 }
+      },
+      "octave": 3,
+      "gain_db": -14,
+      "room_db": -2,
+      "effects": [
+        { "name": "Filter", "type": "lowpass", "frequency": 2200, "q": 0.7 },
+        { "name": "StereoWidener", "width": 0.7 }
+      ],
+      "sends": { "hall": -8 },
+      "play": [ { "energy": [0, 1], "chords": { "voicing": "open" }, "velocity": 0.7 } ]
+    },
+    "arp": {
+      "instrument": "pluck",
+      "octave": 4,
+      "gain_db": -12,
+      "room_db": -6,
+      "pan": -0.2,
+      "sends": { "echo": -6, "hall": -12 },
+      "play": [ { "energy": [0.7, 1], "arpeggio": { "pattern": "up", "interval": "16n", "octaves": 2 } } ]
+    }
+  },
+  "returns": {
+    "hall": [ { "name": "Reverb", "decay": 3, "pre_delay": 0.03 } ],
+    "echo": [ { "name": "FeedbackDelay", "delay_time": "8n.", "feedback": 0.35 } ]
+  }
+}

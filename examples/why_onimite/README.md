@@ -20,8 +20,8 @@ onimite render examples/why_onimite/video.lua -o why_onimite.mp4
 Files: `facts.lua` holds every number on screen with its source
 (BENCHMARK.md "Full run", the measured installs); `track.lua` is the
 soundtrack, an odawg `song{}` whose sections are the scenes: house on
-TR-909 circuit models (`DrumMachine`) for the title, race and bill, a
-TB-303 line (the `acid_house` style's `AcidSynth`) taking over for
+the library's 909 machine (`machines/909.json`) for the title, race and bill, a
+TB-303 line (the `acid_house` style's `tb303`) taking over for
 shipping and the agents, a breakdown under the tricks, the last drop with
 a lead hook, an ambient tail. Its transitions make the risers and the two
 impacts; its own parts add the glitch stutters, the bill's counter blips and

@@ -1,0 +1,132 @@
+{
+  "description": "Acid house, 120-128 BPM: TB-303 lines squelching on accents (!) and slides (~) over a 909 groove: four on the floor, claps on two and four, off-beat open hats, swung sixteenth hats and a ride at full energy, a fill every fourth bar; a second, higher 303 answering at the top, a dark pad in the breakdowns.",
+  "swing": 0.3,
+  "swing_subdivision": "16n",
+  "parts": {
+    "drums": {
+      "instrument": "../machines/909.json",
+      "octave": 3,
+      "gain_db": 0,
+      "room_db": 0,
+      "sends": { "room": -16 },
+      "play": [
+        {
+          "energy": [0.7, 1],
+          "humanize": 0.003,
+          "steps": {
+            "kick": [ "X...x...x...x...", "X...x...x...x...", "X...x...x...x...", "X...x...x...x.x." ],
+            "clap": [ "....x.......x...", "....x.......x...", "....x.......x...", "....x.......x.oo" ],
+            "snare": [ "................", "................", "................", "..........o.oxXX" ],
+            "hat": "ox.xox.xox.xox.x",
+            "open_hat": "..x...x...x...x.",
+            "ride": "x.o.x.o.x.o.x.oo",
+            "crash": [
+              "X...............",
+              "................",
+              "................",
+              "................",
+              "................",
+              "................",
+              "................",
+              "................"
+            ]
+          }
+        },
+        {
+          "energy": [0.4, 0.7],
+          "humanize": 0.003,
+          "steps": {
+            "kick": "X...x...x...x...",
+            "clap": [ "....x.......x...", "....x.......x...", "....x.......x...", "....x.......x.ox" ],
+            "open_hat": "..x...x...x...x.",
+            "hat": "o.o.o.o.o.o.o.o."
+          }
+        },
+        {
+          "energy": [0.15, 0.4],
+          "velocity": 0.7,
+          "humanize": 0.003,
+          "steps": { "hat": "ox.xox.xox.xox.x", "open_hat": "..x...x...x...x." }
+        }
+      ]
+    },
+    "acid": {
+      "instrument": {
+        "name": "../instruments/tb303.json",
+        "oscillator": { "type": "sawtooth" },
+        "filter": { "frequency": 320, "q": 8.6 },
+        "filter_envelope": { "octaves": 3.3 },
+        "envelope": { "decay": 0.28 },
+        "accent": 0.75,
+        "portamento": 0.06
+      },
+      "octave": 2,
+      "gain_db": -2,
+      "room_db": -3,
+      "sidechain": { "name": "drums/kick", "depth": 0.35, "release": 0.06 },
+      "sends": { "echo": -18, "room": -14 },
+      "play": [
+        {
+          "energy": [0.7, 1],
+          "degrees": "1! 1 8~ 1 . 1 3! 1 5~ 8 1 . 1! 7~ 8 1 | 1! 1 8~ 10 . 8 1! 1 5~ 4 3 1 . 1! 8~ 7",
+          "subdivision": "16n",
+          "duration": "32n.",
+          "velocity": 0.8
+        },
+        {
+          "energy": [0.4, 0.7],
+          "degrees": "1! . 1 . 8~ 1 . 1 . 1! . 5~ 8 . 1 .",
+          "subdivision": "16n",
+          "duration": "32n.",
+          "velocity": 0.8
+        }
+      ]
+    },
+    "acid2": {
+      "instrument": {
+        "name": "../instruments/tb303.json",
+        "oscillator": { "type": "square" },
+        "filter": { "frequency": 600, "q": 9.4 },
+        "filter_envelope": { "octaves": 2.4 },
+        "envelope": { "decay": 0.18 },
+        "accent": 0.9,
+        "portamento": 0.05
+      },
+      "octave": 3,
+      "gain_db": -11,
+      "room_db": -3,
+      "pan": 0.25,
+      "sends": { "echo": -6 },
+      "play": [
+        {
+          "energy": [0.9, 1],
+          "degrees": ". . 8! . . 5~ 8 . . . 10! . 8~ 7 5 . | . . 8! . . 5~ 8 . 12! . 10~ 8 . . . .",
+          "subdivision": "16n",
+          "duration": "32n.",
+          "velocity": 0.8
+        }
+      ]
+    },
+    "pad": {
+      "instrument": {
+        "name": "Synth",
+        "oscillator": { "type": "fatsawtooth", "count": 3, "spread": 14 },
+        "envelope": { "attack": 1.2, "decay": 0.5, "sustain": 0.8, "release": 2 }
+      },
+      "octave": 3,
+      "gain_db": -20,
+      "room_db": -2,
+      "effects": [ { "name": "Filter", "type": "lowpass", "frequency": 1100, "q": 0.7 } ],
+      "sends": { "hall": -6 },
+      "play": [ { "energy": [0, 0.55], "chords": { "voicing": "open" }, "velocity": 0.6 } ]
+    }
+  },
+  "returns": {
+    "room": [ { "name": "Reverb", "decay": 0.8, "pre_delay": 0.005 } ],
+    "hall": [ { "name": "Reverb", "decay": 3, "pre_delay": 0.03 } ],
+    "echo": [
+      { "name": "PingPongDelay", "delay_time": "8n.", "feedback": 0.32 },
+      { "name": "Filter", "type": "highpass", "frequency": 300 }
+    ]
+  }
+}

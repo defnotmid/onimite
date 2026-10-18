@@ -8,6 +8,7 @@ import "core:strconv"
 import "core:strings"
 import om "../onimite"
 import osong "deps:odawg/song"
+import ospec "deps:odawg/spec"
 import otempo "deps:odawg/tempo"
 import otheory "deps:odawg/theory"
 import lua "vendor:lua/5.4"
@@ -40,11 +41,13 @@ import lua "vendor:lua/5.4"
 // song's `start`, a section's `duration` and `start`. What odawg finds
 // reading and composing it is a warning or error at the script line.
 
-// A song or sound this load made: its name (owned), the media's song, and
-// the line that made it.
+// A song or sound this load made: its name (owned), the media's song, the
+// key of the spec it was made from (value_key: the clip's own adds its
+// files'), and the line that made it.
 Script_Song :: struct {
 	name:  string,
 	clip:  ^om.Song_Clip,
+	key:   u64,
 	sound: bool,
 	at:    string,
 }
@@ -70,8 +73,8 @@ songs_unload :: proc(s: ^Script) {
 
 // ---- the table as a spec value -------------------------------------------------------
 
-// Where a value sits in the spec: which of its keys take onimite's time
-// forms, and whether a lone name there is a record (`{ "intro" }`).
+// Where a value sits in the spec, by its path there ("" the song,
+// "sections/2" a section): which of its keys take onimite's time forms.
 @(private = "file")
 Spec_Level :: enum u8 {
 	Other,
@@ -80,24 +83,14 @@ Spec_Level :: enum u8 {
 }
 
 @(private = "file")
-Spec_Place :: struct {
-	level:  Spec_Level,
-	record: bool,
-}
-
-// What a key's value and (a list's) elements are, by key; the rest are
-// plain data.
-@(private = "file", rodata)
-SPEC_KEYS := [?]struct {
-	key:            string,
-	value, element: Spec_Place,
-} {
-	{"sections", {}, {.Section, true}},
-	{"markers", {}, {.Other, true}},
-	{"play", {.Other, true}, {.Other, true}},
-	{"effects", {.Other, true}, {.Other, true}},
-	{"instrument", {.Other, true}, {}},
-	{"sidechain", {.Other, true}, {}},
+spec_level :: proc(at: string) -> Spec_Level {
+	if at == "" {
+		return .Song
+	}
+	if strings.has_prefix(at, "sections/") && strings.count(at, "/") == 1 {
+		return .Section
+	}
+	return .Other
 }
 
 // The keys at a level that take a time form (resolved to seconds).
@@ -113,6 +106,11 @@ is_time_key :: proc(level: Spec_Level, key: string) -> bool {
 	return false
 }
 
+// Where a table's positional entries go at `at`: odawg's rows (the one
+// owner of the shorthand), and the song's own name at the root.
+@(private = "file", rodata)
+NAME_FIELD := [?]string{"name"}
+
 @(private = "file")
 lua_text :: proc(L: ^lua.State, idx: c.int) -> string {
 	n: c.size_t
@@ -121,9 +119,10 @@ lua_text :: proc(L: ^lua.State, idx: c.int) -> string {
 }
 
 // The Lua value at `idx` as a spec value (temp memory), `fn` and `path`
-// naming it in errors.
-@(private = "file")
-value_from_lua :: proc(L: ^lua.State, s: ^Script, idx: c.int, fn, path: string, place: Spec_Place) -> json.Value {
+// naming it in errors, `at` its path in the spec ("": the song; a clip's
+// effects: "effects").
+@(private)
+value_from_lua :: proc(L: ^lua.State, s: ^Script, idx: c.int, fn, path, at: string) -> json.Value {
 	idx := lua.absindex(L, idx)
 	ta := context.temp_allocator
 	#partial switch lua.type(L, idx) {
@@ -144,43 +143,50 @@ value_from_lua :: proc(L: ^lua.State, s: ^Script, idx: c.int, fn, path: string, 
 	}
 	n := int(lua.rawlen(L, idx))
 	keys := sorted_keys(L, idx)
-	if len(keys) == 0 && n > 0 && !(place.record && n == 1 && lua_is_string(L, idx, 1)) {
-		elements := Spec_Place{}
-		for row in SPEC_KEYS {
-			if row.key == last_key(path) {
-				elements = row.element
-			}
-		}
+	fields, rest := ospec.positional_fields(at)
+	list := ospec.positional_list(at, n, n > 0 && lua_is_string(L, idx, 1))
+	if at == "" {
+		fields, list = NAME_FIELD[:], false
+	}
+	if len(keys) == 0 && n > 0 && list {
 		a := make(json.Array, 0, n, ta)
 		for i in 1 ..= n {
 			lua.rawgeti(L, idx, lua.Integer(i))
-			append(&a, value_from_lua(L, s, -1, fn, fmt.tprintf("%s[%d]", path, i), elements))
+			append(&a, value_from_lua(L, s, -1, fn, fmt.tprintf("%s[%d]", path, i), spec_index(at, i)))
 			lua.pop(L, 1)
 		}
 		return a
 	}
-	if n > 1 {
-		lua.L_error(L, "%s: %s: only the first entry is a name, the rest are keys (found %d entries)", strings.clone_to_cstring(fn, ta), strings.clone_to_cstring(path, ta), c.int(n))
+	if n > len(fields) && rest == "" {
+		if len(fields) == 0 {
+			lua.L_error(L, "%s: %s: entries and keys together (found %d entries; a list or keys, not both)", strings.clone_to_cstring(fn, ta), strings.clone_to_cstring(path, ta), c.int(n))
+		}
+		lua.L_error(L, "%s: %s: only the first entry is its %s, the rest are keys (found %d entries)", strings.clone_to_cstring(fn, ta), strings.clone_to_cstring(path, ta), strings.clone_to_cstring(fields[0], ta), c.int(n))
 	}
-	o := make(json.Object, len(keys) + 1, ta)
-	if n == 1 {
-		lua.rawgeti(L, idx, 1)
-		o["name"] = value_from_lua(L, s, -1, fn, fmt.tprintf("%s[1]", path), {.Other, true})
+	o := make(json.Object, len(keys) + len(fields) + 1, ta)
+	for i in 1 ..= min(n, len(fields)) {
+		lua.rawgeti(L, idx, lua.Integer(i))
+		k := fields[i - 1]
+		o[k] = value_from_lua(L, s, -1, fn, fmt.tprintf("%s[%d]", path, i), spec_join(at, k))
 		lua.pop(L, 1)
 	}
+	if n > len(fields) {
+		a := make(json.Array, 0, n - len(fields), ta)
+		for i in len(fields) + 1 ..= n {
+			lua.rawgeti(L, idx, lua.Integer(i))
+			append(&a, value_from_lua(L, s, -1, fn, fmt.tprintf("%s[%d]", path, i), spec_index(spec_join(at, rest), i - len(fields))))
+			lua.pop(L, 1)
+		}
+		o[rest] = a
+	}
+	level := spec_level(at)
 	for k in keys {
 		push_key(L, idx, k)
-		at := fmt.tprintf("%s.%s", path, k)
-		if is_time_key(place.level, k) && lua.istable(L, -1) {
-			o[k] = json.Float(seconds_from_terms(L, s, -1, fn, at))
+		key_path := fmt.tprintf("%s.%s", path, k)
+		if is_time_key(level, k) && lua.istable(L, -1) {
+			o[k] = json.Float(seconds_from_terms(L, s, -1, fn, key_path))
 		} else {
-			value := Spec_Place{}
-			for row in SPEC_KEYS {
-				if row.key == k {
-					value = row.value
-				}
-			}
-			o[k] = value_from_lua(L, s, -1, fn, at, value)
+			o[k] = value_from_lua(L, s, -1, fn, key_path, spec_join(at, k))
 		}
 		lua.pop(L, 1)
 	}
@@ -188,19 +194,20 @@ value_from_lua :: proc(L: ^lua.State, s: ^Script, idx: c.int, fn, path: string, 
 }
 
 @(private = "file")
+spec_join :: proc(at, key: string) -> string {
+	return at == "" ? key : fmt.tprintf("%s/%s", at, key)
+}
+
+@(private = "file")
+spec_index :: proc(at: string, i: int) -> string {
+	return fmt.tprintf("%s/%d", at, i)
+}
+
+@(private = "file")
 lua_is_string :: proc(L: ^lua.State, t: c.int, i: int) -> bool {
 	lua.rawgeti(L, t, lua.Integer(i))
 	defer lua.pop(L, 1)
 	return lua.type(L, -1) == .STRING
-}
-
-// The key a path ends in ("song.sections" -> "sections").
-@(private = "file")
-last_key :: proc(path: string) -> string {
-	if i := strings.last_index_byte(path, '.'); i >= 0 {
-		return path[i + 1:]
-	}
-	return path
 }
 
 // An onimite time form at `idx` (`{ audio = "intro", plus = { seconds = 1 } }`,
@@ -229,7 +236,7 @@ l_song :: proc "c" (L: ^lua.State) -> c.int {
 	s := host(L)
 	context = s.odin_context
 	lua.L_checktype(L, 1, i32(lua.Type.TABLE))
-	v := value_from_lua(L, s, 1, "song", "song", {level = .Song})
+	v := value_from_lua(L, s, 1, "song", "song", "")
 	o := v.(json.Object)
 	name, named := o["name"].(json.String)
 	if !named || name == "" {
@@ -255,21 +262,22 @@ Sound_Into :: enum u8 {
 
 @(private = "file", rodata)
 SOUND_KEYS := [?]struct {
-	key:   cstring,
-	into:  Sound_Into,
-	place: Spec_Place,
+	key:  cstring,
+	into: Sound_Into,
+	at:   string, // its path in the spec
 } {
-	{"note", .Event, {}},
-	{"duration", .Event, {}},
-	{"velocity", .Event, {}},
-	{"effects", .Part, {.Other, true}},
-	{"sends", .Part, {}},
-	{"pan", .Part, {}},
-	{"sidechain", .Part, {.Other, true}},
-	{"gain_db", .Song, {}},
+	{"note", .Event, "parts/sound/play/1/events/1/note"},
+	{"duration", .Event, "parts/sound/play/1/events/1/duration"},
+	{"velocity", .Event, "parts/sound/play/1/events/1/velocity"},
+	{"effects", .Part, "parts/sound/effects"},
+	{"sends", .Part, "parts/sound/sends"},
+	{"pan", .Part, "parts/sound/pan"},
+	{"sidechain", .Part, "parts/sound/sidechain"},
+	{"gain_db", .Song, "gain_db"},
+	{"instruments", .Song, "instruments"},
 }
 
-// sound{ instrument, note, duration = "8n", velocity = 1, effects, sends, pan, sidechain, gain_db }
+// sound{ instrument, note, duration = "8n", velocity = 1, effects, sends, pan, sidechain, gain_db, instruments }
 // -> its name: a one-part song (no note: the instrument's own pitch)
 @(private)
 l_sound :: proc "c" (L: ^lua.State) -> c.int {
@@ -281,7 +289,7 @@ l_sound :: proc "c" (L: ^lua.State) -> c.int {
 	if lua.isnil(L, -1) {
 		lua.L_error(L, "sound{}: give the instrument first: sound { \"whoosh\" } or sound { { \"Synth\", ... } }")
 	}
-	instrument := value_from_lua(L, s, -1, "sound", "sound[1]", {.Other, true})
+	instrument := value_from_lua(L, s, -1, "sound", "sound[1]", "parts/sound/instrument")
 	lua.pop(L, 1)
 	// each key into the note, its part or the song (SOUND_KEYS)
 	event := make(json.Object, 4, ta)
@@ -297,7 +305,7 @@ l_sound :: proc "c" (L: ^lua.State) -> c.int {
 	for row in SOUND_KEYS {
 		field(L, 1, row.key)
 		if !lua.isnil(L, -1) {
-			into[row.into][string(row.key)] = value_from_lua(L, s, -1, "sound", fmt.tprintf("sound.%s", row.key), row.place)
+			into[row.into][string(row.key)] = value_from_lua(L, s, -1, "sound", fmt.tprintf("sound.%s", row.key), row.at)
 		}
 		lua.pop(L, 1)
 	}
@@ -358,7 +366,7 @@ compose :: proc(L: ^lua.State, s: ^Script, name: string, v: json.Value, sound: b
 	key := om.value_key(v)
 	for x in s.songs {
 		if x.name == name {
-			if x.clip.key == key {
+			if x.key == key {
 				return x.clip // the same song again (a module required twice)
 			}
 			lua.L_error(L, "song %s is already made differently (%s): give each song its own name", cname, strings.clone_to_cstring(x.at, context.temp_allocator))
@@ -410,7 +418,7 @@ compose :: proc(L: ^lua.State, s: ^Script, name: string, v: json.Value, sound: b
 			add_cue(L, s, mk.name, om.song_video_seconds(sc, mk.seconds), "", at)
 		}
 	}
-	append(&s.songs, Script_Song{strings.clone(name), sc, sound, strings.clone(at)})
+	append(&s.songs, Script_Song{strings.clone(name), sc, key, sound, strings.clone(at)})
 	return sc
 }
 
@@ -762,7 +770,7 @@ l_song_events :: proc "c" (L: ^lua.State) -> c.int {
 		lua.createtable(L, 0, 5)
 		lua.pushnumber(L, lua.Number(g.start + n.time))
 		lua.setfield(L, -2, "time")
-		name := om.note_name(n.pad, n.pitch)
+		name := om.note_name(g, n.pad, n.pitch)
 		lua.pushlstring(L, cstring(raw_data(name)), c.size_t(len(name)))
 		lua.setfield(L, -2, "note")
 		lua.pushnumber(L, lua.Number(n.duration))

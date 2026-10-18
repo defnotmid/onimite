@@ -1,0 +1,34 @@
+{
+  "description": "The TR-808's kick as a bass: its tone tuned to the note, a longer boom.",
+  "note": 32.029,
+  "out": "drive",
+  "options": {
+    "decay": [ { "path": "amp*/time", "op": "mul" }, { "path": "amp*/time/amount", "op": "mul" } ],
+    "tone": [ { "path": "click/gain_db", "op": "mul", "offset": 0.5 } ],
+    "tune": [ { "path": "tone*/tune", "op": "add" } ]
+  },
+  "nodes": {
+    "pitch": { "class": "Random" },
+    "decays": { "class": "Random" },
+    "level": { "class": "Random" },
+    "bend": { "class": "Decay", "time": 0.008 },
+    "amp1": { "class": "Decay", "time": { "base": 0.32, "by": "decays", "amount": 0.0128 } },
+    "tone1": {
+      "class": "Osc",
+      "wave": "sine",
+      "ratio": 1.0,
+      "frequency": [ { "by": "bend", "index": 0.45 }, { "by": "pitch", "octaves": 0.00575927 } ],
+      "amp": "amp1",
+      "gain_db": 0.0
+    },
+    "click": { "class": "Decay", "attack": 0.0005, "time": 0.00015, "gain_db": -21.9382 },
+    "sum": { "class": "Mix", "inputs": [ "tone1", "click" ] },
+    "drive": {
+      "class": "Drive",
+      "input": "sum",
+      "amount": 1.6,
+      "gain_db": -2.49877,
+      "amp": [ { "by": "level", "amount": 0.03 }, { "by": "accent", "amount": 0.25 } ]
+    }
+  }
+}

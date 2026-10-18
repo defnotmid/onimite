@@ -1,5 +1,6 @@
 package onimite
 
+import "core:encoding/json"
 import "core:math"
 import "core:strings"
 import ma "vendor:miniaudio"
@@ -29,6 +30,9 @@ Audio_Track :: struct {
 	voice:    bool,
 	ducked:   bool,
 	duck:     Ducking,
+	// A clip's effects in order, as a song part's `effects` is written
+	// (odawg reads them; nil: none). Owned by the script.
+	effects:  json.Value,
 	// Timestamps made of terms (frames, minutes, audio lengths, sums) take
 	// the place of `start` / `stop` when set (fframes' AudioTimestamp).
 	start_terms: []Time_Term,

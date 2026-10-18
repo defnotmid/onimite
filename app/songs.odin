@@ -79,7 +79,7 @@ timeline_song :: proc(sc: ^om.Song_Clip, at: string) -> Timeline_Song {
 	}
 	tracks := make([]Timeline_Song_Track, len(g.tracks), context.temp_allocator)
 	for tr, i in g.tracks {
-		tracks[i] = {fmt.tprintf("%s/%s", sc.name, g.parts[tr.part]), tr.variant, odevice.DEVICE_TABLE[g.devices[tr.instrument]].name, int(tr.notes.count), tr.gain_db}
+		tracks[i] = {fmt.tprintf("%s/%s", sc.name, g.parts[tr.part]), tr.variant, g.labels[tr.instrument], int(tr.notes.count), tr.gain_db}
 	}
 	t.sections, t.markers, t.tracks = sections, markers, tracks
 	return t

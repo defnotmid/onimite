@@ -41,7 +41,7 @@ The layers:
 Music: `track.lua` is an odawg `song{}`, Am9 Fmaj7 C G a chord a bar, its
 four sections named after the scenes. The `ambient` style plays the pad,
 and from the groove the strings and bells, through its long hall; the
-parts on top make it techno: a TR-909 circuit model (`DrumMachine`) with
+parts on top make it techno: the library's 909 machine (`machines/909.json`) with
 its kick in the groove and the finale, claps and closed hats where it
 builds, a sine sub on the off-beats ducking under the kick (`sidechain`),
 plucks arpeggiated a dotted eighth apart through a `PingPongDelay`, a

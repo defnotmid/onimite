@@ -59,7 +59,7 @@ To install by hand instead, download the archive for your platform from
 [github.com/defnotmid/onimite/releases](https://github.com/defnotmid/onimite/releases)
 (`X.Y.Z` is the release):
 
-- Linux x86_64: `onimite-vX.Y.Z-linux-x86_64.tar.gz` (glibc 2.35+; needs the system libcurl,
+- Linux x86_64: `onimite-vX.Y.Z-linux-x86_64.tar.gz` (glibc 2.34+; needs the system libcurl,
   `libcurl.so.4`)
 - macOS Apple Silicon: `onimite-vX.Y.Z-macos-arm64.tar.gz` (signed and notarized)
 - Windows x86_64: `onimite-vX.Y.Z-windows-x86_64.zip` (when present; unsigned, best effort,
@@ -287,7 +287,7 @@ with commas.
 
 | command | use it to |
 | --- | --- |
-| `show [PATH] [--at T] [--page N]` | explore the video like a debugger's watch window: the video, then `scenes`, `scene/Race`, `scene/Race/nodes`, `cue/drop`, `bus/sfx`, `track/12`, `clip/x`, `says`, `say/intro` (a spoken line's words and times), `say/intro/3` (one word, and when each track playing it says it on the video), `songs`, `song/score` (a song's sections and parts), `song/score/parts/bass` (every note on the video), `media` and `media/logo.png` (the files besides sounds), `fonts`, `bodies` and `body/ball` (what `physics{}` and `physics3d{}` simulated: start, end, still moving), `node/scenes/race.lua:19[2]`; an unknown path lists the ones there are; each has a summary, its fields, its children by path (20 a page) and the script line that made it |
+| `show [PATH] [--at T] [--page N]` | explore the video like a debugger's watch window: the video, then `scenes`, `scene/Race`, `scene/Race/nodes`, `cue/drop`, `bus/sfx`, `track/12`, `clip/x`, `says`, `say/intro` (a spoken line's words and times), `say/intro/3` (one word, and when each track playing it says it on the video), `songs`, `song/score` (a song's sections and parts), `song/score/parts/bass` (every note on the video), `instruments` and `instrument/MonoSynth` (the built-in rows, as data to copy), `media` and `media/logo.png` (the files besides sounds), `fonts`, `bodies` and `body/ball` (what `physics{}` and `physics3d{}` simulated: start, end, still moving), `node/scenes/race.lua:19[2]`; an unknown path lists the ones there are; each has a summary, its fields, its children by path (20 a page) and the script line that made it |
 | `timeline [RANGE]` | scenes (with their cue and the file and line that defines them), audio tracks, cues, songs (sections, tracks); a range lists only what happens in it |
 | `inspect [RANGE] [--every 0.1s \| --all-frames] [--info] [--fail-on error\|warning\|never]` | find problems without looking (exit 2 on failure; `--info` also lists text entirely off canvas) |
 | `strip [RANGE] -n N [--columns 4] [--width 480] [-o strip.png]` | flow and motion in one image |
@@ -301,6 +301,7 @@ with commas.
 | `audio at SPECS` | which tracks play at a moment, where in their file, how loud, ducking; a song's section and the notes sounding |
 | `audio render [RANGE] [-o audio.wav] [--float]` | the mix as a stereo WAV |
 | `audio onsets [RANGE] [--min 0.1]` | where sounds start (seconds, strength) and the beat (BPM, first beat) |
+| `audio parts [--against parts.json]` | each song alone, part by part: notes, the first of them, LUFS, peak; keep a `--json` of a song you like, and `--against` it after a change names each part that moved (exit 1) |
 | `probe FILE...` | the streams of media files (container, video, audio) |
 | `update [--check]` | replace an installed release with the latest (`--check`: only say whether one is out) |
 
@@ -471,13 +472,14 @@ video { width = 1920, height = 1080, fps = 30, duration = 10,   -- or scenes
 ```
 
 Without assets, compose the music with `song{}` (odawg: sections with `bpm`, `style`,
-`energy`, `chords`; parts by role, each on an instrument: Tone.js's synths, TR-808/909
-drum machines modelled from their circuits, a TB-303-style acid bass, sampled pianos,
-strings, bass and a drum kit (CC0, downloaded on first use), presets; `references/audio.md`,
+`energy`, `chords`; parts, each on an instrument row: Tone.js's synths built in, and in this
+skill's `library/` folder (copy it into `media/`) drums, basses, pads, sound effects, a
+TB-303, the TR-808/909 from their circuits and seven styles, all data to change; sampled
+pianos, strings, bass and a drum kit (CC0, downloaded on first use); `references/audio.md`,
 "Songs and sounds" and "Instruments") and place it
 like a clip (`{ "score", bus = "music", ducked = true }`); its sections are cues, and its
 notes drive the picture (`score.time("drop@1m")`, `score.pulse(f, { part = "drums", note =
-"kick" })`, `score.hits { ... }`). Sound effects: `sound { "impact" }`. Lines first, then the
+"kick" })`, `score.hits { ... }`). Sound effects: `sound { "impact", instruments = "instruments/sfx.json" }`. Lines first, then the
 song, then placement (say → song → placement), one leader per moment (`say_cue` for the
 music following the voice, `say_start` for the voice following the music).
 Time SFX from the same constants that drive the animation. Check with `audio analyze`

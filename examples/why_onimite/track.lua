@@ -1,28 +1,35 @@
 -- The soundtrack: an odawg song, 140 BPM in A minor (Am F C G, a chord a
 -- bar), its sections named after the scenes (the title has two: the intro
--- bar and the slam). House on TR-909 circuit models (DrumMachine) for the
--- title, race and bill; a TB-303 line (acid_house's AcidSynth) takes over
+-- bar and the slam). House on the 909 machine for the
+-- title, race and bill; a TB-303 line (acid_house's tb303) takes over
 -- for shipping and the agents; a breakdown under the tricks, the last drop,
--- an ambient tail. The transitions make the risers and the impacts; the
+-- an ambient tail. The risers and the impacts are written out; the
 -- parts below add what the picture answers to: the glitch stutters, the
 -- bill's counter blips, a crash on each scene's downbeat. The scenes start
 -- on these sections and read the hits back (video.lua, timeline.lua).
 
-local MACHINE = { "DrumMachine", machine = "909", tone = 0.55 }
+local library = require("library")
+local LIB, INSTRUMENTS = library.LIB, library.INSTRUMENTS
 
-return song { "score", key = "A minor", bpm = 140, seed = 140,
+local MACHINE = { LIB .. "machines/909.json", tone = 0.55 }
+
+return song { "score", instruments = INSTRUMENTS, key = "A minor", bpm = 140, seed = 140,
   sections = {
-    { "title", duration = "1m", style = "house", energy = 0.3, chords = "Am" },
-    { "slam", duration = "3m", energy = 0.55, chords = "F C G", transition = "impact" },
-    { "race", duration = "4m", energy = 0.85, chords = "Am F C G", transition = "riser" },
+    { "title", duration = "1m", style = LIB .. "styles/house.json", energy = 0.3, chords = "Am" },
+    { "slam", duration = "3m", energy = 0.55, chords = "F C G" },
+    { "race", duration = "4m", energy = 0.85, chords = "Am F C G" },
     { "bill", duration = "4m", energy = 0.75 },
-    { "ship", duration = "4m", style = "acid_house", energy = 0.6 },
+    { "ship", duration = "4m", style = LIB .. "styles/acid_house.json", energy = 0.6 },
     { "agents", duration = "4m", energy = 0.8 },
-    { "tricks", duration = "4m", style = "house", energy = 0.35 },
+    { "tricks", duration = "4m", style = LIB .. "styles/house.json", energy = 0.35 },
     { "outro", duration = "4m", energy = 1 },
-    { "tail", duration = "1m", style = "ambient", energy = 0.3, chords = "Am", transition = "cut" },
+    { "tail", duration = "1m", style = LIB .. "styles/ambient.json", energy = 0.3, chords = "Am", transition = "cut" },
   },
   parts = {
+    -- the transitions, written out: a riser over the two bars into a drop, an impact and a crash on its downbeat (video.lua reads the impact's hit)
+    rise = { instrument = "riser", gain_db = -4, play = { { "title", events = { { time = 0, duration = "1m", note = "C4", velocity = 0.35 } } }, { "slam", events = { { time = "1m", duration = "2m", note = "C4", velocity = 0.35 } } }, { "tricks", events = { { time = "2m", duration = "2m", note = "C4", velocity = 0.35 } } } } },
+    fx = { instrument = "impact", gain_db = -4, play = { { "slam", events = { { time = 0, duration = 2.5, note = "C2", velocity = 0.8 } } }, { "outro", events = { { time = 0, duration = 2.5, note = "C2", velocity = 0.8 } } } } },
+    fx_crash = { instrument = "crash", gain_db = -4, play = { { "slam", events = { { time = 0, duration = 1.6, note = "C4", velocity = 0.7 } } }, { "outro", events = { { time = 0, duration = 1.6, note = "C4", velocity = 0.7 } } } } },
     drums = { instrument = MACHINE, gain_db = 4, play = { { "tail", steps = { kick = "X..............." } } } },
     bass = { gain_db = 1 },
     pad = { gain_db = -16 },

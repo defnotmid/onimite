@@ -10,6 +10,11 @@
 --
 -- The voice is Pocket TTS by Kyutai (CC-BY-4.0), voice "alba".
 
+-- The skill's library (skills/onimite-video/library: rows and styles to
+-- copy into your media folder), from this example's media folder.
+local LIB = "../../../skills/onimite-video/library/"
+local INSTRUMENTS = { LIB .. "instruments/classic.json", LIB .. "instruments/sfx.json" }
+
 local W, H = 1920, 1080
 
 -- The lines first: their lengths size the music below, their words place the keys.
@@ -20,12 +25,18 @@ local strike = say("strike", "He struck a match. Light swept across the sea.", {
 -- The score: ambient in A minor, a section per line. "climb" and "top" are as long as
 -- their lines plus a breath (whole bars); "strike" is a bar of riser under the match;
 -- "beam" lands on the word "Light" with an impact, the strings, a sub and a heartbeat kick.
-local score = song { "score", key = "A minor", bpm = 120, seed = 11,
+local score = song { "score", instruments = INSTRUMENTS, key = "A minor", bpm = 120, seed = 11,
   sections = {
-    { "climb", duration = { audio = "climb", plus = { seconds = 1.2 } }, style = "ambient", energy = 0.2, chords = "Am9 Fmaj7" },
+    { "climb", duration = { audio = "climb", plus = { seconds = 1.2 } }, style = LIB .. "styles/ambient.json", energy = 0.2, chords = "Am9 Fmaj7" },
     { "top", duration = { audio = "top", plus = { seconds = 1.2 } }, energy = 0.35, chords = "Cmaj7 G" },
     { "strike", duration = "1m", energy = 0.25, chords = "Em7" },
-    { "beam", duration = "2m", energy = 0.85, chords = "Fmaj7 C", transition = "impact" },
+    { "beam", duration = "2m", energy = 0.85, chords = "Fmaj7 C" },
+  },
+  parts = {
+    -- the bar of riser under the match, the impact and a crash on "Light"
+    rise = { instrument = "riser", gain_db = -4, play = { { "strike", events = { { time = 0, duration = "1m", note = "C4", velocity = 0.35 } } } } },
+    fx = { instrument = "impact", gain_db = -4, play = { { "beam", events = { { time = 0, duration = 2.5, note = "C2", velocity = 0.8 } } } } },
+    fx_crash = { instrument = "crash", gain_db = -4, play = { { "beam", events = { { time = 0, duration = 1.6, note = "C4", velocity = 0.7 } } } } },
   },
 }
 
@@ -45,12 +56,12 @@ local MATCH = score.snap(say_cue(strike, STRIKE_AT, "match"), "8n")
 local SWEPT = score.snap(say_cue(strike, STRIKE_AT, "swept"), "8n")
 
 -- Sound effects, one sound{} per kind.
-local STEP = sound { "tick", note = "A5" }                                  -- a footstep on iron
+local STEP = sound { "tick", instruments = INSTRUMENTS, note = "A5" }                                  -- a footstep on iron
 local SCRAPE = sound { { "NoiseSynth", noise = { type = "pink" },          -- the match struck
   envelope = { attack = 0.004, decay = 0.45, sustain = 0, release = 0.1 } }, duration = 0.5 }
-local EMBER = sound { "crackle" }
-local BELL = sound { "bell", note = score.note("1", "beam"), duration = "1m" }   -- the lamp catching
-local WHOOSH = sound { "whoosh", duration = 0.7 }                            -- the beam passing
+local EMBER = sound { "crackle", instruments = INSTRUMENTS }
+local BELL = sound { "bell", instruments = INSTRUMENTS, note = score.note("1", "beam"), duration = "1m" }   -- the lamp catching
+local WHOOSH = sound { "whoosh", instruments = INSTRUMENTS, duration = 0.7 }                            -- the beam passing
 
 -- The keeper's steps: one per stair, from "climbed" to "stairs" (a roll, not beat-checked).
 local STEPS = 8

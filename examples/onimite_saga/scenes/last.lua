@@ -44,7 +44,7 @@ end
 local SOUNDS = {}
 for _, lb in ipairs { 2, 4, 6, 8, 9, 10, 11, 12, 13, 14, 15 } do -- a glitch on every word
   SOUNDS[#SOUNDS + 1] = sfx.at("last", lb, sfx.glitch(sfx.seconds("last", lb, 0.5)), 0.07)
-  SOUNDS[#SOUNDS + 1] = sfx.at("last", lb, sfx.hat(0.5, 8), 0.45)
+  SOUNDS[#SOUNDS + 1] = sfx.at("last", lb, sfx.hat(0.5, 1 / 8), 0.45)
 end
 
 local AT = score.time("last")

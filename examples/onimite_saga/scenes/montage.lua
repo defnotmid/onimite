@@ -192,7 +192,7 @@ end
 local SOUNDS = {}
 for k = 1, 7 do -- a whoosh into every cut, a crash on it
   SOUNDS[#SOUNDS + 1] = sfx.at("montage", 2 * k - 0.5, sfx.whoosh(sfx.seconds("montage", 2 * k - 0.5, 0.5)), 0.12)
-  SOUNDS[#SOUNDS + 1] = sfx.at("montage", 2 * k, sfx.hat(0.6, 6), 0.6)
+  SOUNDS[#SOUNDS + 1] = sfx.at("montage", 2 * k, sfx.hat(0.6, 1 / 6), 0.6)
 end
 
 local AT = score.time("montage")

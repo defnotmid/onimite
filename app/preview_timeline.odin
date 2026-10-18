@@ -730,9 +730,11 @@ draw_bands :: proc(v: ^Row_View, it: Timeline_Item, y, h: f32) {
 			}
 			x0 := xa + f32((r0 - (sample_at(v, xa) - f64(sp.zero)) / f64(bt.step)) * f64(bt.step) / v.samples_per_frame * v.ppf)
 			x1 := xa + f32((end - (sample_at(v, xa) - f64(sp.zero)) / f64(bt.step)) * f64(bt.step) / v.samples_per_frame * v.ppf)
-			src := [4]f32{f32(r0 - f64(strip * BAND_STRIP)), f32(strip * om.BAND_COUNT), f32(end - f64(strip * BAND_STRIP)), f32((strip + 1) * om.BAND_COUNT)}
+			// half a texel in from the strip's top and bottom: filtering
+			// blends bands, never the strips stacked above and below
+			src := [4]f32{f32(r0 - f64(strip * BAND_STRIP)), f32(strip * om.BAND_COUNT) + 0.5, f32(end - f64(strip * BAND_STRIP)), f32((strip + 1) * om.BAND_COUNT) - 0.5}
 			wx, wy, ww, wh := axis_rect(v.a, x0, y, x1 - x0, h)
-			render.draw_image_src(r, &img, src, wx, wy, ww, wh, nearest = true)
+			render.draw_image_src(r, &img, src, wx, wy, ww, wh, render.SAMPLE_HEAT)
 			r0 = end
 		}
 	}

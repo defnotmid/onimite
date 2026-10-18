@@ -1,4 +1,5 @@
--- The film's sound effects: odawg's presets as sound{} clips (each built
+-- The film's sound effects: rows of the skill's library (instruments/sfx.json
+-- and classic.json) as sound{} clips (each built
 -- once, named by its content), each placed by the scene it belongs to on the
 -- "sfx" bus. The music (music/) is only the score.
 --
@@ -17,21 +18,26 @@ local score = require("music.score")
 
 local S = {}
 
--- A preset playing `hz` (as a MIDI note) for `seconds`, at the score's level.
-local function play(preset, hz, seconds)
-  return sound { preset, note = hz and ("%.2f"):format(69 + 12 * math.log(hz / 440, 2)) or nil, duration = seconds,
-    gain_db = 0 }
+-- The skill's library, from the film's media folder.
+local LIB = "../../../skills/onimite-video/library/"
+local INSTRUMENTS = { LIB .. "instruments/sfx.json", LIB .. "instruments/classic.json" }
+
+-- A row playing `hz` (as a MIDI note) for `seconds`, at the score's level.
+local function play(row, hz, seconds)
+  return sound { row, instruments = INSTRUMENTS, note = hz and ("%.2f"):format(69 + 12 * math.log(hz / 440, 2)) or nil,
+    duration = seconds, gain_db = 0 }
 end
 
 function S.blip(hz) return play("blip", hz) end
-function S.done() return sound { "done", note = "E6", gain_db = 0 } end
+function S.done() return sound { "done", instruments = INSTRUMENTS, note = "E6", gain_db = 0 } end
 function S.tick(hz) return play("tick", hz) end
 function S.beep(hz) return play("beep", hz) end
 function S.tom(hz) return play("tom", hz, 0.55) end
-function S.thump(note) return sound { "thump", note = ("%.1f"):format(note), duration = 0.75, gain_db = 0 } end
+function S.thump(note) return sound { "thump", instruments = INSTRUMENTS, note = ("%.1f"):format(note), duration = 0.75, gain_db = 0 } end
 function S.impact() return play("impact", nil, 2.6) end
 function S.crash() return play("crash", nil, 1.7) end
 function S.crackle() return play("crackle") end
+-- A hat ringing for `seconds`, dying by 37% every `decay` seconds.
 function S.hat(seconds, decay) return play({ "hat", decay = decay }, nil, seconds) end
 -- A whoosh: noise swelling over `seconds` into a cut (with a rising tone).
 function S.whoosh(seconds, tone) return play({ "whoosh", tone = tone }, nil, seconds) end

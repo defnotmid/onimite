@@ -12,6 +12,7 @@ import "core:thread"
 import om "../onimite"
 import odevice "deps:odawg/device"
 import orender "deps:odawg/render"
+import osong "deps:odawg/song"
 import script "../script"
 
 // What the render worker derives from a load for the preview's panels,
@@ -500,7 +501,7 @@ Timeline_Ref :: struct {
 	bus:   int,
 	track: int,
 	part:  int,
-	pad:   odevice.Pad,
+	pad:   u32, // base.name_id of a pad (0: the pitched notes)
 }
 
 // A kind's rule: the item for `ref` under `parent`, returning it.
@@ -605,7 +606,7 @@ TIMELINE_KINDS := [Timeline_Kind]proc(x: ^Timeline_Build, parent: int, ref: Time
 		name := s.parts[ref.part]
 		lane := placed_lane(x, placements(x, ref.track), i32(ref.part), name)
 		pitched := false
-		pads: bit_set[odevice.Pad]
+		pads := make([dynamic]u32, context.temp_allocator)
 		notes := 0
 		for tr in s.tracks {
 			if int(tr.part) != ref.part {
@@ -613,8 +614,10 @@ TIMELINE_KINDS := [Timeline_Kind]proc(x: ^Timeline_Build, parent: int, ref: Time
 			}
 			notes += int(tr.notes.count)
 			for i in tr.notes.first ..< tr.notes.first + tr.notes.count {
-				if pad := s.notes.pad[i]; pad != .None {
-					pads += {pad}
+				if pad := s.notes.pad[i]; pad != 0 {
+					if !slice.contains(pads[:], pad) {
+						append(&pads, pad)
+					}
 				} else {
 					pitched = true
 				}
@@ -652,7 +655,7 @@ TIMELINE_KINDS := [Timeline_Kind]proc(x: ^Timeline_Build, parent: int, ref: Time
 		return it
 	},
 	.Hits = proc(x: ^Timeline_Build, parent: int, ref: Timeline_Ref) -> int {
-		name := odevice.PAD_NAMES[ref.pad]
+		name := osong.pad_name(&x.placed[ref.track].song.song, ref.pad)
 		it := timeline_item(x, .Hits, parent, int(x.b.table.items[parent].lane), strings.clone(text_of(x.b.table.text[:], x.b.table.items[parent].path), context.temp_allocator), name, "")
 		part_notes(x, it, ref)
 		return it
@@ -699,7 +702,7 @@ placements :: proc(x: ^Timeline_Build, k: int) -> []int {
 sound_kind :: proc(p: om.Placed_Track) -> string {
 	if p.song != nil && p.song.ok && len(p.song.song.tracks) == 1 {
 		s := &p.song.song
-		return odevice.DEVICE_TABLE[s.devices[s.tracks[0].instrument]].name
+		return s.labels[s.tracks[0].instrument]
 	}
 	return p.track.src
 }
@@ -781,7 +784,7 @@ part_notes :: proc(x: ^Timeline_Build, it: int, ref: Timeline_Ref) {
 		}
 	}
 	t.items[it].notes = {i32(first), i32(len(t.notes) - first)}
-	what := "notes" if ref.pad == .None else odevice.PAD_NAMES[ref.pad]
+	what := "notes" if ref.pad == 0 else osong.pad_name(&x.placed[ref.track].song.song, ref.pad)
 	t.items[it].summary = text_push(&t.text, fmt.tprintf("%d %s of %s", len(t.notes) - first, what, x.placed[ref.track].song.song.parts[ref.part]))
 }
 

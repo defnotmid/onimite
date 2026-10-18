@@ -5,14 +5,19 @@
 --
 --     onimite render examples/captions_demo/video.lua -o captions_demo.mp4
 
+-- The skill's library (skills/onimite-video/library: rows and styles to
+-- copy into your media folder), from this example's media folder.
+local LIB = "../../../skills/onimite-video/library/"
+local INSTRUMENTS = { LIB .. "instruments/classic.json", LIB .. "instruments/sfx.json" }
+
 local W, H = 1080, 1920
 
 -- The beat: lo-fi hip hop in A minor, a section per style, two bars (5 s) each. The
 -- style's swung boom-bap, round bass and filtered keys, the keys a real FM electric
 -- piano (sampled); in "pop" a soft grand arpeggiates on top.
-local score = song { "score", key = "A minor", bpm = 96, seed = 120,
+local score = song { "score", instruments = INSTRUMENTS, key = "A minor", bpm = 96, seed = 120,
   sections = {
-    { "box", duration = "2m", style = "lofi", energy = 0.5, chords = "Am9 Fmaj7" },
+    { "box", duration = "2m", style = LIB .. "styles/lofi.json", energy = 0.5, chords = "Am9 Fmaj7" },
     { "pop", duration = "2m", energy = 0.6, chords = "Cmaj7 G" },
   },
   parts = {

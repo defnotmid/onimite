@@ -15,7 +15,7 @@ local sin, cos, pi = math.sin, math.cos, math.pi
 
 -- Lines of video.lua, typed one a beat from beat 1.
 local CODE = {
-  'local score = song { "score", style = "synthwave" }',
+  'local score = song { "score", style = "styles/synthwave.json" }',
   'shader(f, { src = "world.sksl", w = 1920, h = 1080,',
   '  uniforms = { uWorld = function() world.draw(f, b, bands) end,',
   '    uPano = "canyon.webp", uWarp = warp, uPulse = kick } })',

@@ -36,6 +36,7 @@ SAMPLE_SOLID :: f32(0)
 SAMPLE_RGBA :: f32(1)
 SAMPLE_GLYPH :: f32(2)
 SAMPLE_RGBA_NEAREST :: f32(3)
+SAMPLE_HEAT :: f32(4) // a level texture (R8) as heat, filtered
 
 // Convert a packed byte color to a straight-alpha float color.
 color_f32 :: #force_inline proc "contextless" (c: [4]u8) -> [4]f32 {

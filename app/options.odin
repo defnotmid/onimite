@@ -186,6 +186,12 @@ Audio_Pin_Args :: struct {
 	using script_options: Script_Options `shared:""`,
 }
 
+Audio_Parts_Args :: struct {
+	using script_arg:     Script_Arg,
+	against:              string `reg:"path" arg:"FILE" about:"an earlier --json of it: say what drifted (notes, first notes, more than 1 LU of level) and fail"`,
+	using script_options: Script_Options `shared:""`,
+}
+
 // The environment adds what measurements use (cli_parse): a PNG of the
 // last window frame (ONIMITE_PREVIEW_CAPTURE, regs.path) and scripted input
 // (ONIMITE_PREVIEW_DRIVE, regs.args).

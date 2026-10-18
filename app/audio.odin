@@ -659,8 +659,8 @@ audio_at :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 // ---- waveform -------------------------------------------------------------------------
 
 // Band rows (odawg's .Bands table) drawn as an image `width` x `height` at
-// `top`: the row nearest each column, a band per row of pixels, 20 Hz at
-// the bottom, dB through a dark-to-bright ramp.
+// `top`: the row nearest each column, a band per row of pixels (filtered
+// between bands), 20 Hz at the bottom, dB through a dark-to-bright ramp.
 @(private = "file")
 spectrogram :: proc(c: ^vg.Canvas, p: ^vg.Path, table: ^orender.Table, width: int, top, height: f32) {
 	t := table
@@ -677,7 +677,7 @@ spectrogram :: proc(c: ^vg.Canvas, p: ^vg.Path, table: ^orender.Table, width: in
 			px[0], px[1], px[2], px[3] = heat(v)
 		}
 	}
-	id, err := vg.create_image(c, vg.image_source_rgba(pixels, u32(width), u32(bands)), {.Nearest})
+	id, err := vg.create_image(c, vg.image_source_rgba(pixels, u32(width), u32(bands)), {})
 	if err != nil {
 		return
 	}
@@ -687,8 +687,9 @@ spectrogram :: proc(c: ^vg.Canvas, p: ^vg.Path, table: ^orender.Table, width: in
 }
 
 // A dark-to-bright ramp (black, purple, red, orange, pale yellow) at `v` in
-// 0..1: how a band level is drawn (the waveform PNG, the preview's bands).
-@(private)
+// 0..1: how a band level is drawn (the waveform PNG; the preview's bands are
+// the same ramp in shaders/rect2d.slang).
+@(private = "file")
 heat :: proc(v: f32) -> (u8, u8, u8, u8) {
 	STOPS :: [5][3]f32{{0, 0, 4}, {87, 16, 110}, {188, 55, 84}, {249, 142, 9}, {252, 255, 164}}
 	stops := STOPS

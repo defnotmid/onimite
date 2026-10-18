@@ -8,6 +8,7 @@ local beat = require("beat")
 local score = require("track")
 local ui = require("ui")
 local T = require("timeline")
+local INSTRUMENTS = require("library").INSTRUMENTS
 local facts = require("facts")
 local snap, soft = beat.snap, beat.soft
 
@@ -194,12 +195,12 @@ end
 -- A sound per landing, as hard as it hit: a tick per crate (three pitches),
 -- a thump for the toolchain, an impact for the build, a blip for onimite;
 -- a crash when onimite has landed, a DONE on the reload.
-local TICKS = { sound { "tick", note = "C#7" }, sound { "tick", note = "E7" }, sound { "tick", note = "G7" } }
-local LANDING = { build = sound { "impact", duration = "2n" }, onimite = sound { "blip", note = "E6", duration = "16n" },
-  block = sound { "thump", note = "A1", duration = "4n" } }
+local TICKS = { sound { "tick", instruments = INSTRUMENTS, note = "C#7" }, sound { "tick", instruments = INSTRUMENTS, note = "E7" }, sound { "tick", instruments = INSTRUMENTS, note = "G7" } }
+local LANDING = { build = sound { "impact", instruments = INSTRUMENTS, duration = "2n" }, onimite = sound { "blip", instruments = INSTRUMENTS, note = "E6", duration = "16n" },
+  block = sound { "thump", instruments = INSTRUMENTS, note = "A1", duration = "4n" } }
 local audio = {
-  { sound { "crash", duration = "2n" }, start = T.at.SHIP_TOTAL, gain_db = -8 },
-  { sound { "done", note = "E6", duration = "16n" }, start = T.at.RELOAD, gain_db = -6 },
+  { sound { "crash", instruments = INSTRUMENTS, duration = "2n" }, start = T.at.SHIP_TOTAL, gain_db = -8 },
+  { sound { "done", instruments = INSTRUMENTS, note = "E6", duration = "16n" }, start = T.at.RELOAD, gain_db = -6 },
 }
 for _, h in ipairs(HITS) do
   local g = clamp01(h.speed / 2500)
