@@ -260,7 +260,9 @@ video { ..., audio = { { score, start = 0 } } }                -- a song or its 
   written on the row sets it for every region. CCs sit at a value: the row's (`cc64 = 127`,
   or by its `label_ccN` name), else the file's `set_ccN`, else SFZ's defaults (CC 7 at 100,
   CC 11 at 127). An opcode odawg doesn't play is an `unsupported_opcode` finding (a warning
-  when it changes the sound), one not in the SFZ reference `unknown_opcode`, and a file no
+  when it changes the sound), one not in the SFZ reference `unknown_opcode`, each once per
+  file with its count and where it is first used (`note_selfmask isn't played (3 uses, first
+  at lib/piano.sfz:12)`), and a file no
   region of plays at its CCs `sfz_silent`. `{ "Sampler", set = "lib/piano.sfz", attack,
   release }` still plays, with an `sfz_instrument` info finding naming the form above. The
   notes an SFZ makes itself (release triggers, keyswitches) aren't in `score.hits`,
