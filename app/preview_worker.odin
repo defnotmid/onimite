@@ -953,7 +953,9 @@ make_target :: proc(device: ^sdl.GPUDevice, size: [2]u32) -> ^sdl.GPUTexture {
 
 @(private = "file")
 worker_render :: proc(w: ^Render_Worker, req: Render_Request) {
-	// what the frame asked of the songs, with what the lanes asked
+	// what the frame asked of the songs, with what the lanes asked; the
+	// renderers make what is near it first
+	om.music_focus(w.media, om.frames_to_samples(req.frame, w.script.video.fps if w.script != nil else 1))
 	defer om.music_drain(w.media)
 	r := worker_renderer(w, req.scale)
 	if r == nil {

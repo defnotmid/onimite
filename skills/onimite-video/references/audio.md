@@ -109,10 +109,13 @@ video { width = 1920, height = 1080, fps = 60, duration = score.duration,
   `score/bass`: `--track score/bass` hears one alone, `show video.lua song/score/parts/bass`
   lists its notes.
 - Nothing of a song's sound is kept: the mix and the preview stream it; `audio_energy` and
-  `audio_spectrum` on a song read its tables (what each frame measures, made once from one
-  stream of it, only where it sounds); `audio_onsets("score")` and `hits` are its notes,
-  exact. In the preview a song's lane opens to its parts, a part to its notes (a piano roll,
-  a row per drum pad), each drawn where it plays; a bus opens to a row per sound.
+  `audio_spectrum` on a song read its tables (what each frame measures, read from the song's
+  render: made once, kept, only where it sounds); `audio_onsets("score")` and `hits` are its
+  notes, exact. A `frame`, `strip` or `onion` makes only the stretch its frames read. In the
+  preview a song's lane opens to its parts, a part to its notes (a piano roll, a row per drum
+  pad), each drawn where it plays; a bus opens to a row per sound. The lanes' waveforms fill in
+  as the song renders in the background, the stretch at the playhead first; the sound and the
+  picture never wait for it.
 
 ## Placing tracks
 

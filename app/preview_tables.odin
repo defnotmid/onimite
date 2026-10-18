@@ -11,6 +11,7 @@ import "core:strings"
 import "core:thread"
 import om "../onimite"
 import odevice "deps:odawg/device"
+import orender "deps:odawg/render"
 import script "../script"
 
 // What the render worker derives from a load for the preview's panels,
@@ -106,18 +107,20 @@ scene_name :: proc(t: ^Preview_Timeline, s: Preview_Scene) -> string {
 
 // ---- waveforms --------------------------------------------------------------------------
 
-WAVE_BUCKET :: 256 // mix samples per peak pair at level 0
+WAVE_BUCKET :: om.SONG_BUCKET // mix samples per peak pair at level 0 (a song render's peaks are these)
 WAVE_LEVELS :: 20
 // Level-0 buckets filled per idle step (about 4 M samples, a few ms).
 WAVE_CHUNK :: 16384
 
-// One pyramid in `Wave_Table.peaks`; `levels == 0` while it is being
-// computed.
+// One pyramid in `Wave_Table.peaks`; `levels == 0` until its level 0 has
+// anything, `complete` once level 0 is final (a song's grows as its render
+// is made).
 Wave_Clip :: struct {
-	frames: int,
-	levels: int,
-	offset: [WAVE_LEVELS]u32,
-	count:  [WAVE_LEVELS]u32,
+	frames:   int,
+	levels:   int,
+	complete: bool,
+	offset:   [WAVE_LEVELS]u32,
+	count:    [WAVE_LEVELS]u32,
 }
 
 // A stretch of a lane where its source sounds: a view of a pyramid, `at`
@@ -228,10 +231,10 @@ Wave_Source :: struct {
 	clip:       int, // its pyramid (into table.clips)
 	audio:      om.Audio_Clip, // Clip: the header (the samples are the media's, matched by address)
 	song:       ^om.Song_Clip, // Song
-	part:       i32, // Song: one part's stem (-1: the mix)
-	span:       int, // Song: which stretch of its table (into the table's spans)
-	filled:     int, // Clip: level-0 buckets so far
-	waiting:    bool, // Song: its table is being built
+	part:       i32, // Song: one part's peaks (-1: the mix)
+	from:       int, // Song: its stretch's first bucket in the render
+	filled:     int, // Clip, Song: level-0 buckets so far
+	waiting:    bool, // until something lands (a song's segment, a track's pyramid)
 	first:      int, // Group: its tracks' lanes, into group_lanes
 	count:      int,
 	region:     int, // Group: its own
@@ -241,7 +244,8 @@ Wave_Source :: struct {
 Wave_Fill :: enum u8 {
 	Working, // more to do
 	Done, // level 0 is complete
-	Waiting, // on something else (a table being built, a track's pyramid)
+	Grew, // level 0 has more, and more comes when something lands
+	Waiting, // on something else (a song's render, a track's pyramid)
 }
 
 WAVE_SOURCE_KINDS := [Wave_Source_Kind]proc(b: ^Wave_Builder, src: ^Wave_Source) -> Wave_Fill {
@@ -266,33 +270,47 @@ WAVE_SOURCE_KINDS := [Wave_Source_Kind]proc(b: ^Wave_Builder, src: ^Wave_Source)
 		src.filled = hi
 		return hi < n0 ? .Working : .Done
 	},
-	// its stretch of the peaks table, once the table has landed
+	// a view of its stretch of the song's render peaks: the buckets of the
+	// segments made so far
 	.Song = proc(b: ^Wave_Builder, src: ^Wave_Source) -> Wave_Fill {
-		st := om.song_table(src.song, .Peaks, src.part, WAVE_BUCKET, 1)
-		if !om.song_table_later(src.song, st) {
-			return .Waiting
-		}
+		sc := src.song
+		om.song_render_want(sc)
+		rd := &sc.render
 		t := &b.table
 		c := &t.clips[src.clip]
-		from := st.table.spans[src.span].from
-		for &pk, k in t.peaks[c.offset[0]:][:c.count[0]] {
-			if row := om.song_table_row(st, from + k); row != nil {
-				pk = {i8(clamp(row[0], -1, 1) * 127), i8(clamp(row[1], -1, 1) * 127)}
+		level0 := t.peaks[c.offset[0]:][:c.count[0]]
+		row := rd.peaks[int(src.part + 1) * rd.buckets:][:rd.buckets]
+		got := 0
+		for &pk, k in level0 {
+			bucket := src.from + k
+			if bucket < rd.buckets && om.song_segment_done(sc, bucket * om.SONG_BUCKET / om.SONG_SEGMENT) {
+				pk = row[bucket]
+				got += 1
 			}
 		}
-		return .Done
+		switch {
+		case got == len(level0) || om.song_render_whole(sc):
+			return .Done
+		case got > src.filled:
+			src.filled = got
+			return .Grew
+		}
+		return .Waiting
 	},
-	// its tracks' regions at their places, shaped by their fades, once all
-	// have their pyramids
+	// its tracks' regions at their places, shaped by their fades: what
+	// their pyramids have so far, complete once theirs all are
 	.Group = proc(b: ^Wave_Builder, src: ^Wave_Source) -> Wave_Fill {
 		t := &b.table
 		lanes := b.group_lanes[src.first:][:src.count]
+		complete, any := true, false
 		for k in lanes {
 			for r in lane_regions(t, k) {
-				if t.clips[r.clip].levels == 0 {
-					return .Waiting
-				}
+				complete &&= t.clips[r.clip].complete
+				any ||= t.clips[r.clip].levels > 0
 			}
+		}
+		if !any {
+			return .Waiting
 		}
 		own := t.regions[src.region]
 		c := &t.clips[src.clip]
@@ -323,7 +341,7 @@ WAVE_SOURCE_KINDS := [Wave_Source_Kind]proc(b: ^Wave_Builder, src: ^Wave_Source)
 				}
 			}
 		}
-		return .Done
+		return .Done if complete else .Grew
 	},
 }
 
@@ -426,7 +444,7 @@ media_source :: proc(b: ^Wave_Builder, want: Wave_Source, frames: int) -> int {
 				return src.clip
 			}
 		case .Song:
-			if src.song == want.song && src.part == want.part && src.span == want.span {
+			if src.song == want.song && src.part == want.part && src.from == want.from {
 				return src.clip
 			}
 		case .Group:
@@ -677,14 +695,16 @@ placed_lane :: proc(x: ^Timeline_Build, ks: []int, part: i32, name: string) -> i
 		case p.song != nil && p.song.ok:
 			// the song's sample 0 on the video
 			zero := p.start - p.file_start
-			st := om.song_table(p.song, .Peaks, part, WAVE_BUCKET, 1)
-			for sp, i in st.table.spans {
-				a, z := zero + sp.from * WAVE_BUCKET, zero + sp.to * WAVE_BUCKET
+			for sp in orender.sounding_from_song(&p.song.song, part) {
+				// whole render buckets: the stretch's view of them
+				first := int(sp[0] * om.MIX_RATE) / om.SONG_BUCKET
+				last := (int(math.ceil(sp[1] * om.MIX_RATE)) + om.SONG_BUCKET - 1) / om.SONG_BUCKET
+				a, z := zero + first * om.SONG_BUCKET, zero + last * om.SONG_BUCKET
 				start, end := max(a, p.start), min(z, p.end)
 				if end <= start {
 					continue
 				}
-				clip := media_source(x.b, {kind = .Song, song = p.song, part = part, span = i}, z - a)
+				clip := media_source(x.b, {kind = .Song, song = p.song, part = part, from = first}, z - a)
 				append(&t.regions, Wave_Region{clip, start, end, start - a})
 			}
 		}
@@ -800,11 +820,11 @@ wave_builder_lanes :: proc(b: ^Wave_Builder, placed: []om.Placed_Track, order: [
 		src.clip = pyramid_reserve(t, r.end - r.start)
 		r.clip = src.clip
 	}
-	// the songs' tables asked now, with the first frame's (the worker
-	// drains them after it): each song is built once for both
+	// the songs' renders asked now, with the first frame's tables (the
+	// worker drains after it)
 	for src in b.sources {
 		if src.kind == .Song {
-			om.song_table_later(src.song, om.song_table(src.song, .Peaks, src.part, WAVE_BUCKET, 1))
+			om.song_render_want(src.song)
 		}
 	}
 }
@@ -812,7 +832,7 @@ wave_builder_lanes :: proc(b: ^Wave_Builder, placed: []om.Placed_Track, order: [
 // Whether a source has a step to take (not complete, not waiting).
 wave_builder_pending :: proc(b: ^Wave_Builder) -> bool {
 	for src in b.sources {
-		if b.table.clips[src.clip].levels == 0 && !src.waiting {
+		if !b.table.clips[src.clip].complete && !src.waiting {
 			return true
 		}
 	}
@@ -827,13 +847,13 @@ wave_builder_landed :: proc(b: ^Wave_Builder) {
 }
 
 // One bounded step of pyramid work: the first source with work, by its
-// kind's rule; its upper levels once its level 0 is complete. True when a
-// pyramid finished (the table should be published).
-wave_builder_step :: proc(b: ^Wave_Builder) -> (finished: bool) {
+// kind's rule; its upper levels once its level 0 is complete or grew. True
+// when a pyramid changed (the table should be published).
+wave_builder_step :: proc(b: ^Wave_Builder) -> (changed: bool) {
 	t := &b.table
 	for &src in b.sources {
 		c := &t.clips[src.clip]
-		if c.levels > 0 || src.waiting {
+		if c.complete || src.waiting {
 			continue
 		}
 		switch WAVE_SOURCE_KINDS[src.kind](b, &src) {
@@ -841,6 +861,11 @@ wave_builder_step :: proc(b: ^Wave_Builder) -> (finished: bool) {
 			return false
 		case .Done:
 			pyramid_levels(t, c)
+			c.complete = true
+			return true
+		case .Grew:
+			pyramid_levels(t, c)
+			src.waiting = true
 			return true
 		case .Waiting:
 			src.waiting = true

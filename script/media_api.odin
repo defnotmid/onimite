@@ -819,7 +819,7 @@ song_table_at :: proc(s: ^Script, ctx: ^om.Context, song: ^om.Song_Clip, kind: o
 	if song == nil {
 		return nil
 	}
-	st := om.song_table(song, kind, -1, om.MIX_RATE, max(fps, 1), size, shape)
+	st := om.song_table(song, kind, om.MIX_RATE, max(fps, 1), size, shape)
 	switch {
 	case s.audio_later:
 		if !om.song_table_later(song, st) {

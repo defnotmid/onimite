@@ -5,6 +5,7 @@ import "core:encoding/json"
 import "core:hash"
 import "core:math"
 import "core:mem/virtual"
+import "core:os"
 import "core:slice"
 import "core:strings"
 import "core:sync"
@@ -21,9 +22,12 @@ import otheory "deps:odawg/theory"
 
 // Songs: odawg's composed songs (`song{}`, `sound{}` in scripts) as media
 // sounds a track plays by name, like a clip. A song is data (its form, its
-// tracks and every note); its samples are never kept: the mix, the preview
-// and the analysis stream them from odawg's engine. The video's sample sets
-// (what its Samplers play) are one bank, shared by its songs.
+// tracks and every note). Its sound is made once, when something needs all
+// of it (a lane's peaks, a table a frame reads): its render, kept with it,
+// made a segment at a time on every core (the preview's playhead first);
+// lanes and tables are views of it. The mix streams songs from odawg's
+// engine. The video's sample sets (what its Samplers play) are one bank,
+// shared by its songs.
 
 Music :: struct {
 	lock:    sync.Mutex, // the songs, the queue
@@ -39,13 +43,19 @@ Music :: struct {
 	// song is composed, and only the zones its notes reach loaded, when its
 	// sound is first wanted (music_load).
 	bank:    odevice.Bank,
-	// The tables waiting to be built in the background, the builder's
-	// thread (building while it runs), how many landed since the host
-	// looked (atomic), and who it tells.
-	queue:     [dynamic]Queued_Table,
-	builder:   ^thread.Thread,
-	building:  bool,
+	// The renderers (threads making songs' renders: started by music_drain,
+	// ending when no segment is left), how many run, whether they must stop
+	// (the media goes), the video sample nearest which they render first
+	// (atomic), segments landed and songs whole since the host looked
+	// (atomic), what a waiting command hears a segment land on, and who
+	// they tell.
+	renderers: [dynamic]^thread.Thread,
+	running:   int,
+	stopping:  bool,
+	focus:     i64,
 	landed:    int,
+	whole:     int,
+	landing:   sync.Cond,
 	// Songs whose sample sets loaded since the host looked (atomic): a mix
 	// made before has them silent.
 	banks:     int,
@@ -72,7 +82,8 @@ Song_Clip :: struct {
 	needs:    [dynamic]odevice.Sample_Need,
 	loaded:   bool,
 	music:    ^Music, // whose bank it plays
-	// Its tables (song_table): heap memory, freed with it.
+	// Its render and the tables read from it: heap memory, freed with it.
+	render:   Song_Render,
 	tables:   [dynamic]^Song_Table,
 }
 
@@ -80,7 +91,7 @@ Song_Clip :: struct {
 music_init :: proc(mu: ^Music) {
 	mu.songs = make(map[string]^Song_Clip)
 	mu.retired = make([dynamic]^Song_Clip)
-	mu.queue = make([dynamic]Queued_Table)
+	mu.renderers = make([dynamic]^thread.Thread)
 	a := runtime.heap_allocator()
 	mu.bank.sets = make([dynamic]odevice.Sample_Set, a)
 	mu.bank.zones = make([dynamic]odevice.Zone, a)
@@ -93,15 +104,15 @@ music_init :: proc(mu: ^Music) {
 
 @(private)
 music_destroy :: proc(mu: ^Music) {
-	// the builder finishes the song it is on, then finds the queue empty
+	// the renderers finish the segment they are on
 	sync.mutex_lock(&mu.lock)
-	clear(&mu.queue)
+	mu.stopping = true
 	sync.mutex_unlock(&mu.lock)
-	if mu.builder != nil {
-		thread.join(mu.builder)
-		thread.destroy(mu.builder)
+	for t in mu.renderers {
+		thread.join(t)
+		thread.destroy(t)
 	}
-	delete(mu.queue)
+	delete(mu.renderers)
 	for name, sc in mu.songs {
 		delete(name)
 		song_clip_free(sc)
@@ -150,6 +161,10 @@ song_clip_free :: proc(sc: ^Song_Clip) {
 		free(st, runtime.heap_allocator())
 	}
 	delete(sc.tables)
+	a := runtime.heap_allocator()
+	delete(sc.render.samples, a)
+	delete(sc.render.peaks, a)
+	delete(sc.render.state, a)
 	virtual.arena_destroy(&sc.arena)
 	free(sc)
 }
@@ -400,63 +415,283 @@ song_off_grid :: proc(sc: ^Song_Clip, t: f64) -> (off, beat: f64, ok: bool) {
 	return t - snapped, 60 / otempo.bpm_from_beat(&s.tempo, b), true
 }
 
-// ---- a song's tables (the analysis, the lanes) ---------------------------------------
+// ---- a song's render, and the tables read from it -----------------------------------
 
-// What is read of a song at random (a frame's spectrum or energy, a lane's
-// peaks): odawg's tables of it, one per kind and step, shared by every
-// script state and worker. A table is built once from one streamed export
-// of the song (every core): by the first reader that needs it, or while
-// the preview draws by the music's builder in the background (a frame reads
-// silence until it lands and is drawn again). Nothing of the sound is kept.
+// Samples a render segment covers: whole peak buckets, so none straddles
+// two segments. Long enough that the exact seek starting each run (its
+// effects' memory, seconds) costs little against it; short enough that the
+// segment at a jump lands in well under a second.
+SONG_SEGMENT :: 16 * MIX_RATE
+// Samples a render peak covers (min and max, the lanes' level 0).
+SONG_BUCKET :: 256
+
+Segment_State :: enum u8 {
+	Todo,
+	Taken, // a renderer is making it
+	Done,
+}
+
+// A song's render: what it sounds like, made once and kept. Its mix as its
+// master puts it out (16-bit stereo interleaved) and, per bucket, the
+// peaks of the mix and of each part (row 0 the mix, row p + 1 part p: what
+// lanes draw; the parts' sound itself is not kept). It is made a segment
+// at a time, each from an exact seek, so any segment can be made first:
+// `state` is per segment (Segment_State, atomic), `left` how many are not
+// done (atomic). Memory once something wants it (song_render_want), heap.
+Song_Render :: struct {
+	samples: []i16,
+	peaks:   [][2]i8,
+	buckets: int, // per row of peaks
+	frames:  int,
+	state:   []u8,
+	left:    int,
+	wanted:  bool, // the renderers make it (under the music's lock)
+}
+
+// A table of a song's mix (a frame's spectrum or energy): odawg's rows,
+// one table per kind and step, shared by every script state and worker,
+// read from the render: a row is filled once the render holds its window.
 Song_Table :: struct {
-	table:  orender.Table,
-	lock:   sync.Mutex, // held while it is built
-	built:  bool, // atomic: after it, readers read without locking
-	queued: bool, // waiting for the builder (under the music's lock)
-	// Before it is built: the steps filled one at a time (a command drawing
-	// a few frames: song_table_fill_rows), 1 each (atomic), heap memory.
-	filled: []u8,
+	table:    orender.Table,
+	lock:     sync.Mutex, // held while rows are filled
+	filled:   []u8, // per step: 1 once filled (atomic); heap memory
+	complete: bool, // atomic: every row is filled
 }
 
-// A table waiting for the builder, and whose song it is.
-@(private)
-Queued_Table :: struct {
-	clip:  ^Song_Clip,
-	table: ^Song_Table,
-}
-
-// Song `sc`'s table of `kind` over `part` (-1: the mix), a row every
-// `step_num / step_den` samples (a video frame: MIX_RATE / fps), made on
-// first ask (not built yet: song_table_build, song_table_later).
-song_table :: proc(sc: ^Song_Clip, kind: orender.Table_Kind, part: i32, step_num, step_den: int, size := 0, shape := oanalyze.Window.None) -> ^Song_Table {
+// Song `sc`'s mix table of `kind`, a row every `step_num / step_den`
+// samples (a video frame: MIX_RATE / fps), made on first ask with the rows
+// the render already holds.
+song_table :: proc(sc: ^Song_Clip, kind: orender.Table_Kind, step_num, step_den: int, size := 0, shape := oanalyze.Window.None) -> ^Song_Table {
 	mu := sc.music
-	sync.guard(&mu.lock)
-	for st in sc.tables {
+	st: ^Song_Table
+	{
+		sync.guard(&mu.lock)
+		for x in sc.tables {
+			t := &x.table
+			if t.kind == kind && t.step_num == step_num && t.step_den == step_den && t.size == size && t.shape == shape {
+				return x
+			}
+		}
+		st = new(Song_Table, runtime.heap_allocator())
+		orender.table_init(&st.table, &sc.song, kind, -1, step_num, step_den, size, shape, runtime.heap_allocator())
 		t := &st.table
-		if t.kind == kind && t.part == part && t.step_num == step_num && t.step_den == step_den && t.size == size && t.shape == shape {
-			return st
+		st.filled = make([]u8, t.frames * t.step_den / max(t.step_num, 1) + 1, runtime.heap_allocator())
+		append(&sc.tables, st)
+	}
+	if sc.render.samples != nil {
+		table_fill_held(sc, st, 0, sc.render.frames)
+		if sync.atomic_load(&sc.render.left) == 0 {
+			sync.atomic_store(&st.complete, true)
 		}
 	}
-	st := new(Song_Table, runtime.heap_allocator())
-	orender.table_init(&st.table, &sc.song, kind, part, step_num, step_den, size, shape, runtime.heap_allocator())
-	append(&sc.tables, st)
 	return st
 }
 
-// Row `i` of a built table, or a row filled alone (nil: not built yet, or
-// outside the song).
+// Row `i` of a table once filled (nil: not yet, silent, or outside the
+// song).
 song_table_row :: proc(st: ^Song_Table, i: int) -> []f32 {
-	if !song_table_ready(st) && !(i >= 0 && i < len(st.filled) && sync.atomic_load(&st.filled[i]) != 0) {
+	if i < 0 || i >= len(st.filled) || sync.atomic_load(&st.filled[i]) == 0 {
 		return nil
 	}
 	return orender.table_row(&st.table, i)
 }
 
-// Whether filling `rows` rows for each of `frames` frames alone makes less
-// sound than building the whole table: each fill renders its rows' windows
-// and the pre-roll before them (an exact seek).
-song_table_rows_cheaper :: proc(sc: ^Song_Clip, st: ^Song_Table, frames, rows: int) -> bool {
+song_table_ready :: proc(st: ^Song_Table) -> bool {
+	return sync.atomic_load(&st.complete)
+}
+
+// Asks for the song's render: its memory and segments now, the sound as
+// the renderers make it (music_drain).
+song_render_want :: proc(sc: ^Song_Clip) {
+	mu := sc.music
+	sync.guard(&mu.lock)
+	rd := &sc.render
+	rd.wanted = true
+	if rd.samples != nil {
+		return
+	}
+	a := runtime.heap_allocator()
+	rd.frames = orender.frames_from_song(&sc.song)
+	rd.samples = make([]i16, 2 * rd.frames, a)
+	rd.buckets = (rd.frames + SONG_BUCKET - 1) / SONG_BUCKET
+	rd.peaks = make([][2]i8, (1 + len(sc.song.parts)) * rd.buckets, a)
+	segments := (rd.frames + SONG_SEGMENT - 1) / SONG_SEGMENT
+	rd.state = make([]u8, segments, a)
+	rd.left = segments
+}
+
+// Whether segment `g` of the render is made (its samples and peaks may be
+// read).
+song_segment_done :: proc(sc: ^Song_Clip, g: int) -> bool {
+	rd := &sc.render
+	return g >= 0 && g < len(rd.state) && sync.atomic_load(&rd.state[g]) == u8(Segment_State.Done)
+}
+
+// Whether every segment is made.
+song_render_whole :: proc(sc: ^Song_Clip) -> bool {
+	return sc.render.samples != nil && sync.atomic_load(&sc.render.left) == 0
+}
+
+// Whether `st` is complete; if not, the song's render is asked for (the
+// renderers fill it as they go and tell the host, Music.wake).
+song_table_later :: proc(sc: ^Song_Clip, st: ^Song_Table) -> bool {
 	if song_table_ready(st) {
+		return true
+	}
+	song_render_want(sc)
+	return false
+}
+
+// Has the song's render made now (the renderers on every core, this thread
+// waiting) and `st` filled: what a command reading the whole song does.
+song_table_build :: proc(sc: ^Song_Clip, st: ^Song_Table) {
+	if song_table_ready(st) {
+		return
+	}
+	song_render_want(sc)
+	mu := sc.music
+	sync.guard(&mu.lock)
+	music_start(mu)
+	for sync.atomic_load(&sc.render.left) > 0 {
+		sync.cond_wait(&mu.landing, &mu.lock)
+	}
+}
+
+// Makes the song's render from segment `g` (taken): one engine from an
+// exact seek, a block at a time, the mix into the render and every
+// bucket's peaks (the mix's and each part's, from the block's stems), each
+// segment landed as it is made; on into the next while nobody has taken it
+// (no seek again: the pre-roll is paid once a run).
+@(private = "file")
+render_run :: proc(sc: ^Song_Clip, g: int) {
+	mu := sc.music
+	song_clip_load(sc)
+	e: orender.Engine
+	if !orender.engine_init(&e, &sc.song) {
+		return
+	}
+	defer orender.engine_destroy(&e)
+	orender.engine_seek(&e, i64(g * SONG_SEGMENT), true)
+	for g := g; ; g += 1 {
+		render_segment(sc, &e, g)
+		sync.guard(&mu.lock)
+		if mu.stopping || g + 1 >= len(sc.render.state) || sc.render.state[g + 1] != u8(Segment_State.Todo) {
+			break
+		}
+		sc.render.state[g + 1] = u8(Segment_State.Taken)
+	}
+}
+
+// Segment `g` from engine `e` (at its start), then landed: marked done and
+// the mix tables' rows the render now holds filled.
+@(private = "file")
+render_segment :: proc(sc: ^Song_Clip, e: ^orender.Engine, g: int) {
+	rd := &sc.render
+	from := g * SONG_SEGMENT
+	to := min(from + SONG_SEGMENT, rd.frames)
+	parts := len(sc.song.parts)
+	BLOCK :: orender.BLOCK
+	buf := make([]f32, 2 * BLOCK * (1 + parts), context.temp_allocator)
+	stems := make([][2][]f32, parts, context.temp_allocator)
+	peak :: proc(l, r: []f32) -> [2]i8 {
+		lo, hi: f32
+		for x in l {
+			lo, hi = min(lo, x), max(hi, x)
+		}
+		for x in r {
+			lo, hi = min(lo, x), max(hi, x)
+		}
+		return {i8(clamp(lo, -1, 1) * 127), i8(clamp(hi, -1, 1) * 127)}
+	}
+	for at := from; at < to; at += BLOCK {
+		n := min(BLOCK, to - at)
+		l, r := buf[:n], buf[BLOCK:][:n]
+		for &st, p in stems {
+			st = {buf[2 * BLOCK * (p + 1):][:n], buf[2 * BLOCK * (p + 1) + BLOCK:][:n]}
+		}
+		orender.engine_process(e, l, r, stems)
+		out := rd.samples[2 * at:][:2 * n]
+		for i in 0 ..< n {
+			out[2 * i] = i16(clamp(l[i], -1, 1) * 32767)
+			out[2 * i + 1] = i16(clamp(r[i], -1, 1) * 32767)
+		}
+		for k := 0; k < n; k += SONG_BUCKET {
+			b := (at + k) / SONG_BUCKET
+			z := min(k + SONG_BUCKET, n)
+			rd.peaks[b] = peak(l[k:z], r[k:z])
+			for st, p in stems {
+				rd.peaks[(p + 1) * rd.buckets + b] = peak(st[0][k:z], st[1][k:z])
+			}
+		}
+	}
+	sync.atomic_store(&rd.state[g], u8(Segment_State.Done))
+	mu := sc.music
+	tables: []^Song_Table
+	{
+		sync.guard(&mu.lock)
+		tables = slice.clone(sc.tables[:], context.temp_allocator)
+	}
+	for st in tables {
+		table_fill_held(sc, st, from, to)
+	}
+	if sync.atomic_sub(&rd.left, 1) == 1 {
+		for st in tables {
+			sync.atomic_store(&st.complete, true)
+		}
+		sync.atomic_add(&mu.whole, 1)
+	}
+	sync.atomic_add(&mu.landed, 1)
+	sync.mutex_lock(&mu.lock)
+	sync.cond_broadcast(&mu.landing)
+	sync.mutex_unlock(&mu.lock)
+	if mu.wake != nil {
+		mu.wake(mu.wake_data)
+	}
+}
+
+// Fills `st`'s rows near `[from, to)` whose whole window the render now
+// holds, from the render.
+@(private = "file")
+table_fill_held :: proc(sc: ^Song_Clip, st: ^Song_Table, from, to: int) {
+	rd := &sc.render
+	t := &st.table
+	row := orender.TABLE_KINDS[t.kind]
+	window := row.window(t)
+	sync.guard(&st.lock)
+	buf := make([]f32, 2 * window, context.temp_allocator)
+	first := (max(from - window + 1, 0) * t.step_den + t.step_num - 1) / max(t.step_num, 1)
+	rows: for step := first; step < len(st.filled); step += 1 {
+		start := orender.row_start(t, step)
+		if start >= to {
+			break
+		}
+		if st.filled[step] != 0 {
+			continue
+		}
+		end := min(start + window, rd.frames)
+		for g in start / SONG_SEGMENT ..= max(end - 1, start) / SONG_SEGMENT {
+			if !song_segment_done(sc, g) {
+				continue rows
+			}
+		}
+		if dst := orender.table_row(t, step); dst != nil && !(row.whole && start + window > t.frames) {
+			k := end - start
+			l, r := buf[:k], buf[window:][:k]
+			for i in 0 ..< k {
+				l[i] = f32(rd.samples[2 * (start + i)]) / 32767
+				r[i] = f32(rd.samples[2 * (start + i) + 1]) / 32767
+			}
+			row.fill(t, dst, l, r)
+		}
+		sync.atomic_store(&st.filled[step], 1)
+	}
+}
+
+// Whether filling `rows` rows for each of `frames` frames alone makes less
+// sound than the render: each fill renders its rows' windows and the
+// pre-roll before them (an exact seek). A render already made costs none.
+song_table_rows_cheaper :: proc(sc: ^Song_Clip, st: ^Song_Table, frames, rows: int) -> bool {
+	if song_table_ready(st) || song_render_whole(sc) {
 		return false
 	}
 	t := &st.table
@@ -475,11 +710,7 @@ song_table_fill_rows :: proc(sc: ^Song_Clip, st: ^Song_Table, first, last: int) 
 	}
 	sync.guard(&st.lock)
 	t := &st.table
-	steps := t.frames * t.step_den / max(t.step_num, 1) + 1
-	if len(st.filled) == 0 {
-		st.filled = make([]u8, steps, runtime.heap_allocator())
-	}
-	lo, hi := max(first, 0), min(last, steps - 1)
+	lo, hi := max(first, 0), min(last, len(st.filled) - 1)
 	for lo <= hi && st.filled[lo] != 0 {
 		lo += 1
 	}
@@ -503,7 +734,7 @@ song_table_fill_rows :: proc(sc: ^Song_Clip, st: ^Song_Table, first, last: int) 
 	for step in lo ..= hi {
 		out := orender.table_row(t, step)
 		start := orender.row_start(t, step)
-		// a window running past the song stays silent (as the build does)
+		// a window running past the song stays silent (as the render does)
 		if out != nil && !(row.whole && start + window > t.frames) {
 			a, z := start - from, min(start + window, to) - from
 			row.fill(t, out, l[a:z], r[a:z])
@@ -512,117 +743,112 @@ song_table_fill_rows :: proc(sc: ^Song_Clip, st: ^Song_Table, first, last: int) 
 	}
 }
 
-song_table_ready :: proc(st: ^Song_Table) -> bool {
-	return sync.atomic_load(&st.built)
-}
-
-// Builds `st` now (the bank's zones the song plays first); another reader
-// asking meanwhile waits for it.
-song_table_build :: proc(sc: ^Song_Clip, st: ^Song_Table) {
-	if song_table_ready(st) {
-		return
-	}
-	sync.guard(&st.lock)
-	if st.built {
-		return
-	}
-	song_clip_load(sc)
-	orender.tables_build(&sc.song, {&st.table})
-	sync.atomic_store(&st.built, true)
-}
-
-// Whether `st` is built; if not, it is queued for the music's builder
-// (started by music_drain), which tells the host (Music.wake) when it
-// lands.
-song_table_later :: proc(sc: ^Song_Clip, st: ^Song_Table) -> bool {
-	if song_table_ready(st) {
-		return true
-	}
-	mu := sc.music
-	sync.guard(&mu.lock)
-	if !st.queued {
-		st.queued = true
-		append(&mu.queue, Queued_Table{sc, st})
-	}
-	return false
-}
-
-// Starts the builder on the tables queued so far, unless it is running
-// (it takes what is queued meanwhile too). The host drains once it has
-// asked for everything a pass needs (a frame, the lanes), so a song's
-// tables are built in one export of it, not one per request.
+// Starts the renderers on the renders wanted so far, unless they run (they
+// take what is wanted meanwhile too). The host drains once it has asked
+// for everything a pass needs (a frame, the lanes).
 music_drain :: proc(m: ^Media) {
 	if m == nil || m.music == nil {
 		return
 	}
-	mu := m.music
-	sync.guard(&mu.lock)
-	if len(mu.queue) == 0 || mu.building {
-		return
-	}
-	if mu.builder != nil {
-		thread.join(mu.builder)
-		thread.destroy(mu.builder)
-	}
-	mu.building = true
-	mu.builder = thread.create_and_start_with_data(mu, music_builder)
+	sync.guard(&m.music.lock)
+	music_start(m.music)
 }
 
-// Whether tables wait for music_drain.
+// The renderers, one per core but two (the window and the worker keep
+// theirs), at low priority: they are background work. Started under the
+// music's lock.
+@(private = "file")
+music_start :: proc(mu: ^Music) {
+	if mu.running > 0 || mu.stopping || next_segment(mu).song == nil {
+		return
+	}
+	for t in mu.renderers {
+		thread.join(t)
+		thread.destroy(t)
+	}
+	clear(&mu.renderers)
+	for _ in 0 ..< max(os.get_processor_core_count() - 2, 1) {
+		mu.running += 1
+		append(&mu.renderers, thread.create_and_start_with_data(mu, music_renderer, priority = .Low, name = "song renderer"))
+	}
+}
+
+// Whether renders wait for music_drain.
 music_queued :: proc(m: ^Media) -> bool {
 	if m == nil || m.music == nil {
 		return false
 	}
 	mu := m.music
 	sync.guard(&mu.lock)
-	return len(mu.queue) > 0 && !mu.building
+	return mu.running == 0 && next_segment(mu).song != nil
 }
 
-// The builder: the queued tables, one song at a time and all of its
-// queued tables in one pass, until none is left.
+// The video sample the renderers make first (the preview's playhead): each
+// song's segment nearest it on the song's own clock.
+music_focus :: proc(m: ^Media, sample: int) {
+	if m != nil && m.music != nil {
+		sync.atomic_store(&m.music.focus, i64(sample))
+	}
+}
+
+// A segment to make, and whose.
 @(private = "file")
-music_builder :: proc(data: rawptr) {
+Segment_Ref :: struct {
+	song:    ^Song_Clip,
+	segment: int,
+}
+
+// The segment nearest the focus of every render wanted, among the media's
+// current songs (not retired ones); under the music's lock.
+@(private = "file")
+next_segment :: proc(mu: ^Music) -> (best: Segment_Ref) {
+	focus := int(sync.atomic_load(&mu.focus))
+	nearest := max(int)
+	for _, sc in mu.songs {
+		rd := &sc.render
+		if !rd.wanted || sync.atomic_load(&rd.left) == 0 {
+			continue
+		}
+		at := focus - int(math.round(sc.song.start * MIX_RATE))
+		for x, g in rd.state {
+			if x != u8(Segment_State.Todo) {
+				continue
+			}
+			a, z := g * SONG_SEGMENT, (g + 1) * SONG_SEGMENT
+			d := at < a ? a - at : (at >= z ? at - z + 1 : 0)
+			// one a renderer is running into comes after the rest
+			if g > 0 && rd.state[g - 1] == u8(Segment_State.Taken) {
+				d += 1 << 40
+			}
+			if d < nearest {
+				best, nearest = {sc, g}, d
+			}
+		}
+	}
+	return
+}
+
+// A renderer: the segment nearest the focus, one at a time, until none is
+// left.
+@(private = "file")
+music_renderer :: proc(data: rawptr) {
 	mu := (^Music)(data)
 	for {
 		sync.mutex_lock(&mu.lock)
-		if len(mu.queue) == 0 {
-			mu.building = false
+		next := next_segment(mu) if !mu.stopping else {}
+		if next.song == nil {
+			mu.running -= 1
 			sync.mutex_unlock(&mu.lock)
-			break
+			return
 		}
-		sc := mu.queue[0].clip
-		mine := make([dynamic]^Song_Table, context.temp_allocator)
-		for i := 0; i < len(mu.queue); {
-			if mu.queue[i].clip == sc {
-				append(&mine, mu.queue[i].table)
-				ordered_remove(&mu.queue, i)
-			} else {
-				i += 1
-			}
-		}
+		next.song.render.state[next.segment] = u8(Segment_State.Taken)
 		sync.mutex_unlock(&mu.lock)
-		song_clip_load(sc)
-		todo := make([dynamic]^orender.Table, context.temp_allocator)
-		for st in mine {
-			sync.mutex_lock(&st.lock)
-			if !st.built {
-				append(&todo, &st.table)
-			}
-		}
-		orender.tables_build(&sc.song, todo[:])
-		for st in mine {
-			sync.atomic_store(&st.built, true)
-			sync.mutex_unlock(&st.lock)
-		}
-		sync.atomic_add(&mu.landed, len(mine))
-		if mu.wake != nil {
-			mu.wake(mu.wake_data)
-		}
+		render_run(next.song, next.segment)
 		free_all(context.temp_allocator)
 	}
 }
 
-// Tables built in the background since the last call.
+// Segments made since the last call.
 music_landed :: proc(m: ^Media) -> int {
 	if m == nil || m.music == nil {
 		return 0
@@ -638,7 +864,7 @@ music_banks_landed :: proc(m: ^Media) -> int {
 	return sync.atomic_exchange(&m.music.banks, 0)
 }
 
-// Who the builder tells when tables land (the preview's worker).
+// Who the renderers tell when segments land (the preview's worker).
 music_set_wake :: proc(m: ^Media, wake: proc(data: rawptr), data: rawptr) {
 	if m == nil || m.music == nil {
 		return
