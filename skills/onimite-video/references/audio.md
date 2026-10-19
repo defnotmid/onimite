@@ -710,6 +710,6 @@ Licences: the audio must be credited *Pocket TTS by Kyutai (CC-BY-4.0)* (put it 
 video's credits or description). The voices `cosette` and `jean` come from recordings
 licensed for non-commercial use only: `say` warns (`tts_noncommercial`). Kyutai's terms
 forbid using it to impersonate real people or pass generated speech off as a real recording.
-English only; no voice cloning. `say()` works on Linux x86_64 and macOS Apple Silicon; the
+English only; a voice can be cloned from a recording you may use (above). `say()` works on Linux x86_64 and macOS Apple Silicon; the
 Windows x86_64 build (and a Linux arm64 build from source) has it, untested. Intel Macs and
 Windows on Arm are unsupported: onimite does not build there.
