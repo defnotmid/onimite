@@ -1,7 +1,5 @@
 package onimite
 
-import "base:runtime"
-import "core:c"
 import "core:encoding/base64"
 import "core:math"
 import "core:os"
@@ -9,7 +7,6 @@ import "core:path/filepath"
 import "core:strconv"
 import "core:strings"
 import vg "deps:ovg"
-import stbi "vendor:stb/image"
 
 // SVG export (`onimite frame --svg`, fframes' `frame --svg`): the frame's
 // node tree written as an SVG document in one walk into a string builder.
@@ -1101,15 +1098,9 @@ export_raster :: proc(e: ^Svg_Export, i: i32, box: vg.Rect, m: vg.Transform2D) {
 // ` href="data:image/png;base64,..."` of straight RGBA8 pixels.
 @(private = "file")
 png_href :: proc(b: ^strings.Builder, pixels: []u8, w, h: int) {
-	png := make([dynamic]u8, 0, len(pixels) / 4 + 1024, context.temp_allocator)
-	write :: proc "c" (ctx: rawptr, data: rawptr, size: c.int) {
-		context = runtime.default_context()
-		out := (^[dynamic]u8)(ctx)
-		append(out, ..([^]u8)(data)[:size])
-	}
-	stbi.write_png_to_func(write, &png, i32(w), i32(h), 4, raw_data(pixels), i32(w * 4))
+	png, _ := vg.encode_png(pixels, u32(w), u32(h), context.temp_allocator)
 	strings.write_string(b, ` href="data:image/png;base64,`)
-	base64.encode_into(strings.to_writer(b), png[:])
+	base64.encode_into(strings.to_writer(b), png)
 	strings.write_byte(b, '"')
 }
 

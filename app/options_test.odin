@@ -31,14 +31,14 @@ test_options_table :: proc(t: ^testing.T) {
 @(test)
 test_cli_parse :: proc(t: ^testing.T) {
 	defer free_all(context.temp_allocator)
-	rows, help := cli_parse({"frames", "v.lua", "1s", "2s", "-o", "out", "--svg", "--scale", "0.5", "--set", "a=1", "--json", "--", "p"})
+	rows, help := cli_parse({"frames", "v.lua", "1s", "2s", "-o", "out", "--svg", "--scale", "0.5", "--set", "a=1", "--set", "b=x\ny", "--json", "--", "p"})
 	testing.expect(t, !help)
 	testing.expect_value(t, rows[.Command].kind, Command_Kind.Frame)
 	testing.expect_value(t, rows[.Command].regs.spec, "1s,2s")
 	testing.expect_value(t, rows[.Command].regs.path, "out")
 	testing.expect_value(t, rows[.Command].regs.flags, Command_Flags{.Svg})
 	testing.expect_value(t, rows[.Load].regs.path, "v.lua")
-	testing.expect_value(t, rows[.Load].regs.args, "a=1\np")
+	testing.expect_value(t, rows[.Load].regs.args, "a=1\x00b=x\ny\x00p") // a value keeps its lines
 	testing.expect_value(t, rows[.Scale].regs.scalar, 0.5)
 	testing.expect(t, rows[.Output].regs.flag)
 	testing.expect_value(t, rows[.Threads].kind, Command_Kind.None)
@@ -86,7 +86,7 @@ test_cli_parse :: proc(t: ^testing.T) {
 	last = probe[len(probe) - 1]
 	testing.expect_value(t, len(probe), 4)
 	testing.expect_value(t, last.kind, Command_Kind.Probe)
-	testing.expect_value(t, last.regs.args, "a.mp4\nb.mp4")
+	testing.expect_value(t, last.regs.args, "a.mp4\x00b.mp4")
 }
 
 // A row outside its kind's domain, or without a string register its kind

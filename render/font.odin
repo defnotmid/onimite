@@ -1,24 +1,33 @@
 package render
 
+import "core:math"
 import "core:mem"
 import "core:slice"
+import vg "deps:ovg"
 import sdl "vendor:sdl3"
-import fs "vendor:fontstash"
 
-// Text is rendered through vendor:fontstash — a native-Odin glyph atlas manager
-// (dynamic per-codepoint/size caching, kerning, fallbacks) that rasterizes via
-// stb_truetype. fontstash owns a CPU atlas bitmap; we mirror it into an R8 GPU
-// texture and draw each glyph quad through the shared rect2d (glyph) pipeline.
+// Text is laid out by ovg (kb_text_shape over a Font_Collection: kerning,
+// ligatures, bidi, per-glyph fallback) and rasterized into ovg's CPU glyph
+// atlas; we mirror the atlas rows it wrote into an R8 GPU texture and draw
+// each glyph quad through the shared rect2d (glyph) pipeline.
 Font :: struct {
-	ctx:    ^fs.FontContext, // heap-allocated so Font stays trivially movable
-	id:     int,
-	atlas:  ^sdl.GPUTexture,
-	aw, ah: int,
-	r:      ^Renderer,
-	ttf:    []u8, // owned; fontstash references it (freeLoadedData=false)
-	// Atlas rows rasterized into since the last upload ([0, 0): none); the
-	// renderer uploads them once per frame (font_flush).
-	dirty_y0, dirty_y1: int,
+	text:  ^Font_Text, // heap-allocated so Font stays trivially movable
+	atlas: ^sdl.GPUTexture,
+	r:     ^Renderer,
+	ttf:   []u8, // owned; the collection and the atlas's glyph keys borrow it
+}
+
+Font_Text :: struct {
+	fonts:     vg.Font_Collection,
+	glyphs:    vg.Glyph_Atlas,
+	layout:    vg.Text_Layout,
+	// The UI sizes text by pixel height (ascent to descent): the em size per
+	// pixel of height, and the ascent and line advance per pixel of height.
+	em_per_px: f32,
+	ascent:    f32,
+	line:      f32,
+	// In the renderer's dirty_fonts this frame.
+	queued:    bool,
 }
 
 ATLAS_DIM :: 1024
@@ -26,23 +35,29 @@ ATLAS_DIM :: 1024
 font_load :: proc(r: ^Renderer, ttf: []u8, base_px: f32) -> (font: Font, ok: bool) {
 	font.r = r
 	font.ttf = slice.clone(ttf)
-	font.ctx = new(fs.FontContext)
-	fs.Init(font.ctx, ATLAS_DIM, ATLAS_DIM, .TOPLEFT)
-	font.aw, font.ah = ATLAS_DIM, ATLAS_DIM
-	font.id = fs.AddFontMem(font.ctx, "app", font.ttf, false)
-	if font.id < 0 {
-		fs.Destroy(font.ctx); free(font.ctx); delete(font.ttf)
+	t := new(Font_Text)
+	font.text = t
+	vg.font_collection_init(&t.fonts, font.ttf)
+	if vg.font_collection_add(&t.fonts, font.ttf) == 0 || vg.glyph_atlas_init(&t.glyphs, ATLAS_DIM, ATLAS_DIM) != nil {
+		font_unload(r, &font)
 		return {}, false
 	}
-	// initial (mostly empty) atlas — grows as glyphs are cached, re-uploaded lazily
-	font.atlas = _make_r8_texture(r, ATLAS_DIM, ATLAS_DIM, font.ctx.textureData)
+	f := &t.fonts.faces[0].font
+	m := vg.font_v_metrics(f)
+	height := f32(m.ascent - m.descent)
+	t.em_per_px = vg.font_scale_for_pixel_height(f, 1) / vg.font_scale_for_em(f, 1)
+	t.ascent = f32(m.ascent) / height
+	t.line = f32(m.ascent - m.descent + m.line_gap) / height
+	font.atlas = _make_r8_texture(r, ATLAS_DIM, ATLAS_DIM, t.glyphs.pixels)
 	return font, true
 }
 
 font_unload :: proc(r: ^Renderer, f: ^Font) {
-	if f.ctx != nil {
-		fs.Destroy(f.ctx)
-		free(f.ctx)
+	if t := f.text; t != nil {
+		vg.text_layout_destroy(&t.layout)
+		vg.glyph_atlas_destroy(&t.glyphs)
+		vg.font_collection_destroy(&t.fonts)
+		free(t)
 	}
 	if f.atlas != nil {
 		defer_release_texture(r, f.atlas)
@@ -52,89 +67,88 @@ font_unload :: proc(r: ^Renderer, f: ^Font) {
 }
 
 line_height :: proc(f: ^Font, px: f32) -> f32 {
-	fs.PushState(f.ctx)
-	defer fs.PopState(f.ctx)
-	fs.SetFont(f.ctx, f.id)
-	fs.SetSize(f.ctx, px)
-	_, _, lh := fs.VerticalMetrics(f.ctx)
-	return lh
+	return px * f.text.line
 }
 
-// text advance width in pixels at the given size.
+// text advance width in pixels at the given size (the widest line).
 measure_text :: proc(f: ^Font, s: string, px: f32) -> f32 {
-	fs.PushState(f.ctx)
-	defer fs.PopState(f.ctx)
-	fs.SetFont(f.ctx, f.id)
-	fs.SetSize(f.ctx, px)
-	return fs.TextBounds(f.ctx, s)
+	l := _layout(f, s, 0, 0, px)
+	w: f32
+	for line in l.lines {
+		w = max(w, line.width)
+	}
+	return w
 }
 
-// draw ASCII/UTF-8 text with its top-left at (x, y).
+// draw UTF-8 text with its top-left (the ascent) at (x, y).
 draw_text :: proc(r: ^Renderer, f: ^Font, s: string, x, y, px: f32, color: [4]u8) {
-	fs.PushState(f.ctx)
-	fs.SetFont(f.ctx, f.id)
-	fs.SetSize(f.ctx, px)
-	fs.SetAlignHorizontal(f.ctx, .LEFT)
-	fs.SetAlignVertical(f.ctx, .TOP)
-
-	cf := color_f32(color)
-	iter := fs.TextIterInit(f.ctx, x, y, s)
-	q: fs.Quad
-	for fs.TextIterNext(f.ctx, &iter, &q) {
-		rect_inst(r, Rect_Inst{
-			dst    = {q.x0, q.y0, q.x1, q.y1},
-			src    = {q.s0, q.t0, q.s1, q.t1}, // normalized uv (tex_size = 1 below)
-			col_tl = cf, col_tr = cf, col_bl = cf, col_br = cf,
-			style  = {0, 0, SAMPLE_GLYPH, 0},
-		}, f.atlas, {1, 1})
-	}
-	fs.PopState(f.ctx)
-
-	_font_mark_dirty(r, f)
-}
-
-// New glyphs rasterized: remember the rows, uploaded once before the frame's
-// draws replay (font_flush), however many strings added glyphs.
-_font_mark_dirty :: proc(r: ^Renderer, f: ^Font) {
-	dirty: [4]f32
-	if !fs.ValidateTexture(f.ctx, &dirty) {
-		return
-	}
-	y0, y1 := int(dirty[1]), int(dirty[3])
-	if f.dirty_y1 <= f.dirty_y0 {
-		f.dirty_y0, f.dirty_y1 = y0, y1
-		append(&r.dirty_fonts, f)
-	} else {
-		f.dirty_y0, f.dirty_y1 = min(f.dirty_y0, y0), max(f.dirty_y1, y1)
-	}
+	_glyph_quads(r, f, _layout(f, s, x, y + px * f.text.ascent, px), color)
 }
 
 // font_warm rasterizes printable ASCII at each size up front, so the first
 // frames that show text at those sizes don't rasterize (and upload) glyphs.
 font_warm :: proc(r: ^Renderer, f: ^Font, sizes: []f32) {
 	ASCII :: " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~·…–×%"
-	fs.PushState(f.ctx)
-	defer fs.PopState(f.ctx)
-	fs.SetFont(f.ctx, f.id)
 	for px in sizes {
-		fs.SetSize(f.ctx, px)
-		iter := fs.TextIterInit(f.ctx, 0, 0, ASCII)
-		q: fs.Quad
-		for fs.TextIterNext(f.ctx, &iter, &q) {}
+		_glyph_quads(nil, f, _layout(f, ASCII, 0, 0, px), {})
 	}
-	_font_mark_dirty(r, f)
+}
+
+// `s` laid out with its baseline at (x, y) and `px` of pixel height.
+@(private)
+_layout :: proc(f: ^Font, s: string, x, y, px: f32) -> ^vg.Text_Layout {
+	t := f.text
+	piece := vg.Text_Piece{text = s, style = {size = px * t.em_per_px}}
+	vg.text_layout(&t.fonts, {piece}, {x = x, y = y}, &t.layout)
+	return &t.layout
+}
+
+// Rasterizes the layout's glyphs into the atlas and, with a renderer, draws
+// them, snapped to whole pixels. The atlas holds every size the UI shows;
+// if it fills (unusual scripts at many sizes) it starts over, and quads
+// already recorded this frame show the new atlas until the next frame.
+@(private)
+_glyph_quads :: proc(r: ^Renderer, f: ^Font, l: ^vg.Text_Layout, color: [4]u8) {
+	t := f.text
+	cf := color_f32(color)
+	aw, ah := f32(t.glyphs.width), f32(t.glyphs.height)
+	for run in l.runs {
+		for g in l.glyphs[run.first:][:run.count] {
+			cg, err := vg.glyph_atlas_get(&t.glyphs, run.font, g.glyph, run.em)
+			if err == .Atlas_Full {
+				vg.glyph_atlas_reset(&t.glyphs)
+				cg, err = vg.glyph_atlas_get(&t.glyphs, run.font, g.glyph, run.em)
+			}
+			if err != nil || !cg.visible || r == nil {
+				continue
+			}
+			x0 := math.round(g.x) + f32(cg.bearing_x)
+			y0 := math.round(g.y) + f32(cg.bearing_y)
+			u0, v0 := f32(cg.atlas_x) / aw, f32(cg.atlas_y) / ah
+			rect_inst(r, Rect_Inst{
+				dst    = {x0, y0, x0 + f32(cg.width), y0 + f32(cg.height)},
+				src    = {u0, v0, u0 + f32(cg.width) / aw, v0 + f32(cg.height) / ah}, // normalized uv (tex_size = 1 below)
+				col_tl = cf, col_tr = cf, col_bl = cf, col_br = cf,
+				style  = {0, 0, SAMPLE_GLYPH, 0},
+			}, f.atlas, {1, 1})
+		}
+	}
+	if !t.queued {
+		t.queued = true
+		append(&f.r.dirty_fonts, f)
+	}
 }
 
 // Uploads the atlas rows fonts rasterized into this frame (called by
 // end_frame before the draws replay).
 font_flush :: proc(r: ^Renderer) {
 	for f in r.dirty_fonts {
-		y0 := clamp(f.dirty_y0, 0, f.ah)
-		y1 := clamp(f.dirty_y1, y0, f.ah)
-		if y1 > y0 {
-			_upload_r8_rows(r, f.atlas, u32(f.aw), u32(y0), u32(y1 - y0), f.ctx.textureData[y0 * f.aw:])
+		t := f.text
+		t.queued = false
+		if y0, y1, ok := vg.glyph_atlas_take_dirty(&t.glyphs); ok && y1 > y0 {
+			w := t.glyphs.width
+			_upload_r8_rows(r, f.atlas, w, y0, y1 - y0, t.glyphs.pixels[int(y0 * w):])
 		}
-		f.dirty_y0, f.dirty_y1 = 0, 0
 	}
 	clear(&r.dirty_fonts)
 }

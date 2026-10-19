@@ -1043,7 +1043,7 @@ load_ready :: proc(app: ^App_State) -> Error {
 // others still go (exit code 1).
 @(private)
 probe_print :: proc(app: ^App_State, regs: Command_Regs) -> Error {
-	for path in strings.split_lines(regs.args, context.temp_allocator) {
+	for path in strings.split(regs.args, LIST_SEP, context.temp_allocator) {
 		res, f := enc.probe(path)
 		if f.code != .None {
 			fail(app, {code = .Probe, encoder = f})

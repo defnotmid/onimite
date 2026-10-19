@@ -201,6 +201,8 @@ Preview_Args :: struct {
 	paused:               bool   `flag:"Paused" about:"open paused"`,
 	mute:                 bool   `flag:"Mute" about:"no sound"`,
 	no_loop:              bool   `flag:"No_Loop" about:"stop at the end"`,
+	bare:                 bool   `flag:"Bare" about:"the video alone (no controls, panels or timeline), played once, then the window closes; Escape closes it sooner"`,
+	fullscreen:           bool   `flag:"Fullscreen" about:"open fullscreen (Ctrl+F toggles)"`,
 	exit_after:           int    `mcp:"-" reg:"count" arg:"N" about:"close after N window frames"`,
 	using script_options: Script_Options `shared:""`,
 }
@@ -387,12 +389,12 @@ option_set :: proc(rows: ^Front_Rows, o: Option, v: Option_Value) -> string {
 	case string:
 		#partial switch _ in o.type.variant {
 		case reflect.Type_Info_Slice:
-			(^string)(reg)^ = strings.join(v.list, "\n", context.temp_allocator)
+			(^string)(reg)^ = strings.join(v.list, LIST_SEP, context.temp_allocator)
 		case reflect.Type_Info_Map:
 			if strings.index_byte(v.str, '=') <= 0 {
 				return o.invalid
 			}
-			line_append((^string)(reg), v.str)
+			list_append((^string)(reg), v.str)
 		case:
 			(^string)(reg)^ = v.str
 		}
@@ -448,10 +450,15 @@ option_set :: proc(rows: ^Front_Rows, o: Option, v: Option_Value) -> string {
 	return ""
 }
 
-// One more line of a string register (the script arguments).
+// A list in a string register (script arguments, media files) separates
+// its items with NUL, the one byte no command-line argument holds: a value
+// can span lines (--set text="$(cat banner.txt)").
+LIST_SEP :: "\x00"
+
+// One more item of a string register's list.
 @(private = "file")
-line_append :: proc(reg: ^string, line: string) {
-	reg^ = line if reg^ == "" else fmt.tprintf("%s\n%s", reg^, line)
+list_append :: proc(reg: ^string, item: string) {
+	reg^ = item if reg^ == "" else fmt.tprintf("%s%s%s", reg^, LIST_SEP, item)
 }
 
 // Pushes the rows: the settings, the script load, the scale, then the
@@ -519,7 +526,7 @@ cli_parse :: proc(args: []string) -> (rows: Front_Rows, help: bool) {
 		if arg == "--" {
 			// Everything after `--` goes to the script as positionals.
 			for a in rest[i + 1:] {
-				line_append(&rows[.Load].regs.args, a)
+				list_append(&rows[.Load].regs.args, a)
 			}
 			break
 		}

@@ -226,6 +226,11 @@ set_fullscreen :: proc(p: ^Platform, on: bool) {
 	_ = sdl.SetWindowFullscreen(p.window, on)
 }
 
+// set_cursor_visible shows or hides the mouse cursor over the window.
+set_cursor_visible :: proc(on: bool) {
+	_ = sdl.ShowCursor() if on else sdl.HideCursor()
+}
+
 request_close :: proc(p: ^Platform) {
 	p.should_close = true
 }

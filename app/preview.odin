@@ -99,6 +99,10 @@ Preview_State :: struct {
 	drag_start:         [2]f32,
 	drag_active:        bool,
 	fullscreen:         bool,
+	// --bare: the video alone on the whole window (bare_area, the only view
+	// shown), played once; the end of the video or Escape closes the window.
+	bare:               bool,
+	bare_area:          Workspace_Rect,
 	quit:               bool,
 	// File_Dialog asked for the open-file dialog (the loop opens it).
 	file_dialog:        bool,
@@ -177,6 +181,7 @@ Preview_State :: struct {
 UI_FONT :: vg.DEFAULT_FONT_DATA
 
 PREVIEW_BG :: [4]f32{0.07, 0.078, 0.102, 1}
+BARE_BG :: [4]f32{0, 0, 0, 1}
 CONTROLS_HEIGHT :: 40
 STATUS_HEIGHT :: 26
 // Points a Watch opened beside the video takes (at most 45% of it).
@@ -192,6 +197,10 @@ preview_open :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 	pv.playing = .Paused not_in regs.flags
 	pv.loop = .No_Loop not_in regs.flags
 	pv.muted = .Mute in regs.flags
+	pv.fullscreen = .Fullscreen in regs.flags
+	if .Bare in regs.flags {
+		pv.bare, pv.loop = true, false
+	}
 	if regs.spec != "" {
 		tl, err := om.resolve_timeline(&app.script.video, &app.media, context.temp_allocator)
 		if err != nil {
@@ -328,6 +337,9 @@ preview_run :: proc(app: ^App_State, capture, drive: string) -> Error {
 	frames := 0
 	last_audio_log := 0
 	fullscreen := false
+	if pv.bare {
+		platform.set_cursor_visible(false)
+	}
 	for platform.tick(&p) {
 		defer free_all(context.temp_allocator)
 		tick_began := time.tick_now()
@@ -347,7 +359,7 @@ preview_run :: proc(app: ^App_State, capture, drive: string) -> Error {
 		preview_view_follow(app)
 		preview_layout(app, &p)
 
-		render.begin_frame(&r, PREVIEW_BG)
+		render.begin_frame(&r, BARE_BG if pv.bare else PREVIEW_BG)
 		ui.build_begin(&s)
 		ui.modal_input_set(&s, pv.workspace.lister.panel != 0)
 		preview_input(app, &s)
@@ -1021,10 +1033,12 @@ preview_apply :: proc(app: ^App_State, kind: Command_Kind, regs: Command_Regs) {
 		pv.hover_valid = true
 	case .Dismiss:
 		// Closes the lister, then the Watch, then leaves fullscreen, then
-		// the window.
+		// the window; the player closes at once.
 		ws := &pv.workspace
 		c := &app.commands
 		switch {
+		case pv.bare:
+			command_push(c, .Quit)
 		case ws.lister.panel != 0:
 			command_push(c, .Lister_Close)
 		case workspace_find(ws, .Watch) != 0:
@@ -1272,6 +1286,7 @@ preview_playback_advance :: proc(app: ^App_State, dt: f64) {
 			// The audio stopped at the end (not looping).
 			pv.playing = false
 			pv.clock = total - 1 / fps
+			pv.quit ||= pv.bare
 		}
 	} else {
 		pv.clock += dt
@@ -1281,6 +1296,7 @@ preview_playback_advance :: proc(app: ^App_State, dt: f64) {
 			} else {
 				pv.clock = total - 1 / fps
 				pv.playing = false
+				pv.quit ||= pv.bare
 			}
 		}
 	}
@@ -1520,7 +1536,8 @@ preview_request :: proc(app: ^App_State, p: ^platform.Platform) {
 	pv.reload_media = false
 }
 
-// Lays the workspace out above the controls and the status line: the
+// Lays the workspace out above the controls and the status line (a bare
+// window is the video alone): the
 // timeline's panel, while fitted, at the timeline's natural height. The
 // timeline lies along its panel or down it, and its rows get what the
 // panel leaves them.
@@ -1528,6 +1545,10 @@ preview_request :: proc(app: ^App_State, p: ^platform.Platform) {
 preview_layout :: proc(app: ^App_State, p: ^platform.Platform) {
 	pv := &app.preview
 	pv.dpi = p.dpi_scale
+	if pv.bare {
+		pv.bare_area = {0, 0, f32(p.width), f32(p.height)}
+		return
+	}
 	natural := [View_Kind]f32{.Video = -1, .Timeline = timeline_height(app) * pv.dpi, .Watch = -1}
 	workspace_measure(&pv.workspace, workspace_rect(p), pv.dpi, natural)
 	pv.rows_room = ROWS_AREA_MAX
@@ -1550,6 +1571,9 @@ workspace_rect :: proc(p: ^platform.Platform) -> Workspace_Rect {
 // Where the view of `kind` draws, in pixels, when its panel shows it.
 @(private)
 view_area :: proc(app: ^App_State, kind: View_Kind) -> (area: Workspace_Rect, shown: bool) {
+	if app.preview.bare {
+		return app.preview.bare_area, kind == .Video
+	}
 	ws := &app.preview.workspace
 	v := workspace_view(ws, workspace_shown(ws, kind))
 	if v == nil || int(v.panel) > len(ws.areas) || !ws.areas[v.panel - 1].visible {
@@ -1594,6 +1618,11 @@ preview_views :: proc(app: ^App_State, s: ^ui.State, p: ^platform.Platform) {
 	ui.set_next_pref_height(s, ui.fill())
 	ui.column(s, "preview")
 	defer ui.pop_parent(s)
+
+	if area, _ := view_area(app, .Video); app.preview.bare {
+		video_view(app, s, dpi, area)
+		return
+	}
 
 	// The panels place their boxes in window pixels: this box is at the origin.
 	ui.set_next_pref_width(s, ui.fill())

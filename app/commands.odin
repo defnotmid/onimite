@@ -245,13 +245,13 @@ COMMAND_KINDS := [Command_Kind]Command_Descriptor {
 		mcp_note = "Keep a --json of a song you like; after changing it (or updating onimite), --against that file names every part that moved.",
 	},
 	.Preview = {
-		help = "opens the window and runs it until it closes: regs.spec the start frame, .Paused / .No_Loop / .Mute in regs.flags, regs.count window frames to exit after (0 = never); for measurements, regs.path a PNG of the last window frame and regs.args scripted input (`preview_drive`)",
+		help = "opens the window and runs it until it closes: regs.spec the start frame, .Paused / .No_Loop / .Mute / .Bare / .Fullscreen in regs.flags, regs.count window frames to exit after (0 = never); for measurements, regs.path a PNG of the last window frame and regs.args scripted input (`preview_drive`)",
 		domain = .Script, flags = FRONT, args = Preview_Args,
 		about = "a window that plays the video (or a video file) with sound and reloads when the script or media change; the user marks ranges ([ ]) and moments (P) for you there",
 		mcp_note = "It opens for the user and the call returns at once; the window stays open (one per script). What the user marks is in the file beside the script or clip (NAME.marks.json): read it with show, path marks.",
 	},
 	.Probe = {
-		help = "regs.args media files, one per line: their streams (no script)",
+		help = "regs.args media files, NUL-separated (LIST_SEP): their streams (no script)",
 		domain = .Tool, flags = FRONT, needs = {.Args}, args = Probe_Args, missing = "a media file",
 		about = "the streams of media files (container, video, audio)",
 	},
@@ -262,7 +262,7 @@ COMMAND_KINDS := [Command_Kind]Command_Descriptor {
 		mcp_note = "The running server keeps the old version: restart the app (Claude Desktop: quit and reopen it) to use the new one.",
 	},
 	.Script_Load = {
-		help = "regs.path the script; regs.media a media directory (\"\" = `media/` beside the script); regs.props a JSON file of props (\"\" = none); .No_Media in regs.flags: the script only; .No_Script: the media only (a batch loads the script per row)",
+		help = "regs.path the script; regs.media a media directory (\"\" = `media/` beside the script); regs.props a JSON file of props (\"\" = none); regs.args the script arguments, NUL-separated (LIST_SEP); .No_Media in regs.flags: the script only; .No_Script: the media only (a batch loads the script per row)",
 		domain = .Settings,
 	},
 	.Output_Set = {help = "regs.flag: print one JSON document per command instead of text", domain = .Settings},
@@ -308,7 +308,7 @@ COMMAND_KINDS := [Command_Kind]Command_Descriptor {
 	.Video_Fit = {help = "fit the video in its panel", domain = .Preview},
 	.Fullscreen_Toggle = {domain = .Preview},
 	.Cursor_Hover = {help = "regs.count the frame under the mouse on the timeline; lasts one window frame", domain = .Preview},
-	.Dismiss = {help = "Escape: closes the lister, else the Watch, else leaves fullscreen, else quits", domain = .Preview},
+	.Dismiss = {help = "Escape: closes the lister, else the Watch, else leaves fullscreen, else quits; --bare quits at once", domain = .Preview},
 	.Watch_Show = {help = "regs.section: the Watch on that section, opened beside the video when none is", domain = .Preview},
 	.Watch_Section_Set = {help = "regs.view a Watch, regs.section", domain = .Preview},
 	.Watch_Scroll = {help = "regs.view a Watch, regs.count rows, signed", domain = .Preview},
@@ -383,6 +383,8 @@ Command_Flag :: enum u8 {
 	Float, // audio render: 32-bit float WAV
 	Paused, // preview: open paused
 	No_Loop, // preview: stop at the end
+	Bare, // preview: the video alone, played once
+	Fullscreen, // preview: open fullscreen
 	Mute, // preview: no sound
 	No_Media, // script load: skip the media (the preview's worker loads it)
 	Svg, // frame: also write the frame's node tree as SVG

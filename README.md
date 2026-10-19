@@ -150,8 +150,8 @@ odin build . -collection:deps=.. -o:speed -out:build/onimite
 links the system SDL3 (`pacman -S sdl3`, `apt install libsdl3-dev` on Ubuntu
 25.04+, otherwise build SDL 3 from source as `.github/actions/setup-toolchain`
 does) and libcurl (ottis downloads its models and odawg its sample sets with it: `pacman -S curl`,
-`apt install libcurl4-openssl-dev`); Odin
-ships SDL3 for Windows. Odin's Linux release ships some vendor C libraries
+`apt install libcurl4-openssl-dev`) and zlib (ovg writes PNGs with it; `zlib1g-dev`, which
+libcurl's package already pulls in; macOS has it); Odin ships SDL3 and zlib for Windows. Odin's Linux release ships some vendor C libraries
 as source; build them once:
 
 ```sh
@@ -249,7 +249,7 @@ tags, with the tag as their
 
 | asset | |
 | --- | --- |
-| `onimite-vX.Y.Z-linux-x86_64.tar.gz` | built on Ubuntu 22.04 (needs glibc 2.34+: its newest symbol), `libSDL3.so.0` beside the binary (rpath `$ORIGIN`); needs the system libcurl (`libcurl.so.4`) |
+| `onimite-vX.Y.Z-linux-x86_64.tar.gz` | built on Ubuntu 22.04 (needs glibc 2.34+: its newest symbol), `libSDL3.so.0` beside the binary (rpath `$ORIGIN`); needs the system libcurl (`libcurl.so.4`) and zlib (`libz.so.1`) |
 | `onimite-vX.Y.Z-macos-arm64.tar.gz` | macOS 11+, `libSDL3.0.dylib` beside the binary (rpath `@executable_path`) |
 | `onimite-vX.Y.Z-windows-x86_64.zip` | best effort (unsigned, tested only in CI), left out if the Windows build fails; `SDL3.dll` and `lua54.dll` beside the binary |
 | `onimite-video-skill-vX.Y.Z.tar.gz` | the agent skill as of the tag (`onimite-video/` with `SKILL.md`, `references/` and `LICENSE`), matching the binaries |
@@ -288,7 +288,8 @@ onimite audio analyze video.lua [range] [--waveform w.png] # LUFS, LRA, true pea
 onimite audio at      video.lua 3.1s,6.2s                 # what plays: file position, level, ducking, a song's notes
 onimite audio onsets  video.lua [range] [--min 0.1]       # where sounds start, and the beat
                                                           # (audio commands: --track FILE hears one track, --track score/bass a song's part)
-onimite preview  video.lua [at] [--paused] [--no-loop] [--mute]
+onimite preview  video.lua [at] [--paused] [--no-loop] [--mute] [--bare] [--fullscreen]
+                                                          # --bare: the video alone, played once, then the window closes
 onimite update   [--check]                                # replace this release with the latest (--check: only say)
 ```
 
@@ -452,6 +453,7 @@ Each folder in `examples/` is a `video.lua` with its `media/`.
 | `transitions` | every standard-library transition between scenes |
 | `physics3d_demo` | 3D rigid bodies (`physics3d{}`): a wrecking ball on a rod knocks down a block tower, instanced with shadows; its contacts place the sound (an impact, thumps, pitched ticks) |
 | `physics_demo` | rigid bodies (`physics{}`) simulated at load: tiles dropped into a word, a pop per impact |
+| `otfx` | [otfx](https://github.com/defnotmid/otfx)'s terminal text effects full screen (`preview --bare --fullscreen`): each effect a timeline built at load on a shared cell grid (`term.lua`), any text with `--set text=...` |
 | `audio_demo` | tracks on the video and scenes, voice ducking, effects on animation constants |
 | `voiceover` | spoken lines made with `say()`, their captions, keys and effects on spoken words (`say_cue`) |
 | `media_demo` | a synced clip, WebVTT subtitles, an audio spectrum, durations from media |

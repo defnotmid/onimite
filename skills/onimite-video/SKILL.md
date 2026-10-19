@@ -60,7 +60,7 @@ To install by hand instead, download the archive for your platform from
 (`X.Y.Z` is the release):
 
 - Linux x86_64: `onimite-vX.Y.Z-linux-x86_64.tar.gz` (glibc 2.34+; needs the system libcurl,
-  `libcurl.so.4`)
+  `libcurl.so.4`, and zlib, `libz.so.1`)
 - macOS Apple Silicon: `onimite-vX.Y.Z-macos-arm64.tar.gz` (signed and notarized)
 - Windows x86_64: `onimite-vX.Y.Z-windows-x86_64.zip` (when present; unsigned, best effort,
   tested only in CI)
@@ -88,7 +88,7 @@ odin build . -collection:deps=.. -o:speed -out:build/onimite
 ```
 
 Lua 5.4, stb and SDL3 come through Odin's `vendor:` packages; Odin ships the SDL3 library
-for Windows, Linux and macOS link the system one (`pacman -S sdl3`, `apt install libsdl3-dev`, `brew install sdl3`), and Linux links libcurl (`apt install libcurl4-openssl-dev`). Odin's Linux release ships
+for Windows, Linux and macOS link the system one (`pacman -S sdl3`, `apt install libsdl3-dev`, `brew install sdl3`), and Linux links libcurl and zlib (`apt install libcurl4-openssl-dev`, which pulls in `zlib1g-dev`). Odin's Linux release ships
 some vendor C libraries (stb, kb_text_shape, miniaudio, Box2D) as source to build once (the
 onimite README, "Build"); macOS needs a few extra steps (the README, "macOS"). Use `-o:speed`: unoptimized builds are many times slower.
 If `build/onimite` already exists and no `.odin` file is newer, skip the build.
@@ -167,6 +167,7 @@ The examples in the onimite repository are working patterns to read and borrow f
 | `examples/physics3d_demo` | 3D rigid bodies: `physics3d{}` at load, a wrecking ball on a rod knocking down a block tower, a kinematic sweeper, bouncing orbs drawn with `physics3d_instances`; a ragdoll down a staircase (ball joints with `cone`/`twist` limits along each limb, hinges with `limit` at knees and elbows); ragdoll letters (ONIMITE in stick strokes, a body per stroke, ball joints with soft `hertz` springs where strokes touch, so each letter holds its shape but flops down the stairs); `sound{}` effects placed on `sim.contacts` (thinned by speed and spacing) |
 | `examples/graph_paper` | the artsy one, on a drafting sheet: ONIMITE and the libraries' seven marks as outlines (`outline{}` of text and of each SVG's `silhouette`) drawn on with a pen, morphed into each other (`morph`/`morph_at`) as their rows trade places, lifted off the page as bevelled solids (`ExtrudeGeometry`, `side_material`) spinning through each other in two rings, burst at the camera, then raining down as `outline` physics bodies until the sheet is full, under a title block; the picture's timing read from an odawg song (`track.lua`) and a tick per landing |
 | `examples/physics_demo` | rigid bodies: `physics{}` simulated once at load (in `shared`), tiles dropped into a word with `start` staggers, `physics_at` per frame, a pop per impact from `sim.contacts` (the saga's NotNeeded scene: a wrecking ball on a rope; why_onimite's Ship: 311 grains poured) |
+| `examples/otfx` | otfx's terminal text effects (decrypt) full screen on a cell grid, played with `preview --bare --fullscreen`, text from `--set text=...`: a per-character timeline built at load from seeded `hash` draws, read by tick each frame; block elements drawn as rects so the banner's halves meet; `require`d modules shared between effects (`term.lua`, `effects/NAME.lua`) |
 | `examples/audio_demo` | tracks on video and scenes, voice + ducking, SFX on animation constants |
 | `examples/voiceover` | spoken lines made with `say()` (text to speech with word times), their captions, keys and SFX on spoken words (`say_cue`), a pad ducking under the voice; its README explains the `cue_no_hit` findings left on run-together words |
 | `examples/cuts` | an edit as a list of cuts: `scene{ clip = { file, from, to } }` per row, clips of other sizes and frame rates (a 9:16 60 fps phone clip letterboxed, 24 fps footage), whole files and ranges, fade / slide / wipe between cuts with the sound crossfading, a label naming each cut |
@@ -312,7 +313,7 @@ with commas.
 | `strip [RANGE] -n N [--columns 4] [--width 480] [-o strip.png]` | flow and motion in one image |
 | `frame SPECS [-o frames] [--svg]` | full-size PNGs; `--svg` also writes each frame's node tree as SVG to read positions, text and colours |
 | `onion RANGE [-n 6] [-o onion.png]` | a movement's trajectory and easing |
-| `preview [AT] [--paused] [--no-loop] [--mute] [--exit-after N]` | real-time window with sound and hot reload, for the user (`--exit-after N`: close after N window frames) |
+| `preview [AT] [--paused] [--no-loop] [--mute] [--bare] [--fullscreen] [--exit-after N]` | real-time window with sound and hot reload, for the user (`--bare`: the video alone, no controls, panels or timeline, played once, then the window closes, Escape sooner; `--fullscreen`: open fullscreen; both together play a script full screen like a screensaver; `--exit-after N`: close after N window frames) |
 | `render [RANGE] [-o out.mp4 \| dir] [--draft] [--h265] [--qp N] [--native]` | encode the video or a part, or write PNGs |
 | `render --batch rows.json\|rows.csv [-o out/{name}.mp4] [--rows a..b \| --only N]` | one video per data row, the row as `props` |
 | `snapshot SPECS [--update] [--dir _frame_snapshots] [--threshold 16] [--max-diff 0.001]` | compare frames with approved PNGs; writes `.actual.png`/`.diff.png`, exit 2 on a difference; a PNG of another size (another `--scale`) is the error `snapshot_size` |

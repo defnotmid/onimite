@@ -5,7 +5,7 @@ import "core:math"
 import "core:os"
 import "core:slice"
 import "core:testing"
-import stbi "vendor:stb/image"
+import vg "deps:ovg"
 
 @(test)
 test_parse_subtitles :: proc(t: ^testing.T) {
@@ -164,8 +164,8 @@ test_image_eviction :: proc(t: ^testing.T) {
 		red[i], red[i + 3] = 255, 255
 		blue[i + 2], blue[i + 3] = 255, 128
 	}
-	stbi.write_png(fmt.ctprintf("%s/a.png", dir), 8, 8, 4, &red, 32)
-	stbi.write_png(fmt.ctprintf("%s/b.png", dir), 8, 8, 4, &blue, 32)
+	vg.write_png(fmt.tprintf("%s/a.png", dir), red[:], 8, 8)
+	vg.write_png(fmt.tprintf("%s/b.png", dir), blue[:], 8, 8)
 
 	media: Media
 	media_init(&media)

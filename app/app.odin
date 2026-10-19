@@ -249,7 +249,7 @@ command_apply :: proc(app: ^App_State, row: Command_Row) -> Error {
 script_load :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 	script_inputs_clear(app)
 	app.script_path = strings.clone(regs.path)
-	args := strings.split(regs.args, "\n", context.temp_allocator) if regs.args != "" else nil
+	args := strings.split(regs.args, LIST_SEP, context.temp_allocator) if regs.args != "" else nil
 	app.script_args = make([]string, len(args))
 	for a, i in args {
 		app.script_args[i] = strings.clone(a)
