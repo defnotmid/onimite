@@ -95,6 +95,10 @@ Path_Kind :: enum u8 {
 // texture maps are media images by name (or a custom `ShaderMaterial`).
 Mesh :: struct {
 	geometry:      o3d.Geometry_Key,
+	// ShapeGeometry / ExtrudeGeometry of an outline (`outline.kind != .None`).
+	outline:       Outline_Geometry,
+	// The walls' material when given (three.js's [caps, sides] materials).
+	side_material: Maybe(o3d.Material),
 	path_kind:     Path_Kind,
 	path_closed:   bool,
 	points:        []o3d.Vec3,
@@ -107,6 +111,28 @@ Mesh :: struct {
 	material:      o3d.Material,
 	maps:          [Texture_Map]string,
 	shader:        Maybe(Shader_Material),
+}
+
+Outline_Kind :: enum u8 {
+	None,
+	Shape,
+	Extrude,
+}
+
+// A 2D outline made into geometry: flat (`ShapeGeometry`) or extruded with
+// o3d's options, y flipped so it reads upright in 3D. Built once per
+// outline content and options (`View3d_Media.outlines`).
+Outline_Geometry :: struct {
+	kind:    Outline_Kind,
+	asset:   ^Path_Asset,
+	options: o3d.Extrude_Options,
+}
+
+@(private)
+Outline_Key :: struct {
+	key:     u64,
+	kind:    Outline_Kind,
+	options: o3d.Extrude_Options,
 }
 
 // A material's texture maps, by their three.js names (`TEXTURE_MAPS`).
@@ -310,6 +336,9 @@ View3d_Media :: struct {
 	shaders:     o3d.Shaders,
 	models:      map[string]o3d.Model,
 	textures_of: map[string]o3d.Texture_Id,
+	// Outline geometry by outline content and options (caps and sides
+	// groups too; a ShapeGeometry's are its whole).
+	outlines:    map[Outline_Key]o3d.Extruded,
 	// What the tables grow in, whichever thread adds to them.
 	allocator:   runtime.Allocator,
 }
@@ -319,6 +348,7 @@ view3d_media_init :: proc(v: ^View3d_Media) {
 	v.allocator = context.allocator
 	v.models = make(map[string]o3d.Model)
 	v.textures_of = make(map[string]o3d.Texture_Id)
+	v.outlines = make(map[Outline_Key]o3d.Extruded)
 }
 
 @(private)
@@ -333,6 +363,7 @@ view3d_media_destroy :: proc(v: ^View3d_Media) {
 		delete(name)
 	}
 	delete(v.textures_of)
+	delete(v.outlines)
 	o3d.geometries_destroy(&v.geometries)
 	o3d.textures_destroy(&v.textures)
 	o3d.shaders_destroy(&v.shaders)
@@ -385,10 +416,32 @@ view3d_add_model :: proc(v: ^View3d_Media, name, path: string) -> (what, why: st
 // Makes the meshes of node `n` that the tables lack; returns the geometry
 // types it made meshes of.
 @(private = "file")
-view3d_make_geometry :: proc(m: ^Media, n: View3d) -> (made: bit_set[o3d.Primitive]) {
+view3d_make_geometry :: proc(m: ^Media, n: View3d) -> (made: bit_set[o3d.Primitive], made_outlines: bit_set[Outline_Kind]) {
 	v := &m.view3d
 	context.allocator = v.allocator
 	for mesh in n.meshes {
+		if o := mesh.outline; o.kind != .None {
+			key := outline_key(o)
+			sync.shared_lock(&v.lock)
+			_, known := v.outlines[key]
+			sync.shared_unlock(&v.lock)
+			if known {
+				continue
+			}
+			shapes := outline_shapes(o.asset, true)
+			sync.guard(&v.lock)
+			if key in v.outlines {
+				continue
+			}
+			if o.kind == .Shape {
+				g := o3d.shape_geometry(&v.geometries, shapes)
+				v.outlines[key] = {geometry = g, caps = g, sides = g}
+			} else {
+				v.outlines[key] = o3d.extrude_geometry(&v.geometries, shapes, o.options)
+			}
+			made_outlines += {o.kind}
+			continue
+		}
 		if mesh.geometry.kind == .None {
 			continue
 		}
@@ -406,6 +459,11 @@ view3d_make_geometry :: proc(m: ^Media, n: View3d) -> (made: bit_set[o3d.Primiti
 		}
 	}
 	return
+}
+
+@(private = "file")
+outline_key :: proc "contextless" (o: Outline_Geometry) -> Outline_Key {
+	return {o.asset.key, o.kind, o.options if o.kind == .Extrude else {}}
 }
 
 // Makes the textures of the media images node `n` names that the tables
@@ -577,6 +635,8 @@ Drawn_Geometry :: struct {
 	frame:   int,
 	earlier: bit_set[o3d.Primitive],
 	now:     bit_set[o3d.Primitive],
+	// The same for outline geometry (ShapeGeometry, ExtrudeGeometry).
+	earlier_outlines, now_outlines: bit_set[Outline_Kind],
 }
 
 @(private)
@@ -606,7 +666,8 @@ draw_view3d :: proc(r: ^Renderer, n: View3d) {
 	if !vg.image_id_valid(image) {
 		return
 	}
-	check_geometry_growth(r, n, view3d_make_geometry(r.media, n))
+	made, made_outlines := view3d_make_geometry(r.media, n)
+	check_geometry_growth(r, n, made, made_outlines)
 	view3d_make_textures(r.media, n, r.ctx.frame.index)
 	view3d_make_shaders(r.media, n)
 	v := &r.media.view3d
@@ -696,7 +757,24 @@ view3d_scene :: proc(r: ^Renderer, n: View3d, scene: ^o3d.Scene) {
 		geo_id: o3d.Geometry_Id
 		switch mesh.path_kind {
 		case .None:
-			geo_id = v.geometries.keys[mesh.geometry]
+			if mesh.outline.kind != .None {
+				ex := v.outlines[outline_key(mesh.outline)]
+				geo_id = ex.geometry
+				if ex.folded > 0 {
+					report(&r.ctx, .Warning, {code = .Extrude_Folded, w = f32(ex.folded)})
+				}
+				if side, ok := mesh.side_material.?; ok {
+					// Caps in the material, walls and bevels in the side one.
+					geo_id = ex.caps
+					side_mat := view3d_material(r, scene, side, {}, nil)
+					append(&scene.draws, o3d.Draw{ex.sides, o3d.compose(mesh.position, mesh.rotation, mesh.scale), side_mat})
+					if len(mesh.instances) > 0 {
+						o3d.scene_set_draw_instances(scene, len(scene.draws) - 1, o3d.scene_instances(scene, mesh.instances))
+					}
+				}
+			} else {
+				geo_id = v.geometries.keys[mesh.geometry]
+			}
 		case .Polyline:
 			geo_id = o3d.scene_polyline(scene, mesh.points, mesh.path_closed)
 		case .Line_Segments:
@@ -871,7 +949,7 @@ view3d_texture :: proc(r: ^Renderer, name: string) -> o3d.Texture_Id {
 // (`made`) that the renderer drew on an earlier frame of the node's scene:
 // the shape changes through its geometry's parameters.
 @(private = "file")
-check_geometry_growth :: proc(r: ^Renderer, n: View3d, made: bit_set[o3d.Primitive]) {
+check_geometry_growth :: proc(r: ^Renderer, n: View3d, made: bit_set[o3d.Primitive], made_outlines: bit_set[Outline_Kind]) {
 	frame := r.ctx.frame.index
 	d: ^Drawn_Geometry
 	for &e in r.view3d.drawn {
@@ -887,14 +965,23 @@ check_geometry_growth :: proc(r: ^Renderer, n: View3d, made: bit_set[o3d.Primiti
 	if d.frame != frame {
 		d.earlier += d.now
 		d.now = {}
+		d.earlier_outlines += d.now_outlines
+		d.now_outlines = {}
 		d.frame = frame
 	}
 	for kind in made & d.earlier {
 		report(&r.ctx, .Warning, {code = .Geometry_Growth, name = GEOMETRY_TYPES[kind].name})
 	}
+	OUTLINE_TYPES := [Outline_Kind]string{.None = "", .Shape = "ShapeGeometry", .Extrude = "ExtrudeGeometry"}
+	for kind in made_outlines & d.earlier_outlines {
+		report(&r.ctx, .Warning, {code = .Geometry_Growth, name = OUTLINE_TYPES[kind]})
+	}
 	for mesh in n.meshes {
 		if mesh.geometry.kind != .None {
 			d.now += {mesh.geometry.kind}
+		}
+		if mesh.outline.kind != .None {
+			d.now_outlines += {mesh.outline.kind}
 		}
 	}
 }

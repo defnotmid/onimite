@@ -6,8 +6,10 @@ import "core:math"
 import "core:mem/virtual"
 import "core:strings"
 import "core:sync"
+import "deps:o3d"
 import b2 "vendor:box2d"
 import lua "vendor:lua/5.4"
+import om "../onimite"
 
 // physics{...} -> sim: rigid bodies simulated with Box2D once, at load, and
 // returned as plain data. Frames build out of order and on several threads,
@@ -600,21 +602,59 @@ read_body :: proc(L: ^lua.State, s: ^Script, world: b2.WorldId, layers: ^map[str
 		}
 	}
 	lua.pop(L, 1)
+	has_shape := attach_shape2d(L, s, body.label, body.id, shape, t, i)
+	if field(L, t, "shapes") == c.int(lua.Type.TABLE) {
+		st := lua.absindex(L, -1)
+		for k in 1 ..= int(lua.rawlen(L, st)) {
+			lua.rawgeti(L, st, lua.Integer(k))
+			if !lua.istable(L, -1) {
+				lua.L_error(L, "physics: bodies[%d].shapes[%d] is not a table", i32(i + 1), i32(k))
+			}
+			ct := lua.absindex(L, -1)
+			outer := fields_push(L, ct)
+			offset := [2]f32{get_num(L, ct, "x", 0), get_num(L, ct, "y", 0)} / PHYSICS_SCALE
+			rot := b2.MakeRot(get_num(L, ct, "angle", 0) * (math.PI / 180))
+			if !attach_shape2d(L, s, body.label, body.id, shape, ct, i, offset, rot) {
+				lua.L_error(L, "physics: bodies[%d].shapes[%d] needs a shape: box = { w, h }, circle = r, polygon = { x1, y1, ... } or outline = h", i32(i + 1), i32(k))
+			}
+			fields_pop(L, s, ct, fmt.tprintf("physics.bodies[%d].shapes[%d]", i + 1, k), outer)
+			lua.pop(L, 1)
+			has_shape = true
+		}
+	}
+	lua.pop(L, 1)
+	if !has_shape && body.kind == .Dynamic {
+		lua.L_error(L, "physics: bodies[%d] needs a shape: box = { w, h }, circle = r, polygon = { x1, y1, ... }, outline = h or shapes = { ... }", i32(i + 1))
+	}
+	// The shape fields read (a failed case leaves its value too).
+	lua.settop(L, t)
+	fields_end(L, s, t, fmt.tprintf("physics.bodies[%d]", i + 1))
+	return
+}
+
+// Attaches the box, circle or polygon of table `t` to the body, placed at
+// `offset` (metres) turned by `rot` in the body's frame (a `shapes` entry's
+// x, y, angle). False when `t` has none of them.
+@(private = "file")
+attach_shape2d :: proc(L: ^lua.State, s: ^Script, label: string, body_id: b2.BodyId, shape: b2.ShapeDef, t: c.int, i: int, offset := b2.Vec2{}, rot := b2.Rot_identity) -> bool {
+	top := lua.gettop(L)
+	defer lua.settop(L, top)
+	shape := shape
 	switch {
 	case field(L, t, "box") == c.int(lua.Type.TABLE):
 		size := read_pair(L, -1) / (2 * PHYSICS_SCALE)
 		if !(size.x > 0 && size.y > 0) {
 			lua.L_error(L, "physics: bodies[%d].box needs a positive { w, h }", i32(i + 1))
 		}
-		box := b2.MakeBox(size.x, size.y)
-		_ = b2.CreatePolygonShape(body.id, shape, &box)
+		box := b2.MakeOffsetBox(size.x, size.y, offset, rot)
+		_ = b2.CreatePolygonShape(body_id, shape, &box)
 	case field(L, t, "circle") == c.int(lua.Type.NUMBER):
 		r := f32(lua.tonumber(L, -1)) / PHYSICS_SCALE
 		if !(r > 0) {
 			lua.L_error(L, "physics: bodies[%d].circle needs a positive radius", i32(i + 1))
 		}
-		circle := b2.Circle{radius = r}
-		_ = b2.CreateCircleShape(body.id, shape, &circle)
+		circle := b2.Circle{center = offset, radius = r}
+		_ = b2.CreateCircleShape(body_id, shape, &circle)
 	case field(L, t, "polygon") == c.int(lua.Type.TABLE):
 		points: [b2.MAX_POLYGON_VERTICES]b2.Vec2
 		count := int(lua.rawlen(L, -1)) / 2
@@ -631,15 +671,63 @@ read_body :: proc(L: ^lua.State, s: ^Script, world: b2.WorldId, layers: ^map[str
 		if hull.count == 0 {
 			lua.L_error(L, "physics: bodies[%d].polygon has no area (points in a line or too close)", i32(i + 1))
 		}
-		polygon := b2.MakePolygon(hull, 0)
-		_ = b2.CreatePolygonShape(body.id, shape, &polygon)
-	case body.kind == .Dynamic:
-		lua.L_error(L, "physics: bodies[%d] needs a shape: box = { w, h }, circle = r or polygon = { x1, y1, ... }", i32(i + 1))
+		polygon := b2.MakeOffsetPolygon(hull, offset, rot)
+		_ = b2.CreatePolygonShape(body_id, shape, &polygon)
+	case field(L, t, "outline") == c.int(lua.Type.LIGHTUSERDATA):
+		// The outline in the body's frame (its own coordinates: make it about
+		// (0, 0)), split into convex pieces of at most 8 corners, a polygon
+		// each; slivers too thin for Box2D are left out.
+		a := (^om.Path_Asset)(lua.touserdata(L, -1))
+		made := 0
+		tris, pieces, starts: [dynamic]u32
+		tris.allocator, pieces.allocator, starts.allocator = context.temp_allocator, context.temp_allocator, context.temp_allocator
+		area_in, area_made: f64
+		// Flattened about every 2 px and simplified to 1 px: Box2D drops
+		// corners within 0.5 px of a line, so curves need a real turn.
+		for sh in om.outline_shapes(a, false, segment = 2, simplify = 1) {
+			area_in += abs(f64(o3d.shape_area(sh.contour)))
+			for h in sh.holes {
+				area_in -= abs(f64(o3d.shape_area(h)))
+			}
+			pts := make([dynamic][2]f32, 0, len(sh.contour), context.temp_allocator)
+			append(&pts, ..sh.contour)
+			for h in sh.holes {
+				append(&pts, ..h)
+			}
+			clear(&tris)
+			o3d.triangulate_shape(sh.contour, sh.holes, &tris)
+			convex_pieces(pts[:], ([^][3]u32)(raw_data(tris))[:len(tris) / 3], b2.MAX_POLYGON_VERTICES, &pieces, &starts)
+			for k in 0 ..< len(starts) - 1 {
+				corners: [b2.MAX_POLYGON_VERTICES]b2.Vec2
+				run := pieces[starts[k]:starts[k + 1]]
+				for v, j in run {
+					corners[j] = pts[v] / PHYSICS_SCALE
+				}
+				hull := b2.ComputeHull(corners[:len(run)])
+				if hull.count == 0 {
+					continue
+				}
+				polygon := b2.MakeOffsetPolygon(hull, offset, rot)
+				_ = b2.CreatePolygonShape(body_id, shape, &polygon)
+				made += 1
+				for j in 0 ..< int(hull.count) {
+					p0, p1 := hull.points[j], hull.points[(j + 1) % int(hull.count)]
+					area_made += f64(p0.x * p1.y - p1.x * p0.y) * 0.5 * f64(PHYSICS_SCALE * PHYSICS_SCALE)
+				}
+			}
+		}
+		if made == 0 {
+			lua.L_error(L, "physics: bodies[%d].outline has no area to collide with", i32(i + 1))
+		}
+		// Pieces Box2D refuses are left out: say how much of the outline
+		// that leaves without collision.
+		if share := 100 * abs(area_made) / area_in; share < 97 {
+			report_warning(L, s, {code = .Physics_Outline_Gaps, a = label, w = f32(share)})
+		}
+	case:
+		return false
 	}
-	// The shape fields read (a failed case leaves its value too).
-	lua.settop(L, t)
-	fields_end(L, s, t, fmt.tprintf("physics.bodies[%d]", i + 1))
-	return
+	return true
 }
 
 // One `joints` entry: { kind, a = body, b = body, ... }, anchors in canvas

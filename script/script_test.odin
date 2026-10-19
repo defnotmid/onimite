@@ -959,7 +959,7 @@ end }
 		"video.lua:4: `mesh.cast_shdow` is not used (did you mean `cast_shadow`?)",
 		"video.lua:4: `geometry.radial` is not used (did you mean `radius`?)",
 		"video.lua:4: `material.roughness` is not used",
-		`invalid geometry type "Cube" (want BoxGeometry, SphereGeometry, PlaneGeometry, CylinderGeometry, TorusGeometry, LineGeometry, LineSegmentsGeometry or PointsGeometry)`,
+		`invalid geometry type "Cube" (want BoxGeometry, SphereGeometry, PlaneGeometry, CylinderGeometry, TorusGeometry, CapsuleGeometry, TubeGeometry, ShapeGeometry, ExtrudeGeometry, LineGeometry, LineSegmentsGeometry or PointsGeometry)`,
 		"video.lua:4: `model.animaton` is not used (did you mean `animation`?)",
 		`no glTF model "duck.glb" in the media`,
 	}
@@ -1071,6 +1071,115 @@ end }
 	for w in want {
 		testing.expectf(t, slice.contains(got[:], w), "missing %q in %v", w, got[:])
 	}
+}
+
+// Outlines: path data, text and an SVG element as path handles with their
+// bounds; a morph's ends are its outlines; a ring-shaped outline body (a
+// hole) rests at its height and collides with all of itself; extruded
+// outlines draw, and a bevel deeper than the outline's teeth is reported
+// (extrude_folded).
+@(test)
+test_outline_api :: proc(t: ^testing.T) {
+	dir, derr := os.make_directory_temp("", "onimite_outline_test_*", context.temp_allocator)
+	testing.expect(t, derr == nil)
+	defer os.remove_all(dir)
+	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
+	font, _ := filepath.join({dir, "BebasNeue-Regular.ttf"}, context.temp_allocator)
+	svg, _ := filepath.join({dir, "mark.svg"}, context.temp_allocator)
+	font_data, ferr := os.read_entire_file("assets/fonts/BebasNeue-Regular.ttf", context.temp_allocator)
+	testing.expect(t, ferr == nil)
+	testing.expect(t, os.write_entire_file(font, font_data) == nil)
+	mark := `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" width="100" height="100">` +
+		`<rect x="0" y="0" width="10" height="10" fill="#f00"/><g id="s" display="none"><path d="M2 2H8V8H2Z"/></g></svg>`
+	testing.expect(t, os.write_entire_file(svg, transmute([]u8)mark) == nil)
+	src := `
+local function near(a, b) return math.abs(a - b) < 0.5 end
+local SQ = outline { d = "M0 0H100V100H0Z" }
+local x, y, w, h = outline_bounds(SQ)
+assert(near(x, 0) and near(y, 0) and near(w, 100) and near(h, 100))
+-- an SVG element by id (hidden, as silhouettes are), placed as svg{} would place the file
+local S = outline { svg = "mark.svg", id = "s", x = 10, y = 20, w = 200 }
+x, y, w, h = outline_bounds(S)
+assert(near(x, 50) and near(y, 60) and near(w, 120) and near(h, 120), string.format("%g %g %g %g", x, y, w, h))
+local A = outline { "A", font = "Bebas Neue", size = 100, align = "center", baseline = "middle" }
+x, y, w, h = outline_bounds(A)
+assert(w > 20 and h > 50 and near(x + w / 2, 0), string.format("%g %g %g %g", x, y, w, h))
+assert(outline { "A", font = "Bebas Neue", size = 100, align = "center", baseline = "middle" } == A)  -- by content
+local M = morph(A, SQ)
+assert(morph(A, SQ) == M)
+local ax, ay, aw, ah = outline_bounds(morph_at(M, 0))
+local bx, by, bw, bh = outline_bounds(morph_at(M, 1))
+assert(near(aw, w) and near(ah, h) and near(bw, 100) and near(bh, 100))
+-- A 100 px ring (a 60 px hole) dropped on a floor: rests on its edge, centre 50 px up.
+local RING = outline { d = "M-50 -50H50V50H-50Z M-30 -30V30H30V-30Z" }
+local sim = physics { duration = 2, gravity = 2000, bodies = {
+  { static = true, box = { 1000, 40 }, x = 0, y = 520 },
+  { name = "ring", outline = RING, x = 0, y = 300 },
+} }
+local _, ry = physics_at(sim, "ring", 2)
+assert(near(ry, 450), tostring(ry))
+COMB = outline { d = "M0 0H5V-10H6V0H7V-10H8V0H9V-10H10V0H15V3H0Z" }  -- 1-wide teeth
+video { width = 64, height = 64, fps = 10, duration = 0.1, render = function(f)
+  view3d { camera = { position = { 0, 0, 30 } }, meshes = {
+    { geometry = { type = "ExtrudeGeometry", shape = A, depth = 10, bevel_enabled = false } },
+    { geometry = { type = "ExtrudeGeometry", shape = COMB, depth = 1, bevel_size = 0.6, bevel_offset = -0.6 } },
+  } }
+end }
+`
+	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
+	media: om.Media
+	om.media_init(&media)
+	defer om.media_destroy(&media)
+	testing.expect_value(t, om.media_load_dir(&media, dir), om.Error.None)
+	sh: Shared
+	defer shared_destroy(&sh)
+	s: Script
+	defer unload(&s)
+	testing.expectf(t, load(&s, path, nil, &media, &sh) == nil, "load failed: %s", error_message(s.failure, context.temp_allocator))
+	testing.expect_value(t, len(s.load_problems), 0)
+	r: om.Renderer
+	testing.expect_value(t, om.renderer_init(&r, &s.video, &media), om.Error.None)
+	defer om.renderer_destroy(&r)
+	om.render_frame(&r, 0)
+	folded := false
+	for d in r.ctx.diagnostics {
+		folded ||= d.code == .Extrude_Folded
+	}
+	testing.expect(t, folded)
+}
+
+// physics{} bodies of several shapes: a table on two legs rests on its legs
+// (each `shapes` entry placed by its x, y, angle in the body's frame).
+@(test)
+test_physics_shapes :: proc(t: ^testing.T) {
+	dir, derr := os.make_directory_temp("", "onimite_physics_test_*", context.temp_allocator)
+	testing.expect(t, derr == nil)
+	defer os.remove_all(dir)
+	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
+	src := `
+local sim = shared("table", function()
+  return physics { duration = 2, gravity = 2000, bodies = {
+    { static = true, box = { 2000, 40 }, x = 500, y = 520 },           -- top at 500
+    { name = "table", x = 500, y = 300, shapes = {
+      { box = { 200, 20 } },                                             -- the top, about the origin
+      { box = { 20, 60 }, x = -90, y = 40 }, { box = { 20, 60 }, x = 90, y = 40 },
+      { polygon = { -10, 0, 10, 0, 0, 20 }, x = 0, y = -20, angle = 180 } } },
+  } }
+end)
+local x, y, a = physics_at(sim, "table", 2)
+assert(math.abs(y - 430) < 2 and math.abs(a) < 0.5, string.format("rests at %.1f, %.2f°", y, a))
+video { width = 32, height = 32, fps = 10, duration = 1 }
+`
+	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
+	media: om.Media
+	om.media_init(&media)
+	defer om.media_destroy(&media)
+	sh: Shared
+	defer shared_destroy(&sh)
+	s: Script
+	defer unload(&s)
+	testing.expectf(t, load(&s, path, nil, &media, &sh) == nil, "load failed: %s", error_message(s.failure, context.temp_allocator))
+	testing.expect_value(t, len(s.load_problems), 0)
 }
 
 // physics3d{}, physics3d_at (and physics_at dispatch), physics3d_instances,

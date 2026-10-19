@@ -35,6 +35,10 @@ Shared :: struct {
 	// Path assets and frozen values (stable addresses).
 	arena:   virtual.Arena,
 	paths:   map[u64]^om.Path_Asset,
+	// Prepared morphs by their two outlines, and the set of them (morph_at
+	// checks its handle).
+	morphs:  map[u64]^Shared_Morph,
+	morph_set: map[^Shared_Morph]bool,
 	values:  map[string]^Shared_Value,
 	// Clips `audio_add` made from a function this render (by name).
 	audio:   map[string]bool,
@@ -88,6 +92,8 @@ Shared_Item :: struct {
 shared_destroy :: proc(sh: ^Shared) {
 	virtual.arena_destroy(&sh.arena)
 	delete(sh.paths)
+	delete(sh.morphs)
+	delete(sh.morph_set)
 	delete(sh.values)
 	for name in sh.audio {
 		delete(name)
@@ -116,6 +122,7 @@ shared_path :: proc(sh: ^Shared, d: string) -> ^om.Path_Asset {
 	a.coords = make([]vg.Vec2, len(p.coords), alloc)
 	copy(a.verbs, p.verbs[:])
 	copy(a.coords, p.coords[:])
+	a.key = path_key(p, .Non_Zero)
 	sh.paths[key] = a
 	return a
 }

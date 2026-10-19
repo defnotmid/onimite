@@ -727,6 +727,10 @@ API := [?]Api_Function {
 	{"text_lines", l_text_lines, .Both},
 	{"caption_pages", l_caption_pages, .Both},
 	{"path_data", l_path_data, .Both},
+	{"outline", l_outline, .Both},
+	{"outline_bounds", l_outline_bounds, .Both},
+	{"morph", l_morph, .Both},
+	{"morph_at", l_morph_at, .Both},
 	{"shared", l_shared, .Both},
 	{"physics_at", l_physics_at, .Both},
 	{"physics3d_at", l_physics3d_at, .Both},
@@ -1281,13 +1285,16 @@ l_path :: proc "c" (L: ^lua.State) -> c.int {
 	ctx := render_ctx(L, s)
 	lua.L_checktype(L, 1, i32(lua.Type.TABLE))
 	fields_begin(L, 1)
-	rule := vg.Fill_Rule.Non_Zero
-	if get_str(L, 1, "fill_rule", "") == "evenodd" {
-		rule = .Even_Odd
-	}
 	field(L, 1, "d")
 	asset := (^om.Path_Asset)(lua.touserdata(L, -1)) if lua.type(L, -1) == .LIGHTUSERDATA else nil
 	lua.pop(L, 1)
+	rule := asset.fill_rule if asset != nil else vg.Fill_Rule.Non_Zero
+	switch get_str(L, 1, "fill_rule", "") {
+	case "evenodd":
+		rule = .Even_Odd
+	case "nonzero":
+		rule = .Non_Zero
+	}
 	om.path(
 		ctx,
 		{

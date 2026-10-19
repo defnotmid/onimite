@@ -8,6 +8,11 @@
 #   mouth_smile  (on)                              mouth_o      a little "o"
 #   spark_a      a four-point twinkle (on)         spark_b      the twinkle turned
 #   spark_boom   a big burst
+#   silhouette   every pixel shown by default as one outline (off): the shape
+#                to morph, extrude or collide (outline{ svg = "pip.svg", id = "silhouette" })
+#
+# Each layer is one path per colour, its pixels traced into merged outlines
+# (the tracer of ovg's tools/mascot).
 #
 #   python3 tools/mascot/pip.py examples/common/pip.svg   (also prints the body)
 #
@@ -103,11 +108,66 @@ LAYERS = [('body', body, True), ('eyes_open', eyes_open, True), ('eyes_closed', 
           ('eyes_o', eyes_o, False), ('mouth_smile', mouth_smile, True), ('mouth_o', mouth_o, False),
           ('spark_a', spark_a, True), ('spark_b', spark_b, False), ('spark_boom', spark_boom, False)]
 
+def trace(mask):
+    """Path data for the mask's pixels: one closed loop per boundary, the
+    pixels on its right (clockwise on screen), so holes wind the other way
+    and fill as holes under either fill rule. Straight runs are single
+    segments; pixels touching only at a corner stay apart."""
+    def at(x, y):
+        return 0 <= x < W and 0 <= y < H and mask[y][x]
+    out = {}  # boundary edges by start vertex (two where pixels touch at a corner)
+    def add(x0, y0, x1, y1):
+        out.setdefault((x0, y0), []).append((x1, y1))
+    for y in range(H):
+        for x in range(W):
+            if not mask[y][x]:
+                continue
+            if not at(x, y - 1): add(x, y, x + 1, y)
+            if not at(x + 1, y): add(x + 1, y, x + 1, y + 1)
+            if not at(x, y + 1): add(x + 1, y + 1, x, y + 1)
+            if not at(x - 1, y): add(x, y + 1, x, y)
+    d = []
+    for vy in range(H + 1):
+        for vx in range(W + 1):
+            start = (vx, vy)
+            while out.get(start):
+                # Walk the loop, keeping a point where the direction changes.
+                pts, v, dr = [], start, (0, 0)
+                while True:
+                    edges = out[v]
+                    k = 0
+                    if len(edges) == 2 and pts:
+                        # At a corner touch, turn right: keep to the pixels on the right.
+                        right = (-dr[1], dr[0])
+                        for j in range(2):
+                            if (edges[j][0] - v[0], edges[j][1] - v[1]) == right:
+                                k = j
+                    nxt = edges.pop(k)
+                    step = (nxt[0] - v[0], nxt[1] - v[1])
+                    if not pts or step != dr:
+                        pts.append(v)
+                    dr, v = step, nxt
+                    if v == start:
+                        break
+                d.append(f'M{pts[0][0]} {pts[0][1]}')
+                for prev, q in zip(pts, pts[1:]):
+                    d.append(f'H{q[0]}' if q[1] == prev[1] else f'V{q[1]}')
+                d.append('Z')
+    return ''.join(d)
+
 out = [f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {W} {H}" width="{W * 8}" height="{H * 8}" shape-rendering="crispEdges">']
 for name, g, on in LAYERS:
-    rects = ''.join(f'<rect x="{x}" y="{y}" width="1" height="1" fill="{PAL[g[y][x]]}"/>'
-                    for y in range(H) for x in range(W) if g[y][x] != '.')
-    out.append(f'<g id="{name}"{"" if on else " display=\"none\""}>{rects}</g>')
+    paths, seen = [], []
+    for y in range(H):
+        for x in range(W):
+            c = g[y][x]
+            if c != '.' and c not in seen:
+                seen.append(c)
+                mask = [[g[yy][xx] == c for xx in range(W)] for yy in range(H)]
+                paths.append(f'<path fill="{PAL[c]}" d="{trace(mask)}"/>')
+    out.append(f'<g id="{name}"{"" if on else " display=\"none\""}>{"".join(paths)}</g>')
+shown = [[any(g[y][x] != '.' for _, g, on in LAYERS if on) for x in range(W)] for y in range(H)]
+out.append(f'<g id="silhouette" display="none"><path fill="{PAL["O"]}" d="{trace(shown)}"/></g>')
 out.append('</svg>\n')
 open(sys.argv[1], 'w').write('\n'.join(out))
 print('\n'.join(''.join(r) for r in body))

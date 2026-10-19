@@ -231,8 +231,13 @@ Path :: struct {
 // paths a script builds at load: every frame builder of a render shares
 // one (read-only), and drawing copies it instead of parsing text.
 Path_Asset :: struct {
-	verbs:  []vg.Verb,
-	coords: []vg.Vec2,
+	verbs:     []vg.Verb,
+	coords:    []vg.Vec2,
+	// How it fills when path{} doesn't say (an outline of an even-odd SVG).
+	fill_rule: vg.Fill_Rule,
+	// Its content's hash: what geometry made from it is kept by (3D
+	// extrusions outlive a script's handles across preview reloads).
+	key:       u64,
 }
 
 Text_Align :: enum u8 {

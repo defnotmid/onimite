@@ -770,8 +770,8 @@ attach_shape3d :: proc(L: ^lua.State, s: ^Script, body_id: b3.BodyId, kind: Phys
 			lua.L_error(L, "physics3d: bodies[%d].capsule needs a positive radius", i32(i + 1))
 		}
 		cap := b3.Capsule {
-			center1 = b3.TransformPoint(local_xf, c1 * scale),
-			center2 = b3.TransformPoint(local_xf, c2 * scale),
+			center1 = b3_transform_point(local_xf, c1 * scale),
+			center2 = b3_transform_point(local_xf, c2 * scale),
 			radius  = r,
 		}
 		_ = b3.CreateCapsuleShape(body_id, shape, &cap)
@@ -1039,7 +1039,7 @@ read_joint3d :: proc(L: ^lua.State, s: ^Script, world: b3.WorldId, ground: b3.Bo
 		bq := b3.Body_GetRotation(id)
 		return {
 			p = b3.Body_GetLocalPoint(id, b3.ToPos(world_pt)),
-			q = b3.InvMulQuat(bq, wq),
+			q = b3_inv_mul_quat(bq, wq),
 		}
 	}
 	collide := get_flag(L, t, "collide")
@@ -1255,6 +1255,36 @@ read_motion_locks :: proc(L: ^lua.State, t: c.int) -> (locks: b3.MotionLocks) {
 
 // Euler XYZ (radians, matching `o3d.compose`) -> unit quaternion.
 @(private)
+// Local overrides of vendor:box3d's Odin-side math until the upstream fix
+// lands (a PR is planned). Its ports read the C b3MulAdd(a, s, b) = a + s*b
+// as a*s + b: RotateVector (and TransformPoint) returns 2v for an unrotated
+// v, InvMulQuat returns a non-unit quaternion Box3D asserts on. These are the
+// C versions; use them instead of b3.RotateVector, b3.InvRotateVector,
+// b3.TransformPoint, b3.InvTransformPoint and b3.InvMulQuat.
+b3_rotate_vector :: proc "contextless" (q: b3.Quat, v: b3.Vec3) -> b3.Vec3 {
+	t2 := linalg.cross(q.xyz, v) + q.w * v
+	return v + 2 * linalg.cross(q.xyz, t2)
+}
+
+b3_inv_rotate_vector :: proc "contextless" (q: b3.Quat, v: b3.Vec3) -> b3.Vec3 {
+	t2 := linalg.cross(q.xyz, v) - q.w * v
+	return v + 2 * linalg.cross(q.xyz, t2)
+}
+
+b3_transform_point :: proc "contextless" (t: b3.Transform, v: b3.Vec3) -> b3.Vec3 {
+	return b3_rotate_vector(t.q, v) + t.p
+}
+
+b3_inv_transform_point :: proc "contextless" (t: b3.Transform, v: b3.Vec3) -> b3.Vec3 {
+	return b3_inv_rotate_vector(t.q, v - t.p)
+}
+
+b3_inv_mul_quat :: proc "contextless" (q1, q2: b3.Quat) -> b3.Quat {
+	t2 := linalg.cross(q2.xyz, q1.xyz) + q1.w * q2.xyz
+	t3 := t2 - q2.w * q1.xyz
+	return quaternion(x = t3.x, y = t3.y, z = t3.z, w = q1.w * q2.w + linalg.dot(q1.xyz, q2.xyz))
+}
+
 euler_xyz_to_quat :: proc "contextless" (rot: b3.Vec3) -> b3.Quat {
 	cx, sx := math.cos(rot.x * 0.5), math.sin(rot.x * 0.5)
 	cy, sy := math.cos(rot.y * 0.5), math.sin(rot.y * 0.5)

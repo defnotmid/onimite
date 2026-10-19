@@ -1,6 +1,7 @@
 package onimite_script
 
 import "core:c"
+import "core:fmt"
 import "core:math"
 import "core:math/linalg"
 import "core:slice"
@@ -296,11 +297,30 @@ read_mesh :: proc(L: ^lua.State, s: ^Script, t: c.int) -> (m: om.Mesh, ok: bool)
 	} else if m.path_kind == .Points {
 		m.material.mode = .Points
 	}
+	if m.outline.kind == .Extrude {
+		// The walls and bevels in a material of their own (three.js's
+		// [caps, sides] material array); no texture maps or shader.
+		field(L, t, "side_material")
+		if lua.istable(L, -1) {
+			side := o3d.MATERIAL_DEFAULT
+			maps: [om.Texture_Map]string
+			shader: Maybe(om.Shader_Material)
+			read_material(L, s, lua.absindex(L, -1), default_mat, &side, &maps, &shader)
+			if maps != {} || shader != nil {
+				lua.L_error(L, "side_material takes colours and surface values only (no texture maps or shader)")
+			}
+			m.side_material = side
+		}
+		lua.pop(L, 1)
+	}
 	if get_bool(L, t, "cast_shadow", false) {
 		m.material.flags += {.Cast_Shadow}
 	}
 	if get_bool(L, t, "receive_shadow", false) {
 		m.material.flags += {.Receive_Shadow}
+	}
+	if side, ok := &m.side_material.?; ok {
+		side.flags += m.material.flags & {.Cast_Shadow, .Receive_Shadow}
 	}
 	return m, true
 }
@@ -350,6 +370,33 @@ read_geometry :: proc(L: ^lua.State, s: ^Script, t: c.int, m: ^om.Mesh) -> (ok: 
 		m.path_kind = .Points
 		m.points = read_points(L, t, "points")
 		return true
+	case "ShapeGeometry", "ExtrudeGeometry":
+		// An outline (outline{}, path_data, morph_at) in 3D: 1 unit per
+		// outline unit, y flipped (it reads upright), extruded along +z
+		// from 0 to `depth` (a bevel adds `bevel_thickness` both ways).
+		defer fields_pop(L, s, t, "geometry", outer)
+		if field(L, t, "shape") != c.int(lua.Type.LIGHTUSERDATA) {
+			lua.pop(L, 1)
+			lua.L_error(L, "%s", fmt.ctprintf("%s needs shape = an outline (outline{}, path_data() or morph_at())", name))
+		}
+		m.outline.asset = (^om.Path_Asset)(lua.touserdata(L, -1))
+		lua.pop(L, 1)
+		m.outline.kind = .Shape
+		if name == "ExtrudeGeometry" {
+			d := o3d.EXTRUDE_DEFAULT
+			m.outline.kind = .Extrude
+			m.outline.options = {
+				depth           = get_num(L, t, "depth", d.depth),
+				steps           = max(int(get_num(L, t, "steps", f32(d.steps))), 1),
+				bevel_enabled   = get_bool(L, t, "bevel_enabled", d.bevel_enabled),
+				bevel_thickness = get_num(L, t, "bevel_thickness", d.bevel_thickness),
+				bevel_size      = get_num(L, t, "bevel_size", d.bevel_size),
+				bevel_offset    = get_num(L, t, "bevel_offset", d.bevel_offset),
+				bevel_segments  = max(int(get_num(L, t, "bevel_segments", f32(d.bevel_segments))), 0),
+				crease_angle    = get_num(L, t, "crease_angle", d.crease_angle),
+			}
+		}
+		return true
 	}
 	for gt, k in om.GEOMETRY_TYPES {
 		if k != .None && gt.name == name {
@@ -358,7 +405,7 @@ read_geometry :: proc(L: ^lua.State, s: ^Script, t: c.int, m: ^om.Mesh) -> (ok: 
 	}
 	if m.geometry.kind == .None {
 		field_log = outer
-		bad_string(L, "geometry type", name, "BoxGeometry, SphereGeometry, PlaneGeometry, CylinderGeometry, TorusGeometry, LineGeometry, LineSegmentsGeometry or PointsGeometry")
+		bad_string(L, "geometry type", name, "BoxGeometry, SphereGeometry, PlaneGeometry, CylinderGeometry, TorusGeometry, CapsuleGeometry, TubeGeometry, ShapeGeometry, ExtrudeGeometry, LineGeometry, LineSegmentsGeometry or PointsGeometry")
 		return false
 	}
 	defer fields_pop(L, s, t, "geometry", outer)

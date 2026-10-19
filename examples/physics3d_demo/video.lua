@@ -1,4 +1,6 @@
--- 3D Box3D Physics Demo: Wrecking Ball vs Block Tower + Bouncing Spheres.
+-- 3D Box3D Physics Demo: Wrecking Ball vs Block Tower + Bouncing Spheres,
+-- then a ragdoll down a staircase (ball joints with cone and twist limits,
+-- hinges with limits: knees and elbows bend one way only).
 -- physics3d{} once at load; its contacts place the sound: an impact where
 -- the ball hits the tower, a thump per block landing, a tick per orb bounce
 -- (pitched per orb), louder for harder hits and panned to where they land.
@@ -220,6 +222,235 @@ scene {
           receive_shadow = true,
         },
       },
+    }
+  end,
+}
+
+-- The ragdoll: eleven bodies standing at the top of the stairs, a hop forward
+-- off the top step. Shoulders, hips, neck and spine are ball joints whose
+-- `axis` points along the limb at rest (the cone limits the swing about it,
+-- `twist` the turn around it); elbows and knees are hinges about X with
+-- limits, so they fold one way like joints do.
+local STEP_W, STEP_H, STEPS = 0.55, 0.28, 6
+local TOP = STEP_H * STEPS                       -- the landing's height
+
+-- The staircase, `width` deep in z about z0: a landing at x < 0, each step one
+-- lower going +x, as static bodies and as meshes.
+local function stair_boxes(width, z0)
+  local list = { { "landing", { 2, TOP, width }, { -1, TOP / 2, z0 } } }
+  for i = 1, STEPS - 1 do
+    local h = TOP - i * STEP_H
+    list[#list + 1] = { "step_" .. i, { STEP_W, h, width }, { (i - 0.5) * STEP_W, h / 2, z0 } }
+  end
+  return list
+end
+local function stair_bodies(width, z0)
+  local bodies = { { name = "floor", box = { 30, 1, 30 }, position = { 0, -0.5, 0 }, static = true, friction = 0.8 } }
+  for _, b in ipairs(stair_boxes(width, z0)) do
+    bodies[#bodies + 1] = { name = b[1], box = b[2], position = b[3], static = true, friction = 0.8 }
+  end
+  return bodies
+end
+local function stair_meshes(width, z0)
+  local meshes = { { geometry = { type = "BoxGeometry", width = 20, height = 1, depth = 20 }, position = { 0, -0.5, 0 },
+    material = { color = "#1e293b", roughness = 0.85 }, receive_shadow = true } }
+  for i, b in ipairs(stair_boxes(width, z0)) do
+    meshes[#meshes + 1] = { geometry = { type = "BoxGeometry", width = b[2][1], height = b[2][2], depth = b[2][3] },
+      position = b[3], cast_shadow = true, receive_shadow = true,
+      material = { color = i % 2 == 0 and "#3b4a61" or "#334155", roughness = 0.7 } }
+  end
+  return meshes
+end
+local function is_stairs(name) return name == "floor" or name == "landing" or name:match("^step_") ~= nil end
+
+local ragdoll = shared("ragdoll", function()
+  local bodies = stair_bodies(3, 0)
+  local x0, y0 = -0.35, TOP                      -- feet on the landing, near its edge
+  local hop = { 1.6, 2.2, 0.15 }
+  local function limb(name, x, y_top, y_bottom, r)
+    local h = y_top - y_bottom - 2 * r
+    bodies[#bodies + 1] = { name = name, capsule = { radius = r, height = h },
+      position = { x0 + x, y0 + (y_top + y_bottom) / 2, 0 }, velocity = hop, friction = 0.5, bounce = 0.1 }
+  end
+  bodies[#bodies + 1] = { name = "pelvis", box = { 0.32, 0.2, 0.2 }, position = { x0, y0 + 1.0, 0 }, velocity = hop }
+  bodies[#bodies + 1] = { name = "chest", box = { 0.38, 0.42, 0.22 }, position = { x0, y0 + 1.33, 0 },
+    velocity = hop, spin = { 0.4, 0, -2.5 } }
+  bodies[#bodies + 1] = { name = "head", sphere = 0.12, position = { x0, y0 + 1.69, 0 }, velocity = hop }
+  for _, side in ipairs { { "l", -1 }, { "r", 1 } } do
+    local n, sx = side[1], side[2]
+    limb("upper_arm_" .. n, sx * 0.25, 1.53, 1.25, 0.05)
+    limb("lower_arm_" .. n, sx * 0.25, 1.24, 0.96, 0.045)
+    limb("thigh_" .. n, sx * 0.1, 0.9, 0.52, 0.065)
+    limb("shin_" .. n, sx * 0.1, 0.51, 0.06, 0.055)
+  end
+  local function at(x, y) return { x0 + x, y0 + y, 0 } end
+  local joints = {
+    { "ball", a = "pelvis", b = "chest", at = at(0, 1.11), axis = { 0, 1, 0 }, cone = 0.45, twist = { -0.35, 0.35 } },
+    { "ball", a = "chest", b = "head", at = at(0, 1.56), axis = { 0, 1, 0 }, cone = 0.6, twist = { -0.7, 0.7 } },
+  }
+  for _, side in ipairs { { "l", -1 }, { "r", 1 } } do
+    local n, sx = side[1], side[2]
+    joints[#joints + 1] = { "ball", a = "chest", b = "upper_arm_" .. n, at = at(sx * 0.25, 1.53),
+      axis = { 0, -1, 0 }, cone = 1.6, twist = { -0.8, 0.8 } }
+    joints[#joints + 1] = { "hinge", a = "upper_arm_" .. n, b = "lower_arm_" .. n, at = at(sx * 0.25, 1.245),
+      axis = { 1, 0, 0 }, limit = { -2.5, 0 } }
+    joints[#joints + 1] = { "ball", a = "pelvis", b = "thigh_" .. n, at = at(sx * 0.1, 0.9),
+      axis = { 0, -1, 0 }, cone = 1.1, twist = { -0.4, 0.4 } }
+    joints[#joints + 1] = { "hinge", a = "thigh_" .. n, b = "shin_" .. n, at = at(sx * 0.1, 0.515),
+      axis = { 1, 0, 0 }, limit = { 0, 2.5 } }
+  end
+  return physics3d { duration = 5, rate = 240, gravity = { 0, -9.81, 0 }, bodies = bodies, joints = joints }
+end)
+
+-- A thump per hard landing of a part, each part at most every 0.2 s.
+local falls, last_hit = {}, {}
+for _, c in ipairs(ragdoll.contacts) do
+  for _, b in ipairs { c.a, c.b } do
+    local name = ragdoll.bodies[b].name
+    if not is_stairs(name) and c.speed > 1.2
+      and (last_hit[name] or -1) < c.t - 0.2 then
+      last_hit[name] = c.t
+      falls[#falls + 1] = { THUMP, start = c.t, gain_db = remap(c.speed, 1.2, 6, -24, -8),
+        pan = clamp(c.x / 4, -0.7, 0.7), bus = "sfx" }
+    end
+  end
+end
+
+local PARTS = {
+  { "head", { type = "SphereGeometry", radius = 0.12, width_segments = 24, height_segments = 16 }, "#fbbf24" },
+  { "chest", { type = "BoxGeometry", width = 0.38, height = 0.42, depth = 0.22 }, "#38bdf8" },
+  { "pelvis", { type = "BoxGeometry", width = 0.32, height = 0.2, depth = 0.2 }, "#38bdf8" },
+}
+for _, n in ipairs { "l", "r" } do
+  PARTS[#PARTS + 1] = { "upper_arm_" .. n, { type = "CapsuleGeometry", radius = 0.05, height = 0.18 }, "#f472b6" }
+  PARTS[#PARTS + 1] = { "lower_arm_" .. n, { type = "CapsuleGeometry", radius = 0.045, height = 0.19 }, "#f472b6" }
+  PARTS[#PARTS + 1] = { "thigh_" .. n, { type = "CapsuleGeometry", radius = 0.065, height = 0.25 }, "#a78bfa" }
+  PARTS[#PARTS + 1] = { "shin_" .. n, { type = "CapsuleGeometry", radius = 0.055, height = 0.34 }, "#a78bfa" }
+end
+
+scene {
+  "Ragdoll",
+  duration = 5.0,
+  audio = falls,
+  render = function(f)
+    local t = f.seconds
+    local meshes = stair_meshes(3, 0)
+    for _, p in ipairs(PARTS) do
+      local pos, rot = physics3d_at(ragdoll, p[1], t)
+      meshes[#meshes + 1] = { geometry = p[2], position = pos, rotation = rot, cast_shadow = true,
+        receive_shadow = true, material = { color = p[3], roughness = 0.4, metalness = 0.1 } }
+    end
+    local follow = physics3d_at(ragdoll, "chest", t)
+    view3d {
+      tone_mapping = "agx",
+      tone_mapping_exposure = 1.15,
+      camera = { position = { follow[1] + 1.4, follow[2] + 1.3, 3.4 }, target = { follow[1] + 0.2, follow[2] - 0.2, 0 }, fov = 45 },
+      lights = {
+        { type = "HemisphereLight", color = "#dceeff", ground_color = "#1e293b", intensity = 0.7 },
+        { type = "DirectionalLight", color = "#fff7ed", intensity = 3.2, position = { 4, 9, 6 },
+          cast_shadow = true, shadow = { map_size = 2048, bias = -0.001 } },
+      },
+      meshes = meshes,
+    }
+  end,
+}
+
+-- Ragdoll letters: ONIMITE in stick strokes, a body per stroke. Wherever a
+-- stroke's end touches another stroke they are joined by a ball joint with
+-- a cone and a soft spring back to the letter's shape, so each letter holds
+-- together but flops. They stand on the landing facing +x (the camera) and
+-- hop off one after another, down a staircase as wide as the word.
+local WORD = "ONIMITE"
+local LW, LH, GAP = 0.42, 0.7, 0.24              -- a letter's box and the space between
+local THICK, SLAB = 0.07, 0.1                    -- a stroke's width and depth
+local GLYPHS = {                                 -- strokes { u1, v1, u2, v2 } in the letter's box (0..1)
+  O = { { 0, 0, 1, 0 }, { 1, 0, 1, 1 }, { 1, 1, 0, 1 }, { 0, 1, 0, 0 } },
+  N = { { 0, 0, 0, 1 }, { 0, 1, 1, 0 }, { 1, 0, 1, 1 } },
+  I = { { 0.5, 0, 0.5, 1 }, { 0.15, 1, 0.85, 1 }, { 0.15, 0, 0.85, 0 } },
+  M = { { 0, 0, 0, 1 }, { 0, 1, 0.5, 0.45 }, { 0.5, 0.45, 1, 1 }, { 1, 1, 1, 0 } },
+  T = { { 0, 1, 1, 1 }, { 0.5, 1, 0.5, 0 } },
+  E = { { 0, 0, 0, 1 }, { 0, 1, 1, 1 }, { 0, 0.5, 0.8, 0.5 }, { 0, 0, 1, 0 } },
+}
+local SPAN = #WORD * LW + (#WORD - 1) * GAP
+local letters = shared("ragdoll_letters", function()
+  local bodies = stair_bodies(SPAN + 1.5, -SPAN / 2)
+  local joints, strokes = {}, {}
+  for li = 1, #WORD do
+    local glyph = GLYPHS[WORD:sub(li, li)]
+    local z_left = -(li - 1) * (LW + GAP)        -- screen right is -z, looking from +x
+    local x0, start = -0.3, 0.4 + (li - 1) * 0.35
+    local hop = { 2.1 + hash(li, 3) * 0.6, 2.2 + hash(li, 5) * 0.8, (hash(li, 9) - 0.5) * 0.6 }
+    local function world(u, v) return { x0, TOP + 0.005 + THICK / 2 + v * LH, z_left - u * LW } end
+    local first = #bodies + 1
+    for k, st in ipairs(glyph) do
+      local a, b = world(st[1], st[2]), world(st[3], st[4])
+      local dy, dz = b[2] - a[2], b[3] - a[3]
+      local len = math.sqrt(dy * dy + dz * dz)
+      local name = string.format("%d%s_%d", li, WORD:sub(li, li), k)
+      bodies[#bodies + 1] = { name = name, box = { SLAB, len, THICK }, start = start, velocity = hop,
+        spin = { 0, 0, -1.5 - hash(li, 11) }, friction = 0.5, bounce = 0.15,
+        position = { x0, (a[2] + b[2]) / 2, (a[3] + b[3]) / 2 }, rotation = { math.atan(dz, dy), 0, 0 } }
+      strokes[#strokes + 1] = { name = name, letter = li, len = len }
+    end
+    -- A joint where an end of stroke i lies on stroke j (within a hair).
+    for i = 1, #glyph do
+      for j = 1, #glyph do
+        if i ~= j then
+          local si, sj = glyph[i], glyph[j]
+          for _, e in ipairs { { si[1], si[2] }, { si[3], si[4] } } do
+            local du, dv = sj[3] - sj[1], sj[4] - sj[2]
+            local t = clamp(((e[1] - sj[1]) * du + (e[2] - sj[2]) * dv) / (du * du + dv * dv), 0, 1)
+            local pu, pv = sj[1] + t * du - e[1], sj[2] + t * dv - e[2]
+            -- each touching pair once: i < j, or j's end isn't also on i
+            if pu * pu + pv * pv < 1e-6 and (i < j or (t > 1e-3 and t < 1 - 1e-3)) then
+              joints[#joints + 1] = { "ball", a = bodies[first + i - 1].name, b = bodies[first + j - 1].name,
+                at = world(e[1], e[2]), cone = 1.3, twist = { -0.7, 0.7 }, hertz = 1.2, damping = 0.15 }
+            end
+          end
+        end
+      end
+    end
+  end
+  local sim = physics3d { duration = 7, rate = 240, gravity = { 0, -9.81, 0 }, bodies = bodies, joints = joints }
+  sim.strokes = strokes
+  return sim
+end)
+
+local tumbles, letter_last = {}, {}
+for _, c in ipairs(letters.contacts) do
+  local na, nb = letters.bodies[c.a].name, letters.bodies[c.b].name
+  local who = (not is_stairs(na) and na) or (not is_stairs(nb) and nb)
+  local li = who and tonumber(who:match("^(%d+)"))
+  if li and c.speed > 1.0 and (letter_last[li] or -1) < c.t - 0.12 then
+    letter_last[li] = c.t
+    tumbles[#tumbles + 1] = { THUMP, start = c.t, gain_db = remap(c.speed, 1, 6, -26, -10),
+      pan = clamp(-c.z / SPAN * 1.6, -0.8, 0.8), bus = "sfx" }
+  end
+end
+
+scene {
+  "RagdollLetters",
+  duration = 7.0,
+  audio = tumbles,
+  render = function(f)
+    local t = f.seconds
+    local meshes = stair_meshes(SPAN + 1.5, -SPAN / 2)
+    for _, st in ipairs(letters.strokes) do
+      local pos, rot = physics3d_at(letters, st.name, t)
+      meshes[#meshes + 1] = { geometry = { type = "BoxGeometry", width = SLAB, height = st.len, depth = THICK },
+        position = pos, rotation = rot, cast_shadow = true, receive_shadow = true,
+        material = { color = PALETTE[(st.letter - 1) % #PALETTE + 1], roughness = 0.35, metalness = 0.1 } }
+    end
+    view3d {
+      tone_mapping = "agx",
+      tone_mapping_exposure = 1.15,
+      camera = { position = { 5.4 + t * 0.1, 3.3, -SPAN / 2 + 1.2 }, target = { 1.0, 0.6, -SPAN / 2 }, fov = 50 },
+      lights = {
+        { type = "HemisphereLight", color = "#dceeff", ground_color = "#1e293b", intensity = 0.7 },
+        { type = "DirectionalLight", color = "#fff7ed", intensity = 3.2, position = { 6, 9, 3 },
+          cast_shadow = true, shadow = { map_size = 2048, bias = -0.001 } },
+      },
+      meshes = meshes,
     }
   end,
 }

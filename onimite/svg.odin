@@ -75,6 +75,34 @@ svg_asset_destroy :: proc(a: ^Svg_Asset) {
 	free(a)
 }
 
+// The media's SVG `name`; in a load that left the media's files unread (the
+// preview's first load: its worker reads them), parsed from the media
+// folder for the caller, who destroys it with `media_svg_release`.
+media_svg :: proc(m: ^Media, name: string) -> (a: ^Svg_Asset, owned: bool) {
+	if found, ok := m.svgs[name]; ok {
+		return found, false
+	}
+	if m.dir == "" {
+		return nil, false
+	}
+	path, _ := filepath.join({m.dir, name}, context.temp_allocator)
+	data, err := os.read_entire_file(path, context.temp_allocator)
+	if err != nil {
+		return nil, false
+	}
+	parsed, perr := svg_asset_make(data, m.dir, &m.fonts)
+	if perr != nil {
+		return nil, false
+	}
+	return parsed, true
+}
+
+media_svg_release :: proc(a: ^Svg_Asset, owned: bool) {
+	if owned {
+		svg_asset_destroy(a)
+	}
+}
+
 // Markup documents parsed by one context (by content hash).
 @(private)
 Svg_Cache :: struct {

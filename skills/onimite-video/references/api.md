@@ -344,8 +344,13 @@ end }
   second), `hit_speed` (100: the slowest impact, px/s, that counts as a contact), `bodies`,
   `joints`, `kicks`. Lengths are canvas pixels, angles degrees (clockwise), times seconds
   on the simulation's clock.
-- A body: one shape, `box = { w, h }`, `circle = r` or `polygon = { x1, y1, ... }` (about its
-  centre); `name` (refer to it by name anywhere a body is asked for), `x`, `y` (its centre),
+- A body: a shape, `box = { w, h }`, `circle = r` or `polygon = { x1, y1, ... }` (about its
+  centre), and/or `shapes = { { box = ..., x, y, angle }, ... }` for one body of several
+  (each placed by `x`, `y`, `angle` in the body's frame: a table on two legs, an L, a
+  dumbbell; `x`, `y` stay the body's origin, which `physics_at` returns), or `outline = h`
+  (an outline, below: letters, logos and SVG silhouettes collide by their own shape, holes
+  and all; its coordinates are the body's frame, so make it about (0, 0), e.g. text with
+  `align = "center", baseline = "middle"`); `name` (refer to it by name anywhere a body is asked for), `x`, `y` (its centre),
   `angle`, `vx`, `vy` (px/s), `spin` (degrees/s), `bounce` (restitution, 0), `friction` (0.6),
   `density` (1), `gravity_scale` (1), `damping`, `spin_damping`, `bullet = true` (no
   tunnelling through other moving bodies: fast, small ones).
@@ -384,7 +389,8 @@ end }
 - Checks, with the other problems in `inspect` (problems.md): `physics_overlap` (a body
   starts inside another and they fly apart), `physics_offscreen` (a body leaves the canvas
   for good; `leaves = true` when it should), `physics_unsettled` (a frame samples past the
-  end while a body still moves: simulate longer).
+  end while a body still moves: simulate longer), `physics_outline_gaps` (an `outline` body
+  collides with less than 97% of its shape: parts under 0.5 px across can't collide).
 - In 3D: `physics3d{}` (Box3D) takes the same bodies, joints and kicks in metres for
   `view3d{}`, with `physics3d_at` and `physics3d_instances` (3d.md, "Physics in 3D").
 - Same script, same result: it runs on one thread at load, so renders and previews agree.
@@ -454,6 +460,42 @@ every frame builder a copy of its result (tables, strings, numbers, booleans, pa
 not functions). `gunzip("data.gz")` returns a gzip file's contents (path relative to the
 script), e.g. for compressed path archives. `examples/designer_handoff` draws an SVG on from
 its own paths parsed once with `shared` + `path_data`.
+
+### Outlines and morphs
+
+An outline is a path handle (as `path_data` makes) from text, an SVG or path data, placed
+exactly where `text{}` / `svg{}` with the same fields would draw it. One handle draws
+(`path{ d = h }`, `clip_path = h`, dashes for draw-on), morphs, collides (a physics body's
+`outline`) and extrudes (3D `ExtrudeGeometry`, 3d.md):
+
+```lua
+local A = outline { "A", font = "Bebas Neue", size = 400, align = "center", baseline = "middle" }  -- text{}'s fields
+local PIP = outline { svg = "pip.svg", id = "silhouette", x = -200, y = -200, w = 400 }  -- svg{}'s x, y, w, h, fit, align
+local SQ = outline { d = "M0 0H100V100H0Z", fill_rule = "evenodd" }                    -- path data
+local x, y, w, h = outline_bounds(PIP)                       -- the box around its curves
+local M = morph(A, PIP)                                      -- matched once, contour to contour
+
+video { width = 1080, height = 1080, fps = 60, duration = 3, render = function(f)
+  local t = ease(ease_in_out, clamp(f.seconds / 2, 0, 1))
+  group({ transform = { translate = { 540, 540 } } }, function()
+    path { d = morph_at(M, t), fill = "#111" }               -- 0: A, 1: PIP; outside 0..1 overshoots
+  end)
+end }
+```
+
+- Make outlines at load (they are kept by content: the same call returns the same handle).
+  An outline draws with its own fill rule (an even-odd SVG's) unless `path{}` gives
+  `fill_rule`.
+- `svg = ` takes a file of the media; `id` picks one element (hidden ones too: a `silhouette`
+  group kept hidden for this), else the whole document. Strokes, images, clips, masks and
+  filters are not part of an outline; a pixel-art SVG drawn as one `<rect>` per pixel is
+  hundreds of contours (trace it into paths first: the onimite libraries' marks are traced,
+  each with a hidden `silhouette`).
+- `morph(a, b)` pairs solid contours with solid ones and holes with holes; a contour with no
+  partner grows from a point or shrinks to one, so letters with different counters morph
+  ("B" into "O" into a logo). It is matched once per pair; `morph_at(m, t)` is cheap every
+  frame. A morph's outline is per frame: draw it, don't extrude it (each new outline is a
+  new mesh: `geometry_growth`).
 
 ## Groups
 
