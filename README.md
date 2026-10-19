@@ -150,8 +150,8 @@ odin build . -collection:deps=.. -o:speed -out:build/onimite
 links the system SDL3 (`pacman -S sdl3`, `apt install libsdl3-dev` on Ubuntu
 25.04+, otherwise build SDL 3 from source as `.github/actions/setup-toolchain`
 does) and libcurl (ottis downloads its models and odawg its sample sets with it: `pacman -S curl`,
-`apt install libcurl4-openssl-dev`) and zlib (ovg writes PNGs with it; `zlib1g-dev`, which
-libcurl's package already pulls in; macOS has it); Odin ships SDL3 and zlib for Windows. Odin's Linux release ships some vendor C libraries
+`apt install libcurl4-openssl-dev`); Odin
+ships SDL3 for Windows. Odin's Linux release ships some vendor C libraries
 as source; build them once:
 
 ```sh
@@ -249,7 +249,7 @@ tags, with the tag as their
 
 | asset | |
 | --- | --- |
-| `onimite-vX.Y.Z-linux-x86_64.tar.gz` | built on Ubuntu 22.04 (needs glibc 2.34+: its newest symbol), `libSDL3.so.0` beside the binary (rpath `$ORIGIN`); needs the system libcurl (`libcurl.so.4`) and zlib (`libz.so.1`) |
+| `onimite-vX.Y.Z-linux-x86_64.tar.gz` | built on Ubuntu 22.04 (needs glibc 2.34+: its newest symbol), `libSDL3.so.0` beside the binary (rpath `$ORIGIN`); needs the system libcurl (`libcurl.so.4`) |
 | `onimite-vX.Y.Z-macos-arm64.tar.gz` | macOS 11+, `libSDL3.0.dylib` beside the binary (rpath `@executable_path`) |
 | `onimite-vX.Y.Z-windows-x86_64.zip` | best effort (unsigned, tested only in CI), left out if the Windows build fails; `SDL3.dll` and `lua54.dll` beside the binary |
 | `onimite-video-skill-vX.Y.Z.tar.gz` | the agent skill as of the tag (`onimite-video/` with `SKILL.md`, `references/` and `LICENSE`), matching the binaries |

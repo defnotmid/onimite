@@ -60,7 +60,7 @@ To install by hand instead, download the archive for your platform from
 (`X.Y.Z` is the release):
 
 - Linux x86_64: `onimite-vX.Y.Z-linux-x86_64.tar.gz` (glibc 2.34+; needs the system libcurl,
-  `libcurl.so.4`, and zlib, `libz.so.1`)
+  `libcurl.so.4`)
 - macOS Apple Silicon: `onimite-vX.Y.Z-macos-arm64.tar.gz` (signed and notarized)
 - Windows x86_64: `onimite-vX.Y.Z-windows-x86_64.zip` (when present; unsigned, best effort,
   tested only in CI)
@@ -88,7 +88,7 @@ odin build . -collection:deps=.. -o:speed -out:build/onimite
 ```
 
 Lua 5.4, stb and SDL3 come through Odin's `vendor:` packages; Odin ships the SDL3 library
-for Windows, Linux and macOS link the system one (`pacman -S sdl3`, `apt install libsdl3-dev`, `brew install sdl3`), and Linux links libcurl and zlib (`apt install libcurl4-openssl-dev`, which pulls in `zlib1g-dev`). Odin's Linux release ships
+for Windows, Linux and macOS link the system one (`pacman -S sdl3`, `apt install libsdl3-dev`, `brew install sdl3`), and Linux links libcurl (`apt install libcurl4-openssl-dev`). Odin's Linux release ships
 some vendor C libraries (stb, kb_text_shape, miniaudio, Box2D) as source to build once (the
 onimite README, "Build"); macOS needs a few extra steps (the README, "macOS"). Use `-o:speed`: unoptimized builds are many times slower.
 If `build/onimite` already exists and no `.odin` file is newer, skip the build.

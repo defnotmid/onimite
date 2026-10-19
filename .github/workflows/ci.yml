@@ -43,7 +43,7 @@ jobs:
         with:
           repository: defnotmid/ovg
           path: ovg
-          ref: v0.0.3
+          ref: v0.0.4
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/oksl
@@ -105,7 +105,7 @@ jobs:
         with:
           repository: defnotmid/ovg
           path: ovg
-          ref: v0.0.3
+          ref: v0.0.4
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/oksl
