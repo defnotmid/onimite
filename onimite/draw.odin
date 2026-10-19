@@ -162,6 +162,7 @@ renderer_destroy :: proc(r: ^Renderer) {
 	delete(r.ctx.diagnostics)
 	shader_library_destroy(&r.ctx.shaders)
 	delete(r.ctx.shader_uses)
+	delete(r.ctx.clip_uses)
 	delete(r.ctx.scene_starts)
 	placed_audio_destroy(&r.ctx.placed)
 	svg_cache_destroy(&r.ctx.svgs)
@@ -202,6 +203,7 @@ build_frame :: proc(r: ^Renderer, index: int) {
 	f := Frame{index = index, global_index = index, fps = r.video.fps}
 	r.ctx.frame = f
 	clear(&r.ctx.shader_uses)
+	clear(&r.ctx.clip_uses)
 	clear(&r.ctx.scene_starts)
 	r.ctx.audio_pending = 0
 	if r.video.render != nil {

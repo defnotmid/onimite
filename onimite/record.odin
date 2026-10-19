@@ -18,8 +18,9 @@ Video_Upload :: struct {
 	// GPU players: the plane images the recorded program converts into
 	// `image` (video_yuv.odin); none: convert on the CPU into `image`.
 	planes:  [4]vg.Image_Id,
-	// The video source's handle.
+	// The video source's handle and the clip's stream.
 	clip:    int,
+	stream:  int,
 	seconds: f64,
 }
 
@@ -178,8 +179,8 @@ play_frame_draw :: proc(p: ^Frame_Player, f: ^Frame_Record, output: vg.Render_Ou
 play_video_upload :: proc(p: ^Frame_Player, f: ^Frame_Record, up: Video_Upload) {
 	v := p.media.videos
 	src := v.source
-	frame := src.request(src.data, up.clip, up.seconds, .Block)
-	defer src.release(src.data, up.clip)
+	frame := src.request(src.data, up.clip, up.stream, up.seconds, .Block)
+	defer src.release(src.data, up.clip, up.stream)
 	if frame.failure.code != nil {
 		name := ""
 		for h, i in v.handles {

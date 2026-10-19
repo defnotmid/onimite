@@ -49,9 +49,16 @@ View3d :: struct {
 	// render), for `geometry_growth`.
 	scene_index:           int,
 	// The clock of the frame that drew it (scene-relative in a scene): video
-	// clips used as maps play on it from its start, looping.
+	// clips used as maps play on it from its start, looping, each on the
+	// clip stream its use was given (by media name).
 	clock_index:           int,
 	clock_fps:             int,
+	video_streams:         []View3d_Video_Stream,
+}
+
+View3d_Video_Stream :: struct {
+	name:   string,
+	stream: int,
 }
 
 // A custom shader material (`type = "ShaderMaterial"`): its GLSL ES
@@ -224,7 +231,39 @@ view3d :: proc(ctx: ^Context, f: Frame, v: View3d) {
 	v.background = strings.clone(v.background, arena)
 	v.scene_index = f.scene.index if f.scene != nil else -1
 	v.clock_index, v.clock_fps = f.index, f.fps
+	v.video_streams = view3d_video_streams(ctx, v, arena)
 	tree_add(&ctx.tree, v)
+}
+
+// The streams the node's video maps play on, a use each.
+@(private = "file")
+view3d_video_streams :: proc(ctx: ^Context, v: View3d, arena: runtime.Allocator) -> []View3d_Video_Stream {
+	out := make([dynamic]View3d_Video_Stream, arena)
+	add :: proc(ctx: ^Context, out: ^[dynamic]View3d_Video_Stream, name: string) {
+		clip, is_video := ctx.videos.by_name[name]
+		if name == "" || !is_video {
+			return
+		}
+		for s in out {
+			if s.name == name {
+				return
+			}
+		}
+		append(out, View3d_Video_Stream{name, clip_stream(ctx, clip)})
+	}
+	for mesh in v.meshes {
+		for name in mesh.maps {
+			add(ctx, &out, name)
+		}
+	}
+	for pose in v.models {
+		if over, ok := pose.material.?; ok {
+			for name in over.maps {
+				add(ctx, &out, name)
+			}
+		}
+	}
+	return out[:]
 }
 
 @(private = "file")
@@ -618,7 +657,13 @@ view3d_videos :: proc(r: ^Renderer, n: View3d, job: ^View3d_Job) {
 			}
 		}
 		t, _ := video_clip_time(v.infos[clip], {index = n.clock_index, fps = n.clock_fps}, 0, 0, 1, true)
-		if slot, ok := video_clip_image(r, clip, t); ok {
+		stream := 0
+		for s in n.video_streams {
+			if s.name == name {
+				stream = s.stream
+			}
+		}
+		if slot, ok := video_clip_image(r, clip, stream, t); ok {
 			append(&job.videos, Video_Binding{texture, r.video_images.image[slot]})
 		}
 	}

@@ -43,10 +43,11 @@ for _, s in ipairs(M.SETUP) do
   s.mb = 0
   for _, p in ipairs(s.parts) do s.mb = s.mb + p[2] end
 end
--- onimite: the v0.0.7 Linux release as it ships, the stripped binary (odin
--- build -o:speed) and libSDL3 next to it, in MiB (the .tar.gz is 8.3).
+-- onimite: the v0.0.26 Linux release (2026-10-18) unpacked as it ships,
+-- the stripped binary, libSDL3 next to it and the licence files: 24,287,364
+-- bytes, 23.2 MiB (24.3 MB, the site's figure; the .tar.gz is 10.2 MB).
 -- Nothing else to install.
-M.ONIMITE_MB = 19.7
+M.ONIMITE_MB = 23.2
 
 -- "3.4 GB", "682 MB": a size in MiB as the film prints it.
 function M.size(mb)

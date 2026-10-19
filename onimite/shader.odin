@@ -136,8 +136,9 @@ Shader_Channel :: struct {
 	kind:    Shader_Channel_Kind,
 	// Media image name.
 	image:   string,
-	// Video clip and the clip time this frame shows.
+	// Video clip, its stream and the clip time this frame shows.
 	clip:    int,
+	stream:  int,
 	seconds: f64,
 	// Group content node and its pixel space (0: the shader box's).
 	content: i32,
@@ -632,10 +633,11 @@ shader_channel :: proc(ctx: ^Context, f: Frame, label: string, in_: Shader_Input
 		if !showing {
 			return {}
 		}
+		stream := clip_stream(ctx, i)
 		if v.source.prefetch != nil && !ctx.recording {
-			v.source.prefetch(v.source.data, v.handles[i], t)
+			v.source.prefetch(v.source.data, v.handles[i], stream, t)
 		}
-		return {kind = .Video, clip = i, seconds = t}
+		return {kind = .Video, clip = i, stream = stream, seconds = t}
 	}
 	report(ctx, .Error, {code = .Missing_Image, name = in_.src})
 	return {}
@@ -781,7 +783,7 @@ shader_channel_image :: proc(r: ^Renderer, ch: Shader_Channel, w, h, sx, sy: f32
 	case .Image:
 		id = shader_child_image(r, ch.image)
 	case .Video:
-		if slot, got := video_clip_image(r, ch.clip, ch.seconds); got {
+		if slot, got := video_clip_image(r, ch.clip, ch.stream, ch.seconds); got {
 			id = r.video_images.image[slot]
 		}
 	case .Group:

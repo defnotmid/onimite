@@ -1,9 +1,17 @@
--- 3D Box3D Physics Demo: Wrecking Ball vs Block Tower + Bouncing Spheres
+-- 3D Box3D Physics Demo: Wrecking Ball vs Block Tower + Bouncing Spheres.
+-- physics3d{} once at load; its contacts place the sound: an impact where
+-- the ball hits the tower, a thump per block landing, a tick per orb bounce
+-- (pitched per orb), louder for harder hits and panned to where they land.
+-- The sounds are odawg's sound effects (media/instruments/sfx.json, the
+-- skill's library).
+--
+--     onimite render examples/physics3d_demo/video.lua -o physics3d_demo.mp4
 video {
   width = 1280,
   height = 720,
   fps = 60,
   background = "#0b0f19",
+  buses = { sfx = { gain_db = -2 } },
 }
 
 local BLOCK_W, BLOCK_H, BLOCK_D = 1.2, 0.35, 0.4
@@ -82,6 +90,42 @@ local sim = shared("wrecking_tower", function()
   return res
 end)
 
+-- A sound per impact worth hearing: the hard ones, a body's at most every
+-- GAP seconds (a collapsing tower touches hundreds of times).
+local SFX = "instruments/sfx.json"
+local IMPACT = sound { "impact", instruments = SFX }
+local THUMP = sound { "thump", instruments = SFX, duration = "16n" }
+local ORB_NOTES = { "C6", "E6", "G6", "A6", "C7", "E7" }
+local hits, last = {}, {}
+local last_thump = -1 -- the tower's thumps at least 40 ms apart, all blocks together
+local function kind(name)
+  if name == "wrecking_ball" then return "ball" end
+  if name:sub(1, 4) == "orb_" then return "orb" end
+  if name:sub(1, 6) == "block_" then return "block" end
+end
+for _, c in ipairs(sim.contacts) do
+  local na, nb = sim.bodies[c.a].name, sim.bodies[c.b].name
+  local ka, kb = kind(na), kind(nb)
+  local who = (ka == "ball" or kb == "ball") and "ball" or (ka == "orb" and na) or (kb == "orb" and nb)
+    or (ka == "block" and na) or (kb == "block" and nb)
+  local block = who and who:sub(1, 6) == "block_"
+  local min_speed, gap = (block and 2.0 or 1.0), (block and 0.25 or 0.15)
+  if who and c.speed > min_speed and (last[who] or -1) < c.t - gap then
+    last[who] = c.t
+    local pan = clamp(c.x / 5, -0.8, 0.8)
+    if who == "ball" then
+      hits[#hits + 1] = { IMPACT, start = c.t, gain_db = remap(c.speed, 1, 6, -14, -2), pan = pan, bus = "sfx" }
+    elseif who:sub(1, 4) == "orb_" then
+      local n = tonumber(who:sub(5))
+      hits[#hits + 1] = { sound { "tick", instruments = SFX, note = ORB_NOTES[n] }, start = c.t,
+        gain_db = remap(c.speed, 1, 5, -22, -10), pan = pan, bus = "sfx" }
+    elseif c.t - last_thump >= 0.04 then
+      last_thump = c.t
+      hits[#hits + 1] = { THUMP, start = c.t, gain_db = remap(c.speed, 2, 6, -22, -10), pan = pan, bus = "sfx" }
+    end
+  end
+end
+
 local PALETTE = {
   "#38bdf8", "#f472b6", "#fbbf24", "#34d399", "#a78bfa", "#fb7185",
 }
@@ -89,6 +133,7 @@ local PALETTE = {
 scene {
   "WreckingTower",
   duration = 4.0,
+  audio = hits,
   render = function(f)
     local t = f.seconds
     local wb_pos, wb_rot = physics3d_at(sim, "wrecking_ball", t)

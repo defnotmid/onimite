@@ -78,10 +78,12 @@ Video_Source :: struct {
 	// Reads the clip's header; the decode thread starts on first request.
 	// `why` says what failed (`err` is `.No_Video_Track` or `.Video_Decode`).
 	open:    proc(data: rawptr, path: string) -> (clip: int, info: Video_Info, why: Video_Failure, err: Error),
-	request: proc(data: rawptr, clip: int, seconds: f64, wait: Video_Wait) -> Video_Frame,
-	release: proc(data: rawptr, clip: int),
+	// `stream`: which of the clip's playheads (its n-th use in a frame), each
+	// decoded on its own so two times of one clip don't seek each other.
+	request: proc(data: rawptr, clip: int, stream: int, seconds: f64, wait: Video_Wait) -> Video_Frame,
+	release: proc(data: rawptr, clip: int, stream: int),
 	// Hints that frames from `seconds` on will be asked for (prefetch).
-	prefetch: proc(data: rawptr, clip: int, seconds: f64),
+	prefetch: proc(data: rawptr, clip: int, stream: int, seconds: f64),
 	// Converts a frame to premultiplied RGBA8 into `out` (`width * height
 	// * 4` bytes) on the CPU, for software renders (GPU ones convert in a
 	// program, video_yuv.odin).
@@ -190,9 +192,11 @@ Video_Clip_Params :: struct {
 	opacity:      Maybe(f32),
 }
 
-// The node: which clip and the clip time this frame shows.
+// The node: which clip, on which of its streams, and the clip time this
+// frame shows.
 Video_Clip :: struct {
 	clip:       int,
+	stream:     int,
 	seconds:    f64,
 	x, y, w, h: f32,
 	fit:        Image_Fit,
@@ -218,11 +222,23 @@ video_clip :: proc(ctx: ^Context, f: Frame, p: Video_Clip_Params) -> bool {
 	if !showing {
 		return true
 	}
-	tree_add(&ctx.tree, Video_Clip{i, t, p.x, p.y, p.w, p.h, p.fit, p.align, p.opacity})
+	stream := clip_stream(ctx, i)
+	tree_add(&ctx.tree, Video_Clip{i, stream, t, p.x, p.y, p.w, p.h, p.fit, p.align, p.opacity})
 	if v.source.prefetch != nil && !ctx.recording {
-		v.source.prefetch(v.source.data, v.handles[i], t)
+		v.source.prefetch(v.source.data, v.handles[i], stream, t)
 	}
 	return true
+}
+
+// Which stream of clip `clip` its next use in the frame being built plays
+// on: the n-th use the n-th (a single playhead, however it jumps, is 0).
+clip_stream :: proc(ctx: ^Context, clip: int) -> int {
+	for len(ctx.clip_uses) <= clip {
+		append(&ctx.clip_uses, 0)
+	}
+	n := ctx.clip_uses[clip]
+	ctx.clip_uses[clip] += 1
+	return int(n)
 }
 
 // The clip time frame `f` shows: playback starts at `start_from` on the
@@ -302,7 +318,7 @@ video_images_destroy :: proc(vi: ^Video_Images, c: ^vg.Canvas) {
 // The image showing clip `clip` at `seconds` (an index into
 // `r.video_images`): fetched, and uploaded when it changed. False when
 // nothing is decoded.
-video_clip_image :: proc(r: ^Renderer, clip: int, seconds: f64) -> (slot: int, ok: bool) {
+video_clip_image :: proc(r: ^Renderer, clip: int, stream: int, seconds: f64) -> (slot: int, ok: bool) {
 	v := r.ctx.videos
 	vi := &r.video_images
 	src := v.source
@@ -310,11 +326,11 @@ video_clip_image :: proc(r: ^Renderer, clip: int, seconds: f64) -> (slot: int, o
 		return -1, false
 	}
 	if r.recording {
-		return video_clip_image_recorded(r, clip, seconds)
+		return video_clip_image_recorded(r, clip, stream, seconds)
 	}
 	handle := v.handles[clip]
-	frame := src.request(src.data, handle, seconds, vi.wait)
-	defer src.release(src.data, handle)
+	frame := src.request(src.data, handle, stream, seconds, vi.wait)
+	defer src.release(src.data, handle, stream)
 	if frame.failure.code != nil {
 		report(&r.ctx, .Error, {code = .Undecodable_Video, name = v.names[clip], video = frame.failure})
 		return -1, false
@@ -371,7 +387,7 @@ video_clip_image :: proc(r: ^Renderer, clip: int, seconds: f64) -> (slot: int, o
 // the decoder delivers) not used yet this frame, and an upload of the
 // frame to do when the frame is played.
 @(private = "file")
-video_clip_image_recorded :: proc(r: ^Renderer, clip: int, seconds: f64) -> (slot: int, ok: bool) {
+video_clip_image_recorded :: proc(r: ^Renderer, clip: int, stream: int, seconds: f64) -> (slot: int, ok: bool) {
 	v := r.ctx.videos
 	vi := &r.video_images
 	info := v.infos[clip]
@@ -408,7 +424,7 @@ video_clip_image_recorded :: proc(r: ^Renderer, clip: int, seconds: f64) -> (slo
 		}
 		planes = vi.planes[slot]
 	}
-	append(&r.video_uploads, Video_Upload{vi.image[slot], planes, v.handles[clip], seconds})
+	append(&r.video_uploads, Video_Upload{vi.image[slot], planes, v.handles[clip], stream, seconds})
 	return slot, true
 }
 
@@ -454,7 +470,7 @@ video_frame_upload :: proc(r: ^Renderer, clip: int, slot: int, frame: Video_Fram
 draw_video_clip :: proc(r: ^Renderer, n: Video_Clip) {
 	v := r.ctx.videos
 	vi := &r.video_images
-	slot, ok := video_clip_image(r, n.clip, n.seconds)
+	slot, ok := video_clip_image(r, n.clip, n.stream, n.seconds)
 	if !ok {
 		return
 	}

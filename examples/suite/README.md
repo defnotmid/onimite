@@ -1,8 +1,8 @@
 # suite
 
-onimite, ovg, oksl, odecs and o3d used together in one 36 second piece:
-1920x1080, 60 fps, 120 BPM. The five aren't shown one after another. Every
-frame is one composition that uses all of them:
+onimite, ovg, oksl, odecs, o3d, odawg and ottis used together in one 36
+second piece: 1920x1080, 60 fps, 120 BPM. The seven aren't shown one after
+another; the picture is one composition through all of it:
 
 - **oksl** compiles `media/world.sksl`, the world everything sits in: a sky
   over a moving grid floor, with `canyon.webp` (decoded by odecs) as a
@@ -24,11 +24,17 @@ frame is one composition that uses all of them:
   4444 `.mov` and the VP9-alpha `.webm` glow in masked portals over the
   shader world. In the kaleidoscope the VP9 clip is drawn *inside* the
   shader's child group, so the fold multiplies it.
-- **onimite** runs the Lua script, composes the soundtrack with odawg
-  (`track.lua`, a `song{}`: synthwave on the library's 909 machine, octave saw
-  bass, wide pads, a dotted-eighth arp, a lead in the kaleidoscope) and feeds
-  its kicks (`score.pulse`) and `audio_spectrum` into the shader's uniforms
-  (bulge, fringes, floor glow).
+- **odawg** composes and mixes the soundtrack (`track.lua`, a `song{}`:
+  synthwave on the library's 909 machine, octave saw bass, wide pads, a
+  dotted-eighth arp, a lead in the kaleidoscope), and the picture reads it:
+  its sections and blips place every moment, its kicks (`score.pulse`)
+  bulge the shader and pump the picture, its mix is the spectrum ring
+  (labelled "odawg's mix") and the shader's fringes and floor glow, and a
+  readout shows its section and bar (`score.section`).
+- **ottis** says the break's line ("Seven libraries. One frame clock. One
+  binary.", `say()`, the default voice alba), timed word by word: the
+  captions highlight each word as it is said, and the music ducks under it.
+- **onimite** runs the Lua script and puts it all on one frame clock.
 
 ```sh
 onimite render examples/suite/video.lua -o suite.mp4
@@ -39,10 +45,10 @@ onimite render examples/suite/video.lua -o suite.mp4
 | 0-16 | 0-8 | `ignition`, `liftoff` | the world fades up, the script's lines type in, the rocket rises on its blip; the kick, a riser |
 | 16-32 | 8-16 | `drop` | full warp, the 3D gyroscope springs up inside the spectrum ring, the rocket flies a figure of eight, the portals open on their blips (beats 20 and 24) |
 | 32-48 | 16-24 | `kaleido` | the portals dive into the centre, the kaleidoscope folds the VP9 dancer, the gyroscope and the spectrum ring; the rocket orbits; a stutter before the break |
-| 48-56 | 24-28 | `break` | the warp settles and the structure draws itself, a box a blip (o3d's lands with the SDL_GPU row on 52) |
-| 56-72 | 28-36 | `lockup`, `tail` | "onimite · ovg · oksl · odecs · o3d" (a name a blip, o3d's with the line on its crash, 60), "one binary, all Odin, Lua scripts", the structure under it; the last hit on 68 |
+| 48-56 | 24-28 | `break` | the warp settles and the structure draws itself, a box a blip (o3d's lands with the SDL_GPU row on 52, then odawg's and ottis's); ottis says the line, its words lit as they are said |
+| 56-72 | 28-36 | `lockup`, `tail` | "onimite · ovg · oksl · odecs · o3d · odawg · ottis" (a name an eighth, ottis's with the line on its crash, 60), "one binary, all Odin, Lua scripts", the structure under it; the last hit on 68 |
 
-The text on screen comes from the five READMEs. Files: `track.lua` (the
+The text on screen comes from the seven READMEs. Files: `track.lua` (the
 song, D minor: its sections are the piece's parts, its transitions the
 risers and the impacts on the drop and the lockup, its own parts the blips,
 crashes and stutters the picture lands on), `timeline.lua` (every moment in
@@ -63,6 +69,7 @@ gyroscope),
   rendered by onimite from `tools/gen_media/canyon.lua` (turbulence-lit
   rock strata, noise ridges) and encoded by `gen.sh`.
 - Fonts (OFL): Bebas Neue, Space Grotesk, JetBrains Mono.
-- The soundtrack is composed by odawg from `track.lua`. All of the media above is part of this
+- The soundtrack is composed by odawg from `track.lua`. The spoken line is
+  Pocket TTS by Kyutai (CC-BY-4.0), voice alba, through ottis. All of the media above is part of this
   repository (MIT); `tools/gen_media/gen.sh` regenerates the clips and the
   panorama.

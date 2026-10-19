@@ -20,6 +20,9 @@ Context :: struct {
 	// Per shader program, its layers so far in the frame being built
 	// (their feedback instances); cleared by `build_frame`.
 	shader_uses: [dynamic]u32,
+	// Per clip, its uses so far in the frame being built: the n-th use
+	// plays on the clip's stream n (`clip_stream`); cleared by `build_frame`.
+	clip_uses:   [dynamic]i32,
 	// SVG markup parsed by this context, kept across frames (svg.odin).
 	svgs:        Svg_Cache,
 	// Lottie JSON parsed by this context, kept across frames (lottie.odin).

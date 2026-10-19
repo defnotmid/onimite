@@ -450,7 +450,7 @@ Each folder in `examples/` is a `video.lua` with its `media/`.
 | `fox` | a downloaded, skinned glTF model (the Khronos Fox) playing its clips, then a `ShaderMaterial` override on the model |
 | `pip_demo` | Pip, the mascot, in each mood: one pixel-art SVG with parts shown and hidden by id |
 | `transitions` | every standard-library transition between scenes |
-| `physics3d_demo` | 3D rigid bodies (`physics3d{}`): a wrecking ball on a rod knocks down a block tower, instanced with shadows |
+| `physics3d_demo` | 3D rigid bodies (`physics3d{}`): a wrecking ball on a rod knocks down a block tower, instanced with shadows; its contacts place the sound (an impact, thumps, pitched ticks) |
 | `physics_demo` | rigid bodies (`physics{}`) simulated at load: tiles dropped into a word, a pop per impact |
 | `audio_demo` | tracks on the video and scenes, voice ducking, effects on animation constants |
 | `voiceover` | spoken lines made with `say()`, their captions, keys and effects on spoken words (`say_cue`) |

@@ -29,17 +29,16 @@ T.PORTALS = hits("blips", "drop")
 T.KALEIDO = B("kaleido")
 T.GLITCH = hits("glitch", "kaleido")[1]
 -- The break: kick out, the suite's structure draws itself, unwarped, a box
--- a blip (ovg, oksl, odecs, SDL3 under onimite); o3d's box lands with the
--- SDL3 row.
+-- a blip (ovg, oksl, odecs, SDL3 under onimite; o3d's box lands with the
+-- SDL3 row, then odawg's and ottis's), while ottis says the line.
 T.BREAK = B("break")
 T.BOXES = hits("blips", "break")
 T.O3D_BOX = T.BOXES[4]
--- The lockup: a name a blip, the fifth with the line on its crash, then
--- the last hit and the tail.
+-- The lockup: a name an eighth, the seventh with the line on its crash,
+-- then the last hit and the tail.
 T.LOCKUP = B("lockup")
 T.NAMES = hits("blips", "lockup")
 T.LINE = hits("crash", "lockup")[1]
-T.O3D_NAME = T.LINE
 T.END = B("tail")
 T.TOTAL = B("end")
 

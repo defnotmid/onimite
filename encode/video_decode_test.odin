@@ -49,11 +49,11 @@ test_video_seek_matches_sequential :: proc(t: ^testing.T) {
 		defer delete(sums)
 		began := time.tick_now()
 		for i in 0 ..< info.frames {
-			f := src.request(src.data, clip, (f64(i) + 0.5) / info.fps, .Block)
+			f := src.request(src.data, clip, 0, (f64(i) + 0.5) / info.fps, .Block)
 			testing.expect(t, f.ok && f.exact)
 			testing.expect_value(t, f.index, i)
 			sums[i] = frame_checksum(f)
-			src.release(src.data, clip)
+			src.release(src.data, clip, 0)
 		}
 		seq := time.duration_seconds(time.tick_since(began))
 
@@ -61,18 +61,75 @@ test_video_seek_matches_sequential :: proc(t: ^testing.T) {
 		order := [?]int{70, 3, 89, 44, 45, 46, 15, 14, 0, 61, 29, 30}
 		began = time.tick_now()
 		for i in order {
-			f := src.request(src.data, clip, (f64(i) + 0.5) / info.fps, .Block)
+			f := src.request(src.data, clip, 0, (f64(i) + 0.5) / info.fps, .Block)
 			testing.expectf(t, f.ok && f.index == i, "%s: frame %d came back as %d", name, i, f.index)
 			testing.expectf(t, frame_checksum(f) == sums[i], "%s: frame %d differs after seeking", name, i)
-			src.release(src.data, clip)
+			src.release(src.data, clip, 0)
 		}
 		seeks := time.duration_seconds(time.tick_since(began))
 		log.infof("%s: sequential %.0f fps, random seeks %.1f ms each", name, f64(info.frames) / seq, seeks * 1000 / f64(len(order)))
 
 		// The final frame stays through the clip's end.
-		last := src.request(src.data, clip, info.duration, .Block)
+		last := src.request(src.data, clip, 0, info.duration, .Block)
 		testing.expect(t, last.ok && last.index == info.frames - 1)
-		src.release(src.data, clip)
+		src.release(src.data, clip, 0)
+	}
+}
+
+// Played backwards, every frame is the one played forwards, decoded a chunk
+// at a time rather than a seek a frame; two playheads of one clip (streams
+// 0 and 1) at times far apart each stay exact without seeking the other.
+@(test)
+test_video_backwards_and_streams :: proc(t: ^testing.T) {
+	path := fixture("clip_high.mp4")
+	if path == "" {
+		testing.fail_now(t, "missing testdata fixture")
+	}
+	d: Video_Decoders
+	video_decoders_init(&d, native = true)
+	defer video_decoders_destroy(&d)
+	src := video_source(&d)
+	clip, info, _, _ := src.open(src.data, path)
+	at :: proc(i: int, fps: f64) -> f64 {return (f64(i) + 0.5) / fps}
+	sums := make([]u64, info.frames)
+	defer delete(sums)
+	for i in 0 ..< info.frames {
+		f := src.request(src.data, clip, 0, at(i, info.fps), .Block)
+		sums[i] = frame_checksum(f)
+		src.release(src.data, clip, 0)
+	}
+	w := d.workers[clip][0]
+	sync.mutex_lock(&w.mutex)
+	before := w.generation
+	sync.mutex_unlock(&w.mutex)
+	for i := info.frames - 1; i >= 0; i -= 1 {
+		f := src.request(src.data, clip, 0, at(i, info.fps), .Block)
+		testing.expectf(t, f.ok && f.index == i && frame_checksum(f) == sums[i], "backwards: frame %d came back as %d", i, f.index)
+		src.release(src.data, clip, 0)
+	}
+	sync.mutex_lock(&w.mutex)
+	seeks := w.generation - before
+	sync.mutex_unlock(&w.mutex)
+	// 90 frames in chunks of 29: a handful of seeks, not one a frame
+	testing.expectf(t, seeks <= 5, "backwards took %d seeks", seeks)
+
+	// two playheads: 10..29 on stream 0 and 60..79 on stream 1, interleaved;
+	// after each one's first frame, neither seeks again
+	first: [2]u64
+	for k in 0 ..< 20 {
+		for s in 0 ..< 2 {
+			i := 10 + k + 50 * s
+			f := src.request(src.data, clip, s, at(i, info.fps), .Block)
+			testing.expectf(t, f.ok && f.index == i && frame_checksum(f) == sums[i], "stream %d: frame %d came back as %d", s, i, f.index)
+			src.release(src.data, clip, s)
+			ws := d.workers[clip][s]
+			sync.mutex_lock(&ws.mutex)
+			if k == 0 {
+				first[s] = ws.generation
+			}
+			testing.expectf(t, ws.generation == first[s], "stream %d seeked again at frame %d", s, i)
+			sync.mutex_unlock(&ws.mutex)
+		}
 	}
 }
 
@@ -89,15 +146,15 @@ test_video_nearest_does_not_block :: proc(t: ^testing.T) {
 	src := video_source(&d)
 	clip, info, _, _ := src.open(src.data, path)
 	target := 2.0
-	f := src.request(src.data, clip, target, .Nearest)
-	src.release(src.data, clip)
+	f := src.request(src.data, clip, 0, target, .Nearest)
+	src.release(src.data, clip, 0)
 	exact := f.ok && f.exact
 	deadline := time.tick_now()
 	for !exact && time.tick_since(deadline) < 5 * time.Second {
 		time.sleep(2 * time.Millisecond)
-		f = src.request(src.data, clip, target, .Nearest)
+		f = src.request(src.data, clip, 0, target, .Nearest)
 		exact = f.ok && f.exact
-		src.release(src.data, clip)
+		src.release(src.data, clip, 0)
 	}
 	testing.expect(t, exact)
 	testing.expect_value(t, f.index, int(target * info.fps))
@@ -123,9 +180,9 @@ test_video_nearest_seek_lands_while_playing :: proc(t: ^testing.T) {
 	// Twenty preview frames asked before the seek can finish restart it
 	// at most once (the first request starts it).
 	for k in 0 ..< 20 {
-		src.prefetch(src.data, clip, start + f64(k) / 60)
+		src.prefetch(src.data, clip, 0, start + f64(k) / 60)
 	}
-	w := d.workers[clip]
+	w := d.workers[clip][0]
 	sync.mutex_lock(&w.mutex)
 	restarts := w.generation
 	sync.mutex_unlock(&w.mutex)
@@ -135,12 +192,12 @@ test_video_nearest_seek_lands_while_playing :: proc(t: ^testing.T) {
 	for shown < 0 && time.tick_since(began) < 3 * time.Second {
 		// Playback at a quarter speed, asked as fast as the caller can.
 		at := start + time.duration_seconds(time.tick_since(began)) / 4
-		src.prefetch(src.data, clip, at)
-		f := src.request(src.data, clip, at, .Nearest)
+		src.prefetch(src.data, clip, 0, at)
+		f := src.request(src.data, clip, 0, at, .Nearest)
 		if f.ok {
 			shown = f.index
 		}
-		src.release(src.data, clip)
+		src.release(src.data, clip, 0)
 	}
 	testing.expectf(t, shown >= int(start * info.fps), "no frame landed while playing from %.2f s (got %d)", start, shown)
 }

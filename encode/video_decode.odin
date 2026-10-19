@@ -9,15 +9,25 @@ import "core:time"
 import movie "deps:odecs/codec/movie"
 import om "../onimite"
 
-// Video clip decoding for onimite' `Video_Source`: one background thread per
-// clip owns an odecs `movie.Reader` and fills a small ring of frames ahead
-// of the requested time, as the decoder's planes (GPU renders convert them
-// on the GPU; software ones with `to_rgba`). Requests take frames from the ring without
-// decoding on the caller's thread; a request outside what the ring can
-// reach soon restarts the thread at the new time (the latest request wins,
-// checked between frames).
+// Video clip decoding for onimite' `Video_Source`: per clip, a stream per
+// playhead (the n-th use of the clip in a frame is stream n), each a
+// background thread that owns an odecs `movie.Reader` and fills a small
+// ring of frames ahead of the requested time, as the decoder's planes (GPU
+// renders convert them on the GPU; software ones with `to_rgba`). Requests
+// take frames from the ring without decoding on the caller's thread; a
+// request outside what the ring can reach soon restarts the thread at the
+// new time (the latest request wins, checked between frames), and one just
+// behind it (playing backwards) decodes a chunk before it to serve back.
 
-CLIP_RING_SLOTS :: 6
+// Streams a clip can have: playheads in one frame beyond this share the last.
+CLIP_STREAMS :: 4
+// Ring slots: going forwards a stream fills FORWARD_SLOTS ahead; backwards
+// a chunk of CLIP_RING_SLOTS - 2 frames (one more for its end, one leased).
+CLIP_RING_SLOTS :: 32
+FORWARD_SLOTS :: 6
+// A request this far behind the oldest decoded frame (or less) is playing
+// backwards: a chunk before it, not a seek to it.
+REVERSE_REACH_SECONDS :: 2.0
 // A request this far past the newest decoded frame seeks instead of
 // decoding forward to it.
 SEEK_AHEAD_SECONDS :: 1.0
@@ -26,8 +36,10 @@ BLOCK_RESEEK :: 2 * time.Second
 
 Video_Decoders :: struct {
 	mutex:   sync.Mutex,
-	// Stable pointers: workers are shared with their threads.
-	workers: [dynamic]^Clip_Worker,
+	// A clip's streams by handle; stream 0 is opened with the clip, the
+	// others on their first use. Stable pointers: workers are shared with
+	// their threads.
+	workers: [dynamic][CLIP_STREAMS]^Clip_Worker,
 	// Decode with odecs' native codecs rather than Vulkan Video. Backward
 	// seeks cost ~5 ms native against 27-40 ms on Vulkan, so interactive
 	// previews set it; exports keep hardware decoding. Read when a clip's
@@ -69,6 +81,14 @@ Clip_Worker :: struct {
 	// and restarting it on every request would never land one.
 	seeking:    bool,
 	seek_to:    f64,
+	// Playing backwards: the chunk being decoded or served, [chunk_lo,
+	// chunk_hi], and whether it is complete (the thread then waits rather
+	// than decode past it). `capacity`: the slots it may fill.
+	chunk:      bool,
+	chunk_lo:   f64,
+	chunk_hi:   f64,
+	chunk_done: bool,
+	capacity:   int,
 	failed:     bool,
 	failure:    om.Video_Failure,
 	// The ring: parallel arrays.
@@ -87,27 +107,32 @@ Clip_Worker :: struct {
 }
 
 video_decoders_init :: proc(d: ^Video_Decoders, native := false) {
-	d.workers = make([dynamic]^Clip_Worker)
+	d.workers = make([dynamic][CLIP_STREAMS]^Clip_Worker)
 	d.native = native
 }
 
 // Stops every decode thread and frees the clips.
 video_decoders_destroy :: proc(d: ^Video_Decoders) {
-	for w in d.workers {
-		if w.thread != nil {
-			sync.mutex_lock(&w.mutex)
-			w.stop = true
-			sync.cond_broadcast(&w.work)
-			sync.mutex_unlock(&w.mutex)
-			thread.join(w.thread)
-			thread.destroy(w.thread)
+	for streams in d.workers {
+		for w in streams {
+			if w == nil {
+				continue
+			}
+			if w.thread != nil {
+				sync.mutex_lock(&w.mutex)
+				w.stop = true
+				sync.cond_broadcast(&w.work)
+				sync.mutex_unlock(&w.mutex)
+				thread.join(w.thread)
+				thread.destroy(w.thread)
+			}
+			movie.close_reader(&w.reader)
+			for b in w.buffers {
+				delete(b)
+			}
+			delete(w.path)
+			free(w)
 		}
-		movie.close_reader(&w.reader)
-		for b in w.buffers {
-			delete(b)
-		}
-		delete(w.path)
-		free(w)
 	}
 	delete(d.workers)
 	d^ = {}
@@ -126,6 +151,7 @@ vs_open :: proc(data: rawptr, path: string) -> (clip: int, info: om.Video_Info, 
 	w.path = strings.clone(path)
 	w.owner = d
 	w.leased = -1
+	w.capacity = FORWARD_SLOTS
 	cfg := movie.Reader_Config {
 		preference          = .Native if d.native else .Automatic,
 		// ovg composites premultiplied, and SkSL children `.eval` it.
@@ -161,7 +187,7 @@ vs_open :: proc(data: rawptr, path: string) -> (clip: int, info: om.Video_Info, 
 	w.frame_dur = 1 / fps
 	sync.mutex_lock(&d.mutex)
 	clip = len(d.workers)
-	append(&d.workers, w)
+	append(&d.workers, [CLIP_STREAMS]^Clip_Worker{w, nil, nil, nil})
 	sync.mutex_unlock(&d.mutex)
 	return clip, {v.width, v.height, v.duration, fps, v.frame_count, v.rotation, w.reader.audio_index >= 0, w.format}, {}, nil
 }
@@ -232,14 +258,33 @@ decode_failure :: proc(e: movie.Error, detail: string) -> om.Video_Failure {
 	return {code = .Video_Decode, cause = reflect.enum_string(e), detail = detail}
 }
 
+// Stream `stream` of clip `clip`, opened on its first use (another reader
+// of the clip's file, set up as stream 0's was).
 @(private = "file")
-worker_of :: proc(d: ^Video_Decoders, clip: int) -> ^Clip_Worker {
+worker_of :: proc(d: ^Video_Decoders, clip: int, stream: int) -> ^Clip_Worker {
 	sync.mutex_lock(&d.mutex)
 	defer sync.mutex_unlock(&d.mutex)
 	if clip < 0 || clip >= len(d.workers) {
 		return nil
 	}
-	return d.workers[clip]
+	streams := &d.workers[clip]
+	k := clamp(stream, 0, CLIP_STREAMS - 1)
+	if streams[k] == nil {
+		first := streams[0]
+		context.allocator = first.allocator
+		w := new(Clip_Worker)
+		w^ = {allocator = first.allocator, owner = d, leased = -1, capacity = FORWARD_SLOTS}
+		w.path = strings.clone(first.path)
+		w.info, w.format, w.frame_dur = first.info, first.format, first.frame_dur
+		if movie.open_reader(&w.reader, w.path, first.reader.config) != .None {
+			movie.close_reader(&w.reader)
+			delete(w.path)
+			free(w)
+			return first
+		}
+		streams[k] = w
+	}
+	return streams[k]
 }
 
 // The ready slot showing time `t`, or -1. With `exact`, only a frame whose
@@ -276,10 +321,16 @@ seek_locked :: proc(w: ^Clip_Worker, t: f64) {
 }
 
 // Moves the thread's target to `t`, restarting it if the ring can't reach
-// `t` soon. Starts the thread on first use. Call with the mutex held.
+// `t` soon: just behind it (backwards), a chunk before `t`. Starts the
+// thread on first use. Call with the mutex held.
 @(private = "file")
 retarget :: proc(w: ^Clip_Worker, t: f64) {
 	w.target = t
+	if w.chunk && t > w.chunk_hi {
+		// forwards again past the chunk: decoding goes on from where it
+		// stopped (a seek below if that is too far)
+		w.chunk, w.chunk_done, w.capacity = false, false, FORWARD_SLOTS
+	}
 	if slot_at(w, t) < 0 {
 		lo, hi := max(f64), min(f64)
 		any := false
@@ -290,9 +341,20 @@ retarget :: proc(w: ^Clip_Worker, t: f64) {
 				any = true
 			}
 		}
-		far := !any || t < lo || t > hi + SEEK_AHEAD_SECONDS || w.eos
-		coming := w.seeking && t >= w.seek_to && t <= w.seek_to + SEEK_AHEAD_SECONDS
-		if far && !coming {
+		in_chunk := w.chunk && t >= w.chunk_lo && t <= w.chunk_hi
+		backwards := any && t < lo && t >= lo - REVERSE_REACH_SECONDS
+		far := !any || t < lo || t > hi + SEEK_AHEAD_SECONDS || (w.eos && !w.chunk)
+		coming := w.seeking && (in_chunk || (!w.chunk && t >= w.seek_to && t <= w.seek_to + SEEK_AHEAD_SECONDS))
+		switch {
+		case coming:
+		case backwards:
+			// the frames before `t`, decoded forwards and served backwards
+			w.chunk, w.chunk_done, w.capacity = true, false, CLIP_RING_SLOTS
+			w.chunk_hi = t
+			w.chunk_lo = max(t - f64(CLIP_RING_SLOTS - 3) * w.frame_dur, 0)
+			seek_locked(w, w.chunk_lo)
+		case far:
+			w.chunk, w.chunk_done, w.capacity = false, false, FORWARD_SLOTS
 			seek_locked(w, t)
 		}
 	}
@@ -303,8 +365,8 @@ retarget :: proc(w: ^Clip_Worker, t: f64) {
 }
 
 @(private = "file")
-vs_prefetch :: proc(data: rawptr, clip: int, seconds: f64) {
-	w := worker_of((^Video_Decoders)(data), clip)
+vs_prefetch :: proc(data: rawptr, clip: int, stream: int, seconds: f64) {
+	w := worker_of((^Video_Decoders)(data), clip, stream)
 	if w == nil {
 		return
 	}
@@ -314,8 +376,8 @@ vs_prefetch :: proc(data: rawptr, clip: int, seconds: f64) {
 }
 
 @(private = "file")
-vs_request :: proc(data: rawptr, clip: int, seconds: f64, wait: om.Video_Wait) -> (f: om.Video_Frame) {
-	w := worker_of((^Video_Decoders)(data), clip)
+vs_request :: proc(data: rawptr, clip: int, stream: int, seconds: f64, wait: om.Video_Wait) -> (f: om.Video_Frame) {
+	w := worker_of((^Video_Decoders)(data), clip, stream)
 	if w == nil {
 		return
 	}
@@ -330,6 +392,7 @@ vs_request :: proc(data: rawptr, clip: int, seconds: f64, wait: om.Video_Wait) -
 			if !sync.cond_wait_with_timeout(&w.ready, &w.mutex, BLOCK_RESEEK) {
 				// No frame for this time arrived: restart decoding at it rather
 				// than wait on a ring that can't reach it.
+				w.chunk, w.chunk_done, w.capacity = false, false, FORWARD_SLOTS
 				seek_locked(w, seconds)
 				sync.cond_broadcast(&w.work)
 			}
@@ -378,8 +441,8 @@ release_locked :: proc(w: ^Clip_Worker) {
 }
 
 @(private = "file")
-vs_release :: proc(data: rawptr, clip: int) {
-	w := worker_of((^Video_Decoders)(data), clip)
+vs_release :: proc(data: rawptr, clip: int, stream: int) {
+	w := worker_of((^Video_Decoders)(data), clip, stream)
 	if w == nil {
 		return
 	}
@@ -407,7 +470,7 @@ worker_run :: proc(w: ^Clip_Worker) {
 			if w.generation != seen_gen {
 				break
 			}
-			if !w.eos && !w.failed {
+			if !w.eos && !w.failed && !(w.chunk && w.chunk_done) {
 				slot = free_slot(w)
 				if slot >= 0 {
 					break
@@ -421,7 +484,8 @@ worker_run :: proc(w: ^Clip_Worker) {
 		}
 		seek := w.generation != seen_gen
 		gen := w.generation
-		target := w.target
+		// where a seek lands: the request's time, or a chunk's start
+		target := w.seek_to
 		if seek {
 			// Everything decoded so far is from the old position.
 			for k in 0 ..< CLIP_RING_SLOTS {
@@ -430,7 +494,6 @@ worker_run :: proc(w: ^Clip_Worker) {
 				}
 			}
 			w.eos = false
-			w.seek_to = target
 			slot = free_slot(w)
 			seen_gen = gen
 		}
@@ -494,6 +557,10 @@ worker_run :: proc(w: ^Clip_Worker) {
 			w.end[slot] = frame.time + w.frame_dur
 			w.index[slot] = frame.index
 			w.seconds[slot] = frame.time
+			if w.chunk && frame.time > w.chunk_hi {
+				// one frame past the chunk: its last frame's end is known
+				w.chunk_done = true
+			}
 		}
 		sync.cond_broadcast(&w.ready)
 		sync.mutex_unlock(&w.mutex)
@@ -504,10 +571,14 @@ worker_run :: proc(w: ^Clip_Worker) {
 // Call with the mutex held.
 @(private = "file")
 free_slot :: proc(w: ^Clip_Worker) -> int {
-	for k in 0 ..< CLIP_RING_SLOTS {
+	for k in 0 ..< w.capacity {
 		if w.state[k] == .Empty {
 			return k
 		}
+	}
+	if w.chunk {
+		// a chunk keeps what it decoded: it is served backwards
+		return -1
 	}
 	oldest := -1
 	for k in 0 ..< CLIP_RING_SLOTS {

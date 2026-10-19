@@ -99,7 +99,7 @@ text { string.format("%dx%d %.1fs", info.width, info.height, info.duration),
 and a missing `w` or `h` follows the clip's aspect (neither: its own size; a rotated phone
 clip counts upright). The clock is the frame's (scene-relative in a scene). Past the end the clip disappears unless it loops. A clip's sound is used by putting
 its file name in an `audio` list (`offset` to start inside it). Renders wait for exact
-frames; the preview shows the nearest decoded one.
+frames; the preview shows the nearest decoded one. A clip used at several times in one frame (a grid of cuts, a picture-in-picture, a clip in a mask and in a shader) decodes each use on its own, so they don't seek each other, and one played backwards is decoded a chunk at a time and served back: both cost about what playing forwards does.
 
 ## Cuts and joining clips
 

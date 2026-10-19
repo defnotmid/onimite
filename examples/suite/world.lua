@@ -174,16 +174,19 @@ local function dancer(f, b)
     stroke_dasharray = { 18, 30 }, stroke_dashoffset = -b * 24, opacity = a * 0.8 }
 end
 
--- The suite: onimite over its four libraries, three of them on SDL_GPU.
+-- The suite: onimite over its six libraries, three of them on SDL_GPU.
 -- Every label is from the libraries' READMEs. o3d's box lands with the
--- SDL row.
+-- SDL row, then odawg's and ottis's.
+local BOX_W, BOX_H, BOX_GAP = 280, 150, 20
+local function box_x(i) return 70 + (i - 1) * (BOX_W + BOX_GAP) end
 local BOXES = {
-  { name = "ovg", line = "2D vector canvas", x = 220, color = ui.OVG, at = T.BOXES[1] },
-  { name = "oksl", line = "SkSL → SPIR-V · MSL · CPU", x = 600, color = ui.OKSL, at = T.BOXES[2] },
-  { name = "o3d", line = "3D in three.js terms", x = 980, color = ui.O3D, at = T.O3D_BOX },
-  { name = "odecs", line = "codecs, no FFmpeg", x = 1360, color = ui.ODECS, at = T.BOXES[3] },
+  { name = "ovg", line = "2D vector canvas", x = box_x(1), color = ui.OVG, at = T.BOXES[1] },
+  { name = "oksl", line = "SkSL → SPIR-V · MSL · CPU", x = box_x(2), color = ui.OKSL, at = T.BOXES[2] },
+  { name = "o3d", line = "3D in three.js terms", x = box_x(3), color = ui.O3D, at = T.O3D_BOX },
+  { name = "odecs", line = "codecs, no FFmpeg", x = box_x(4), color = ui.ODECS, at = T.BOXES[3] },
+  { name = "odawg", line = "songs described as data", x = box_x(5), color = ui.ODAWG, at = T.BOXES[5] },
+  { name = "ottis", line = "speech with word timings", x = box_x(6), color = ui.OTTIS, at = T.BOXES[6] },
 }
-local BOX_W, BOX_H = 340, 150
 
 function M.structure(b, x0, y0, s)
   local a = progress(b, T.BREAK, T.BREAK + 0.25)
@@ -210,7 +213,7 @@ function M.structure(b, x0, y0, s)
         group({ transform = { scale = pop, origin = { bx.x + BOX_W / 2, 330 + BOX_H / 2 } } }, function()
           rect { x = bx.x, y = 330, w = BOX_W, h = BOX_H, rx = 18, fill = ui.PANEL, stroke = bx.color, stroke_width = 3 }
           text { bx.name, x = bx.x + BOX_W / 2, y = 405, align = "center", font = ui.DISPLAY, size = 72, fill = bx.color }
-          text { bx.line, x = bx.x + BOX_W / 2, y = 450, align = "center", font = ui.MONO, size = 20, fill = ui.TEXT }
+          text { bx.line, x = bx.x + BOX_W / 2, y = 450, align = "center", font = ui.MONO, size = 17, fill = ui.TEXT }
         end)
       end
     end
@@ -218,11 +221,12 @@ function M.structure(b, x0, y0, s)
     local sdl = snap(b - T.BOXES[4])
     if sdl > 0.001 then
       group({ opacity = clamp01(sdl), transform = translate(0, (1 - sdl) * 40) }, function()
-        rect { x = 220, y = 520, w = 1100, h = 70, rx = 14, fill = ui.LINE }
-        text { "SDL_GPU · Vulkan / Metal / D3D12", x = 770, y = 565, align = "center", font = ui.MONO, size = 26,
-          fill = ui.TEXT }
-        rect { x = 1360, y = 520, w = 340, h = 70, rx = 14, fill = ui.LINE }
-        text { "Vulkan Video or native", x = 1530, y = 565, align = "center", font = ui.MONO, size = 22,
+        local sdl_w = box_x(4) - BOX_GAP - box_x(1)
+        rect { x = box_x(1), y = 520, w = sdl_w, h = 70, rx = 14, fill = ui.LINE }
+        text { "SDL_GPU · Vulkan / Metal / D3D12", x = box_x(1) + sdl_w / 2, y = 565, align = "center", font = ui.MONO,
+          size = 26, fill = ui.TEXT }
+        rect { x = box_x(4), y = 520, w = BOX_W, h = 70, rx = 14, fill = ui.LINE }
+        text { "Vulkan Video or native", x = box_x(4) + BOX_W / 2, y = 565, align = "center", font = ui.MONO, size = 20,
           fill = ui.TEXT }
       end)
     end

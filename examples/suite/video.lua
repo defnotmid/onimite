@@ -1,5 +1,5 @@
--- The suite as one piece: onimite, ovg, oksl, odecs and o3d used together
--- in every frame for 36 seconds. An SkSL world (oksl, media/world.sksl) warps
+-- The suite as one piece: onimite, ovg, oksl, odecs, o3d, odawg and ottis
+-- used together in 36 seconds. An SkSL world (oksl, media/world.sksl) warps
 -- a group of shaped text and vector art (ovg: filters, blend modes,
 -- masks, focal gradients) and a 3D gyroscope (o3d) given to it as its
 -- `uniform shader` child, with a WebP panorama on its horizon; the ovg rocket (an SVG animated by
@@ -7,8 +7,10 @@
 -- glow in portals and fold into the shader's kaleidoscope. The music is an
 -- odawg song (track.lua) and the picture follows it: its sections, its
 -- blips and crashes place every moment (timeline.lua), its kicks pump the
--- shader, its impacts flash, its spectrum drives the uniforms. It ends on
--- the suite's structure under the five names.
+-- shader, its impacts flash, its spectrum drives the uniforms, and a
+-- readout follows its sections and bars. In the break ottis says a line,
+-- its words timed for the captions, the music ducking under it. It ends
+-- on the suite's structure under the seven names.
 --
 --     onimite render examples/suite/video.lua -o suite.mp4
 
@@ -172,7 +174,8 @@ local CAPTIONS = {
   { T.PORTALS[1], "odecs decodes ProRes 4444 and VP9 with alpha, live on the frame clock" },
   { T.PORTALS[2] + 4, "o3d draws the gyroscope (lit tori, view3d{}) inside the group the shader warps" },
   { T.KALEIDO, "the VP9 clip and the gyroscope, inside the shader's child group, folded six ways" },
-  { T.BREAK, "one frame clock, five libraries" },
+  { T.KALEIDO + 8, "odawg composes the song; its sections, hits and spectrum move the picture" },
+  { T.BREAK, "ottis speaks the line, every word timed for its caption" },
 }
 
 local function caption(b)
@@ -187,10 +190,11 @@ local function caption(b)
   end)
 end
 
--- A name a beat; o3d's lands with the line.
+-- A name an eighth; ottis's lands with the line.
 local NAMES = { { "onimite", ui.ONIMITE, T.NAMES[1] }, { "ovg", ui.OVG, T.NAMES[2] }, { "oksl", ui.OKSL, T.NAMES[3] },
-  { "odecs", ui.ODECS, T.NAMES[4] }, { "o3d", ui.O3D, T.O3D_NAME } }
-local NAME_SIZE, SEP = 90, "  ·  "
+  { "odecs", ui.ODECS, T.NAMES[4] }, { "o3d", ui.O3D, T.NAMES[5] }, { "odawg", ui.ODAWG, T.NAMES[6] },
+  { "ottis", ui.OTTIS, T.LINE } }
+local NAME_SIZE, SEP = 72, "  ·  "
 -- The row's layout, measured once at load.
 local NAME_X = {}
 do
@@ -231,6 +235,31 @@ local function lockup(b)
   end
 end
 
+-- odawg's readout: where the song is, as it says (its section and bar),
+-- and what the spectrum ring reads while it shows.
+local function readout(f, b)
+  if b < T.DROP or b >= T.LOCKUP then return end
+  local s = score.section(f)
+  group({ opacity = progress(b, T.DROP, T.DROP + 1) }, function()
+    text { string.format("odawg · %s · bar %d", s.name, s.bar + 1), x = 1860, y = 80, align = "right",
+      font = ui.MONO, size = 24, fill = ui.ODAWG }
+    if b < T.BREAK then
+      text { "the ring: odawg's mix", x = 1860, y = 114, align = "right", font = ui.MONO, size = 20, fill = ui.ODAWG,
+        opacity = 0.8 }
+    end
+  end)
+end
+
+-- The spoken line (ottis): said at load, placed a beat into the break, its
+-- captions word by word.
+local LINE_AT = score.time(T.BREAK + 0.5)
+say("suite", "Seven libraries. One frame clock. One binary.", { seed = 1 })
+
+local function spoken(f)
+  captions(f.global_seconds, { src = "suite", start = LINE_AT, x = 160, y = 905, w = 1600, font = ui.SANS,
+    size = 52, fill = ui.TEXT, upcoming_fill = ui.DIM, highlight = "fill", active_fill = ui.OTTIS, hold = 0.4 })
+end
+
 -- ---- the frame -----------------------------------------------------------------
 
 local function picture(f, b)
@@ -239,6 +268,7 @@ local function picture(f, b)
   draw_world(f, b, bands, kick)
   portals(f, b, kick)
   rocket(b, kick)
+  readout(f, b)
   caption(b)
   lockup(b)
 end
@@ -252,8 +282,9 @@ local GLITCH_FRAME = score.frame("break", FPS)
 video {
   width = 1920, height = 1080, fps = FPS, background = ui.BG,
   duration = score.duration,
-  buses = { music = {} },
-  audio = { { "score", bus = "music", fade_out = 0.5, curve = "equal_power" } },
+  buses = { music = {}, voice = {} },
+  audio = { { "score", bus = "music", fade_out = 0.5, curve = "equal_power", ducked = true },
+    { "suite", start = LINE_AT } },
   -- the song mixes near -18 LUFS: lifted to about -14 under the limiter
   -- (audio analyze: -14.1 LUFS, -1.5 dBTP)
   master_gain_db = 4.4,
@@ -276,6 +307,7 @@ video {
         picture(f, b)
       end
     end)
+    spoken(f)
     local flash = score.pulse(f, IMPACT)
     if flash > 0.01 then rect { x = 0, y = 0, w = 1920, h = 1080, fill = ui.TEXT, opacity = flash * 0.4 } end
     -- out to black over the last beat
