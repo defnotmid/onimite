@@ -72,13 +72,13 @@ jobs:
         with:
           repository: defnotmid/odecs
           # Pinned like ottis: odawg v0.0.13 decodes through odecs v0.0.4.
-          ref: v0.0.7
+          ref: v0.0.4
           path: odecs
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/ottis
           # Pinned: ottis is released on its own; a new tag is taken on purpose.
-          ref: v0.0.7
+          ref: v0.0.5
           path: ottis
       - uses: actions/checkout@v4
         with:
