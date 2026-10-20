@@ -87,9 +87,9 @@ mkdir -p build
 odin build . -collection:deps=.. -o:speed -out:build/onimite
 ```
 
-Lua 5.4, stb and SDL3 come through Odin's `vendor:` packages; Odin ships the SDL3 library
+Lua 5.4 and SDL3 come through Odin's `vendor:` packages; Odin ships the SDL3 library
 for Windows, Linux and macOS link the system one (`pacman -S sdl3`, `apt install libsdl3-dev`, `brew install sdl3`), and Linux links libcurl (`apt install libcurl4-openssl-dev`). Odin's Linux release ships
-some vendor C libraries (stb, kb_text_shape, miniaudio, Box2D) as source to build once (the
+some vendor C libraries (kb_text_shape, Box2D) as source to build once (the
 onimite README, "Build"); macOS needs a few extra steps (the README, "macOS"). Use `-o:speed`: unoptimized builds are many times slower.
 If `build/onimite` already exists and no `.odin` file is newer, skip the build.
 
@@ -269,7 +269,8 @@ onimite render video.lua 10s..20s -o part.mp4       # a range; the audio is cut 
 onimite render video.lua -o frames/                 # PNGs (any -o not ending in .mp4): frames/000000.png ...
 ```
 
-`--draft`: half resolution (unless `--scale`), QP 32, one-second GOP. `--h265`, `--qp N`
+`--draft`: half resolution (unless `--scale`), QP 32, one-second GOP. A scaled size rounds to
+even (1080x1350 at half is 540x676). `--h265`, `--qp N`
 (0 best .. 51), `--native` (odecs' own encoder instead of Vulkan Video hardware encoding),
 `--software` (draw on the CPU; also for machines without a usable GPU), `--scale S`,
 `--threads N` (output does not depend on it). There is no WebM or alpha video output.

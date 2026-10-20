@@ -648,7 +648,7 @@ image { src = "photo.jpg", x = 100, y = 600, w = 600, h = 300, fit = "fill", opa
 image { src = "photo.jpg", x = 800, y = 600, w = 600, h = 300, preserve_aspect_ratio = "xMinYMid slice" }
 ```
 
-Formats in `media/`: png, jpeg, bmp, gif, tga, webp. `align = {x, y}` (0..1) places the
+Formats in `media/`: png, jpeg (baseline or progressive), bmp, gif (its first frame), tga, qoi, webp. `align = {x, y}` (0..1) places the
 image inside the box for `contain` / `cover`. Images decode on first use (shared by every
 frame builder; `render` decodes a few seconds ahead), so many large photos in `media/` cost
 memory only for the ones the video shows. Decoded images stay within a budget

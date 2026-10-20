@@ -3,7 +3,7 @@ package onimite
 import "core:encoding/json"
 import "core:math"
 import "core:strings"
-import ma "vendor:miniaudio"
+import odaudio "deps:odecs/audio"
 
 // Sound: tracks placed on the video (or scene) clock, after fframes'
 // `AudioMap`. Files decode once to stereo f32 at MIX_RATE.
@@ -102,28 +102,16 @@ Audio_Clip :: struct {
 	source_channels: int,
 }
 
-// Decodes formats the core can't (e.g. AAC through odecs); set by the host.
-// Returns interleaved f32 samples at the file's rate and channel count.
-Audio_Decoder :: #type proc(data: []u8, ext: string) -> (samples: []f32, rate: int, channels: int, ok: bool)
-
-// Decodes WAV (PCM 8/16/24/32, float 32/64) and Ogg Vorbis, then `decoder`
-// for anything else, and converts to a clip.
-audio_decode :: proc(data: []u8, ext: string, decoder: Audio_Decoder = nil) -> (clip: Audio_Clip, ok: bool) {
-	samples: []f32
-	rate, channels: int
-	switch strings.to_lower(ext, context.temp_allocator) {
-	case ".wav", ".wave":
-		samples, rate, channels = decode_wav(data) or_return
-	case ".ogg", ".oga":
-		samples, rate, channels = decode_vorbis(data) or_return
-	case:
-		if decoder == nil {
-			return {}, false
-		}
-		samples, rate, channels = decoder(data, ext) or_return
+// Decodes any audio file odecs reads (WAV, FLAC, MP3, Ogg Vorbis/Opus,
+// MP4/M4A AAC or ALAC, WebM/MKV; the format from its first bytes) and
+// converts it to a clip.
+audio_decode :: proc(data: []u8) -> (clip: Audio_Clip, ok: bool) {
+	a, err := odaudio.decode(data)
+	if err != .None {
+		return {}, false
 	}
-	defer delete(samples)
-	return clip_from_samples(samples, rate, channels), true
+	defer odaudio.destroy_audio(&a)
+	return clip_from_samples(a.samples, a.rate, a.channels), true
 }
 
 audio_clip_destroy :: proc(c: ^Audio_Clip) {
@@ -273,114 +261,3 @@ lanczos :: proc "contextless" (x: f64, a: f64) -> f64 {
 	return a * math.sin(px) * math.sin(px / a) / (px * px)
 }
 
-// ---- WAV --------------------------------------------------------------------------------
-
-@(private)
-decode_wav :: proc(d: []u8) -> (samples: []f32, rate: int, channels: int, ok: bool) {
-	if len(d) < 12 || string(d[0:4]) != "RIFF" || string(d[8:12]) != "WAVE" {
-		return
-	}
-	le16 :: proc(d: []u8, at: int) -> int {return int(d[at]) | int(d[at + 1]) << 8}
-	le32 :: proc(d: []u8, at: int) -> int {return le16(d, at) | le16(d, at + 2) << 16}
-	format, bits, block := 0, 0, 0
-	data: []u8
-	for pos := 12; pos + 8 <= len(d); {
-		id := string(d[pos:pos + 4])
-		size := le32(d, pos + 4)
-		body := d[pos + 8:min(pos + 8 + size, len(d))]
-		switch id {
-		case "fmt ":
-			if len(body) < 16 {
-				return
-			}
-			format = le16(body, 0)
-			channels = le16(body, 2)
-			rate = le32(body, 4)
-			block = le16(body, 12)
-			bits = le16(body, 14)
-			if format == 0xFFFE && len(body) >= 26 {
-				// WAVE_FORMAT_EXTENSIBLE: the sub-format GUID starts with the tag.
-				format = le16(body, 24)
-			}
-		case "data":
-			data = body
-		}
-		pos += 8 + size + (size & 1)
-	}
-	if channels == 0 || block == 0 || data == nil {
-		return
-	}
-	n := len(data) / block
-	samples = make([]f32, n * channels)
-	for i in 0 ..< n * channels {
-		at := i * (bits / 8)
-		v: f32
-		switch {
-		case format == 1 && bits == 8:
-			v = (f32(data[at]) - 128) / 128
-		case format == 1 && bits == 16:
-			v = f32(i16(u16(data[at]) | u16(data[at + 1]) << 8)) / 32768
-		case format == 1 && bits == 24:
-			x := i32(u32(data[at]) << 8 | u32(data[at + 1]) << 16 | u32(data[at + 2]) << 24)
-			v = f32(x >> 8) / 8388608
-		case format == 1 && bits == 32:
-			v = f32(f64(i32(le32(data, at))) / 2147483648)
-		case format == 3 && bits == 32:
-			v = transmute(f32)u32(le32(data, at))
-		case format == 3 && bits == 64:
-			lo, hi := u64(u32(le32(data, at))), u64(u32(le32(data, at + 4)))
-			v = f32(transmute(f64)(lo | hi << 32))
-		case:
-			delete(samples)
-			return nil, 0, 0, false
-		}
-		samples[i] = v
-	}
-	return samples, rate, channels, true
-}
-
-// ---- Ogg Vorbis -------------------------------------------------------------------------
-
-// Through miniaudio, whose library carries stb_vorbis: linking
-// vendor:stb/vorbis as well defines it twice, which Apple's linker rejects.
-@(private)
-decode_vorbis :: proc(d: []u8) -> (samples: []f32, rate: int, channels: int, ok: bool) {
-	cfg := ma.decoder_config_init(.f32, 0, 0)
-	cfg.encodingFormat = .vorbis
-	frames: u64
-	pcm: rawptr
-	if ma.decode_memory(raw_data(d), len(d), &cfg, &frames, &pcm) != .SUCCESS || pcm == nil || cfg.channels == 0 {
-		return
-	}
-	defer ma.free(pcm, nil)
-	samples = make([]f32, int(frames) * int(cfg.channels))
-	copy(samples, ([^]f32)(pcm)[:len(samples)])
-	return samples, int(cfg.sampleRate), int(cfg.channels), true
-}
-
-// ---- writing --------------------------------------------------------------------------
-
-// Interleaved stereo as a 16-bit PCM WAV file in memory.
-encode_wav16 :: proc(samples: []f32, rate: int, allocator := context.allocator) -> []u8 {
-	n := len(samples)
-	out := make([]u8, 44 + n * 2, allocator)
-	put16 :: proc(b: []u8, at: int, v: int) {b[at], b[at + 1] = u8(v), u8(v >> 8)}
-	put32 :: proc(b: []u8, at: int, v: int) {put16(b, at, v); put16(b, at + 2, v >> 16)}
-	copy(out[0:], "RIFF")
-	put32(out, 4, 36 + n * 2)
-	copy(out[8:], "WAVEfmt ")
-	put32(out, 16, 16)
-	put16(out, 20, 1)
-	put16(out, 22, 2)
-	put32(out, 24, rate)
-	put32(out, 28, rate * 4)
-	put16(out, 32, 4)
-	put16(out, 34, 16)
-	copy(out[36:], "data")
-	put32(out, 40, n * 2)
-	for s, i in samples {
-		v := int(math.round(clamp(s, -1, 1) * 32767))
-		put16(out, 44 + i * 2, v)
-	}
-	return out
-}

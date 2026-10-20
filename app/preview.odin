@@ -15,6 +15,7 @@ import render "../render"
 import script "../script"
 import ui "../ui"
 import vg "deps:ovg"
+import odimg "deps:odecs/image"
 import sdl "vendor:sdl3"
 
 // The preview window, after paf: platform events and ui widgets publish
@@ -378,7 +379,7 @@ preview_run :: proc(app: ^App_State, capture, drive, start_spec: string) -> Erro
 		built := time.tick_since(tick_began)
 		if capture != "" && pv.exit_after > 0 && frames >= pv.exit_after {
 			if pixels, ok := render.end_frame_capture(&r); ok {
-				vg.write_png(capture, pixels, r.fb_w, r.fb_h)
+				odimg.write_png(capture, pixels, int(r.fb_w), int(r.fb_h))
 				delete(pixels)
 				fmt.eprintln("preview: captured", capture)
 			}

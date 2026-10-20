@@ -10,6 +10,7 @@ import enc "../encode"
 import script "../script"
 import "../speech"
 import vg "deps:ovg"
+import odimg "deps:odecs/image"
 import vgsdl "deps:ovg/sdlgpu"
 
 App_State :: struct {
@@ -89,12 +90,11 @@ speech_log :: proc(message: string) {
 }
 
 // A media ready to load (every one the app makes is set up here): the
-// image budget and the host's decoders, for the audio formats the core
-// lacks and video clips on `video` (nil: none).
+// image budget and the host's decoder for video clips on `video` (nil:
+// none).
 media_open :: proc(m: ^om.Media, budget: int, video: ^enc.Video_Decoders) {
 	om.media_init(m)
 	m.cache.budget = budget
-	m.decoder = enc.audio_decoder
 	if video != nil {
 		m.videos.source = enc.video_source(video)
 	}
@@ -366,6 +366,6 @@ renderer :: proc(app: ^App_State, scale: f32) -> (^om.Renderer, Error) {
 }
 
 // PNG from premultiplied RGBA8 (straight alpha in the file).
-write_png :: proc(path: string, pixels: []u8, w, h: u32) -> vg.Error {
-	return vg.write_png(path, om.straight_alpha(pixels), w, h)
+write_png :: proc(path: string, pixels: []u8, w, h: u32) -> bool {
+	return odimg.write_png(path, om.straight_alpha(pixels), int(w), int(h)) == .None
 }

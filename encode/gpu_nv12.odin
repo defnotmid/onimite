@@ -1,6 +1,6 @@
 package onimite_encode
 
-import movie "deps:odecs/movie"
+import video "deps:odecs/video"
 import sdl "vendor:sdl3"
 
 // Converts GPU-rendered frames to NV12 on the GPU (shaders/rgba_to_nv12.slang)
@@ -123,7 +123,7 @@ gpu_nv12_init :: proc(g: ^GPU_NV12, device: ^sdl.GPUDevice, width, height: int) 
 		return .Gpu_Unsupported
 	}
 
-	c := movie.rgb_to_yuv_coefficients(.BT709, false)
+	c := video.rgb_to_yuv_coefficients(.BT709, false)
 	uv_offset := g.y_stride * height
 	g.params = {
 		ky = {c.y[0], c.y[1], c.y[2], c.y_bias},

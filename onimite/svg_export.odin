@@ -7,6 +7,7 @@ import "core:path/filepath"
 import "core:strconv"
 import "core:strings"
 import vg "deps:ovg"
+import odimg "deps:odecs/image"
 
 // SVG export (`onimite frame --svg`, fframes' `frame --svg`): the frame's
 // node tree written as an SVG document in one walk into a string builder.
@@ -1098,7 +1099,7 @@ export_raster :: proc(e: ^Svg_Export, i: i32, box: vg.Rect, m: vg.Transform2D) {
 // ` href="data:image/png;base64,..."` of straight RGBA8 pixels.
 @(private = "file")
 png_href :: proc(b: ^strings.Builder, pixels: []u8, w, h: int) {
-	png, _ := vg.encode_png(pixels, u32(w), u32(h), context.temp_allocator)
+	png, _ := odimg.encode_png(pixels, w, h, context.temp_allocator)
 	strings.write_string(b, ` href="data:image/png;base64,`)
 	base64.encode_into(strings.to_writer(b), png)
 	strings.write_byte(b, '"')

@@ -1,6 +1,6 @@
 name: Set up the onimite toolchain
 description: >-
-  Pinned Odin (with vendor:kb_text_shape, vendor:miniaudio, vendor:cgltf and vendor:stb built),
+  Pinned Odin (with vendor:kb_text_shape built),
   SDL3 built from source on Linux and macOS, and a static Lua 5.4 on macOS.
   Each piece is cached by its version. Exports ODIN_ROOT, PATH,
   ONIMITE_LDFLAGS, ONIMITE_TEST_LDFLAGS and SDL3_LIB_DIR (see install.sh).
@@ -20,7 +20,7 @@ inputs:
     default: 4f18ddae154e793e46eeab727c59ef1c0c0c2b744e7b94219710d76f530629ae
   cache-version:
     description: Bump to invalidate every cache this action writes.
-    default: v2
+    default: v3
 
 runs:
   using: composite
@@ -42,14 +42,13 @@ runs:
         sudo apt-get update -qq
         sudo apt-get install -y -qq --no-install-recommends libcurl4-openssl-dev
 
-    # The key names the newest vendor library built into the cache (cgltf):
-    # an older cache lacks it.
+    # Bump cache-version when the vendor libraries built into it change.
     - name: Cache Odin
       id: odin-cache
       uses: actions/cache@v4
       with:
         path: ~/.onimite-ci/odin
-        key: odin-${{ steps.keys.outputs.image }}-${{ inputs.odin-version }}-cgltf-${{ inputs.cache-version }}
+        key: odin-${{ steps.keys.outputs.image }}-${{ inputs.odin-version }}-${{ inputs.cache-version }}
 
     - name: Install Odin ${{ inputs.odin-version }}
       if: steps.odin-cache.outputs.cache-hit != 'true'

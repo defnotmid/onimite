@@ -47,14 +47,14 @@ onimite is built from sibling Odin projects and Odin's vendor packages:
 | piece | what |
 | --- | --- |
 | [`ovg`](https://github.com/defnotmid/ovg) | 2D vector canvas (femtovg lineage): software backend + SDL_GPU (Vulkan / Metal / D3D12) |
-| [`odecs`](https://github.com/defnotmid/odecs) | H.264 / H.265 / AAC codecs (native Odin, Vulkan Video when available), MP4, WebP, clip decoding |
+| [`odecs`](https://github.com/defnotmid/odecs) | H.264 / H.265 / AAC codecs (native Odin, Vulkan Video when available), MP4, clip decoding; every image (PNG, JPEG, GIF, WebP, ...) and audio file (WAV, FLAC, MP3, Ogg, M4A) |
 | [`oksl`](https://github.com/defnotmid/oksl) | shader compiler for SkSL, Shadertoy and GLSL: SPIR-V, MSL and a CPU interpreter |
 | [`ottis`](https://github.com/defnotmid/ottis) | text to speech with word timings (Kyutai's Pocket TTS through ONNX Runtime, loaded at run time; models downloaded on first use) |
 | [`odawg`](https://github.com/defnotmid/odawg) | sound in Tone.js's vocabulary: songs composed from data (`song{}`, `sound{}`), the mix, master and preview stream, loudness, onsets and spectra; sample sets downloaded on first use |
 | [`o3d`](https://github.com/defnotmid/o3d) | 3D in three.js's vocabulary: an SDL_GPU renderer and a software one drawing the same pixels, glTF 2.0 (skins, morph targets, animations), 3MF and OBJ import |
 | `vendor:lua/5.4` | the script runtime |
 | `vendor:sdl3` | GPU device and the preview window |
-| `vendor:stb`, `vendor:kb_text_shape`, `vendor:miniaudio`, `vendor:cgltf` | fonts, images, PNG output; text shaping; ogg / mp3 / flac decoding; glTF parsing (o3d) |
+| `vendor:kb_text_shape` | text shaping |
 
 ## Features
 
@@ -155,10 +155,7 @@ ships SDL3 for Windows. Odin's Linux release ships some vendor C libraries
 as source; build them once:
 
 ```sh
-sh "$(odin root)/vendor/stb/src/build_stb.sh"
 sh "$(odin root)/vendor/kb_text_shape/src/build_unix.sh"
-sh "$(odin root)/vendor/miniaudio/src/build_miniaudio.sh"
-sh "$(odin root)/vendor/cgltf/src/build_cgltf.sh"
 bash "$(odin root)/vendor/box2d/build_box2d.sh"   # needs cmake; fetches Box2D 3.1.1 (its WASM step may fail: harmless)
 ```
 
@@ -175,10 +172,8 @@ command line tools and Homebrew:
 
 ```sh
 brew install sdl3 lua@5.4        # lua@5.4 is keg-only; `lua` is 5.5
-# Odin's vendor C libraries that ship as source (the stb darwin libs are prebuilt):
-sh "$(odin root)/vendor/miniaudio/src/build_miniaudio.sh"
+# Odin's vendor C libraries that ship as source:
 sh "$(odin root)/vendor/kb_text_shape/src/build_unix.sh"
-sh "$(odin root)/vendor/cgltf/src/build_cgltf.sh"
 # vendor:lua links `lua5.4`; point the linker at the keg:
 odin build . -collection:deps=.. -o:speed -out:build/onimite \
     -extra-linker-flags:"-L$(brew --prefix lua@5.4)/lib"

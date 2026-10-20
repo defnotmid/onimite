@@ -5,6 +5,7 @@ import "core:math"
 import "core:os"
 import "core:slice"
 import "core:strings"
+import wav "deps:odecs/audio/wav"
 import orender "deps:odawg/render"
 import om "../onimite"
 import script "../script"
@@ -127,40 +128,14 @@ audio_render :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 	mix, _, _ := audio_mix(app, r, start, end, regs.track) or_return
 	defer delete(mix)
 	out := regs.path if regs.path != "" else "audio.wav"
-	wav := encode_wav_float(mix, om.MIX_RATE) if .Float in regs.flags else om.encode_wav16(mix, om.MIX_RATE)
-	defer delete(wav)
 	ensure_parent(out)
-	if os.write_entire_file(out, wav) != nil {
+	if wav.write_file(out, mix, om.MIX_RATE, 2, .F32 if .Float in regs.flags else .S16) != .None {
 		return fail(app, {code = .Write, path = out})
 	}
 	fps := f64(r.video.fps)
 	res := Audio_Render_Result{out, f64(start) / fps, f64(end) / fps, missing_audio(app)}
 	emit(app, res, fmt.tprintf("%s %.2fs..%.2fs", out, res.start_seconds, res.end_seconds))
 	return nil
-}
-
-// Interleaved stereo as a 32-bit float WAV file.
-encode_wav_float :: proc(samples: []f32, rate: int, allocator := context.allocator) -> []u8 {
-	n := len(samples)
-	out := make([]u8, 44 + n * 4, allocator)
-	put16 :: proc(b: []u8, at: int, v: int) {b[at], b[at + 1] = u8(v), u8(v >> 8)}
-	put32 :: proc(b: []u8, at: int, v: int) {put16(b, at, v); put16(b, at + 2, v >> 16)}
-	copy(out[0:], "RIFF")
-	put32(out, 4, 36 + n * 4)
-	copy(out[8:], "WAVEfmt ")
-	put32(out, 16, 16)
-	put16(out, 20, 3) // IEEE float
-	put16(out, 22, 2)
-	put32(out, 24, rate)
-	put32(out, 28, rate * 8)
-	put16(out, 32, 8)
-	put16(out, 34, 32)
-	copy(out[36:], "data")
-	put32(out, 40, n * 4)
-	for s, i in samples {
-		put32(out, 44 + i * 4, int(transmute(u32)s))
-	}
-	return out
 }
 
 // ---- analyze --------------------------------------------------------------------------
@@ -841,7 +816,7 @@ write_waveform :: proc(app: ^App_State, r: ^om.Renderer, path: string, mix: []f3
 	label(&c, font, &glyphs, &p, "spectrogram: third-octave bands 20 Hz..20 kHz, -100 (dark) .. -10 dBFS (bright)", 8, H - 48, 12, vg.rgb(161, 161, 170))
 	vg.flush(&c)
 	ensure_parent(path)
-	return write_png(path, sw.pixels, W, H) == nil
+	return write_png(path, sw.pixels, W, H)
 }
 
 // ---- pin -------------------------------------------------------------------------------

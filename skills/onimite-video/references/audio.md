@@ -5,7 +5,7 @@ with the commands below, and ask the user to listen in `onimite preview`.
 
 ## Files
 
-- Put audio in `media/` beside the script: wav, ogg, mp3, flac, m4a (AAC or Apple Lossless), aac. Stereo is kept
+- Put audio in `media/` beside the script: wav, ogg (Vorbis or Opus), opus, mp3, flac, m4a (AAC or Apple Lossless), aac. Stereo is kept
   (`mono = true` on a track folds it to `0.707 * (L + R)` on both sides, like fframes'
   embedded media). The mix is 48 kHz stereo, encoded as AAC in renders.
 - A video clip's own sound: put the clip's file name in an `audio` list.
@@ -634,7 +634,7 @@ a take varies). The same text, voice, seed and temperature give the same samples
 machine.
 
 Cloning a voice: `voice` names a recording in `media/` (any sound the media reads: `.wav`,
-`.m4a` (AAC or Apple Lossless) such as a phone's voice memo, `.mp3`, `.aac`, `.flac`, `.ogg`; or a `.safetensors`
+`.m4a` (AAC or Apple Lossless) such as a phone's voice memo, `.mp3`, `.aac`, `.flac`, `.ogg`, `.opus`; or a `.safetensors`
 voice saved by `ottis clone`), and the line is spoken in that voice:
 
 ```lua

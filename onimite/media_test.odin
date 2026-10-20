@@ -6,6 +6,7 @@ import "core:os"
 import "core:slice"
 import "core:testing"
 import vg "deps:ovg"
+import odimg "deps:odecs/image"
 
 @(test)
 test_parse_subtitles :: proc(t: ^testing.T) {
@@ -164,8 +165,8 @@ test_image_eviction :: proc(t: ^testing.T) {
 		red[i], red[i + 3] = 255, 255
 		blue[i + 2], blue[i + 3] = 255, 128
 	}
-	vg.write_png(fmt.tprintf("%s/a.png", dir), red[:], 8, 8)
-	vg.write_png(fmt.tprintf("%s/b.png", dir), blue[:], 8, 8)
+	odimg.write_png(fmt.tprintf("%s/a.png", dir), red[:], 8, 8)
+	odimg.write_png(fmt.tprintf("%s/b.png", dir), blue[:], 8, 8)
 
 	media: Media
 	media_init(&media)

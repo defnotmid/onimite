@@ -96,8 +96,13 @@ renderer_init :: proc(r: ^Renderer, video: ^Video, media: ^Media, scale: f32 = 1
 	r.video = video
 	r.media = media
 	r.scale = scale
-	r.width = u32(math.round(f32(video.width) * scale))
-	r.height = u32(math.round(f32(video.height) * scale))
+	// A scaled size rounds to even, as 4:2:0 video needs (`render --draft`
+	// halves 1080x1350 to 540x676); the video's own size is kept as written.
+	r.width, r.height = u32(video.width), u32(video.height)
+	if scale != 1 {
+		r.width = max(2 * u32(math.round(f32(video.width) * scale / 2)), 2)
+		r.height = max(2 * u32(math.round(f32(video.height) * scale / 2)), 2)
+	}
 	r.timeline = resolve_timeline(video, media) or_return
 	if err := virtual.arena_init_growing(&r.arena); err != nil {
 		return .Render_Failed

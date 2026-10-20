@@ -814,6 +814,9 @@ view3d_scene :: proc(r: ^Renderer, n: View3d, scene: ^o3d.Scene) {
 			report(&r.ctx, .Error, {code = .Missing_Model, name = pose.src})
 			continue
 		}
+		for w in model.warnings {
+			report(&r.ctx, .Warning, {code = .Model_Warning, name = pose.src, a = w})
+		}
 		anim := -1
 		if pose.animation != "" {
 			anim = o3d.gltf_animation(model, pose.animation)

@@ -1,4 +1,4 @@
-// Encodes rendered frames to MP4 with odecs' movie writer: BT.709
+// Encodes rendered frames to MP4 with odecs' video writer: BT.709
 // limited-range 4:2:0 frames encoded as H.264 or H.265 (hardware through
 // Vulkan Video when available, else odecs' native encoders); the audio mix
 // becomes an interleaved AAC track.
@@ -8,7 +8,7 @@
 // mapped download, no copy) and `write_i420` copies the frame into a ring
 // slot; both return at once unless the ring is full. An encoder thread
 // feeds the audio that accompanies the frame and encodes it.
-// Only the encoder thread touches the movie writer until `close`. GPU renders
+// Only the encoder thread touches the video writer until `close`. GPU renders
 // convert to NV12 on the GPU (gpu_nv12.odin), the layout Vulkan Video takes;
 // software renders convert to I420 with `rgba_to_i420` on the thread that
 // drew them; both use odecs' conversion coefficients and produce identical
@@ -25,7 +25,7 @@ import "core:thread"
 import "base:runtime"
 import common "deps:odecs/common"
 import native "deps:odecs/media/native"
-import movie "deps:odecs/movie"
+import video "deps:odecs/video"
 import om "../onimite"
 
 Codec :: enum u8 {
@@ -59,7 +59,7 @@ Failure :: struct {
 	path:          string,
 	frame:         i64,
 	width, height: int,
-	movie:         movie.Error,
+	movie:         video.Error,
 	detail:        string,
 }
 
@@ -143,7 +143,7 @@ Slot :: struct {
 }
 
 Encoder :: struct {
-	writer:      movie.Writer,
+	writer:      video.Writer,
 	width:       int,
 	height:      int,
 	fps:         int,
@@ -177,7 +177,7 @@ Encoder :: struct {
 	work:        Pool_Work,
 	native:      native.Options,
 	// The mix (interleaved stereo at the mix rate) and how much of it the
-	// movie writer has been given.
+	// video writer has been given.
 	mix:         []f32,
 	mix_fed:     int,
 }
@@ -189,7 +189,7 @@ open :: proc(e: ^Encoder, path: string, width, height, fps: int, opts: Options =
 	if width % 2 != 0 || height % 2 != 0 {
 		return set_error(e, {code = .Odd_Size, width = width, height = height})
 	}
-	cfg := movie.default_writer_config(width, height, fps, 1)
+	cfg := video.default_writer_config(width, height, fps, 1)
 	cfg.codec = .H265 if opts.codec == .H265 else .H264
 	cfg.qp = int(opts.qp)
 	cfg.gop = opts.gop
@@ -204,12 +204,12 @@ open :: proc(e: ^Encoder, path: string, width, height, fps: int, opts: Options =
 		cfg.channels = 2
 		cfg.audio_bit_rate = opts.audio_bit_rate if opts.audio_bit_rate > 0 else 192_000
 	}
-	if err := movie.create(&e.writer, path, cfg); err != .None {
+	if err := video.create(&e.writer, path, cfg); err != .None {
 		set_error(e, {code = .Create, path = path, movie = err, detail = e.writer.error_detail})
-		movie.destroy(&e.writer)
+		video.destroy(&e.writer)
 		return .Create
 	}
-	_, e.backend = movie.video_backend(&e.writer)
+	_, e.backend = video.video_backend(&e.writer)
 	e.worker = thread.create_and_start_with_poly_data(e, encode_loop, context)
 	return nil
 }
@@ -322,12 +322,12 @@ close :: proc(e: ^Encoder) -> Error {
 		ok = feed_audio(e, len(e.mix) / 2)
 	}
 	if ok {
-		if err := movie.finish(&e.writer); err != .None {
+		if err := video.finish(&e.writer); err != .None {
 			set_error(e, {code = .Finish, movie = err, detail = e.writer.error_detail})
 			ok = false
 		}
 	}
-	movie.destroy(&e.writer)
+	video.destroy(&e.writer)
 	pool_work_destroy(&e.work)
 	for s in e.slots {
 		delete(s.own)
@@ -379,7 +379,7 @@ feed_audio :: proc(e: ^Encoder, until: int) -> bool {
 	if end <= e.mix_fed {
 		return true
 	}
-	if err := movie.write_audio(&e.writer, mix[e.mix_fed * 2:end * 2]); err != .None {
+	if err := video.write_audio(&e.writer, mix[e.mix_fed * 2:end * 2]); err != .None {
 		fail(e, {code = .Audio, movie = err, detail = e.writer.error_detail})
 		return false
 	}
@@ -426,12 +426,12 @@ encode_slot :: proc(e: ^Encoder, slot: ^Slot) {
 	}
 	ys, cs := slot.y_stride, slot.y_stride / 2
 	u := ys * e.height
-	err: movie.Error
+	err: video.Error
 	if slot.nv12 {
-		err = movie.write_nv12(&e.writer, {slot.data[:u], slot.data[u:u + ys * e.height / 2]}, {ys, ys})
+		err = video.write_nv12(&e.writer, {slot.data[:u], slot.data[u:u + ys * e.height / 2]}, {ys, ys})
 	} else {
 		v := u + cs * e.height / 2
-		err = movie.write_i420(&e.writer, {slot.data[:u], slot.data[u:v], slot.data[v:v + cs * e.height / 2]}, {ys, cs, cs})
+		err = video.write_i420(&e.writer, {slot.data[:u], slot.data[u:v], slot.data[v:v + cs * e.height / 2]}, {ys, cs, cs})
 	}
 	if err != .None {
 		fail(e, {code = .Frame, frame = slot.frame, movie = err, detail = e.writer.error_detail})
@@ -449,10 +449,10 @@ i420_size :: proc(width, height: int) -> int {
 // `y_stride = width` in `out` (`i420_size` bytes): odecs' converter, the
 // same planes the GPU pass writes. Even sizes.
 rgba_to_i420 :: proc(pixels: []u8, width, height: int, out: []u8) {
-	k := movie.rgb_to_yuv_coefficients(.BT709, false)
+	k := video.rgb_to_yuv_coefficients(.BT709, false)
 	cw, ch := width / 2, height / 2
 	y := width * height
-	movie.rgba_to_i420(pixels, width * 4, width, height, {out[:y], out[y:][:cw * ch], out[y + cw * ch:][:cw * ch]}, {width, cw, cw}, &k, .Opaque, {})
+	video.rgba_to_i420(pixels, width * 4, width, height, {out[:y], out[y:][:cw * ch], out[y + cw * ch:][:cw * ch]}, {width, cw, cw}, &k, .Opaque, {})
 }
 
 // ---- slices on the task pool ------------------------------------------------------

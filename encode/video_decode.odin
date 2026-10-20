@@ -6,12 +6,12 @@ import "core:strings"
 import "core:sync"
 import "core:thread"
 import "core:time"
-import movie "deps:odecs/movie"
+import video "deps:odecs/video"
 import om "../onimite"
 
 // Video clip decoding for onimite' `Video_Source`: per clip, a stream per
 // playhead (the n-th use of the clip in a frame is stream n), each a
-// background thread that owns an odecs `movie.Reader` and fills a small
+// background thread that owns an odecs `video.Reader` and fills a small
 // ring of frames ahead of the requested time, as the decoder's planes (GPU
 // renders convert them on the GPU; software ones with `to_rgba`). Requests
 // take frames from the ring without decoding on the caller's thread; a
@@ -61,10 +61,10 @@ Clip_Worker :: struct {
 	allocator:  mem.Allocator,
 	path:       string,
 	owner:      ^Video_Decoders,
-	info:       movie.Video_Info,
+	info:       video.Video_Info,
 	format:     om.Video_Format,
 	frame_dur:  f64,
-	reader:     movie.Reader,
+	reader:     video.Reader,
 	thread:     ^thread.Thread,
 
 	// shared
@@ -126,7 +126,7 @@ video_decoders_destroy :: proc(d: ^Video_Decoders) {
 				thread.join(w.thread)
 				thread.destroy(w.thread)
 			}
-			movie.close_reader(&w.reader)
+			video.close_reader(&w.reader)
 			for b in w.buffers {
 				delete(b)
 			}
@@ -152,21 +152,21 @@ vs_open :: proc(data: rawptr, path: string) -> (clip: int, info: om.Video_Info, 
 	w.owner = d
 	w.leased = -1
 	w.capacity = FORWARD_SLOTS
-	cfg := movie.Reader_Config {
+	cfg := video.Reader_Config {
 		preference          = .Native if d.native else .Automatic,
 		// ovg composites premultiplied, and SkSL children `.eval` it.
 		premultiplied_alpha = true,
 		format              = .Planar,
 	}
-	if e := movie.open_reader(&w.reader, path, cfg); e != .None {
+	if e := video.open_reader(&w.reader, path, cfg); e != .None {
 		why = decode_failure(e, w.reader.error_detail)
-		movie.close_reader(&w.reader)
+		video.close_reader(&w.reader)
 		delete(w.path)
 		free(w)
 		return -1, {}, why, why.code
 	}
 	if w.reader.video_index < 0 {
-		movie.close_reader(&w.reader)
+		video.close_reader(&w.reader)
 		delete(w.path)
 		free(w)
 		return -1, {}, {code = .No_Video_Track}, .No_Video_Track
@@ -176,7 +176,7 @@ vs_open :: proc(data: rawptr, path: string) -> (clip: int, info: om.Video_Info, 
 		// No decoder admits the track (probed at open): found when the
 		// media loads, not at the first frame drawn.
 		why = decode_failure(.Unsupported, w.reader.error_detail)
-		movie.close_reader(&w.reader)
+		video.close_reader(&w.reader)
 		delete(w.path)
 		free(w)
 		return -1, {}, why, why.code
@@ -189,14 +189,14 @@ vs_open :: proc(data: rawptr, path: string) -> (clip: int, info: om.Video_Info, 
 	clip = len(d.workers)
 	append(&d.workers, [CLIP_STREAMS]^Clip_Worker{w, nil, nil, nil})
 	sync.mutex_unlock(&d.mutex)
-	return clip, {v.width, v.height, v.duration, fps, v.frame_count, v.rotation, w.reader.audio_index >= 0, w.format}, {}, nil
+	return clip, {v.width, v.height, v.duration, fps, v.frame_count, v.rotation, w.reader.audio.track >= 0, w.format}, {}, nil
 }
 
 // How the clip's planes read. The header says it all except, for VP9, the
 // bit depth and, with alpha, whether colour is premultiplied by it: then the
 // first frame is decoded to see, and the reader opened again.
 @(private = "file")
-clip_format :: proc(r: ^movie.Reader, path: string, cfg: movie.Reader_Config) -> om.Video_Format {
+clip_format :: proc(r: ^video.Reader, path: string, cfg: video.Reader_Config) -> om.Video_Format {
 	v := r.video
 	f := om.Video_Format {
 		bit_depth     = v.bit_depth,
@@ -214,14 +214,14 @@ clip_format :: proc(r: ^movie.Reader, path: string, cfg: movie.Reader_Config) ->
 		f.shift_x = 1
 	}
 	if v.bit_depth == 0 || v.has_alpha {
-		if frame, err := movie.next_frame(r); err == .None {
+		if frame, err := video.next_frame(r); err == .None {
 			p := frame.planar
 			f.bit_depth = p.bit_depth
 			f.alpha = len(p.alpha) > 0
 			f.alpha_premultiplied = p.alpha_premultiplied
 		}
-		movie.close_reader(r)
-		_ = movie.open_reader(r, path, cfg)
+		video.close_reader(r)
+		_ = video.open_reader(r, path, cfg)
 	}
 	f.bit_depth = max(f.bit_depth, 8)
 	f.wide = f.bit_depth > 8
@@ -233,7 +233,7 @@ clip_format :: proc(r: ^movie.Reader, path: string, cfg: movie.Reader_Config) ->
 vs_to_rgba :: proc(data: rawptr, frame: om.Video_Frame, out: []u8) {
 	f := frame.format
 	bytes := 2 if f.wide else 1
-	p := movie.Planar {
+	p := video.Planar {
 		width               = frame.width,
 		height              = frame.height,
 		bit_depth           = f.bit_depth,
@@ -249,12 +249,12 @@ vs_to_rgba :: proc(data: rawptr, frame: om.Video_Frame, out: []u8) {
 	}
 	p.alpha = frame.planes[3]
 	p.alpha_stride = frame.width * bytes
-	movie.planar_to_rgba(p, out, premultiplied = true)
+	video.planar_to_rgba(p, out, premultiplied = true)
 }
 
 // odecs' error as the core's failure: its name and detail (static strings).
 @(private = "file")
-decode_failure :: proc(e: movie.Error, detail: string) -> om.Video_Failure {
+decode_failure :: proc(e: video.Error, detail: string) -> om.Video_Failure {
 	return {code = .Video_Decode, cause = reflect.enum_string(e), detail = detail}
 }
 
@@ -276,8 +276,8 @@ worker_of :: proc(d: ^Video_Decoders, clip: int, stream: int) -> ^Clip_Worker {
 		w^ = {allocator = first.allocator, owner = d, leased = -1, capacity = FORWARD_SLOTS}
 		w.path = strings.clone(first.path)
 		w.info, w.format, w.frame_dur = first.info, first.format, first.frame_dur
-		if movie.open_reader(&w.reader, w.path, first.reader.config) != .None {
-			movie.close_reader(&w.reader)
+		if video.open_reader(&w.reader, w.path, first.reader.config) != .None {
+			video.close_reader(&w.reader)
 			delete(w.path)
 			free(w)
 			return first
@@ -503,12 +503,12 @@ worker_run :: proc(w: ^Clip_Worker) {
 		}
 
 		// Decode without the lock.
-		frame: movie.Frame
-		err: movie.Error
+		frame: video.Frame
+		err: video.Error
 		if seek {
-			frame, err = movie.frame_at(&w.reader, target)
+			frame, err = video.frame_at(&w.reader, target)
 		} else {
-			frame, err = movie.next_frame(&w.reader)
+			frame, err = video.next_frame(&w.reader)
 		}
 		if err == .None {
 			slot_fill(w, slot, frame.planar)
@@ -592,7 +592,7 @@ free_slot :: proc(w: ^Clip_Worker) -> int {
 // Copies a frame's planes into slot `slot` (its buffer made on its first
 // frame: every frame of a clip has the same size).
 @(private = "file")
-slot_fill :: proc(w: ^Clip_Worker, slot: int, p: movie.Planar) {
+slot_fill :: proc(w: ^Clip_Worker, slot: int, p: video.Planar) {
 	sources := [4][]u8{p.planes[0], p.planes[1], p.planes[2], p.alpha}
 	size := 0
 	for s in sources {

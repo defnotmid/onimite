@@ -1,18 +1,17 @@
 package onimite_app
 
-import "core:strings"
-import stbi "vendor:stb/image"
+import "core:os"
+import odimg "deps:odecs/image"
 
-// Straight-alpha RGBA8 pixels of a PNG (or any stb_image format).
+// Straight-alpha RGBA8 pixels of a PNG (or any image odecs reads).
 read_png :: proc(path: string) -> (pixels: []u8, w, h: u32, ok: bool) {
-	cpath := strings.clone_to_cstring(path, context.temp_allocator)
-	x, y, ch: i32
-	data := stbi.load(cpath, &x, &y, &ch, 4)
-	if data == nil {
+	data, err := os.read_entire_file(path, context.temp_allocator)
+	if err != nil {
 		return nil, 0, 0, false
 	}
-	defer stbi.image_free(data)
-	pixels = make([]u8, int(x * y * 4), context.temp_allocator)
-	copy(pixels, data[:x * y * 4])
-	return pixels, u32(x), u32(y), true
+	img, derr := odimg.decode(data, allocator = context.temp_allocator)
+	if derr != .None {
+		return nil, 0, 0, false
+	}
+	return img.pixels, u32(img.width), u32(img.height), true
 }

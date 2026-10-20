@@ -67,7 +67,7 @@ Script_Options :: struct {
 	media:            string               `row:"Load" arg:"DIR" about:"fonts, images and sounds" default:"media/ beside the script"`,
 	props:            string               `row:"Load" arg:"FILE" about:"a JSON object the script reads as the table props (props.title, ...)"`,
 	set:              map[string]Set_Value `row:"Load" reg:"args" arg:"K=V" about:"script arguments (Lua: arg.K, a string) that also set props.K (a number when it looks like one); they win over a batch row, which wins over the props file" invalid:"takes key=value"`,
-	scale:            f64                  `row:"Scale" reg:"scalar" arg:"S" about:"output resolution factor, e.g. 0.5 for half resolution" check:"Positive" invalid:"needs a positive number"`,
+	scale:            f64                  `row:"Scale" reg:"scalar" arg:"S" about:"output resolution factor, e.g. 0.5 for half resolution (rounded to an even size)" check:"Positive" invalid:"needs a positive number"`,
 	software:         bool                 `row:"Backend" reg:"flag" about:"draw on the CPU instead of the GPU"`,
 	using json_option: Json_Option,
 	threads:          int                  `mcp:"-" row:"Threads" reg:"count" arg:"N" about:"threads for parallel work, this one included; 1: everything on one thread" default:"one per core" check:"Positive" invalid:"needs a count of at least 1"`,

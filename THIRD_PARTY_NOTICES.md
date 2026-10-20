@@ -23,17 +23,14 @@ separate file in [LICENSES/](LICENSES); binary releases ship `LICENSE`,
 | Lua 5.4 | script runtime | `LICENSES/Lua-MIT.txt` |
 | SDL 3 | window, input, audio, GPU (bundled shared library) | `LICENSES/SDL3-Zlib.txt` |
 | kb_text_shape | text shaping | `LICENSES/kb_text_shape-Zlib.txt` |
-| stb_image, stb_truetype | images (o3d's textures too), font outlines (used under MIT) | `LICENSES/stb-MIT.txt` |
-| miniaudio | audio decoding (used under MIT-0) | `LICENSES/miniaudio-MIT-0.txt` |
 | Box2D 3.1 | rigid-body physics (`physics{}`) | `LICENSES/Box2D-MIT.txt` |
 | Box3D | 3D rigid-body physics (`physics3d{}`) | `LICENSES/Box3D-MIT.txt` |
 | o3d | 3D layers (`view3d{}`): the scene, its software and SDL_GPU renderers, glTF import | `LICENSES/o3d-MIT.txt` |
-| cgltf (`vendor:cgltf`) | o3d's glTF 2.0 / GLB parsing | `LICENSES/cgltf-MIT.txt` |
 | three.js | o3d follows its conventions and models: MeshStandardMaterial's shading, PCF shadows, equirectangular environment lighting, GLTFLoader's material and scene rules | `LICENSES/three.js-MIT.txt` |
 | ottis | text to speech with word timings (`say()`): runs Pocket TTS and the word aligner through ONNX Runtime | `LICENSES/ottis-MIT.txt` |
 | Pocket TTS (Kyutai, github.com/kyutai-labs/pocket-tts) | ottis ports its text preparation and chunking, the generation loop's end-of-speech rule and the decoder fade-in | `LICENSES/pocket-tts-MIT.txt` |
 | odawg | sound (`song{}`, `sound{}`, the mix): composing songs from data, its synths, drum machines, samplers and effects, the master and the preview stream, loudness, onsets and spectra | `LICENSES/odawg-MIT.txt` |
-| Odin core and vendor packages (Copyright 2016-2025 Ginger Bill) | the runtime and core library every Odin program links, and the vendor bindings above (`vendor:cgltf` among them) | `LICENSES/Odin-Zlib.txt` |
+| Odin core and vendor packages (Copyright 2016-2025 Ginger Bill) | the runtime and core library every Odin program links, and the vendor bindings above | `LICENSES/Odin-Zlib.txt` |
 | Noto Color Emoji (COLRv1 build, Copyright 2022 Google Inc.) | the emoji fallback font, embedded via ovg | `LICENSES/OFL-1.1.txt` |
 | Bitstream Vera Sans (Copyright 2003 Bitstream, Inc.) | the preview window's interface font, embedded via ovg | `LICENSES/Bitstream-Vera.txt` |
 | DM Sans (Copyright 2014 The DM Sans Project Authors), Instrument Serif (Copyright 2022 The Instrument Serif Project Authors), Bebas Neue (Copyright 2019 The Bebas Neue Project Authors), JetBrains Mono (Copyright 2020 The JetBrains Mono Project Authors) | the built-in fonts (`assets/fonts/`; DM Sans and JetBrains Mono are static instances of the Google Fonts variable fonts) | `LICENSES/OFL-1.1.txt` |

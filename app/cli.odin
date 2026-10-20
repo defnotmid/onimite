@@ -14,6 +14,7 @@ import "core:time"
 import om "../onimite"
 import enc "../encode"
 import vg "deps:ovg"
+import odimg "deps:odecs/image"
 import vgsdl "deps:ovg/sdlgpu"
 
 // The command line's handlers: render, frame, strip, onion, snapshot,
@@ -288,7 +289,7 @@ frames_export :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 		pixels := om.render_frame(r, f)
 		rep := take_frame_report(app, r, f)
 		path := regs.path if file else filepath.join({dir, fmt.tprintf("%s.png", snapshot_name(specs[i]))}, context.temp_allocator) or_else ""
-		if write_png(path, pixels, r.width, r.height) != nil {
+		if !write_png(path, pixels, r.width, r.height) {
 			return fail(app, {code = .Write, path = path})
 		}
 		svg_path: Maybe(string)
@@ -384,7 +385,7 @@ onion_export :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 	out := regs.path if regs.path != "" else "onion.png"
 	blended := onion_skin(pixels, len(frames))
 	ensure_parent(out)
-	if write_png(out, blended, r.width, r.height) != nil {
+	if !write_png(out, blended, r.width, r.height) {
 		return fail(app, {code = .Write, path = out})
 	}
 	res := Sheet_Result{out, frames, reports}
@@ -420,7 +421,7 @@ make_dir :: proc(app: ^App_State, dir: string) -> Error {
 // A PNG of straight-alpha pixels, or `.Write`.
 @(private)
 write_straight_png :: proc(app: ^App_State, path: string, pixels: []u8, w, h: u32) -> Error {
-	if vg.write_png(path, pixels, w, h) != nil {
+	if odimg.write_png(path, pixels, int(w), int(h)) != .None {
 		return fail(app, {code = .Write, path = path})
 	}
 	return nil
@@ -485,7 +486,7 @@ contact_sheet :: proc(app: ^App_State, out: string, pixels: []u8, cw, ch: u32, l
 		vg.delete_image(&sheet, img)
 	}
 	ensure_parent(out)
-	if write_png(out, sw.pixels, sheet_w, sheet_h) != nil {
+	if !write_png(out, sw.pixels, sheet_w, sheet_h) {
 		return fail(app, {code = .Write, path = out})
 	}
 	return nil

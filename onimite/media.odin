@@ -11,8 +11,7 @@ import "core:sync"
 import "base:runtime"
 import "core:thread"
 import vg "deps:ovg"
-import webp "deps:odecs/webp"
-import stbi "vendor:stb/image"
+import odimg "deps:odecs/image"
 
 // Fonts and images a video can reference by name. Fonts are found by
 // family and weight (`Text.font`, `Text.weight`), images by file name
@@ -31,8 +30,6 @@ Media :: struct {
 	// Onsets of the audio clips, analysed on first use (`media_onsets`);
 	// shared by copies of the media.
 	onsets:   ^Onset_Cache,
-	// Decodes audio formats the core doesn't (set by the host).
-	decoder:  Audio_Decoder,
 	// The songs scripts compose (`song{}`, `sound{}`) and the video's
 	// sample sets (music.odin); shared by copies of the media.
 	music:    ^Music,
@@ -96,9 +93,9 @@ Media_Kind_Info :: struct {
 
 @(rodata)
 MEDIA_KINDS := [Media_Kind]Media_Kind_Info {
-	.Image     = {"image", "IMG", {".png", ".jpg", ".jpeg", ".bmp", ".gif", ".tga", ".webp"}, "an image"},
+	.Image     = {"image", "IMG", {".png", ".jpg", ".jpeg", ".bmp", ".gif", ".tga", ".qoi", ".webp"}, "an image"},
 	.Video     = {"video", "VID", {".mp4", ".mov", ".m4v", ".webm"}, ""},
-	.Audio     = {"sound", "AUD", {".wav", ".wave", ".ogg", ".oga", ".m4a", ".aac", ".mp3", ".flac"}, "audio"},
+	.Audio     = {"sound", "AUD", {".wav", ".wave", ".ogg", ".oga", ".opus", ".m4a", ".aac", ".mp3", ".flac"}, "audio"},
 	.Font      = {"font", "FNT", {".ttf", ".otf", ".ttc"}, "a font"},
 	.Svg       = {"SVG", "SVG", {".svg"}, "SVG"},
 	.Lottie    = {"Lottie", "LOT", {".json"}, "Lottie"},
@@ -401,9 +398,9 @@ media_image :: proc(m: ^Media, name: string, frame := -1) -> (img: ^Media_Image,
 		context.allocator = d.m.cache.allocator
 		bytes, err := os.read_entire_file(d.img.path, context.allocator)
 		defer delete(bytes)
-		pixels, w, h, decoded := decode_image(bytes)
-		if err == nil && decoded {
-			d.img.pixels, d.img.width, d.img.height = pixels, w, h
+		pic, derr := odimg.decode(bytes)
+		if err == nil && derr == .None {
+			d.img.pixels, d.img.width, d.img.height = pic.pixels, pic.width, pic.height
 		} else {
 			d.img.failed = true
 		}
@@ -468,42 +465,15 @@ image_evicted :: proc(img: ^Media_Image, bytes: int, user: rawptr) {
 @(private)
 add_image_file :: proc(m: ^Media, name, path: string) {
 	img := Media_Image{path = strings.clone(path)}
-	if strings.to_lower(file_ext(name), context.temp_allocator) == ".webp" {
-		if data, err := os.read_entire_file(path, context.temp_allocator); err == nil {
-			if ft, ft_err := webp.get_features(data); ft_err == nil {
-				img.width, img.height = ft.width, ft.height
-			}
-		}
-	} else {
-		w, h, channels: i32
-		if stbi.info(strings.clone_to_cstring(path, context.temp_allocator), &w, &h, &channels) != 0 {
-			img.width, img.height = int(w), int(h)
+	if data, err := os.read_entire_file(path, context.temp_allocator); err == nil {
+		if info, info_err := odimg.info(data); info_err == .None {
+			img.width, img.height = info.width, info.height
 		}
 	}
 	if img.width == 0 {
 		media_problem(m, {code = .Undecodable_Media, name = name, a = MEDIA_KINDS[.Image].undecodable})
 	}
 	put_image(m, name, img)
-}
-
-@(private)
-decode_image :: proc(data: []u8) -> (pixels: []u8, width, height: int, ok: bool) {
-	if len(data) >= 12 && string(data[0:4]) == "RIFF" && string(data[8:12]) == "WEBP" {
-		pic, err := webp.decode(data)
-		if err != .None {
-			return
-		}
-		return pic.pixels, pic.width, pic.height, true
-	}
-	w, h, channels: i32
-	px := stbi.load_from_memory(raw_data(data), i32(len(data)), &w, &h, &channels, 4)
-	if px == nil {
-		return
-	}
-	defer stbi.image_free(px)
-	pixels = make([]u8, int(w * h * 4))
-	copy(pixels, px[:w * h * 4])
-	return pixels, int(w), int(h), true
 }
 
 @(private)
@@ -566,7 +536,7 @@ media_add_shader :: proc(m: ^Media, name, source: string) {
 // Adds a sound from encoded bytes; the format comes from the name's
 // extension. False when it can't be decoded.
 media_add_audio :: proc(m: ^Media, name: string, data: []u8) -> bool {
-	clip, ok := audio_decode(data, file_ext(name), m.decoder)
+	clip, ok := audio_decode(data)
 	if ok {
 		put_audio(m, name, clip)
 	}
@@ -788,7 +758,7 @@ decode_task :: proc(task: thread.Task) {
 	}
 	#partial switch j.kind {
 	case .Audio, .Video:
-		j.clip, j.ok = audio_decode(data, file_ext(j.name), j.media.decoder)
+		j.clip, j.ok = audio_decode(data)
 	case .Svg:
 		err: vg.Svg_Error
 		j.svg_asset, err = svg_asset_make(data, j.media.dir, &j.media.fonts)

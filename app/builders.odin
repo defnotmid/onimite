@@ -296,7 +296,7 @@ builder_task :: proc(job: ^om.Pool_Job) {
 	pixels := b.software.pixels
 	if run.png_dir != "" {
 		path := fmt.tprintf("%s/%06d.png", run.png_dir, b.frame)
-		out.png_failed = write_png(path, pixels, r.width, r.height) != nil
+		out.png_failed = !write_png(path, pixels, r.width, r.height)
 	} else {
 		enc.rgba_to_i420(pixels, int(r.width), int(r.height), out.i420)
 	}
@@ -385,7 +385,7 @@ png_job_start :: proc(j: ^Png_Job, pixels: []u8, w, h: u32, path: string, pool: 
 png_task :: proc(job: ^om.Pool_Job) {
 	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 	j := container_of(job, Png_Job, "job")
-	j.failed = write_png(j.path, j.pixels, j.width, j.height) != nil
+	j.failed = !write_png(j.path, j.pixels, j.width, j.height)
 }
 
 png_jobs_destroy :: proc(jobs: []Png_Job) {
