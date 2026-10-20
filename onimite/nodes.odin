@@ -238,6 +238,10 @@ Path_Asset :: struct {
 	// Its content's hash: what geometry made from it is kept by (3D
 	// extrusions outlive a script's handles across preview reloads).
 	key:       u64,
+	// Its fill as a shape, built once at load (a path made while drawing a
+	// frame has none: it is filled from `verbs`); empty when it fills
+	// nothing.
+	shape:     vg.Shape,
 }
 
 Text_Align :: enum u8 {

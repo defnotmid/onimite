@@ -116,14 +116,18 @@ shared_path :: proc(sh: ^Shared, d: string) -> ^om.Path_Asset {
 	if !vg.path_svg(p, d) {
 		return nil
 	}
-	alloc := virtual.arena_allocator(&sh.arena)
-	a := new(om.Path_Asset, alloc)
-	a.verbs = make([]vg.Verb, len(p.verbs), alloc)
-	a.coords = make([]vg.Vec2, len(p.coords), alloc)
-	copy(a.verbs, p.verbs[:])
-	copy(a.coords, p.coords[:])
-	a.key = path_key(p, .Non_Zero)
+	a := shared_asset_make(sh, p, .Non_Zero)
 	sh.paths[key] = a
+	return a
+}
+
+// Path `p` as an asset of the render, its fill built once as a shape
+// (frames fill it without building it again). Under the lock.
+@(private)
+shared_asset_make :: proc(sh: ^Shared, p: ^vg.Path, rule: vg.Fill_Rule) -> ^om.Path_Asset {
+	alloc := virtual.arena_allocator(&sh.arena)
+	a := path_asset_copy(p, rule, alloc)
+	a.shape, _ = vg.shape_from_path(p, alloc)
 	return a
 }
 

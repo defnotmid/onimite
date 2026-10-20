@@ -408,7 +408,7 @@ draw_node :: proc(r: ^Renderer, i: i32) {
 		} else if !vg.path_svg(p, n.d) {
 			report(&r.ctx, .Error, {code = .Invalid_Path, a = n.d})
 		}
-		paint_shape(r, n.style, n.fill_rule)
+		paint_shape(r, n.style, n.fill_rule, &n.asset.shape if n.asset != nil && len(n.asset.shape.data) > 0 else nil)
 	case Text:
 		draw_text(r, n, i)
 	case Image:
@@ -696,9 +696,11 @@ draw_content :: proc(r: ^Renderer, content: i32, w, h: f32, pw, ph: u32) -> vg.I
 	return img
 }
 
-// Fills and strokes the path built in `r.path` with `style`.
+// Fills and strokes the path built in `r.path` with `style`; `shape`, when
+// given, is that fill built at load (an outline's), drawn instead of
+// building it again.
 @(private = "file")
-paint_shape :: proc(r: ^Renderer, style: Shape_Style, rule := vg.Fill_Rule.Non_Zero) {
+paint_shape :: proc(r: ^Renderer, style: Shape_Style, rule := vg.Fill_Rule.Non_Zero, shape: ^vg.Shape = nil) {
 	box := path_box(&r.path)
 	anti_alias := !(style.crisp || r.crisp_depth > 0)
 	c := &r.canvas
@@ -711,7 +713,11 @@ paint_shape :: proc(r: ^Renderer, style: Shape_Style, rule := vg.Fill_Rule.Non_Z
 		p.fill_rule = rule
 		p.anti_alias = anti_alias
 		p.feather = r.feather
-		vg.fill_path(c, &r.path, p)
+		if shape != nil {
+			vg.fill_shape(c, shape, p) // built at load: the same fill as r.path's
+		} else {
+			vg.fill_path(c, &r.path, p)
+		}
 	}
 	stroke := style.stroke
 	if p, ok := to_vg_paint(r, stroke.paint, stroke.opacity, box); ok && stroke.width > 0 {

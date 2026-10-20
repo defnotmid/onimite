@@ -36,7 +36,7 @@ shared_path_asset :: proc(sh: ^Shared, p: ^vg.Path, rule: vg.Fill_Rule) -> ^om.P
 	if a, found := sh.paths[key]; found {
 		return a
 	}
-	a := path_asset_copy(p, rule, virtual.arena_allocator(&sh.arena))
+	a := shared_asset_make(sh, p, rule)
 	sh.paths[key] = a
 	return a
 }
