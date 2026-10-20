@@ -11,10 +11,13 @@
 -- along their normals, one animating bands in the fragment shader).
 -- media/sky.png (generated) lights the scene as an environment map, so the
 -- metal ball has something to reflect; media/checker.png (generated) is the
--- floor's texture, the floor a flat cylinder.
+-- floor's texture, the floor a flat cylinder. A label lies on the floor:
+-- an outline as ShapeGeometry in a transparent material, drawn from its
+-- curves, so its edges stay clean as the orbit lowers it toward grazing.
 
 local W, H = 1280, 720
 local TAU = 2 * math.pi
+local LABEL = outline { "view3d", font = "Instrument Serif", italic = true, size = 1.1, align = "center", baseline = "middle" }
 
 local WAVE_VERT = [[
 varying vec3 vNormal;
@@ -86,6 +89,8 @@ video { width = W, height = H, fps = 30, background = "#101218", duration = 6,
       meshes = {
         { geometry = { type = "CylinderGeometry", radius_top = 4, radius_bottom = 4, height = 0.2, radial_segments = 96 },
           position = { 0, -0.1, 0 }, material = { map = "checker.png", roughness = 0.85 }, receive_shadow = true },
+        { geometry = { type = "ShapeGeometry", shape = LABEL }, position = { 0.2, 0.005, 2.9 }, rotation = { -TAU / 4, 0, 0 },
+          material = { type = "MeshBasicMaterial", color = "#1b2333", opacity = 0.8, transparent = true } },
         { geometry = { type = "BoxGeometry", width = 1, height = 1, depth = 1 },
           position = { -1.8, 0.5, 0.2 }, rotation = { 0, spin, 0 },
           material = { color = "#ff5a4d", roughness = 0.35 }, cast_shadow = true, receive_shadow = true },

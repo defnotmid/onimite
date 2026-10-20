@@ -60,7 +60,8 @@ test_mix_envelopes :: proc(t: ^testing.T) {
 		want_l, want_r: f32
 		if s >= p.start && s < p.end {
 			k := s - p.start
-			env := track_envelope(k, p.end - p.start, seconds_to_samples(p.track.fade_in), seconds_to_samples(p.track.fade_out), p.track.curve)
+			cuts_in, cuts_out := track_cuts(p)
+			env := track_envelope(k, p.end - p.start, seconds_to_samples(p.track.fade_in), seconds_to_samples(p.track.fade_out), p.track.curve, cuts_in, cuts_out)
 			env *= ducking(s, 12000, 20000, attack, hold, release, depth)
 			want_l, want_r = 0.5 * gl * env, 0.25 * gr * env
 		}
@@ -113,6 +114,52 @@ test_mix_stream_is_render :: proc(t: ^testing.T) {
 	testing.expectf(t, peak <= ceiling + 1e-4, "peak %f over the ceiling", peak)
 }
 
+// The preview's stream plays a song whose render is whole from that
+// render (a clip over its 16-bit samples, no engine): the same sound as
+// the song's engine in the mix, placed, faded and turned down the same.
+@(test)
+test_mix_stream_plays_song_render :: proc(t: ^testing.T) {
+	m: Media
+	media_init(&m)
+	defer media_destroy(&m)
+	v, err := json.parse_string(`{ name: "s", bpm: 120, sections: [ { name: "a", duration: "4m" } ],
+		parts: { drums: { instrument: "MembraneSynth", play: [ { name: "a", notes: "C2 - C2 -", subdivision: "8n" } ] },
+		         lead: { instrument: "PluckSynth", effects: [ { name: "FeedbackDelay", delay_time: "8n", feedback: 0.4, wet: 0.3 } ],
+		                 play: [ { name: "a", notes: "A4 C5 E5 -", subdivision: "8n" } ] } } }`, .JSON5, true, context.temp_allocator)
+	testing.expect(t, err == nil)
+	sc, _ := media_song_put(&m, "s", v, value_key(v))
+	testing.expect(t, sc.ok)
+	energy := song_table(sc, .Energy, MIX_RATE, 30)
+	song_table_build(sc, energy) // the render, whole
+	testing.expect(t, song_render_whole(sc))
+	n := sc.render.frames
+	placed := []Placed_Track{{track = {src = "s", gain_db = -3, fade_in = 0.2, fade_out = 0.3}, song = sc, start = 2000, end = n - 4000, file_start = 1500}}
+	mx: Mix
+	mix_init(&mx, placed, {})
+	defer mix_destroy(&mx)
+	engine, _ := mix_render(&mx, 0, n)
+	defer delete(engine)
+	st: Mix_Stream
+	mix_stream_init(&st, placed, {})
+	defer mix_stream_destroy(&st)
+	testing.expect_value(t, st.mix.tracks[0][1], 1) // one clip, not the song's tracks
+	streamed := make([]f32, n * 2)
+	defer delete(streamed)
+	for from := 0; from < n; from += 1024 {
+		count := min(1024, n - from)
+		mix_block(&st, from, streamed[from * 2:][:count * 2])
+		free_all(context.temp_allocator)
+	}
+	worst, peak: f32
+	for x, i in engine {
+		worst = max(worst, abs(x - streamed[i]))
+		peak = max(peak, abs(x))
+	}
+	testing.expectf(t, peak > 0.05, "the song plays (peak %f)", peak)
+	// the render is 16-bit: a step of 1/32768 at most, before the gain
+	testing.expectf(t, worst < 1e-4, "largest difference from the engine %e", worst)
+}
+
 // A song's analysis tables, shared by every reader, are its render
 // measured: a frame's energy and spectrum are those of the rendered
 // samples at the frame, whoever built the table and however.
@@ -122,8 +169,8 @@ test_song_tables_are_render :: proc(t: ^testing.T) {
 	media_init(&m)
 	defer media_destroy(&m)
 	v, err := json.parse_string(`{ name: "s", bpm: 120, sections: [ { name: "a", duration: "2m" } ],
-		parts: { drums: { instrument: "DrumKit", play: [ { name: "a", steps: { kick: "x...x...x...x...", hat: "..x...x...x...x." } } ] },
-		         lead: { instrument: "pluck", effects: [ { name: "FeedbackDelay", delay_time: "8n", feedback: 0.4, wet: 0.3 } ],
+		parts: { drums: { instrument: "MembraneSynth", play: [ { name: "a", notes: "C2 - C2 -", subdivision: "8n" } ] },
+		         lead: { instrument: "PluckSynth", effects: [ { name: "FeedbackDelay", delay_time: "8n", feedback: 0.4, wet: 0.3 } ],
 		                 play: [ { name: "a", notes: "A4 C5 E5 -", subdivision: "8n" } ] } } }`, .JSON5, true, context.temp_allocator)
 	testing.expect(t, err == nil)
 	sc, _ := media_song_put(&m, "s", v, value_key(v))

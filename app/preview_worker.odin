@@ -119,6 +119,9 @@ Mailbox :: struct {
 	timeline:         Preview_Timeline, // owned
 	// The bookmark file's frame, read on the script's first load (-1: none).
 	bookmark_loaded:  int,
+	// The start frame `start_spec` names on the script's first load (-1:
+	// none; the UI takes it).
+	start_loaded:     int,
 	// The marks file's marks, read on the script's first load.
 	marks_loaded:     [dynamic]Mark,
 	// Why the last load failed (owned; `.None` after a good one), bumping
@@ -185,9 +188,12 @@ Render_Worker :: struct {
 	// Bytes of decoded images the media keeps (--image-cache).
 	image_budget:   int,
 	script_path:    string,
-	// Borrowed from the app's script; outlives the worker.
+	// Borrowed from the app's script inputs and the preview; outlive the
+	// worker.
 	script_args:    []string,
 	script_props:   []string,
+	// `preview AT`: the start frame, resolved on the first load (owned).
+	start_spec:     string,
 	media_dir:      string,
 	// The app's video decode threads (thread-safe; shared by every media).
 	video:          ^enc.Video_Decoders,
@@ -304,6 +310,7 @@ worker_stop :: proc(w: ^Render_Worker) {
 	w.thread = nil
 	delete(w.script_path)
 	delete(w.media_dir)
+	delete(w.start_spec)
 }
 
 @(private = "file")
@@ -385,6 +392,12 @@ worker_main :: proc(w: ^Render_Worker) {
 @(private = "file")
 worker_publish_audio :: proc(w: ^Render_Worker) {
 	v := &w.script.video
+	// playback plays the songs' renders once whole (the mix's stream): asked
+	for p in w.placed.tracks {
+		if p.song != nil {
+			om.song_render_want(p.song)
+		}
+	}
 	audio_set_tracks(w.audio, w.placed.tracks[:], i64(om.frames_to_samples(w.frames, v.fps)), v.mix)
 }
 
@@ -526,8 +539,9 @@ worker_clips :: proc(w: ^Render_Worker) -> bool {
 			worker_clips_retire(w)
 		}
 	}
-	// Songs' sample sets that loaded: the mix plays them from now on.
-	if om.music_banks_landed(w.media) > 0 && landed == 0 {
+	// Songs' sample sets that loaded, and renders now whole: the mix plays
+	// them from now on.
+	if (om.music_banks_landed(w.media) + om.music_whole(w.media)) > 0 && landed == 0 {
 		worker_place_audio(w)
 	}
 	// Songs' tables that landed: their lanes fill, their bands rows draw,
@@ -774,7 +788,11 @@ worker_load :: proc(w: ^Render_Worker, reload_media: bool) {
 		w.mb.reload_failure = script.failure_clone(next.failure)
 		w.mb.reload_seq += 1
 		sync.mutex_unlock(&w.mb.mutex)
-		warn("reload failed, keeping the last good script: %s", script.error_message(next.failure, context.temp_allocator))
+		if w.script != nil {
+			warn("reload failed, keeping the last good script: %s", script.error_message(next.failure, context.temp_allocator))
+		} else {
+			warn("the script failed to load (the preview shows it once it does): %s", script.error_message(next.failure, context.temp_allocator))
+		}
 		script.unload(next)
 		free(next)
 		if media != w.media {
@@ -867,6 +885,15 @@ worker_load :: proc(w: ^Render_Worker, reload_media: bool) {
 	worker_lanes(w)
 	w.media_dirty = true
 	bookmark := bookmark_read(w.script_path) if first_load else -1
+	start := -1
+	if first_load && err == nil && w.start_spec != "" {
+		f, ferr := om.parse_frame(tl, max(next.video.fps, 1), w.start_spec)
+		if ferr != nil {
+			warn("%s; starting without it", failure_message(spec_failure(&tl, max(next.video.fps, 1), w.start_spec, ferr), context.temp_allocator))
+		} else {
+			start = f
+		}
+	}
 	if first_load {
 		marks := marks_read(w.script_path, next.video.fps, context.temp_allocator)
 		table_copy(&w.marks, marks[:])
@@ -884,6 +911,7 @@ worker_load :: proc(w: ^Render_Worker, reload_media: bool) {
 	w.mb.timeline_seq += 1
 	if first_load {
 		w.mb.bookmark_loaded = bookmark
+		w.mb.start_loaded = start
 		table_copy(&w.mb.marks_loaded, w.marks[:])
 	}
 	if w.mb.reload_failure.code != .None {

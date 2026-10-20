@@ -26,9 +26,10 @@ import sdl "vendor:sdl3"
 // line.
 
 Preview_State :: struct {
+	// Where playback opened: the frame `preview AT` names, else 0.
 	start_frame:        int,
-	// The command line gave the start frame: it wins over the bookmark once.
-	start_given:        bool,
+	// The script's props for the worker's loads (the app's --props text).
+	script_props:       [dynamic]string,
 	exit_after:         int,
 	active:             bool,
 	playing:            bool,
@@ -129,6 +130,9 @@ Preview_State :: struct {
 	// The bands rows' sources drawn this window frame (asked of the worker
 	// when they change), the last asked, and the textures it made.
 	bands_shown:        [dynamic]i32,
+	// The thumbnail frames the timeline laid out this window frame (asked of
+	// the worker nearest the centre first: thumbs_wanted).
+	thumbs_shown:       [dynamic]int,
 	sent_bands:         [dynamic]i32,
 	seen_bands:         u64,
 	band_textures:      [dynamic]Band_Texture,
@@ -139,6 +143,22 @@ Preview_State :: struct {
 	latency_ms:         f64,
 	// Frames published per second, counted over the last second.
 	worker_fps:         f64,
+	// While playing, frames render at PLAY_SCALES[play_level] of the
+	// fitted scale: a step lower after a second of missed frames, a step
+	// higher after PLAY_STEADY seconds at the full rate; a step down that
+	// doesn't raise the rate (the script isn't limited by pixels) is undone
+	// and held, as is a step up that misses frames, until the next load.
+	// Paused, frames render at the full scale.
+	play_level:         int,
+	play_held:          bool,
+	play_steady:        int,
+	// The last step (+1 lower, -1 higher), the rate before it, whether the
+	// window being counted played throughout, and whether it is the first
+	// after a step (the renderer rebuilt: not counted).
+	play_step:          int,
+	play_ratio:         f64,
+	play_window:        bool,
+	play_settling:      bool,
 	// The audio position last heard and the seconds since it last moved
 	// (preview_playback_advance runs the clock on between audio blocks).
 	heard:              f64,
@@ -201,28 +221,13 @@ preview_open :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 	if .Bare in regs.flags {
 		pv.bare, pv.loop = true, false
 	}
-	if regs.spec != "" {
-		tl, err := om.resolve_timeline(&app.script.video, &app.media, context.temp_allocator)
-		if err != nil {
-			// The script was loaded without its media (the worker loads it);
-			// a timeline that needs it (audio lengths) loads it here.
-			if os.exists(app.media_dir) {
-				om.media_load_dir(&app.media, app.media_dir, app.pool)
-			}
-			tl, err = om.resolve_timeline(&app.script.video, &app.media, context.temp_allocator)
-		}
-		if err == nil {
-			f, ferr := om.parse_frame(tl, max(app.script.video.fps, 1), regs.spec)
-			if ferr != nil {
-				return fail(app, spec_failure(&tl, max(app.script.video.fps, 1), regs.spec, ferr))
-			}
-			pv.start_frame = f
-			pv.start_given = true
-		}
-	}
-	pv.script_path = strings.clone(app.script.path)
+	// The worker loads the script (the start frame resolved with it).
+	pv.script_path = strings.clone(app.script_path)
 	pv.media_dir = strings.clone(app.media_dir)
-	return preview_run(app, capture = regs.path, drive = regs.args)
+	if app.props_text != "" {
+		append(&pv.script_props, app.props_text)
+	}
+	return preview_run(app, capture = regs.path, drive = regs.args, start_spec = regs.spec)
 }
 
 // The window loop. Never waits on Lua, the render worker or a fence: it
@@ -230,7 +235,7 @@ preview_open :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 // `capture` a PNG of the last window frame and `drive` scripted input
 // (`preview_drive`), "" for none.
 @(private)
-preview_run :: proc(app: ^App_State, capture, drive: string) -> Error {
+preview_run :: proc(app: ^App_State, capture, drive, start_spec: string) -> Error {
 	pv := &app.preview
 	pv.active = true
 	// Scrubbing seeks backwards a lot: native decoding seeks fastest.
@@ -297,9 +302,10 @@ preview_run :: proc(app: ^App_State, capture, drive: string) -> Error {
 	mb.displayed_slot = -1
 	mb.bookmark = -1
 	mb.bookmark_loaded = -1
+	mb.start_loaded = -1
 	audio := new(Audio_Shared)
 	worker := new(Render_Worker)
-	worker^ = {mb = mb, audio = audio, device = p.device, software = app.software, debug = app.debug, log_clips = app.clip_log, image_budget = app.image_budget, script_path = strings.clone(pv.script_path), script_args = app.script.args, script_props = app.script.props, media_dir = strings.clone(pv.media_dir), video = &app.video, pool = app.pool}
+	worker^ = {mb = mb, audio = audio, device = p.device, software = app.software, debug = app.debug, log_clips = app.clip_log, image_budget = app.image_budget, script_path = strings.clone(pv.script_path), script_args = app.script_args, script_props = pv.script_props[:], start_spec = strings.clone(start_spec), media_dir = strings.clone(pv.media_dir), video = &app.video, pool = app.pool}
 	pv.mailbox, pv.worker, pv.audio = mb, worker, audio
 	pv.audio_stream = audio_open(audio)
 	if pv.audio_stream == nil {
@@ -669,6 +675,7 @@ preview_drive_lister :: proc(app: ^App_State, s: ^ui.State, drive: string, frame
 preview_state_destroy :: proc(pv: ^Preview_State) {
 	delete(pv.script_path)
 	delete(pv.media_dir)
+	delete(pv.script_props)
 	delete(pv.reload_error)
 	delete(pv.device_name)
 	watch_table_destroy(&pv.watch)
@@ -682,6 +689,7 @@ preview_state_destroy :: proc(pv: ^Preview_State) {
 	delete(pv.thumbs)
 	delete(pv.sent_thumbs)
 	delete(pv.bands_shown)
+	delete(pv.thumbs_shown)
 	delete(pv.sent_bands)
 	delete(pv.band_textures)
 	preview_timeline_destroy(&pv.timeline)
@@ -1221,6 +1229,7 @@ preview_switch_script :: proc(app: ^App_State, path: string) {
 		mb.bookmark = -1
 		mb.bookmark_seq = 0
 		mb.bookmark_loaded = -1
+		mb.start_loaded = -1
 		clear(&mb.marks)
 		mb.marks_seq = 0
 		clear(&mb.marks_loaded)
@@ -1229,7 +1238,7 @@ preview_switch_script :: proc(app: ^App_State, path: string) {
 		mb.thumb_ack = 0
 		mb.thumbs_seq += 1
 		sync.mutex_unlock(&mb.mutex)
-		w^ = {mb = mb, audio = w.audio, device = w.device, software = w.software, debug = w.debug, log_clips = w.log_clips, image_budget = w.image_budget, script_path = strings.clone(pv.script_path), script_args = app.script.args, script_props = app.script.props, media_dir = strings.clone(pv.media_dir), video = w.video, pool = w.pool}
+		w^ = {mb = mb, audio = w.audio, device = w.device, software = w.software, debug = w.debug, log_clips = w.log_clips, image_budget = w.image_budget, script_path = strings.clone(pv.script_path), script_args = app.script_args, script_props = pv.script_props[:], media_dir = strings.clone(pv.media_dir), video = w.video, pool = w.pool}
 		worker_start(w)
 	}
 	command_push(&app.commands, .Script_Reload, {flag = true})
@@ -1368,7 +1377,7 @@ preview_take_published :: proc(app: ^App_State, r: ^render.Renderer, now: f64) {
 	pv := &app.preview
 	mb := pv.mailbox
 	timeline_changed, media_changed := false, false
-	bookmark_loaded := -1
+	bookmark_loaded, start_loaded := -1, -1
 	marks_loaded := false
 	sync.mutex_lock(&mb.mutex)
 	if mb.published_seq != pv.seen_publish && mb.slot >= 0 {
@@ -1387,7 +1396,11 @@ preview_take_published :: proc(app: ^App_State, r: ^render.Renderer, now: f64) {
 	if mb.timeline_seq != pv.seen_timeline {
 		pv.seen_timeline = mb.timeline_seq
 		preview_timeline_copy(&pv.timeline, &mb.timeline)
+		// a new load: playback starts again at the full scale
+		pv.play_level, pv.play_held, pv.play_steady, pv.play_step, pv.play_settling = 0, false, 0, 0, false
 		bookmark_loaded = mb.bookmark_loaded
+		start_loaded = mb.start_loaded
+		mb.start_loaded = -1
 		if pv.marks_unread {
 			// the saved marks, read with the script's first load
 			table_copy(&pv.marks, mb.marks_loaded[:])
@@ -1434,10 +1447,20 @@ preview_take_published :: proc(app: ^App_State, r: ^render.Renderer, now: f64) {
 	}
 	sync.mutex_unlock(&mb.mutex)
 
+	playing := pv.playing && !pv.scrubbing
+	pv.play_window &&= playing
 	if now - pv.fps_since >= 1 {
 		pv.worker_fps = f64(pv.fps_count) / (now - pv.fps_since)
 		pv.fps_count = 0
 		pv.fps_since = now
+		if pv.play_window && pv.timeline.fps > 0 {
+			level := pv.play_level
+			play_scale_adapt(pv, pv.worker_fps / f64(pv.timeline.fps))
+			if app.debug && pv.play_level != level {
+				fmt.eprintfln("preview: %.0f of %d fps, playing at %.0f%% of the fitted scale%s", pv.worker_fps, pv.timeline.fps, PLAY_SCALES[pv.play_level] * 100, " (held)" if pv.play_held else "")
+			}
+		}
+		pv.play_window = playing
 	}
 	if media_changed {
 		media_images_release(pv, r)
@@ -1464,13 +1487,16 @@ preview_take_published :: proc(app: ^App_State, r: ^render.Renderer, now: f64) {
 			pv.bookmark = bookmark_loaded
 			pv.sent_bookmark = bookmark_loaded
 		}
+		// `preview AT` wins over the bookmark, once.
 		target := pv.frame
-		if pv.bookmark >= 0 && !pv.start_given {
+		if start_loaded >= 0 {
+			pv.start_frame = start_loaded
+			target = start_loaded
+		} else if pv.bookmark >= 0 {
 			target = pv.bookmark
 		}
-		pv.start_given = false
 		view_clamp(app)
-		preview_seek(app, target)
+		command_push(&app.commands, .Frame_Set, {count = target})
 		preview_sync_audio(app)
 	}
 }
@@ -1483,9 +1509,11 @@ preview_request :: proc(app: ^App_State, p: ^platform.Platform) {
 	pv := &app.preview
 	mb := pv.mailbox
 	busy := pv.playing || pv.scrubbing
-	wanted := thumbs_wanted(app, p)
+	wanted := thumbs_wanted(app)
+	// a hidden timeline asks for nothing (its rows keep their last lists)
+	bands := pv.bands_shown[:] if timeline_shown(app) else nil
 	thumbs_changed := !slice.equal(wanted, pv.sent_thumbs[:])
-	bands_changed := !slice.equal(pv.bands_shown[:], pv.sent_bands[:])
+	bands_changed := !slice.equal(bands, pv.sent_bands[:])
 	if busy != pv.sent_busy || pv.bookmark != pv.sent_bookmark || pv.marks_changed || thumbs_changed || bands_changed {
 		sync.mutex_lock(&mb.mutex)
 		mb.busy = busy
@@ -1503,7 +1531,7 @@ preview_request :: proc(app: ^App_State, p: ^platform.Platform) {
 			mb.thumb_wanted_seq += 1
 		}
 		if bands_changed {
-			table_copy(&mb.bands_wanted, pv.bands_shown[:])
+			table_copy(&mb.bands_wanted, bands)
 			mb.bands_wanted_seq += 1
 		}
 		sync.cond_signal(&mb.cond)
@@ -1511,7 +1539,7 @@ preview_request :: proc(app: ^App_State, p: ^platform.Platform) {
 		pv.sent_busy = busy
 		pv.sent_bookmark = pv.bookmark
 		table_copy(&pv.sent_thumbs, wanted)
-		table_copy(&pv.sent_bands, pv.bands_shown[:])
+		table_copy(&pv.sent_bands, bands)
 	}
 
 	// The scale that fits the video's panel (kept while it is hidden),
@@ -1519,6 +1547,9 @@ preview_request :: proc(app: ^App_State, p: ^platform.Platform) {
 	scale := pv.asked_scale if pv.asked_scale > 0 else 1
 	if area, shown := view_area(app, .Video); shown && pv.timeline.width > 0 {
 		fit := min(max(area.width, 16) / f32(pv.timeline.width), max(area.height, 16) / f32(pv.timeline.height)) * f32(max(pv.video_zoom, 1))
+		if pv.playing && !pv.scrubbing {
+			fit *= PLAY_SCALES[pv.play_level]
+		}
 		// Quantized, so a window drag doesn't rebuild the renderer every pixel.
 		scale = clamp(math.ceil(fit * 32) / 32, 1.0 / 32, 2)
 	}
@@ -1534,6 +1565,50 @@ preview_request :: proc(app: ^App_State, p: ^platform.Platform) {
 	pv.asked_scale = scale
 	pv.asked_reload = pv.reload_gen
 	pv.reload_media = false
+}
+
+// The shares of the fitted scale playback steps down through when frames
+// are missed, and the seconds at the full rate before a step back up.
+PLAY_SCALES := [?]f32{1, 0.75, 0.5, 0.35, 0.25}
+PLAY_STEADY :: 3
+
+// One played second's rate (frames shown over the video's fps) moves the
+// playback scale (`play_level`, see Preview_State).
+@(private)
+play_scale_adapt :: proc(pv: ^Preview_State, ratio: f64) {
+	if pv.play_settling {
+		pv.play_settling = false
+		return
+	}
+	step := 0
+	switch {
+	case pv.play_step > 0 && ratio < pv.play_ratio * 1.05:
+		// lower didn't help: back up, and stay
+		pv.play_level -= 1
+		pv.play_held = true
+	case pv.play_step < 0 && ratio < 0.9:
+		// higher misses frames: back down, and stay
+		pv.play_level += 1
+		pv.play_held = true
+	case pv.play_held:
+	case ratio < 0.9 && pv.play_level < len(PLAY_SCALES) - 1:
+		pv.play_level += 1
+		step = 1
+	case ratio >= 0.98 && pv.play_level > 0:
+		pv.play_steady += 1
+		if pv.play_steady >= PLAY_STEADY {
+			pv.play_level -= 1
+			step = -1
+		}
+	case:
+		pv.play_steady = 0
+	}
+	if step != 0 {
+		pv.play_steady = 0
+		pv.play_settling = true
+	}
+	pv.play_step = step
+	pv.play_ratio = ratio
 }
 
 // Lays the workspace out above the controls and the status line (a bare

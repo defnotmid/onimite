@@ -297,6 +297,10 @@ read_mesh :: proc(L: ^lua.State, s: ^Script, t: c.int) -> (m: om.Mesh, ok: bool)
 	} else if m.path_kind == .Points {
 		m.material.mode = .Points
 	}
+	if m.outline.kind == .Shape && m.material.mode == .Triangles && m.shader == nil && m.material.outline_width <= 0 {
+		// Drawn from its curves unless the material draws its triangles.
+		m.outline.kind = .Exact
+	}
 	if m.outline.kind == .Extrude {
 		// The walls and bevels in a material of their own (three.js's
 		// [caps, sides] material array); no texture maps or shader.

@@ -115,13 +115,19 @@ Mesh :: struct {
 
 Outline_Kind :: enum u8 {
 	None,
+	// ShapeGeometry triangulated: for materials that draw its triangles
+	// (wireframe, points, a ShaderMaterial, an outline pass).
 	Shape,
+	// ShapeGeometry drawn from its curves (o3d's exact shapes): one quad
+	// whose pixels take their coverage from the curves.
+	Exact,
 	Extrude,
 }
 
-// A 2D outline made into geometry: flat (`ShapeGeometry`) or extruded with
-// o3d's options, y flipped so it reads upright in 3D. Built once per
-// outline content and options (`View3d_Media.outlines`).
+// A 2D outline made into geometry: flat (`ShapeGeometry`, exact or
+// triangulated) or extruded with o3d's options, y flipped so it reads
+// upright in 3D. Built once per outline content and options
+// (`View3d_Media.outlines`).
 Outline_Geometry :: struct {
 	kind:    Outline_Kind,
 	asset:   ^Path_Asset,
@@ -426,6 +432,18 @@ view3d_make_geometry :: proc(m: ^Media, n: View3d) -> (made: bit_set[o3d.Primiti
 			_, known := v.outlines[key]
 			sync.shared_unlock(&v.lock)
 			if known {
+				continue
+			}
+			if o.kind == .Exact {
+				path := outline_path(o.asset, true)
+				sync.guard(&v.lock)
+				if key in v.outlines {
+					continue
+				}
+				rule := o3d.Fill_Rule.Even_Odd if o.asset.fill_rule == .Even_Odd else o3d.Fill_Rule.Nonzero
+				g := o3d.exact_shape_geometry(&v.geometries, &path, rule)
+				v.outlines[key] = {geometry = g, caps = g, sides = g}
+				made_outlines += {o.kind}
 				continue
 			}
 			shapes := outline_shapes(o.asset, true)
@@ -972,7 +990,7 @@ check_geometry_growth :: proc(r: ^Renderer, n: View3d, made: bit_set[o3d.Primiti
 	for kind in made & d.earlier {
 		report(&r.ctx, .Warning, {code = .Geometry_Growth, name = GEOMETRY_TYPES[kind].name})
 	}
-	OUTLINE_TYPES := [Outline_Kind]string{.None = "", .Shape = "ShapeGeometry", .Extrude = "ExtrudeGeometry"}
+	OUTLINE_TYPES := [Outline_Kind]string{.None = "", .Shape = "ShapeGeometry", .Exact = "ShapeGeometry", .Extrude = "ExtrudeGeometry"}
 	for kind in made_outlines & d.earlier_outlines {
 		report(&r.ctx, .Warning, {code = .Geometry_Growth, name = OUTLINE_TYPES[kind]})
 	}

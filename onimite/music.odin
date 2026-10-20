@@ -1,11 +1,13 @@
 package onimite
 
+import "base:intrinsics"
 import "base:runtime"
 import "core:encoding/json"
 import "core:fmt"
 import "core:hash"
 import "core:math"
 import "core:mem/virtual"
+import "core:simd"
 import "core:os"
 import "core:slice"
 import "core:strings"
@@ -670,17 +672,25 @@ render_segment :: proc(sc: ^Song_Clip, run: ^Song_Run, g: int) {
 	from := g * SONG_SEGMENT
 	to := min(from + SONG_SEGMENT, rd.frames)
 	BLOCK :: orender.BLOCK
+	// Eight samples a step, the rest one at a time.
 	peak :: proc(l, r: []f32) -> [2]i8 {
+		V :: #simd[8]f32
+		vlo, vhi: V
 		lo, hi: f32
-		for x in l {
-			lo, hi = min(lo, x), max(hi, x)
+		for side in ([2][]f32{l, r}) {
+			i := 0
+			for ; i + 8 <= len(side); i += 8 {
+				v := intrinsics.unaligned_load((^V)(raw_data(side[i:])))
+				vlo, vhi = simd.min(vlo, v), simd.max(vhi, v)
+			}
+			for x in side[i:] {
+				lo, hi = min(lo, x), max(hi, x)
+			}
 		}
-		for x in r {
-			lo, hi = min(lo, x), max(hi, x)
-		}
+		lo, hi = min(lo, simd.reduce_min(vlo)), max(hi, simd.reduce_max(vhi))
 		return {i8(clamp(lo, -1, 1) * 127), i8(clamp(hi, -1, 1) * 127)}
 	}
-	for at := from; at < to; at += BLOCK {
+	#no_bounds_check for at := from; at < to; at += BLOCK {
 		n := min(BLOCK, to - at)
 		l, r := run_block(run, n)
 		out := rd.samples[2 * at:][:2 * n]
@@ -933,6 +943,14 @@ music_landed :: proc(m: ^Media) -> int {
 		return 0
 	}
 	return sync.atomic_exchange(&m.music.landed, 0)
+}
+
+// Songs whose renders became whole since the last call.
+music_whole :: proc(m: ^Media) -> int {
+	if m == nil || m.music == nil {
+		return 0
+	}
+	return sync.atomic_exchange(&m.music.whole, 0)
 }
 
 // Songs whose sample sets loaded since the last call.

@@ -587,7 +587,8 @@ audio_at :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 			tr := p.track
 			k := s - p.start
 			length := p.end - p.start
-			env := om.track_envelope(k, length, om.seconds_to_samples(tr.fade_in), om.seconds_to_samples(tr.fade_out), tr.curve)
+			cuts_in, cuts_out := om.track_cuts(p)
+			env := om.track_envelope(k, length, om.seconds_to_samples(tr.fade_in), om.seconds_to_samples(tr.fade_out), tr.curve, cuts_in, cuts_out)
 			duck: f32 = 1
 			if tr.ducked {
 				duck = om.mix_duck_gain(&mx, pi, s)

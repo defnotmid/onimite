@@ -346,20 +346,29 @@ Option_Value :: struct {
 	list: []string,
 }
 
+// Whether command `kind` is given a script (it runs on the script or on its
+// inputs).
+takes_script :: proc "contextless" (kind: Command_Kind) -> bool {
+	d := COMMAND_KINDS[kind].domain
+	return d == .Script || d == .Script_Inputs
+}
+
 // The rows of command `kind` before any option: its defaults, the settings
-// every command pushes, the script load for a script command (the preview's
-// without the media: its worker loads them).
+// every command pushes, the script load for a command of the script or its
+// inputs (the preview's reads only the inputs: its worker loads them).
 front_rows_make :: proc(kind: Command_Kind) -> (rows: Front_Rows) {
 	rows[.Command] = {kind, COMMAND_KINDS[kind].regs}
 	rows[.Output].kind = .Output_Set
 	rows[.Backend].kind = .Backend_Set
 	rows[.Debug].kind = .Debug_Set
-	if COMMAND_KINDS[kind].domain == .Script {
+	if takes_script(kind) {
 		rows[.Load].kind = .Script_Load
 		rows[.Scale].kind = .Scale_Set
 	}
 	if kind == .Preview {
-		rows[.Load].regs.flags += {.No_Media}
+		// Its worker loads both (once: the physics, shared() values and
+		// spoken lines a load makes aren't made twice).
+		rows[.Load].regs.flags += {.No_Media, .No_Script}
 	}
 	return
 }
@@ -513,7 +522,7 @@ cli_parse :: proc(args: []string) -> (rows: Front_Rows, help: bool) {
 	command, known := command_find(name)
 	rows = front_rows_make(command)
 	cmd := &rows[.Command].regs
-	if !known || COMMAND_KINDS[command].domain == .Script {
+	if !known || takes_script(command) {
 		if len(rest) == 0 || strings.has_prefix(rest[0], "-") {
 			usage_error("missing the video script")
 		}

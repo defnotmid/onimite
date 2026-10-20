@@ -447,7 +447,7 @@ Each folder in `examples/` is a `video.lua` with its `media/`.
 | `captions_demo` | word-level TikTok captions from Whisper-style JSON, two highlight styles |
 | `lottie_demo` | four Lottie files with text and shapes, one with a text-layer override |
 | `svg_demo` | an SVG bird animated by element id |
-| `three_d` | `view3d{}`: an orbiting camera, shadows, metal, standard, basic and custom `ShaderMaterial` meshes, a 2D title over the 3D |
+| `three_d` | `view3d{}`: an orbiting camera, shadows, metal, standard, basic and custom `ShaderMaterial` meshes, a transparent label on the floor drawn from its curves, a 2D title over the 3D |
 | `fox` | a downloaded, skinned glTF model (the Khronos Fox) playing its clips, then a `ShaderMaterial` override on the model |
 | `pip_demo` | Pip, the mascot, in each mood: one pixel-art SVG with parts shown and hidden by id |
 | `transitions` | every standard-library transition between scenes |

@@ -44,7 +44,6 @@ TRACK_HEIGHT :: 18
 ROWS_AREA_MAX :: 12 * LANE_HEIGHT
 // Clicks this far into a group's row open or close it.
 ROW_NAME_WIDTH :: 160
-THUMBS_WANTED_MAX :: 64
 RULER_BG :: [4]u8{22, 24, 30, 255}
 LANE_BG :: [4]u8{24, 26, 33, 255}
 
@@ -303,41 +302,39 @@ thumb_grid :: proc(app: ^App_State, a: Time_Axis, ppf: f64, dpi: f32) -> Thumb_G
 	return g
 }
 
-// The thumbnail frames the timeline shows (at most THUMBS_WANTED_MAX),
-// nearest the view's centre first: what the worker renders when idle.
-thumbs_wanted :: proc(app: ^App_State, p: ^platform.Platform) -> []int {
+// The grid frames of segment `sc` in view (`first` and `visible` frames
+// along): `from` up to `to`, `g.step` apart, a thumbnail at each.
+@(private = "file")
+thumb_range :: proc(sc: Preview_Scene, g: Thumb_Grid, first, visible: f64) -> (from, to: int) {
+	// the first whose thumbnail reaches into view
+	j := max(int(math.ceil((first - f64(sc.start_frame) - g.width) / f64(g.step))), 0)
+	return sc.start_frame + j * g.step, min(sc.end_frame, int(math.ceil(first + visible)))
+}
+
+// The thumbnail frames the timeline drew this window frame
+// (`thumbs_shown`), nearest the view's centre first, at most THUMB_MAX
+// (what the worker keeps): what the worker renders when idle. None while
+// the timeline is hidden.
+thumbs_wanted :: proc(app: ^App_State) -> []int {
 	pv := &app.preview
-	area, shown := view_area(app, .Timeline)
-	if !shown || pv.timeline_collapsed || pv.timeline.frames <= 0 {
+	if !timeline_shown(app) {
 		return nil
 	}
-	dpi := p.dpi_scale
-	a := pv.timeline_axis
-	w := f64(area.width) - 2 * TRACK_PAD * f64(dpi)
-	if a.vertical {
-		w = f64(area.height) - 2 * TIMELINE_GAP * f64(dpi)
-	}
-	first, visible := pv.view_first, view_frames(app)
-	g := thumb_grid(app, a, w / visible, dpi)
-	out := make([dynamic]int, 0, THUMBS_WANTED_MAX, context.temp_allocator)
-	for sc in segments(app) {
-		j := max(int(math.floor((first - f64(sc.start_frame) - g.width) / f64(g.step))), 0)
-		for f := sc.start_frame + j * g.step; f < sc.end_frame && f64(f) < first + visible; f += g.step {
-			if len(out) == THUMBS_WANTED_MAX {
-				break
-			}
-			if f64(f) + g.width >= first {
-				append(&out, f)
-			}
-		}
-	}
-	centre := int(first + visible / 2)
-	context.user_index = centre
-	slice.sort_by(out[:], proc(a, b: int) -> bool {
+	out := slice.clone(pv.thumbs_shown[:], context.temp_allocator)
+	context.user_index = int(pv.view_first + view_frames(app) / 2)
+	slice.sort_by(out, proc(a, b: int) -> bool {
 		c := context.user_index
 		return abs(a - c) < abs(b - c) || (abs(a - c) == abs(b - c) && a < b)
 	})
-	return out[:]
+	return out[:min(len(out), THUMB_MAX)]
+}
+
+// Whether the timeline draws: its panel shown and not collapsed, with a
+// video loaded.
+timeline_shown :: proc(app: ^App_State) -> bool {
+	pv := &app.preview
+	_, shown := view_area(app, .Timeline)
+	return shown && !pv.timeline_collapsed && pv.timeline.frames > 0
 }
 
 @(private = "file")
@@ -499,7 +496,9 @@ timeline_draw :: proc(s: ^ui.State, box: ^ui.Box, data: rawptr) {
 		}
 	}
 
-	// Scenes, overlapping ones on alternating rows, with thumbnails.
+	// Scenes, overlapping ones on alternating rows, with thumbnails (each
+	// grid frame laid out asked for: thumbs_shown).
+	clear(&pv.thumbs_shown)
 	g := thumb_grid(app, a, ppf, dpi)
 	scene_y := y0 + ruler_h + 2 * dpi
 	for sc, i in segments(app) {
@@ -515,8 +514,9 @@ timeline_draw :: proc(s: ^ui.State, box: ^ui.Box, data: rawptr) {
 		}
 		fill_rounded(r, a, xa, y, xb - xa - line_w, g.thumb_h, 3 * dpi, SCENE_COLORS[i % len(SCENE_COLORS)])
 		clip(r, a, cx0, y, cx1 - cx0, g.thumb_h)
-		j := max(int(math.floor((first - f64(sc.start_frame) - g.width) / f64(g.step))), 0)
-		for f := sc.start_frame + j * g.step; f < sc.end_frame && f64(f) < first + visible; f += g.step {
+		from, to := thumb_range(sc, g, first, visible)
+		for f := from; f < to; f += g.step {
+			append(&pv.thumbs_shown, f)
 			k, found := slice.binary_search_by(pv.thumbs[:], f, proc(t: Preview_Thumb, f: int) -> slice.Ordering {
 				return slice.cmp(t.frame, f)
 			})
@@ -702,7 +702,7 @@ draw_lane :: proc(v: ^Row_View, index: int, y, lane_h: f32, color_index: int) {
 			if !ok {
 				break // still being computed
 			}
-			env := om.track_envelope_peak(s0 - lane.start, s1 - lane.start, length, lane.fade_in, lane.fade_out, lane.curve)
+			env := om.track_envelope_peak(s0 - lane.start, s1 - lane.start, length, lane.fade_in, lane.fade_out, lane.curve, lane.cuts_in, lane.cuts_out)
 			top := mid - clamp(hi * env, -1, 1) * half
 			bottom := mid - clamp(lo * env, -1, 1) * half
 			fill(r, v.a, cx, top, col_w, max(bottom - top, v.line_w), wave)

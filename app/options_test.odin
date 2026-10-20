@@ -79,7 +79,7 @@ test_cli_parse :: proc(t: ^testing.T) {
 	}
 	preview := pushed("preview", "v.lua", "3s", "--paused")
 	last := preview[len(preview) - 1]
-	testing.expect_value(t, preview[len(preview) - 3].regs.flags, Command_Flags{.No_Media})
+	testing.expect_value(t, preview[len(preview) - 3].regs.flags, Command_Flags{.No_Media, .No_Script})
 	testing.expect_value(t, last.regs.flags, Command_Flags{.Paused})
 	testing.expect_value(t, last.regs.spec, "3s")
 	probe := pushed("probe", "a.mp4", "b.mp4")

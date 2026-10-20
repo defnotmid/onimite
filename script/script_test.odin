@@ -1148,6 +1148,50 @@ end }
 	testing.expect(t, folded)
 }
 
+// ShapeGeometry draws from its curves (an exact shape) unless its material
+// draws triangles (a wireframe here): a transparent white square covers the
+// middle, the background shows outside it.
+@(test)
+test_view3d_exact_shape :: proc(t: ^testing.T) {
+	dir, derr := os.make_directory_temp("", "onimite_exact_shape_test_*", context.temp_allocator)
+	testing.expect(t, derr == nil)
+	defer os.remove_all(dir)
+	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
+	src := `
+local SQ = outline { d = "M-1 -1H1V1H-1Z" }
+video { width = 64, height = 64, fps = 10, duration = 0.1, background = "#000000", render = function(f)
+  view3d { camera = { position = { 0, 0, 5 } }, meshes = {
+    { geometry = { type = "ShapeGeometry", shape = SQ }, material = { type = "MeshBasicMaterial", color = "#ffffff", transparent = true } },
+    { geometry = { type = "ShapeGeometry", shape = SQ }, position = { 0, 0, -50 }, material = { wireframe = true } },
+  } }
+end }
+`
+	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
+	media: om.Media
+	om.media_init(&media)
+	defer om.media_destroy(&media)
+	sh: Shared
+	defer shared_destroy(&sh)
+	s: Script
+	defer unload(&s)
+	testing.expectf(t, load(&s, path, nil, &media, &sh) == nil, "load failed: %s", error_message(s.failure, context.temp_allocator))
+	r: om.Renderer
+	testing.expect_value(t, om.renderer_init(&r, &s.video, &media), om.Error.None)
+	defer om.renderer_destroy(&r)
+	px := om.render_frame(&r, 0)
+	testing.expect_value(t, len(r.ctx.diagnostics), 0)
+	for n in r.ctx.tree.nodes {
+		if v, ok := n.kind.(om.View3d); ok && len(v.meshes) == 2 {
+			testing.expect_value(t, v.meshes[0].outline.kind, om.Outline_Kind.Exact)
+			testing.expect_value(t, v.meshes[1].outline.kind, om.Outline_Kind.Shape)
+		}
+	}
+	mid := px[(32 * 64 + 32) * 4:][:4]
+	corner := px[(2 * 64 + 2) * 4:][:4]
+	testing.expectf(t, mid[0] > 240 && mid[1] > 240 && mid[2] > 240, "the square: %v", mid)
+	testing.expectf(t, corner[0] < 10, "outside it: %v", corner)
+}
+
 // physics{} bodies of several shapes: a table on two legs rests on its legs
 // (each `shapes` entry placed by its x, y, angle in the body's frame).
 @(test)

@@ -33,6 +33,32 @@ outline_flatten :: proc(a: ^Path_Asset, out: ^vg.Flat_Path, segment: f32 = 0) {
 	}
 }
 
+// The outline's curves as an o3d path, temp allocated; `flip_y` for 3D (y
+// up), where text then reads upright. ovg's solid/hole marks are left out:
+// the curves fill by their own winding, as path{} draws them.
+outline_path :: proc(a: ^Path_Asset, flip_y: bool) -> o3d.Path {
+	p: o3d.Path
+	p.segments = make([dynamic]o3d.Path_Segment, 0, len(a.verbs), context.temp_allocator)
+	fy: f32 = -1 if flip_y else 1
+	at := 0
+	for verb in a.verbs {
+		c := a.coords[at:]
+		switch verb {
+		case .Move_To:
+			o3d.path_move_to(&p, {c[0].x, fy * c[0].y})
+		case .Line_To:
+			o3d.path_line_to(&p, {c[0].x, fy * c[0].y})
+		case .Bezier_To:
+			o3d.path_bezier_curve_to(&p, {c[0].x, fy * c[0].y}, {c[1].x, fy * c[1].y}, {c[2].x, fy * c[2].y})
+		case .Close:
+			o3d.path_close(&p)
+		case .Solid, .Hole:
+		}
+		at += vg.verb_num_coords(verb)
+	}
+	return p
+}
+
 // The outline as o3d shapes (outer contours with their holes), temp
 // allocated; `flip_y` for 3D (y up), where text then reads upright.
 // `simplify` > 0 drops points within that distance of the line through their

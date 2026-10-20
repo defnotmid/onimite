@@ -6,6 +6,7 @@ import "core:slice"
 import "core:strings"
 import "core:sync"
 import odevice "deps:odawg/device"
+import odsp "deps:odawg/dsp"
 import orender "deps:odawg/render"
 import osong "deps:odawg/song"
 
@@ -242,6 +243,9 @@ Mix :: struct {
 	song:   osong.Song,
 	bank:   odevice.Bank,
 	tracks: [][2]i32,
+	// Per placed track, its song's placement in the mix (-1: a clip, or a
+	// song played as its render).
+	placements: []i32,
 }
 
 // The master limiter's release (fframes' 80 ms).
@@ -251,13 +255,17 @@ LIMITER_RELEASE :: 0.08
 // mix asked only where things are and how loud they are set: `audio at`).
 // `load = false` takes the songs' sample sets as the bank has them now
 // (the preview: what isn't loaded yet joins when it lands) instead of
-// loading them first.
-mix_init :: proc(mx: ^Mix, placed: []Placed_Track, opts: Mix_Options, samples := true, load := true) {
+// loading them first. `renders` plays a song whose kept render is whole
+// from it (16-bit, the preview's) instead of its engine, unless the song
+// makes room under a bus (its parts dip apart, in the mix).
+mix_init :: proc(mx: ^Mix, placed: []Placed_Track, opts: Mix_Options, samples := true, load := true, renders := false) {
 	_ = virtual.arena_init_growing(&mx.arena)
 	context.allocator = virtual.arena_allocator(&mx.arena)
 	osong.mix_init(&mx.song)
 	mx.song.bank = &mx.bank
 	mx.tracks = make([][2]i32, len(placed))
+	mx.placements = make([]i32, len(placed))
+	slice.fill(mx.placements, -1)
 	// the sample sets the songs play, loaded and viewed as the video's bank
 	// has them
 	if samples {
@@ -274,16 +282,39 @@ mix_init :: proc(mx: ^Mix, placed: []Placed_Track, opts: Mix_Options, samples :=
 			}
 		}
 	}
-	sets := make(map[^Audio_Clip]i32, len(placed), context.temp_allocator)
+	sets := make(map[rawptr]i32, len(placed), context.temp_allocator)
 	for p, i in placed {
 		tr := p.track
 		first := i32(len(mx.song.tracks))
-		if p.song != nil {
+		if p.song != nil && renders && samples && p.part == "" && p.song.song.room_from == "" && song_render_whole(p.song) {
+			// its render as a clip: song time 0 at the track's file start
+			set, known := sets[p.song]
+			if !known {
+				set = odevice.bank_borrow(&mx.bank, tr.src, p.song.render.samples)
+				sets[p.song] = set
+			}
+			d := ducking_resolved(tr.duck)
+			c := osong.Clip {
+				name     = tr.src,
+				set      = set,
+				start    = f64(p.start) / MIX_RATE,
+				stop     = f64(p.end) / MIX_RATE,
+				offset   = f64(p.file_start) / MIX_RATE,
+				gain_db  = f64(tr.gain_db),
+				fade_in  = f64(tr.fade_in),
+				fade_out = f64(tr.fade_out),
+				curve    = odevice.Curve(tr.curve),
+				ducked   = tr.ducked,
+			}
+			c.duck = {f64(d.depth_db), f64(d.attack), f64(d.hold), f64(d.release), f64(d.merge_gap)}
+			ti := osong.append_clip(&mx.song, c)
+			mx.song.tracks[ti].muted = p.muted
+		} else if p.song != nil {
 			// song time 0 on the video, let through the track's span
 			at := f64(p.start - p.file_start) / MIX_RATE
 			window := osong.Window{f64(p.start) / MIX_RATE, f64(p.end) / MIX_RATE, f64(tr.fade_in), f64(tr.fade_out), odevice.Curve(tr.curve)}
 			duck := tr.ducked ? sidechain_from_ducking(tr.duck) : osong.Sidechain{}
-			osong.append_song(&mx.song, &p.song.song, at, tr.src, f64(tr.gain_db), window, duck)
+			mx.placements[i] = osong.append_song(&mx.song, &p.song.song, at, tr.src, f64(tr.gain_db), window, duck)
 			heard := strings.concatenate({tr.src, "/", p.part}, context.temp_allocator)
 			for &t in mx.song.tracks[first:] {
 				t.variant = strings.clone(t.variant)
@@ -324,13 +355,13 @@ mix_init :: proc(mx: ^Mix, placed: []Placed_Track, opts: Mix_Options, samples :=
 		mx.tracks[i] = {first, i32(len(mx.song.tracks)) - first}
 	}
 	// a song that makes room under a bus ("voice"): that bus's spans
-	for p in placed {
-		if p.song == nil || p.song.song.room_from == "" {
+	for p, i in placed {
+		if p.song == nil || p.song.song.room_from == "" || mx.placements[i] < 0 {
 			continue
 		}
 		for q in placed {
 			if q.track.bus == p.song.song.room_from {
-				append(&mx.song.room, [2]f64{f64(q.start) / MIX_RATE, f64(q.end) / MIX_RATE})
+				append(&mx.song.room, osong.Room_Span{mx.placements[i], f64(q.start) / MIX_RATE, f64(q.end) / MIX_RATE})
 			}
 		}
 	}
@@ -415,7 +446,7 @@ Mix_Stream :: struct {
 }
 
 mix_stream_init :: proc(st: ^Mix_Stream, placed: []Placed_Track, opts: Mix_Options, load := true) {
-	mix_init(&st.mix, placed, opts, load = load)
+	mix_init(&st.mix, placed, opts, load = load, renders = true)
 	st.ready = orender.engine_init(&st.engine, &st.mix.song)
 	st.next = 0
 }
@@ -454,44 +485,46 @@ mix_duck_gain :: proc(mx: ^Mix, i: int, at: int) -> f32 {
 	if span[1] == 0 {
 		return 1
 	}
-	t := mx.song.tracks[span[0]]
 	l, r := [1]f32{1}, [1]f32{1}
+	// a song's duck is its placement's, a clip's its track's
+	if pl := mx.placements[i]; pl >= 0 {
+		if sc := mx.song.placements[pl].duck; sc.mode == .Spans {
+			orender.SIDECHAIN_TABLE[.Spans].duck(&mx.song, sc, i64(at), l[:], r[:])
+		}
+		return l[0]
+	}
+	t := mx.song.tracks[span[0]]
 	for sc in mx.song.sidechains[t.sidechains.first:t.sidechains.first + t.sidechains.count] {
 		if sc.mode == .Spans {
-			orender.SIDECHAIN_TABLE[.Spans](&mx.song, sc, i64(at), l[:], r[:])
+			orender.SIDECHAIN_TABLE[.Spans].duck(&mx.song, sc, i64(at), l[:], r[:])
 		}
 	}
 	return l[0]
 }
 
-// The shortest fade a track starts and ends with (no click): 3 ms, as
-// odawg's Clip node and a song's window play it.
-DECLICK :: MIX_RATE * 3 / 1000
+// Whether placed track `p`'s start and end cut into its sound: a start
+// after its file's (or song's) first sample, an end before a clip's last
+// (a song's always: its tail's length is the engine's). odawg fades a cut
+// edge by at least dsp.DECLICK (dsp.edge_fade), so these do too.
+track_cuts :: proc "contextless" (p: Placed_Track) -> (cuts_in, cuts_out: bool) {
+	return p.file_start > 0, p.clip == nil || placed_file_sample(p, p.end) < p.clip.frames
+}
 
 // A track's fade gain (0 to 1) `k` samples into its `length` samples: its
-// fade in times its fade out (lengths in samples), each at least DECLICK:
-// what the mix plays, for `audio at` and the preview's waveforms.
-track_envelope :: #force_inline proc "contextless" (k, length, fade_in, fade_out: int, curve: Fade_Curve) -> f32 {
-	return fade_gain(k, max(fade_in, DECLICK), curve) * fade_gain(length - 1 - k, max(fade_out, DECLICK), curve)
+// fade in times its fade out (lengths in samples), an edge that cuts
+// (track_cuts) at least dsp.DECLICK: what the mix plays, for `audio at`
+// and the preview's waveforms.
+track_envelope :: #force_inline proc "contextless" (k, length, fade_in, fade_out: int, curve: Fade_Curve, cuts_in, cuts_out: bool) -> f32 {
+	c := odsp.Curve(curve)
+	fi, fo := odsp.edge_fade(i64(fade_in), cuts_in), odsp.edge_fade(i64(fade_out), cuts_out)
+	return odsp.fade_gain(i64(k), fi, c) * odsp.fade_gain(i64(length - 1 - k), fo, c)
 }
 
 // The loudest track_envelope over samples `[k0, k1)` of the track (a
 // waveform's bucket or pixel): at the sample nearest its full level, which
 // the fade in rises to and the fade out falls from.
-track_envelope_peak :: proc "contextless" (k0, k1, length, fade_in, fade_out: int, curve: Fade_Curve) -> f32 {
-	full := clamp(k0, max(fade_in, DECLICK), length - 1 - max(fade_out, DECLICK))
-	return track_envelope(clamp(full, k0, max(k1 - 1, k0)), length, fade_in, fade_out, curve)
-}
-
-// Gain (0 to 1) `k` samples into a fade of `length` samples.
-@(private = "file")
-fade_gain :: #force_inline proc "contextless" (k, length: int, curve: Fade_Curve) -> f32 {
-	if length <= 0 || k >= length {
-		return 1
-	}
-	t := f32(max(k, 0)) / f32(length)
-	if curve == .Equal_Power {
-		return math.sin(t * math.PI / 2)
-	}
-	return t
+track_envelope_peak :: proc "contextless" (k0, k1, length, fade_in, fade_out: int, curve: Fade_Curve, cuts_in, cuts_out: bool) -> f32 {
+	fi, fo := int(odsp.edge_fade(i64(fade_in), cuts_in)), int(odsp.edge_fade(i64(fade_out), cuts_out))
+	full := clamp(k0, fi, length - 1 - fo)
+	return track_envelope(clamp(full, k0, max(k1 - 1, k0)), length, fade_in, fade_out, curve, cuts_in, cuts_out)
 }
