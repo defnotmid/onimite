@@ -474,7 +474,7 @@ push_song :: proc(L: ^lua.State, s: ^Script, sc: ^om.Song_Clip) {
 		set_int(L, "beats_per_bar", sec.beats_per_bar)
 		lua.pushnumber(L, lua.Number(sec.energy))
 		lua.setfield(L, -2, "energy")
-		push_text(L, "style", sec.style)
+		push_text(L, "style", osong.style_name(g, sec.style))
 		lua.rawseti(L, -2, lua.Integer(i + 1))
 	}
 	lua.setfield(L, -2, "sections")

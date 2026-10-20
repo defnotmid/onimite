@@ -23,9 +23,9 @@ import "core:strings"
 import "core:sync"
 import "core:thread"
 import "base:runtime"
-import common "deps:odecs/codec/common"
-import native "deps:odecs/codec/media/native"
-import movie "deps:odecs/codec/movie"
+import common "deps:odecs/common"
+import native "deps:odecs/media/native"
+import movie "deps:odecs/movie"
 import om "../onimite"
 
 Codec :: enum u8 {

@@ -6,7 +6,7 @@ import "core:strings"
 import "core:sync"
 import "core:thread"
 import "core:time"
-import movie "deps:odecs/codec/movie"
+import movie "deps:odecs/movie"
 import om "../onimite"
 
 // Video clip decoding for onimite' `Video_Source`: per clip, a stream per

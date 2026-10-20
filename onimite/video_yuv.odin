@@ -163,7 +163,7 @@ video_yuv_run :: proc(r: ^Renderer, slot: int, info: Video_Info) -> bool {
 }
 
 // video_yuv.sksl's uniforms for frames in format `f`: odecs' choices
-// (codec/movie planar.odin `prepare_conversion`, hdr.odin `init_tone_map`).
+// (movie/planar.odin `prepare_conversion`, hdr.odin `init_tone_map`).
 @(private = "file")
 Yuv_Uniforms :: struct {
 	sampling, ranges, coefs, mode, alpha_mode, tone_curve: [4]f32,

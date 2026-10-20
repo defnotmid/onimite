@@ -1,6 +1,6 @@
 package onimite_encode
 
-import movie "deps:odecs/codec/movie"
+import movie "deps:odecs/movie"
 import sdl "vendor:sdl3"
 
 // Converts GPU-rendered frames to NV12 on the GPU (shaders/rgba_to_nv12.slang)

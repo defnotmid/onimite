@@ -1,7 +1,7 @@
 package onimite_encode
 
 import "core:fmt"
-import movie "deps:odecs/codec/movie"
+import movie "deps:odecs/movie"
 
 // `onimite probe FILE`: what odecs' reader finds in a media file (container,
 // video and audio stream), so nothing outside the binary is needed to check

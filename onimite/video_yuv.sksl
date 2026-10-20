@@ -1,5 +1,5 @@
-// Decoded video planes to premultiplied RGBA: odecs' conversion (codec/movie
-// color.odin, hdr.odin, alpha) as a program, so GPU renders convert clip
+// Decoded video planes to premultiplied RGBA: odecs' conversion
+// (movie/color.odin, hdr.odin, alpha) as a program, so GPU renders convert clip
 // frames on the GPU. `p` is in frame pixels; planes are sampled nearest at
 // texel centres, chroma at the luma position shifted down (odecs' siting).
 uniform shader luma;  // Y' (G' for G B R planes)

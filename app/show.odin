@@ -716,7 +716,7 @@ show_song :: proc(sh: ^Show, rest: string) -> Error {
 				continue
 			}
 			found = true
-			child(sh, fmt.tprintf("song/%s/parts/%s", name, item), .Part, fmt.tprintf("%s  %s  %d notes  %+.1f dB  pan %.2f", tr.variant, g.labels[tr.instrument], osong.track_note_count(g, t), tr.gain_db, tr.pan))
+			child(sh, fmt.tprintf("song/%s/parts/%s", name, item), .Part, fmt.tprintf("%s  %s  %d notes  %+.1f dB  pan %.2f", osong.style_name(g, tr.style), g.labels[tr.instrument], osong.track_note_count(g, t), tr.gain_db, tr.pan))
 			for i in tr.notes.first ..< tr.notes.first + tr.notes.count {
 				n := g.notes[i]
 				if n.kind != .Attack {

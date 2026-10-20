@@ -2,8 +2,8 @@ package onimite_encode
 
 import "core:strings"
 import ma "vendor:miniaudio"
-import mp4 "deps:odecs/codec/container/mp4"
-import movie "deps:odecs/codec/movie"
+import mp4 "deps:odecs/mp4"
+import movie "deps:odecs/movie"
 
 // Decodes the audio formats onimite' core doesn't: AAC in MP4/M4A (odecs'
 // movie reader) and MP3/FLAC (miniaudio). Plug into `Media.decoder`.

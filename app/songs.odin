@@ -72,7 +72,7 @@ timeline_song :: proc(sc: ^om.Song_Clip, at: string) -> Timeline_Song {
 		for c, k in g.chords[sec.chords.first:obase.span_end(sec.chords)] {
 			fmt.sbprintf(&b, "%s%s", k > 0 ? " " : "", otheory.string_from_chord(c))
 		}
-		sections[i] = {sec.name, g.start + sec.start, g.start + sec.stop, sec.bars, sec.beats_per_bar, {sec.bpm0, sec.bpm1}, sec.style, sec.energy, strings.to_string(b)}
+		sections[i] = {sec.name, g.start + sec.start, g.start + sec.stop, sec.bars, sec.beats_per_bar, {sec.bpm0, sec.bpm1}, osong.style_name(g, sec.style), sec.energy, strings.to_string(b)}
 	}
 	markers := make([]Timeline_Song_Marker, len(g.markers), context.temp_allocator)
 	for mk, i in g.markers {
@@ -80,7 +80,7 @@ timeline_song :: proc(sc: ^om.Song_Clip, at: string) -> Timeline_Song {
 	}
 	tracks := make([]Timeline_Song_Track, len(g.tracks), context.temp_allocator)
 	for tr, i in g.tracks {
-		tracks[i] = {fmt.tprintf("%s/%s", sc.name, g.parts[tr.part]), tr.variant, g.labels[tr.instrument], osong.track_note_count(g, i), tr.gain_db}
+		tracks[i] = {fmt.tprintf("%s/%s", sc.name, g.parts[tr.part]), osong.style_name(g, tr.style), g.labels[tr.instrument], osong.track_note_count(g, i), tr.gain_db}
 	}
 	t.sections, t.markers, t.tracks = sections, markers, tracks
 	return t

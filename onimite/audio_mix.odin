@@ -317,7 +317,6 @@ mix_init :: proc(mx: ^Mix, placed: []Placed_Track, opts: Mix_Options, samples :=
 			mx.placements[i] = osong.append_song(&mx.song, &p.song.song, at, tr.src, f64(tr.gain_db), window, duck)
 			heard := strings.concatenate({tr.src, "/", p.part}, context.temp_allocator)
 			for &t in mx.song.tracks[first:] {
-				t.variant = strings.clone(t.variant)
 				t.muted = p.muted || (p.part != "" && mx.song.parts[t.part] != heard)
 			}
 		} else {

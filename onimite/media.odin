@@ -11,7 +11,7 @@ import "core:sync"
 import "base:runtime"
 import "core:thread"
 import vg "deps:ovg"
-import webp "deps:odecs/codec/webp"
+import webp "deps:odecs/webp"
 import stbi "vendor:stb/image"
 
 // Fonts and images a video can reference by name. Fonts are found by
