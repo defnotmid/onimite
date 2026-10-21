@@ -373,7 +373,8 @@ end }
 - Kicks: `{ t, body, vx, vy, spin }` add to its velocity at `t` (the same for any mass).
 - Thrusts: `{ from, to, body, ax, ay, at = { x, y } }` push it from `from` to `to` with its
   mass times (`ax`, `ay`) px/s² as a force at `at` (px), both in the body's own frame: the
-  push turns with it and, off its centre, turns it (a jet on a hull, a hand on a lever).
+  push turns with it and, off its centre, turns it (a jet on a hull, a hand on a lever);
+  `world_space = true` keeps (`ax`, `ay`) on the canvas's axes instead.
 - The result: `sim.bodies[i] = { name, settled, moving }` (`settled`: when it came to rest
   for good, nil if it never did; `moving`: it still moved at the end), `sim.names[name] = i`,
   `sim.contacts = { { t, a, b, x, y, speed }, ... }` in time order (`a`, `b` body indices, the

@@ -143,13 +143,16 @@ Physics_Kick :: struct {
 
 // A push held from `from` to `to`: the body's mass times its acceleration
 // (`ax`, `ay` px/s²) as a force at `at` (px), both in the body's own frame,
-// so it turns with the body and turns it when off its centre.
+// so it turns with the body and turns it when off its centre; with
+// `world_space` the acceleration keeps the canvas's axes and `at` stays a
+// point on the body.
 @(private = "file")
 Physics_Thrust :: struct {
 	from, to:     f32,
 	body:         int,
 	acceleration: [2]f32,
 	at:           [2]f32,
+	world_space:  bool,
 }
 
 @(private)
@@ -271,6 +274,7 @@ l_physics :: proc "c" (L: ^lua.State) -> c.int {
 				to           = get_num(L, t, "to", 0),
 				body         = body_ref(L, -1, bodies, names, "thrusts", j),
 				acceleration = {get_num(L, t, "ax", 0), get_num(L, t, "ay", 0)} / PHYSICS_SCALE,
+				world_space  = get_flag(L, t, "world_space"),
 			}
 			if field(L, t, "at") == c.int(lua.Type.TABLE) {
 				th.at = read_pair(L, -1) / PHYSICS_SCALE
@@ -339,7 +343,7 @@ l_physics :: proc "c" (L: ^lua.State) -> c.int {
 		for th in thrusts {
 			body := &bodies[th.body]
 			if th.from <= was + 1e-6 && was < th.to - 1e-6 && body.enabled {
-				force := b2.Body_GetWorldVector(body.id, th.acceleration) * b2.Body_GetMass(body.id)
+				force := (th.acceleration if th.world_space else b2.Body_GetWorldVector(body.id, th.acceleration)) * b2.Body_GetMass(body.id)
 				b2.Body_ApplyForce(body.id, force, b2.Body_GetWorldPoint(body.id, th.at), true)
 			}
 		}

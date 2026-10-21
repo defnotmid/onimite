@@ -129,13 +129,16 @@ Physics3d_Kick :: struct {
 // A push held from `from` to `to` (a thruster, an engine, a hand): the
 // body's mass times `acceleration` (m/s²) as a force at `at`, both in the
 // body's own frame, so it turns with the body and turns it when off its
-// centre (Unity's AddForceAtPosition with ForceMode.Acceleration).
+// centre (Unity's AddForceAtPosition with ForceMode.Acceleration); with
+// `world_space` the acceleration keeps the world's axes (AddForce) and `at`
+// stays a point on the body.
 @(private = "file")
 Physics3d_Thrust :: struct {
 	from, to:     f32,
 	body:         i32,
 	acceleration: b3.Vec3,
 	at:           b3.Vec3,
+	world_space:  bool,
 }
 
 @(private)
@@ -299,6 +302,7 @@ l_physics3d :: proc "c" (L: ^lua.State) -> c.int {
 				body         = i32(body3d_ref(L, -1, bodies, names, "thrusts", j)),
 				acceleration = read_vec3(L, t, "acceleration", {}),
 				at           = read_vec3(L, t, "at", {}),
+				world_space  = get_flag(L, t, "world_space"),
 			}
 			if th.body < 0 {
 				lua.L_error(L, "physics3d: thrusts[%d] needs a body", i32(j + 1))
@@ -361,7 +365,7 @@ l_physics3d :: proc "c" (L: ^lua.State) -> c.int {
 			body := &bodies[th.body]
 			if th.from <= was + 1e-6 && was < th.to - 1e-6 && .Enabled in body.flags {
 				xf := b3.Body_GetTransform(body.id)
-				force := b3_rotate_vector(xf.q, th.acceleration) * b3.Body_GetMass(body.id)
+				force := (th.acceleration if th.world_space else b3_rotate_vector(xf.q, th.acceleration)) * b3.Body_GetMass(body.id)
 				point := b3.ToVec3(xf.p) + b3_rotate_vector(xf.q, th.at)
 				b3.Body_ApplyForce(body.id, force, b3.ToPos(point), true)
 			}

@@ -1615,12 +1615,32 @@ near(p2[1], 0, 1e-4, "straight") near(r2[2], 0, 1e-4, "no turn")
 local _, ro = physics3d_at(sim, "off", 2)
 assert(math.abs(ro[2]) > 0.1, "off its centre it turns: " .. ro[2])
 
+-- turned a quarter about y: along its own z is the world's x; world_space keeps the world's z
+local turned = physics3d { duration = 2, gravity = 0, bounds = false,
+  bodies = { { name = "own", box = 1, rotation = { 0, math.pi / 2, 0 } },
+    { name = "world", box = 1, position = { 0, 5, 0 }, rotation = { 0, math.pi / 2, 0 } } },
+  thrusts = { { from = 0, to = 1, body = "own", acceleration = { 0, 0, 2 } },
+    { from = 0, to = 1, body = "world", acceleration = { 0, 0, 2 }, world_space = true } } }
+local po = physics3d_at(turned, "own", 1)
+local pw = physics3d_at(turned, "world", 1)
+near(po[1], 1, 0.03, "its own z is the world's x") near(po[3], 0, 1e-3, "not the world's z")
+near(pw[3], 1, 0.03, "world_space: the world's z") near(pw[1], 0, 1e-3, "not its own z")
+
 local flat = physics { duration = 3, gravity = 0,
   bodies = { { name = "tile", box = { 40, 40 }, x = 100, y = 100, leaves = true } },
   thrusts = { { from = 0, to = 1, body = "tile", ax = 0, ay = 200 } } }
 local _, y1 = physics_at(flat, "tile", 1)
 local _, y2 = physics_at(flat, "tile", 2)
 near(y1, 200, 3, "a second of 200 px/s²") near(y2, 400, 5, "then 200 px/s")
+local tilted = physics { duration = 2, gravity = 0,
+  bodies = { { name = "own", box = { 40, 40 }, x = 100, y = 100, angle = 90, leaves = true },
+    { name = "world", box = { 40, 40 }, x = 300, y = 100, angle = 90, leaves = true } },
+  thrusts = { { from = 0, to = 1, body = "own", ax = 0, ay = 200 },
+    { from = 0, to = 1, body = "world", ax = 0, ay = 200, world_space = true } } }
+local ox, oy = physics_at(tilted, "own", 1)
+local wx, wy = physics_at(tilted, "world", 1)
+near(ox, 0, 3, "turned 90°, its own y is across the canvas") near(oy, 100, 3, "not down it")
+near(wy, 200, 3, "world_space: down the canvas") near(wx, 300, 3, "not across")
 video { width = 32, height = 32, fps = 10, duration = 0.1 }
 `
 	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
