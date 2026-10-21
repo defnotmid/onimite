@@ -239,10 +239,10 @@ test_view3d_gltf :: proc(t: ^testing.T) {
 	}
 	broken_ok, draco_ok := false, false
 	for msg in problems {
-		if msg == `media file "broken.glb" can not be decoded as a glTF 2.0 model (the data ends early)` {
+		if msg == `media file "broken.glb" can not be decoded as a 3D model (the data ends early)` {
 			broken_ok = true
 		}
-		if msg == `media file "draco.gltf" can not be decoded as a glTF 2.0 model (requires an unsupported glTF extension: KHR_draco_mesh_compression)` {
+		if msg == `media file "draco.gltf" can not be decoded as a 3D model (requires an unsupported glTF extension: KHR_draco_mesh_compression)` {
 			draco_ok = true
 		}
 	}
@@ -275,10 +275,10 @@ test_view3d_gltf :: proc(t: ^testing.T) {
 	testing.expectf(
 		t,
 		len(got) == 4 &&
-		got[0] == `glTF model "tri.gltf" has no morph target "Wink"` &&
-		got[1] == `glTF model "tri.gltf" has no morph target "5"` &&
-		got[2] == `glTF model "tri.gltf" has no animation "Jump"` &&
-		got[3] == `no glTF model "missing.glb" in the media`,
+		got[0] == `model "tri.gltf" has no morph target "Wink"` &&
+		got[1] == `model "tri.gltf" has no morph target "5"` &&
+		got[2] == `model "tri.gltf" has no animation "Jump"` &&
+		got[3] == `no model "missing.glb" in the media`,
 		"diagnostics: %v",
 		got[:],
 	)

@@ -94,7 +94,7 @@ text { string.format("%dx%d %.1fs", info.width, info.height, info.duration),
   x = 100, y = 700, font = "DM Sans", size = 40, fill = "#fff" }
 ```
 
-`.mp4` (fragmented MP4 too, as screen recorders and browsers write it), `.mov`, `.m4v`, `.webm` in `media/`. A track no decoder takes (H.264 4:4:4 or 12-bit, interlaced H.264) is `undecodable_video` when the media loads; its sound still plays (convert the picture: `ffmpeg -i in.mp4 -pix_fmt yuv420p -c:v libx264 -c:a copy out.mp4`). `video_info` works at load too, so a clip's length can lay out scenes. The frame fits its box like an image: `fit`
+`.mp4` (fragmented MP4 too, as screen recorders and browsers write it), `.mov`, `.m4v`, `.webm` in `media/`, in H.264, H.265, VP9, AV1 or ProRes (alpha from ProRes 4444, VP9's alpha and HEVC's alpha layer). A track no decoder takes (H.264 4:4:4 or 12-bit, interlaced H.264) is `undecodable_video` when the media loads; its sound still plays (convert the picture: `ffmpeg -i in.mp4 -pix_fmt yuv420p -c:v libx264 -c:a copy out.mp4`). `video_info` works at load too, so a clip's length can lay out scenes. The frame fits its box like an image: `fit`
 (`contain` default, `cover`, `fill`, or `preserve_aspect_ratio`), `align = {x, y}` (0..1),
 and a missing `w` or `h` follows the clip's aspect (neither: its own size; a rotated phone
 clip counts upright). The clock is the frame's (scene-relative in a scene). Past the end the clip disappears unless it loops. A clip's sound is used by putting

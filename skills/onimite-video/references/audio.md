@@ -118,9 +118,9 @@ video { width = 1920, height = 1080, fps = 60, duration = score.duration,
 - A song plays to its end plus its tail (reverb, releases). Its parts are `score/drums`,
   `score/bass`: `--track score/bass` hears one alone, `show video.lua song/score/parts/bass`
   lists its notes.
-- Nothing of a song's sound is kept: the mix and the preview stream it; `audio_energy` and
-  `audio_spectrum` on a song read its tables (what each frame measures, read from the song's
-  render: made once, kept, only where it sounds); `audio_onsets("score")` and `hits` are its
+- The mix and the preview stream a song from odawg's engine. When something needs all of it
+  (a lane's waveform, the tables `audio_energy` and `audio_spectrum` read, `inspect`'s song
+  checks, `audio parts`), it is rendered once on the background pool and that render is kept; `audio_onsets("score")` and `hits` are its
   notes, exact. A `frame`, `strip` or `onion` makes only the stretch its frames read. In the
   preview a song's lane opens to its parts, a part to its notes (a piano roll, a row per drum
   pad), each drawn where it plays; a bus opens to a row per sound; a song's track also opens to
@@ -225,8 +225,9 @@ parts = {
 
 A `Sampler` also plays sets you bring, and a section can use a style from a file. Paths are
 relative to the media folder (`media/` beside the script); keep sets in a subfolder of it
-(`media/kit/`, `media/keys/`) so they aren't also loaded as tracks. Sample files are WAV or
-FLAC (any rate; a WAV's own loop points are used).
+(`media/kit/`, `media/keys/`) so they aren't also loaded as tracks. Sample files are any sound
+the media reads (WAV, FLAC, Ogg Vorbis or Opus, MP3, M4A; any rate; a WAV's own loop points
+are used).
 
 ```lua
 local score = song { "score", bpm = 120, key = "C major",
@@ -690,8 +691,8 @@ Where lines come from and what it costs:
   866 MB on macOS (ONNX Runtime 1.30.0, the Pocket TTS model, the word aligner, the voice;
   each other voice about 4-8 MB when first used), into `$OTTIS_DATA` or `ottis/` in the user
   data folder (`~/.local/share` or `$XDG_DATA_HOME` on Linux, `~/Library/Application Support`
-  on macOS, `%LOCALAPPDATA%` on Windows), with progress on stderr; then each line takes about a quarter of
-  its length to synthesize (one line at a time). The engine takes about 1.4 GB while it
+  on macOS, `%LOCALAPPDATA%` on Windows), with progress on stderr; then the lines a load is missing are
+  synthesized together on the background pool (about a quarter of their length). The engine takes about 1.4 GB while it
   works and is freed when the script has loaded.
 - Every synthesized line is kept by content in `onimite/say/` in the same user data folder
   (`~/.local/share/onimite/say/` on Linux; its key: the
@@ -699,7 +700,7 @@ Where lines come from and what it costs:
   rows read it back in milliseconds and only new or changed lines are synthesized.
 - A line is made where the script loads, like a media file is read: a line that was never
   synthesized is synthesized then, and every later load reads it. The preview makes the
-  missing lines before its window opens; an edit that adds or changes a line synthesizes it
+  missing lines in its first load, while its window shows it; an edit that adds or changes a line synthesizes it
   in the reload while the last version keeps showing (its picture holds for those seconds).
 - A line that can't be synthesized (no network for the download, ONNX Runtime or a model
   that doesn't load, an unknown voice) is

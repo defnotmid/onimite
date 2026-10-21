@@ -1011,7 +1011,7 @@ end }
 		"video.lua:4: `material.roughness` is not used",
 		`invalid geometry type "Cube" (want BoxGeometry, SphereGeometry, PlaneGeometry, CylinderGeometry, TorusGeometry, CapsuleGeometry, TubeGeometry, ShapeGeometry, ExtrudeGeometry, LineGeometry, LineSegmentsGeometry or PointsGeometry)`,
 		"video.lua:4: `model.animaton` is not used (did you mean `animation`?)",
-		`no glTF model "duck.glb" in the media`,
+		`no model "duck.glb" in the media`,
 	}
 	got := make([dynamic]string, context.temp_allocator)
 	for d in r.ctx.diagnostics {
@@ -1111,7 +1111,7 @@ end }
 		"video.lua:4: `material.vertex_shder` is not used (did you mean `vertex_shader`?)",
 		"video.lua:4: `material.metalness` is not used",
 		"shader ShaderMaterial: uniform `uVec` is not declared",
-		`no glTF model "duck.glb" in the media`,
+		`no model "duck.glb" in the media`,
 	}
 	got := make([dynamic]string, context.temp_allocator)
 	for d in r.ctx.diagnostics {

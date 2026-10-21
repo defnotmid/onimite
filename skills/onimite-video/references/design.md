@@ -16,8 +16,8 @@ avoids all of those already reads as finished.
   sub-second reveals. Compare reference and output at the same frames, text and logos at full
   size (`onimite frame video.lua 96,97,98`).
 - Separate camera motion from object motion. One transformed group cannot reproduce cards
-  separating at different depths; give each object its own transform (or a shader for real
-  perspective). `skew` is a 2D shear, not a 3D rotation.
+  separating at different depths; give each object its own transform (or `view3d{}` for real
+  perspective: 3d.md). `skew` is a 2D shear, not a 3D rotation.
 - Read supplied shaders, SVGs and assets before approximating them; reuse vector logos
   (`svg{}`) instead of enlarging small rasters.
 - Inserted screen recordings: check the chosen range for stable window bounds and the
@@ -218,8 +218,8 @@ sounds"), and let the picture follow the song, so every hit is on the music by c
    answers to (a crash on each scene's downbeat, a blip per item that appears).
 2. The timeline reads it back: `score.time("race")` for a scene's start, `score.hits { part =
    "ticks", range = "bill" }` for the beats something lands on, `score.snap(t, "8n")` to put a
-   computed time on the grid. Scenes start on their sections (`section = "race"`), so `inspect`
-   catches a scene that slides off.
+   computed time on the grid. Scenes start on their sections (`start = score.time("race")`), so
+   `inspect` catches a scene that slides off.
 3. `video.lua` lists `{ score, start = 0 }` in `audio`; `audio_energy` and `audio_spectrum`
    read it like any track. Sound effects are `sound{}` tracks on their own bus.
 4. Set `seed` so every render makes the same music.

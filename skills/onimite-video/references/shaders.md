@@ -92,8 +92,8 @@ shader(f, { sksl = HAZE, x = 0, y = 0, w = 1920, h = 1080, uniforms = {
   writing premultiplied colour to `layout(location = 0) out vec4 color`. Nothing is declared
   for you: declare `uniform float iTime;` (also `iResolution`, `iTimeDelta`, `iFrame`,
   `iFrameRate`) to get the clock, and `uniform sampler2D`s for inputs, sampled with
-  `texture(s, uv)`. `texelFetch`, `textureSize` and `iChannelResolution` are not available
-  in GLSL yet (they need channel sizes the dialect does not declare); scale uv instead.
+  `texture(s, uv)`; `texelFetch` and `textureSize` take the image's own size
+  (`iChannelResolution` is Shadertoy's only).
 - Multipass (feedback, blurs, simulations) in any dialect: `passes` in place of the source
   (see below). Shadertoy's own layout is one spelling of it, a table in place of the
   `shadertoy` source: `shadertoy = { common = "common.glsl", buffer_a = { src = "a.glsl",
@@ -103,7 +103,7 @@ shader(f, { sksl = HAZE, x = 0, y = 0, w = 1920, h = 1080, uniforms = {
   passes "Buffer A".."Buffer D" (those present) and "Image", the output. See
   `examples/shadertoy_multipass`.
 - Uniform values: numbers, booleans, lists (vectors, matrices column by column, arrays),
-  colours (`"#rrggbb"`, `rgb()`, animated). Up to four `uniform shader` children: a media
+  colours (`"#rrggbb"`, `rgb()`, animated). Up to four `uniform shader` children (a `depth_of` input counts as one): a media
   image name, a clip `{ src = "clip.mp4", looping = true, start_from = 0, clip_start = 0 }`,
   a function (a group drawn in the box's units), or `{ group = fn, w = 400, h = 300 }`.
   Children sample with `child.eval(p)` in their own pixels (bilinear, clamped, premultiplied).

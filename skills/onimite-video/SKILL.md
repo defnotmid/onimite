@@ -73,16 +73,17 @@ it (no system SDL3 needed; on Windows `lua54.dll` too). Keep them together, and 
 
 ### From source
 
-onimite is built with the [Odin](https://odin-lang.org) compiler from six sibling
+onimite is built with the [Odin](https://odin-lang.org) compiler from seven sibling
 repositories (the build's `deps` collection is their parent directory):
 
 ```bash
 git clone https://github.com/defnotmid/onimite
 git clone https://github.com/defnotmid/ovg     # 2D vector canvas: software + SDL_GPU (Vulkan / Metal / D3D12)
 git clone https://github.com/defnotmid/oksl    # shader compiler: SkSL, Shadertoy and GLSL to SPIR-V, MSL, CPU
-git clone https://github.com/defnotmid/odecs   # H.264/H.265/AAC codecs, MP4, WebP, clip decoding
+git clone https://github.com/defnotmid/odecs   # every image, sound and clip decoder, and the MP4 encoder
+git clone https://github.com/defnotmid/odawg   # songs and the mix in Tone.js's vocabulary, loudness, onsets, spectra
 git clone https://github.com/defnotmid/ottis   # text to speech with word timings (say)
-git clone https://github.com/defnotmid/o3d     # 3D in three.js's vocabulary: SDL_GPU + software, glTF 2.0 (skins, morphs) + 3MF + OBJ
+git clone https://github.com/defnotmid/o3d     # 3D in three.js's vocabulary: SDL_GPU + software, glTF 2.0 (skins, morphs) + 3MF + OBJ + USD
 cd onimite
 mkdir -p build
 odin build . -collection:deps=.. -o:speed -out:build/onimite
@@ -104,7 +105,7 @@ command and option.
 my-video/
   video.lua          # the video
   scenes/intro.lua   # optional modules: require("scenes.intro")
-  media/             # fonts (.ttf/.otf/.ttc), images, .svg, Lottie / caption .json, audio, clips, .vtt/.srt, .sksl/.glsl/.frag, .glb/.gltf/.3mf/.obj
+  media/             # fonts (.ttf/.otf/.ttc), images, .svg, Lottie / caption .json, audio, clips, .vtt/.srt, .sksl/.glsl/.frag, .glb/.gltf/.3mf/.obj/.usdz/.usdc
 ```
 
 ```lua
@@ -274,7 +275,8 @@ onimite render video.lua -o frames/                 # PNGs (any -o not ending in
 even (1080x1350 at half is 540x676). `--h265`, `--qp N`
 (0 best .. 51), `--native` (odecs' own encoder instead of Vulkan Video hardware encoding),
 `--software` (draw on the CPU; also for machines without a usable GPU), `--scale S`,
-`--threads N` (output does not depend on it). There is no WebM or alpha video output.
+`--threads N` (default one per core: a quarter render songs, audio and `say()` lines, the
+rest frames; 1: everything on one thread; output does not depend on it). There is no WebM or alpha video output.
 
 ### Data-driven videos and batches
 
@@ -323,6 +325,7 @@ with commas.
 | `audio at SPECS` | which tracks play at a moment, where in their file, how loud, ducking; a song's section and the notes sounding |
 | `audio render [RANGE] [-o audio.wav] [--float]` | the mix as a stereo WAV |
 | `audio onsets [RANGE] [--min 0.1]` | where sounds start (seconds, strength) and the beat (BPM, first beat) |
+| `audio pin` | fetch what the songs play from their sources and write their pins (after a `not_pinned` finding) |
 | `audio parts [--against parts.json]` | each song alone, part by part: notes, the first of them, LUFS, peak; keep a `--json` of a song you like, and `--against` it after a change names each part that moved (exit 1) |
 | `probe FILE...` | the streams of media files (container, video, audio) |
 | `update [--check]` | replace an installed release with the latest (`--check`: only say whether one is out) |
@@ -346,7 +349,7 @@ tell the user, and run `update` when they agree (in Claude Desktop the extension
 for updates" setting turns the check off). `guide`
 returns this skill and its references, built into the binary. Tools: `render`, `frame`, `strip`,
 `onion`, `snapshot`, `show`, `timeline`, `inspect`, `audio_render`, `audio_analyze`,
-`audio_at`, `audio_onsets`, `probe`, `update` (the server keeps running the old version
+`audio_at`, `audio_onsets`, `audio_parts`, `audio_pin`, `probe`, `update` (the server keeps running the old version
 until the app restarts), and `preview`, which opens the window for the user and
 returns at once (one window per script; it reloads on save, so open it once and keep
 editing). Every script tool takes `script` and
@@ -390,7 +393,7 @@ playing.
   `easing.quadratic_out` ... `easing.back_out`, `easing.elastic_out`, `easing.bounce_out` too.
 - Put animated values on a wrapping `group{ transform, opacity }` and keep the content
   inside it fixed; animate transforms and opacity, not font sizes or layout.
-- `render` must be a pure function of `f`. Renders build frames on all cores, each builder in
+- `render` must be a pure function of `f`. Renders build frames on most cores, each builder in
   its own Lua state, so state carried from one frame to the next breaks: no counters, no
   accumulating tables, no `math.random` without a per-frame seed (use a hash of the index).
   Caches keyed by input (like a text-layout memo) are fine.
@@ -487,7 +490,7 @@ The short version of `references/design.md`:
 
 ## 6. Sound
 
-Put audio files in `media/` (wav, ogg, mp3, flac, m4a/aac; stereo kept) and place them on the
+Put audio files in `media/` (wav, ogg (Vorbis or Opus), opus, mp3, flac, m4a (AAC or ALAC), aac; stereo kept) and place them on the
 video or on a scene (times relative to the scene):
 
 ```lua
@@ -584,7 +587,8 @@ video { ..., buses = { music = {}, voice = {}, sfx = {} },
   name in the script.
 - No WebM or transparent output: renders are opaque MP4 (alpha clips work as inputs).
 - A `say()` line that was never synthesized is made when the script loads (about a quarter
-  of its length; the first time ever, ottis's 835-866 MB download first), in every command and
-  before the preview's window opens; later loads read it back. A line that can't be made is
+  of its length; the first time ever, ottis's 835-866 MB download first), in every command (in the
+  preview, while its window shows the load); the lines a load is missing are made together.
+  Later loads read them back. A line that can't be made is
   silent (`line.ready == false`, `tts_unavailable`, an error): `inspect` names it and
   `render` refuses to start, as it does whenever the load found an error (`load_errors`).
