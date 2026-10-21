@@ -15,7 +15,8 @@ description: >-
 # Making videos with onimite
 
 onimite renders video from a Lua script. A video is one `video.lua` (plus `media/` beside it
-for fonts, images, SVGs, Lottie files, audio, clips and shaders) that calls `video{...}` and
+for fonts, images, SVGs, Lottie files, audio, clips, models and shaders; a file linked in with a
+symlink counts as its target, so a large model need not be copied) that calls `video{...}` and
 `scene{...}`. Each scene's `render(f)` function draws the frame `f` with nodes (`rect`, `text`,
 `path`, `group`, `image`, `svg`, `lottie`, `shader`, `view3d`, ...); `animate` and springs move values; an `audio` list
 places sound; `captions{}` draws word-timed (Whisper JSON, VTT, SRT) TikTok-style captions. One prebuilt `onimite` binary renders, previews and inspects every script:

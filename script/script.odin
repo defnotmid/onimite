@@ -92,6 +92,12 @@ Script :: struct {
 	// it synthesized any in this load.
 	said:          map[string]Said,
 	spoke:         bool,
+	// A load's first pass (say_defer) leaves the lines it misses to one
+	// batch (say_misses, owned); the lines made wait in say_made for the
+	// second pass (owned). Neither outlives the load.
+	say_defer:     bool,
+	say_misses:    [dynamic]Say_Miss,
+	say_made:      map[speech.Key]Say_Made,
 	// The songs and sounds this load made (song_api.odin).
 	songs:         [dynamic]Script_Song,
 }
@@ -147,8 +153,10 @@ video { width = w, height = h, fps = math.max(1, math.floor(i.fps + 0.5)), backg
 scene { NAME, clip = NAME }
 `
 
+// Loads the script. Its `say` lines are all made before it is used: a first
+// pass notes the ones not made yet (a silent stand-in meanwhile), they are
+// synthesized together (say_synthesize), and a second pass reads them all.
 load :: proc(s: ^Script, path: string, args: []string = nil, media: ^om.Media = nil, shared: ^Shared = nil, props: []string = nil) -> Error {
-	unload(s)
 	// A load that synthesized lines lets go of the engine when it ends (the
 	// lines own their memory; the next miss starts it again). Loads that
 	// only read lines (frame builders, clip builds) never touch it.
@@ -156,6 +164,24 @@ load :: proc(s: ^Script, path: string, args: []string = nil, media: ^om.Media = 
 	defer if s.spoke {
 		speech.release()
 	}
+	defer say_made_clear(s)
+	s.say_defer = true
+	err := load_pass(s, path, args, media, shared, props)
+	s.say_defer = false
+	if err != nil || len(s.say_misses) == 0 {
+		say_misses_clear(s)
+		return err
+	}
+	say_synthesize(s)
+	return load_pass(s, path, args, media, shared, props)
+}
+
+@(private = "file")
+load_pass :: proc(s: ^Script, path: string, args: []string, media: ^om.Media, shared: ^Shared, props: []string) -> Error {
+	// what the load carries from pass to pass
+	spoke, say_defer, say_made := s.spoke, s.say_defer, s.say_made
+	unload(s)
+	s.spoke, s.say_defer, s.say_made = spoke, say_defer, say_made
 	s.odin_context = context
 	s.media = media
 	s.shared = shared if shared != nil else &s.own_shared
@@ -701,6 +727,8 @@ API := [?]Api_Function {
 	{"view3d", l_view3d, .Render},
 	{"video_frame", l_video_frame, .Render},
 	{"video_info", l_video_info, .Both},
+	{"model_info", l_model_info, .Both},
+	{"view3d_project", l_view3d_project, .Both},
 	{"subtitle_at", l_subtitle_at, .Render},
 	{"subtitles", l_subtitles, .Render},
 	{"caption_words", l_caption_words, .Render},

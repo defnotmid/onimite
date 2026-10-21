@@ -306,7 +306,7 @@ preview_run :: proc(app: ^App_State, capture, drive, start_spec: string) -> Erro
 	mb.start_loaded = -1
 	audio := new(Audio_Shared)
 	worker := new(Render_Worker)
-	worker^ = {mb = mb, audio = audio, device = p.device, software = app.software, debug = app.debug, log_clips = app.clip_log, image_budget = app.image_budget, script_path = strings.clone(pv.script_path), script_args = app.script_args, script_props = pv.script_props[:], start_spec = strings.clone(start_spec), media_dir = strings.clone(pv.media_dir), video = &app.video, pool = app.pool}
+	worker^ = {mb = mb, audio = audio, device = p.device, software = app.software, debug = app.debug, log_clips = app.clip_log, image_budget = app.image_budget, script_path = strings.clone(pv.script_path), script_args = app.script_args, script_props = pv.script_props[:], start_spec = strings.clone(start_spec), media_dir = strings.clone(pv.media_dir), video = &app.video, pool = app.pool, background = app.background}
 	pv.mailbox, pv.worker, pv.audio = mb, worker, audio
 	pv.audio_stream = audio_open(audio)
 	if pv.audio_stream == nil {

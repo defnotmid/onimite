@@ -7,6 +7,7 @@ import "core:os"
 import "core:path/filepath"
 import "core:strings"
 import "core:testing"
+import "core:thread"
 import "core:time"
 import orender "deps:odawg/render"
 
@@ -88,7 +89,18 @@ test_mix_stream_is_render :: proc(t: ^testing.T) {
 	mx: Mix
 	mix_init(&mx, placed, opts)
 	defer mix_destroy(&mx)
-	whole, stats := mix_render(&mx, 0, n, threads = 3, segment = 0.05)
+	// the render's nodes on a pool of three: the stream's samples on any pool
+	pool: thread.Pool
+	thread.pool_init(&pool, context.allocator, 3)
+	thread.pool_start(&pool)
+	defer {
+		thread.pool_finish(&pool)
+		thread.pool_destroy(&pool)
+	}
+	work: Pool_Work
+	pool_work_init(&work, &pool)
+	defer pool_work_destroy(&work)
+	whole, stats := mix_render(&mx, 0, n, &work.work_pool)
 	defer delete(whole)
 	testing.expect(t, stats.max_reduction_db < -1, "the limiter works")
 	st: Mix_Stream

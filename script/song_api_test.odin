@@ -95,7 +95,7 @@ video { width = 40, height = 40, fps = 10, duration = 9,
 	defer om.renderer_destroy(&r)
 	placed := om.placed_audio(&r.ctx).tracks[:]
 	testing.expect_value(t, len(placed), 2)
-	mix, _ := om.mix_tracks(placed, 0, 9 * om.MIX_RATE, {no_limiter = true}, context.temp_allocator)
+	mix, _ := om.mix_tracks(placed, 0, 9 * om.MIX_RATE, {no_limiter = true}, allocator = context.temp_allocator)
 	peak_in :: proc(x: []f32, a, b: f64) -> f32 {
 		p: f32
 		for v in x[int(a * om.MIX_RATE) * 2:int(b * om.MIX_RATE) * 2] {

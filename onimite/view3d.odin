@@ -2,6 +2,8 @@ package onimite
 
 import "base:runtime"
 import "core:fmt"
+import "core:math"
+import "core:os"
 import "core:strings"
 import "core:sync"
 import "deps:o3d"
@@ -35,6 +37,7 @@ View3d :: struct {
 	lights:                []o3d.Light,
 	meshes:                []Mesh,
 	models:                []Model_Pose,
+	particles:             []Particle_Emitter,
 	// Media images: the equirectangular environment lighting the scene
 	// and the background behind it ("" for none), and their strengths.
 	environment:           string,
@@ -68,6 +71,66 @@ Shader_Material :: struct {
 	fragment_shader: string,
 	glsl3:           bool,
 	uniforms:        []o3d.Uniform,
+	// Its `uniform sampler2D`s given an image of the media by name.
+	maps:            []Shader_Map,
+}
+
+Shader_Map :: struct {
+	name, src: string,
+}
+
+// Where a mesh or model rides: on node `node` of the view's model number
+// `model` (1-based; 0: nowhere), as that node is posed this frame.
+Attach :: struct {
+	model: int,
+	node:  string,
+	// The model's `name` when it was named, numbered once the view is read.
+	model_name: string,
+}
+
+// A particle emitter (view3d's `particles`): a particle born every
+// 1/`rate` seconds lives `lifetime` seconds, placed and drawn from the
+// emitter's seed and its own number alone, so a frame shows the same
+// particles however it is reached. Each is born within `spread` (half
+// sizes) of `position`, moves at `velocity` (give or take
+// `velocity_spread`) under `gravity`, its size, colour and opacity going
+// from the first to the second over its life, turning `spin` radians a
+// second from a random angle.
+Particle_Emitter :: struct {
+	seed:            u64,
+	rate, lifetime:  f32,
+	time:            f32,
+	position:        o3d.Vec3,
+	spread:          o3d.Vec3,
+	velocity:        o3d.Vec3,
+	velocity_spread: o3d.Vec3,
+	gravity:         o3d.Vec3,
+	size:            [2]f32,
+	color:           [2]o3d.Vec4, // sRGB and opacity
+	spin:            f32,
+	// Additive or blended, `softness`, size attenuation; `sprite` its map.
+	material:        o3d.Material,
+	sprite:          string,
+	attach:          Attach,
+	group:           Maybe(o3d.Mat4),
+}
+
+// The transform of the groups a mesh or model is in (view3d's `groups`),
+// none when it is in none.
+group_transform :: proc "contextless" (g: Maybe(o3d.Mat4)) -> o3d.Mat4 {
+	return g.? or_else 1
+}
+
+// A change to one part of a model, named as in its file: a node (with
+// what is under it) or every primitive of a material. Hidden, shadow
+// flags added or removed, a node's own translation, rotation or scale
+// replaced, a material drawn in place of the file's.
+Model_Part :: struct {
+	of:        enum u8 {Node, Material},
+	name:      string,
+	state:     o3d.Part_State,
+	transform: o3d.Part_Transform,
+	material:  Maybe(Model_Material),
 }
 
 // A material override on a glTF model: its material, texture maps and
@@ -111,6 +174,8 @@ Mesh :: struct {
 	material:      o3d.Material,
 	maps:          [Texture_Map]string,
 	shader:        Maybe(Shader_Material),
+	attach:        Attach,
+	group:         Maybe(o3d.Mat4),
 }
 
 Outline_Kind :: enum u8 {
@@ -149,6 +214,7 @@ Texture_Map :: enum u8 {
 	Metalness,
 	Emissive,
 	AO,
+	Alpha,
 }
 
 @(rodata)
@@ -159,6 +225,7 @@ TEXTURE_MAPS := [Texture_Map]cstring {
 	.Metalness = "metalness_map",
 	.Emissive  = "emissive_map",
 	.AO        = "ao_map",
+	.Alpha     = "alpha_map",
 }
 
 // The material's texture of map `k`.
@@ -176,6 +243,8 @@ material_map :: proc "contextless" (m: ^o3d.Material, k: Texture_Map) -> ^o3d.Te
 		return &m.emissive_map
 	case .AO:
 		return &m.ao_map
+	case .Alpha:
+		return &m.alpha_map
 	}
 	return &m.color_map
 }
@@ -198,6 +267,11 @@ Model_Pose :: struct {
 	outline_width:   f32,
 	outline_color:   o3d.Vec3,
 	material:        Maybe(Model_Material),
+	parts:           []Model_Part,
+	attach:          Attach,
+	group:           Maybe(o3d.Mat4),
+	// What `attach.model` may call it instead of its number.
+	name:            string,
 }
 
 // A geometry type: its three.js class and its constructor's parameters in
@@ -243,6 +317,8 @@ view3d :: proc(ctx: ^Context, f: Frame, v: View3d) {
 			name = strings.clone(name, arena)
 		}
 		clone_shader_material(&m.shader, arena)
+		m.attach.node = strings.clone(m.attach.node, arena)
+		m.attach.model_name = ""
 	}
 	v.models = clone_slice(v.models, arena)
 	for &m in v.models {
@@ -253,11 +329,24 @@ view3d :: proc(ctx: ^Context, f: Frame, v: View3d) {
 			mw.name = strings.clone(mw.name, arena)
 		}
 		if over, ok := &m.material.?; ok {
-			for &name in over.maps {
-				name = strings.clone(name, arena)
-			}
-			clone_shader_material(&over.shader, arena)
+			clone_model_material(over, arena)
 		}
+		m.attach.node = strings.clone(m.attach.node, arena)
+		m.attach.model_name = ""
+		m.name = strings.clone(m.name, arena)
+		m.parts = clone_slice(m.parts, arena)
+		for &part in m.parts {
+			part.name = strings.clone(part.name, arena)
+			if over, ok := &part.material.?; ok {
+				clone_model_material(over, arena)
+			}
+		}
+	}
+	v.particles = clone_slice(v.particles, arena)
+	for &e in v.particles {
+		e.sprite = strings.clone(e.sprite, arena)
+		e.attach.node = strings.clone(e.attach.node, arena)
+		e.attach.model_name = ""
 	}
 	v.environment = strings.clone(v.environment, arena)
 	v.background = strings.clone(v.background, arena)
@@ -283,16 +372,54 @@ view3d_video_streams :: proc(ctx: ^Context, v: View3d, arena: runtime.Allocator)
 		}
 		append(out, View3d_Video_Stream{name, clip_stream(ctx, clip)})
 	}
-	for mesh in v.meshes {
-		for name in mesh.maps {
-			add(ctx, &out, name)
+	for name in view3d_image_names(v) {
+		add(ctx, &out, name)
+	}
+	return out[:]
+}
+
+@(private = "file")
+clone_model_material :: proc(m: ^Model_Material, arena: runtime.Allocator) {
+	for &name in m.maps {
+		name = strings.clone(name, arena)
+	}
+	clone_shader_material(&m.shader, arena)
+}
+
+// Every image name node `n` draws with: its meshes' and models' maps,
+// their ShaderMaterials' images and the materials a model's parts are
+// drawn in (temp memory).
+@(private = "file")
+view3d_image_names :: proc(n: View3d) -> []string {
+	out := make([dynamic]string, context.temp_allocator)
+	material :: proc(out: ^[dynamic]string, maps: [Texture_Map]string, shader: Maybe(Shader_Material)) {
+		for name in maps {
+			if name != "" {
+				append(out, name)
+			}
+		}
+		if sh, ok := shader.?; ok {
+			for m in sh.maps {
+				append(out, m.src)
+			}
 		}
 	}
-	for pose in v.models {
+	for mesh in n.meshes {
+		material(&out, mesh.maps, mesh.shader)
+	}
+	for pose in n.models {
 		if over, ok := pose.material.?; ok {
-			for name in over.maps {
-				add(ctx, &out, name)
+			material(&out, over.maps, over.shader)
+		}
+		for part in pose.parts {
+			if over, ok := part.material.?; ok {
+				material(&out, over.maps, over.shader)
 			}
+		}
+	}
+	for e in n.particles {
+		if e.sprite != "" {
+			append(&out, e.sprite)
 		}
 	}
 	return out[:]
@@ -310,6 +437,11 @@ clone_shader_material :: proc(sh: ^Maybe(Shader_Material), arena: runtime.Alloca
 	for &u in s.uniforms {
 		u.name = strings.clone(u.name, arena)
 		u.value = clone_slice(u.value, arena)
+	}
+	s.maps = clone_slice(s.maps, arena)
+	for &m in s.maps {
+		m.name = strings.clone(m.name, arena)
+		m.src = strings.clone(m.src, arena)
 	}
 }
 
@@ -376,7 +508,8 @@ view3d_media_destroy :: proc(v: ^View3d_Media) {
 	v^ = {}
 }
 
-// Loads 3D model file `path` (.glb, .gltf or .obj with its files beside it, or .3mf)
+// Loads 3D model file `path` (.glb, .gltf or .obj with its files beside it, .3mf,
+// or .usdz / binary .usdc)
 // as model `name`: its meshes and images join the tables. Returns what kind of
 // model failed to load and why when `ok == false`.
 @(private)
@@ -392,6 +525,13 @@ view3d_add_model :: proc(v: ^View3d_Media, name, path: string) -> (what, why: st
 			why = fmt.tprintf("%s: %s", o3d.THREEMF_ERROR_TEXT[err], ext) if ext != "" else o3d.THREEMF_ERROR_TEXT[err]
 			o3d.model_destroy(&model)
 			return "a 3MF model", why, false
+		}
+	} else if ext := file_ext(name); strings.equal_fold(ext, ".usdz") || strings.equal_fold(ext, ".usdc") {
+		err: o3d.Usd_Error
+		model, err = o3d.usd_load(path, &v.geometries, &v.textures)
+		if err != .None {
+			o3d.model_destroy(&model)
+			return "a USD model", o3d.USD_ERROR_TEXT[err], false
 		}
 	} else if strings.equal_fold(file_ext(name), ".obj") {
 		err: o3d.Obj_Error
@@ -491,17 +631,8 @@ outline_key :: proc "contextless" (o: Outline_Geometry) -> Outline_Key {
 // the media lacks is left to `view3d_scene` to report.
 view3d_make_textures :: proc(m: ^Media, n: View3d, frame: int) {
 	context.allocator = m.view3d.allocator
-	for mesh in n.meshes {
-		for name in mesh.maps {
-			view3d_texture_make(m, name, frame, false)
-		}
-	}
-	for pose in n.models {
-		if over, ok := pose.material.?; ok {
-			for name in over.maps {
-				view3d_texture_make(m, name, frame, false)
-			}
-		}
+	for name in view3d_image_names(n) {
+		view3d_texture_make(m, name, frame, false)
 	}
 	view3d_texture_make(m, n.environment, frame, true)
 	view3d_texture_make(m, n.background, frame, n.background_blurriness > 0)
@@ -530,6 +661,29 @@ view3d_texture_make :: proc(m: ^Media, name: string, frame: int, environment: bo
 	_, _, prefiltered := o3d.texture_environment(&v.textures, id)
 	sync.shared_unlock(&v.lock)
 	if added && (prefiltered || !environment) {
+		return
+	}
+	if strings.equal_fold(file_ext(name), ".hdr") {
+		// Radiance HDR: linear light past 1, straight to a float texture
+		img, known := m.images[name]
+		if !known {
+			return
+		}
+		data, err := os.read_entire_file(img.path, context.temp_allocator)
+		if err != nil {
+			return
+		}
+		sync.guard(&v.lock)
+		if id, added = v.textures_of[name]; !added {
+			made: bool
+			if id, made = o3d.texture_decode(&v.textures, data); !made {
+				return
+			}
+			v.textures_of[strings.clone(name)] = id
+		}
+		if environment {
+			o3d.environment_prefilter(&v.textures, id)
+		}
 		return
 	}
 	img, decoded := media_image(m, name, frame)
@@ -643,8 +797,10 @@ View3d_State :: struct {
 	software: o3d.Software,
 	jobs:     View3d_Jobs,
 	drawn:    [dynamic]Drawn_Geometry,
-	// Where this renderer poses glTF models (sized on first use).
+	// Where this renderer poses models (sized on first use), and the part
+	// tables a model's `nodes` / `materials` fill for its draw.
 	pose:     o3d.Model_Pose,
+	parts:    o3d.Model_Parts,
 }
 
 @(private)
@@ -655,12 +811,18 @@ Drawn_Geometry :: struct {
 	now:     bit_set[o3d.Primitive],
 	// The same for outline geometry (ShapeGeometry, ExtrudeGeometry).
 	earlier_outlines, now_outlines: bit_set[Outline_Kind],
+	// The types made new on this frame and on the renderer's previous
+	// frame of the scene: growth is a type made again frame after frame (a
+	// parameter animated), not a fixed shape that first shows up later.
+	made, made_last:                   bit_set[o3d.Primitive],
+	made_outlines, made_last_outlines: bit_set[Outline_Kind],
 }
 
 @(private)
 view3d_state_destroy :: proc(s: ^View3d_State) {
 	o3d.software_destroy(&s.software)
 	o3d.model_pose_destroy(&s.pose)
+	o3d.model_parts_destroy(&s.parts)
 	view3d_jobs_destroy(&s.jobs)
 	delete(s.drawn)
 	s^ = {}
@@ -746,17 +908,8 @@ view3d_videos :: proc(r: ^Renderer, n: View3d, job: ^View3d_Job) {
 			append(&job.videos, Video_Binding{texture, r.video_images.image[slot]})
 		}
 	}
-	for mesh in n.meshes {
-		for name in mesh.maps {
-			add(r, n, job, name)
-		}
-	}
-	for pose in n.models {
-		if over, ok := pose.material.?; ok {
-			for name in over.maps {
-				add(r, n, job, name)
-			}
-		}
+	for name in view3d_image_names(n) {
+		add(r, n, job, name)
 	}
 }
 
@@ -770,45 +923,33 @@ view3d_scene :: proc(r: ^Renderer, n: View3d, scene: ^o3d.Scene) {
 	o3d.scene_clear(scene)
 	scene.camera = n.camera
 	append(&scene.lights, ..n.lights)
-	for mesh in n.meshes {
-		material := view3d_material(r, scene, mesh.material, mesh.maps, mesh.shader)
-		geo_id: o3d.Geometry_Id
-		switch mesh.path_kind {
-		case .None:
-			if mesh.outline.kind != .None {
-				ex := v.outlines[outline_key(mesh.outline)]
-				geo_id = ex.geometry
-				if ex.folded > 0 {
-					report(&r.ctx, .Warning, {code = .Extrude_Folded, w = f32(ex.folded)})
-				}
-				if side, ok := mesh.side_material.?; ok {
-					// Caps in the material, walls and bevels in the side one.
-					geo_id = ex.caps
-					side_mat := view3d_material(r, scene, side, {}, nil)
-					append(&scene.draws, o3d.Draw{ex.sides, o3d.compose(mesh.position, mesh.rotation, mesh.scale), side_mat})
-					if len(mesh.instances) > 0 {
-						o3d.scene_set_draw_instances(scene, len(scene.draws) - 1, o3d.scene_instances(scene, mesh.instances))
-					}
-				}
-			} else {
-				geo_id = v.geometries.keys[mesh.geometry]
-			}
-		case .Polyline:
-			geo_id = o3d.scene_polyline(scene, mesh.points, mesh.path_closed)
-		case .Line_Segments:
-			geo_id = o3d.scene_line_segments(scene, mesh.points)
-		case .Points:
-			geo_id = o3d.scene_points(scene, mesh.points)
-		case .Tube:
-			geo_id = o3d.scene_tube(scene, mesh.points, mesh.tube_radius, mesh.tube_segments, mesh.path_closed)
+	// Meshes attached to a model's part draw after the models.
+	attached := make([dynamic]int, context.temp_allocator)
+	for mesh, i in n.meshes {
+		if mesh.attach.model > 0 {
+			append(&attached, i)
+			continue
 		}
-		di := len(scene.draws)
-		append(&scene.draws, o3d.Draw{geo_id, o3d.compose(mesh.position, mesh.rotation, mesh.scale), material})
-		if len(mesh.instances) > 0 {
-			o3d.scene_set_draw_instances(scene, di, o3d.scene_instances(scene, mesh.instances))
-		}
+		view3d_mesh(r, scene, mesh, group_transform(mesh.group) * o3d.compose(mesh.position, mesh.rotation, mesh.scale))
 	}
-	for pose in n.models {
+	// Where attached meshes and models ride: their part's world, read right
+	// after the model it belongs to is posed.
+	mesh_on := make([]o3d.Mat4, len(n.meshes), context.temp_allocator)
+	model_on := make([]o3d.Mat4, len(n.models), context.temp_allocator)
+	emitter_on := make([]o3d.Mat4, len(n.particles), context.temp_allocator)
+	for &m in mesh_on {
+		m = 1
+	}
+	for &m in model_on {
+		m = 1
+	}
+	for &m in emitter_on {
+		m = 1
+	}
+	for pose, mi in n.models {
+		if a := pose.attach.model; a > 0 && a > mi {
+			report(&r.ctx, .Error, {code = .Attach_Target, name = pose.src, n = i64(a)})
+		}
 		model, found := &v.models[pose.src]
 		if !found {
 			report(&r.ctx, .Error, {code = .Missing_Model, name = pose.src})
@@ -836,8 +977,52 @@ view3d_scene :: proc(r: ^Renderer, n: View3d, scene: ^o3d.Scene) {
 				report(&r.ctx, .Error, {code = .Missing_Morph_Target, name = pose.src, a = fmt.tprint(mw.index + 1)})
 			}
 		}
+		parts: ^o3d.Model_Parts
+		if len(pose.parts) > 0 {
+			parts = &r.view3d.parts
+			o3d.model_parts_init(parts, model)
+			for part in pose.parts {
+				switch part.of {
+				case .Node:
+					id := o3d.model_node(model, part.name)
+					if id == 0 {
+						report(&r.ctx, .Error, {code = .Missing_Model_Part, name = pose.src, a = "node", b = part.name})
+						continue
+					}
+					parts.nodes[id - 1] = part.state
+					parts.transforms[id - 1] = part.transform
+				case .Material:
+					id := o3d.model_material(model, part.name)
+					if id == 0 {
+						report(&r.ctx, .Error, {code = .Missing_Model_Part, name = pose.src, a = "material", b = part.name})
+						continue
+					}
+					state := part.state
+					if over, ok := part.material.?; ok {
+						parts.replacements[id - 1] = view3d_material(r, scene, over.material, over.maps, over.shader)
+						state.replace = true
+					}
+					parts.materials[id - 1] = state
+				}
+			}
+		}
 		first := len(scene.draws)
-		o3d.gltf_draw(scene, model, o3d.compose(pose.position, pose.rotation, pose.scale), anim, pose.time, pose.loop, pose.flags, &r.view3d.pose, morphs = pose.morphs, outline_width = pose.outline_width, outline_color = pose.outline_color)
+		o3d.gltf_draw(scene, model, model_on[mi] * group_transform(pose.group) * o3d.compose(pose.position, pose.rotation, pose.scale), anim, pose.time, pose.loop, pose.flags, &r.view3d.pose, morphs = pose.morphs, outline_width = pose.outline_width, outline_color = pose.outline_color, parts = parts)
+		for mesh, k in n.meshes {
+			if mesh.attach.model == mi + 1 {
+				mesh_on[k] = view3d_attach_world(r, model, pose.src, mesh.attach.node)
+			}
+		}
+		for other, k in n.models[mi + 1:] {
+			if other.attach.model == mi + 1 {
+				model_on[mi + 1 + k] = view3d_attach_world(r, model, pose.src, other.attach.node)
+			}
+		}
+		for e, k in n.particles {
+			if e.attach.model == mi + 1 {
+				emitter_on[k] = view3d_attach_world(r, model, pose.src, e.attach.node)
+			}
+		}
 		if over, ok := pose.material.?; ok {
 			mat := view3d_material(r, scene, over.material, over.maps, over.shader)
 			mat.flags += pose.flags
@@ -845,6 +1030,19 @@ view3d_scene :: proc(r: ^Renderer, n: View3d, scene: ^o3d.Scene) {
 				scene.draws[i].material = mat
 			}
 		}
+	}
+	for e, i in n.particles {
+		if e.attach.model > len(n.models) {
+			report(&r.ctx, .Error, {code = .Attach_Target, name = "particles", n = i64(e.attach.model)})
+		}
+		view3d_particles(r, scene, e, emitter_on[i] * group_transform(e.group))
+	}
+	for i in attached {
+		mesh := n.meshes[i]
+		if mesh.attach.model > len(n.models) {
+			report(&r.ctx, .Error, {code = .Attach_Target, name = "mesh", n = i64(mesh.attach.model)})
+		}
+		view3d_mesh(r, scene, mesh, mesh_on[i] * group_transform(mesh.group) * o3d.compose(mesh.position, mesh.rotation, mesh.scale))
 	}
 	scene.environment = view3d_texture(r, n.environment)
 	scene.environment_intensity = n.environment_intensity
@@ -854,6 +1052,106 @@ view3d_scene :: proc(r: ^Renderer, n: View3d, scene: ^o3d.Scene) {
 	scene.tone_mapping = n.tone_mapping
 	scene.tone_mapping_exposure = n.tone_mapping_exposure
 	scene.fog = n.fog
+}
+
+// Draws `mesh` at `transform` (its own position, rotation and scale, on
+// what it is attached to).
+@(private = "file")
+view3d_mesh :: proc(r: ^Renderer, scene: ^o3d.Scene, mesh: Mesh, transform: o3d.Mat4) {
+	v := &r.media.view3d
+	material := view3d_material(r, scene, mesh.material, mesh.maps, mesh.shader)
+	geo_id: o3d.Geometry_Id
+	switch mesh.path_kind {
+	case .None:
+		if mesh.outline.kind != .None {
+			ex := v.outlines[outline_key(mesh.outline)]
+			geo_id = ex.geometry
+			if ex.folded > 0 {
+				report(&r.ctx, .Warning, {code = .Extrude_Folded, w = f32(ex.folded)})
+			}
+			if side, ok := mesh.side_material.?; ok {
+				// Caps in the material, walls and bevels in the side one.
+				geo_id = ex.caps
+				side_mat := view3d_material(r, scene, side, {}, nil)
+				append(&scene.draws, o3d.Draw{ex.sides, transform, side_mat})
+				if len(mesh.instances) > 0 {
+					o3d.scene_set_draw_instances(scene, len(scene.draws) - 1, o3d.scene_instances(scene, mesh.instances))
+				}
+			}
+		} else {
+			geo_id = v.geometries.keys[mesh.geometry]
+		}
+	case .Polyline:
+		geo_id = o3d.scene_polyline(scene, mesh.points, mesh.path_closed)
+	case .Line_Segments:
+		geo_id = o3d.scene_line_segments(scene, mesh.points)
+	case .Points:
+		geo_id = o3d.scene_points(scene, mesh.points)
+	case .Tube:
+		geo_id = o3d.scene_tube(scene, mesh.points, mesh.tube_radius, mesh.tube_segments, mesh.path_closed)
+	}
+	di := len(scene.draws)
+	append(&scene.draws, o3d.Draw{geo_id, transform, material})
+	if len(mesh.instances) > 0 {
+		o3d.scene_set_draw_instances(scene, di, o3d.scene_instances(scene, mesh.instances))
+	}
+}
+
+// Emitter `e`'s particles alive at its time, placed by `world` (what it is
+// in and attached to), into `scene`.
+@(private = "file")
+view3d_particles :: proc(r: ^Renderer, scene: ^o3d.Scene, e: Particle_Emitter, world: o3d.Mat4) {
+	if e.rate <= 0 || e.lifetime <= 0 || e.time < 0 {
+		return
+	}
+	// born at i / rate, alive while younger than the lifetime
+	first := max(int(math.floor((e.time - e.lifetime) * e.rate)) + 1, 0)
+	last := int(math.floor(e.time * e.rate))
+	if last < first {
+		return
+	}
+	// a number in [0, 1) for particle i's draw k (splitmix64)
+	random :: proc "contextless" (seed: u64, i, k: int) -> f32 {
+		z := seed + u64(i) * 0x9e3779b97f4a7c15 + u64(k) * 0xbf58476d1ce4e5b9
+		z = (z ~ (z >> 30)) * 0xbf58476d1ce4e5b9
+		z = (z ~ (z >> 27)) * 0x94d049bb133111eb
+		z ~= z >> 31
+		return f32(z >> 40) / f32(1 << 24)
+	}
+	rows := make([]o3d.Particle, last - first + 1, context.temp_allocator)
+	for &p, j in rows {
+		i := first + j
+		age := e.time - f32(i) / e.rate
+		u := clamp(age / e.lifetime, 0, 1)
+		off, dv: o3d.Vec3
+		for k in 0 ..< 3 {
+			off[k] = e.spread[k] * (2 * random(e.seed, i, k) - 1)
+			dv[k] = e.velocity_spread[k] * (2 * random(e.seed, i, k + 3) - 1)
+		}
+		local := e.position + off + (e.velocity + dv) * age + e.gravity * (0.5 * age * age)
+		at := world * o3d.Vec4{local.x, local.y, local.z, 1}
+		p = {
+			position = at.xyz,
+			size     = e.size[0] + (e.size[1] - e.size[0]) * u,
+			color    = e.color[0] + (e.color[1] - e.color[0]) * u,
+			rotation = random(e.seed, i, 6) * 2 * math.PI + e.spin * age,
+		}
+	}
+	material := e.material
+	material.color_map = view3d_texture(r, e.sprite)
+	append(&scene.draws, o3d.Draw{o3d.scene_particles(scene, rows), 1, material})
+}
+
+// The world of node `node` of `model` as just posed: what attaches to it
+// rides on it (the identity, reported, when the model has no such node).
+@(private = "file")
+view3d_attach_world :: proc(r: ^Renderer, model: ^o3d.Model, src, node: string) -> o3d.Mat4 {
+	id := o3d.model_node(model, node)
+	if id == 0 {
+		report(&r.ctx, .Error, {code = .Missing_Model_Part, name = src, a = "node", b = node})
+		return 1
+	}
+	return o3d.model_node_world(model, id, &r.view3d.pose)
 }
 
 // Resolves a material's textures or ShaderMaterial (reporting compile and
@@ -880,6 +1178,13 @@ view3d_material :: proc(r: ^Renderer, scene: ^o3d.Scene, base: o3d.Material, map
 		return material
 	}
 	material.uniforms = view3d_shader_uniforms(r, scene, entry, sh.uniforms)
+	for m in sh.maps {
+		if slot := o3d.shader_map(&v.shaders, id, m.name); slot >= 0 {
+			material.shader_maps[slot] = view3d_texture(r, m.src)
+		} else {
+			report(&r.ctx, .Warning, {code = .Shader_Undeclared_Uniform, name = "ShaderMaterial", a = m.name})
+		}
+	}
 	return material
 }
 
@@ -988,13 +1293,17 @@ check_geometry_growth :: proc(r: ^Renderer, n: View3d, made: bit_set[o3d.Primiti
 		d.now = {}
 		d.earlier_outlines += d.now_outlines
 		d.now_outlines = {}
+		d.made_last, d.made = d.made, {}
+		d.made_last_outlines, d.made_outlines = d.made_outlines, {}
 		d.frame = frame
 	}
-	for kind in made & d.earlier {
+	d.made += made
+	d.made_outlines += made_outlines
+	for kind in made & d.earlier & d.made_last {
 		report(&r.ctx, .Warning, {code = .Geometry_Growth, name = GEOMETRY_TYPES[kind].name})
 	}
 	OUTLINE_TYPES := [Outline_Kind]string{.None = "", .Shape = "ShapeGeometry", .Exact = "ShapeGeometry", .Extrude = "ExtrudeGeometry"}
-	for kind in made_outlines & d.earlier_outlines {
+	for kind in made_outlines & d.earlier_outlines & d.made_last_outlines {
 		report(&r.ctx, .Warning, {code = .Geometry_Growth, name = OUTLINE_TYPES[kind]})
 	}
 	for mesh in n.meshes {

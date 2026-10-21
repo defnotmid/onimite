@@ -5,9 +5,9 @@
 // A line is a build artifact: its key hashes everything its samples
 // depend on (ottis's output version, the runtime and model pins, the text,
 // the voice and the options), so a stored line is the line synthesis would
-// make. Synthesis runs one line at a time per process on its caller (the
-// app's driver thread); ONNX Runtime's own threads (`pocket.THREADS` per
-// graph) are its dedicated resource, like a hardware encoder.
+// make. A load's missing lines are synthesized together (`synthesize`):
+// each line on one thread of the caller's pool (ottis's batch; ONNX
+// Runtime runs no threads of its own), the same samples on any pool.
 package onimite_speech
 
 import "core:crypto/sha2"
@@ -20,6 +20,7 @@ import "core:path/filepath"
 import "core:strings"
 import "core:sync"
 import "core:time"
+import common "deps:odecs/common"
 import "deps:ottis/assets"
 import "deps:ottis/pocket"
 
@@ -340,15 +341,20 @@ progress :: proc(message: string) {
 	log(fmt.tprintf("ottis: %s", message))
 }
 
-// Speaks `text` with `o` (the first call downloads ottis's files if needed,
-// progress to the log, and loads the engine). On failure `f` says why
-// (strings in temp memory). The line's memory is the caller's
-// (context.allocator).
-synthesize :: proc(text: string, o: Options) -> (l: Line, f: Failure) {
+// A line to speak: its text and what it is spoken with.
+Request :: struct {
+	text:    string,
+	options: Options,
+}
+
+// Speaks each request into the line or failure at its index (the first
+// call downloads ottis's files if needed, progress to the log, and loads
+// the engine): the lines spread over `pool` (nil: in order here), each the
+// same on any pool. A line's memory is the caller's (context.allocator,
+// thread-safe when there is a pool); failures' strings are in temp memory.
+synthesize :: proc(requests: []Request, lines: []Line, failures: []Failure, pool: ^common.Work_Pool = nil) {
+	assert(len(lines) == len(requests) && len(failures) == len(requests))
 	sync.guard(&tts.lock)
-	if known, failed := tts.failed[line_key(text, o)]; failed {
-		return l, failure_clone(known, context.temp_allocator) // tried before in this process
-	}
 	began := time.tick_now()
 	if !tts.tried {
 		tts.tried = true
@@ -358,30 +364,48 @@ synthesize :: proc(text: string, o: Options) -> (l: Line, f: Failure) {
 			began = time.tick_now()
 		}
 	}
-	voice: ^pocket.Voice
-	if tts.failure.code != .None {
-		f = tts.failure
-	} else {
-		voice, f = voice_get(o)
+	fail :: proc(failures: []Failure, i: int, r: Request, f: Failure) {
+		note_failure(line_key(r.text, r.options), f)
+		failures[i] = failure_clone(f, context.temp_allocator)
 	}
-	if f.code == .None {
-		opts := pocket.DEFAULT_OPTIONS
-		opts.seed, opts.temperature = o.seed, o.temperature
-		r: pocket.Result
-		defer pocket.result_destroy(&r)
-		if e := pocket.synthesize(&tts.engine, voice, text, opts, &r); e != nil {
-			f = {code = .Synthesize, detail = fmt.tprintf("%s", e.?)}
-		} else {
-			if tts.debug {
-				ms := time.duration_milliseconds(time.tick_since(began))
-				audio := f64(len(r.audio)) / f64(max(r.sample_rate, 1))
-				log(fmt.tprintf("say: %.2f s of speech in %.0f ms (%.1fx real time)", audio, ms, audio * 1000 / max(ms, 1)))
-			}
-			return from_result(&r), {}
+	jobs := make([dynamic]pocket.Job, 0, len(requests), context.temp_allocator)
+	of := make([dynamic]int, 0, len(requests), context.temp_allocator)
+	for r, i in requests {
+		if known, failed := tts.failed[line_key(r.text, r.options)]; failed {
+			failures[i] = failure_clone(known, context.temp_allocator) // tried before in this process
+			continue
 		}
+		if tts.failure.code != .None {
+			fail(failures, i, r, tts.failure)
+			continue
+		}
+		voice, f := voice_get(r.options)
+		if f.code != .None {
+			fail(failures, i, r, f)
+			continue
+		}
+		opts := pocket.DEFAULT_OPTIONS
+		opts.seed, opts.temperature = r.options.seed, r.options.temperature
+		append(&jobs, pocket.Job{voice, r.text, opts})
+		append(&of, i)
 	}
-	note_failure(line_key(text, o), f)
-	return l, failure_clone(f, context.temp_allocator)
+	results := make([]pocket.Result, len(jobs), context.temp_allocator)
+	pocket.synthesize_batch(&tts.engine, pool, jobs[:], results, context.allocator)
+	audio: f64
+	for &res, k in results {
+		i := of[k]
+		if res.err != nil {
+			fail(failures, i, requests[i], {code = .Synthesize, detail = fmt.tprintf("%s", res.err.?)})
+		} else {
+			audio += f64(len(res.audio)) / f64(max(res.sample_rate, 1))
+			lines[i] = from_result(&res)
+		}
+		pocket.result_destroy(&res)
+	}
+	if tts.debug && len(jobs) > 0 {
+		ms := time.duration_milliseconds(time.tick_since(began))
+		log(fmt.tprintf("say: %d lines, %.2f s of speech in %.0f ms (%.1fx real time)", len(jobs), audio, ms, audio * 1000 / max(ms, 1)))
+	}
 }
 
 // What the engine keeps (the engine, voices, failures) belongs to no caller:

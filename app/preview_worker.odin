@@ -200,6 +200,8 @@ Render_Worker :: struct {
 	// The app's task pool, borrowed for media decoding: while the preview
 	// runs, only the worker's loads use it.
 	pool:           ^thread.Pool,
+	// The app's background pool: the media's songs render on it.
+	background:     ^thread.Pool,
 	thread:         ^thread.Thread,
 
 	// Heap allocated: a Script must keep its address while loaded.
@@ -474,7 +476,7 @@ worker_clips_start :: proc(w: ^Render_Worker, s: ^script.Script, tl: om.Timeline
 	for o, i in order {
 		sorted[i] = names[o]
 	}
-	b := clip_builds_make(sorted, w.pool, nil, w.script_path, w.media_dir, w.script_args, w.script_props, w.video)
+	b := clip_builds_make(sorted, w.pool, w.background, nil, w.script_path, w.media_dir, w.script_args, w.script_props, w.video)
 	b.wake, b.wake_data = worker_wake, w
 	w.clips_began = time.tick_now()
 	clip_builds_start(b)
@@ -757,7 +759,7 @@ worker_load :: proc(w: ^Render_Worker, reload_media: bool) {
 	media := w.media
 	if reload_media || media == nil {
 		media = new(om.Media)
-		media_open(media, w.image_budget, w.video)
+		media_open(media, w.image_budget, w.video, w.background)
 		// songs' tables built in the background wake the worker when they land
 		om.music_set_wake(media, worker_wake, w)
 		if os.exists(w.media_dir) {

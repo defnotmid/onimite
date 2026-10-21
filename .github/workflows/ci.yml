@@ -51,26 +51,26 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/odecs
-          # Pinned like ottis: onimite, ovg v0.0.17, o3d v0.0.20, odawg v0.0.17 and ottis v0.0.6 decode through odecs v0.0.9.
-          ref: v0.0.9
+          # Pinned like ottis: onimite, ovg v0.0.17, o3d v0.0.26, odawg v0.0.19 and ottis v0.0.7 decode through odecs v0.0.10.
+          ref: v0.0.10
           path: odecs
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/ottis
           # Pinned: ottis is released on its own; a new tag is taken on purpose.
-          ref: v0.0.6
+          ref: v0.0.7
           path: ottis
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/o3d
-          # Pinned like ottis: o3d is released on its own (v0.0.20).
-          ref: v0.0.20
+          # Pinned like ottis: o3d is released on its own (v0.0.26).
+          ref: v0.0.26
           path: o3d
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/odawg
-          # Pinned like ottis: odawg is released on its own (v0.0.17).
-          ref: v0.0.17
+          # Pinned like ottis: odawg is released on its own (v0.0.19).
+          ref: v0.0.19
           path: odawg
 
       - uses: ./onimite/.github/actions/setup-toolchain
@@ -113,26 +113,26 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/odecs
-          # Pinned like ottis: onimite, ovg v0.0.17, o3d v0.0.20, odawg v0.0.17 and ottis v0.0.6 decode through odecs v0.0.9.
-          ref: v0.0.9
+          # Pinned like ottis: onimite, ovg v0.0.17, o3d v0.0.26, odawg v0.0.19 and ottis v0.0.7 decode through odecs v0.0.10.
+          ref: v0.0.10
           path: odecs
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/ottis
           # Pinned: ottis is released on its own; a new tag is taken on purpose.
-          ref: v0.0.6
+          ref: v0.0.7
           path: ottis
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/o3d
-          # Pinned like ottis: o3d is released on its own (v0.0.20).
-          ref: v0.0.20
+          # Pinned like ottis: o3d is released on its own (v0.0.26).
+          ref: v0.0.26
           path: o3d
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/odawg
-          # Pinned like ottis: odawg is released on its own (v0.0.17).
-          ref: v0.0.17
+          # Pinned like ottis: odawg is released on its own (v0.0.19).
+          ref: v0.0.19
           path: odawg
 
       - uses: ./onimite/.github/actions/setup-toolchain

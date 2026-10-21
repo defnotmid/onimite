@@ -1,6 +1,7 @@
 package onimite
 
 import "core:fmt"
+import "core:log"
 import "core:math"
 import "core:os"
 import "core:slice"
@@ -252,4 +253,29 @@ media_load_test_files :: proc(m: ^Media, files: ..[2]string) -> Error {
 		}
 	}
 	return media_load_dir(m, dir)
+}
+
+// A file linked into the media folder is its target's media (a large model
+// linked in rather than copied); a link to nothing is skipped.
+@(test)
+test_media_follows_links :: proc(t: ^testing.T) {
+	tmp := os.get_env("TMPDIR", context.temp_allocator)
+	dir := fmt.tprintf("%s/onimite_media_link_test", tmp if tmp != "" else "/tmp")
+	testing.expect(t, os.make_directory_all(dir) == nil)
+	defer os.remove_all(dir)
+	px: [4 * 4 * 4]u8
+	odimg.write_png(fmt.tprintf("%s/a.png", dir), px[:], 4, 4)
+	if os.symlink(fmt.tprintf("%s/a.png", dir), fmt.tprintf("%s/b.png", dir)) != nil {
+		log.info("no symbolic links here: skipped")
+		return
+	}
+	os.symlink(fmt.tprintf("%s/missing.png", dir), fmt.tprintf("%s/c.png", dir))
+	media: Media
+	media_init(&media)
+	defer media_destroy(&media)
+	testing.expect(t, media_load_dir(&media, dir) == nil)
+	b, linked := media.images["b.png"]
+	testing.expect(t, linked && b.width == 4)
+	_, dangling := media.images["c.png"]
+	testing.expect(t, !dangling)
 }

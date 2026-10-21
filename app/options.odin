@@ -70,7 +70,7 @@ Script_Options :: struct {
 	scale:            f64                  `row:"Scale" reg:"scalar" arg:"S" about:"output resolution factor, e.g. 0.5 for half resolution (rounded to an even size)" check:"Positive" invalid:"needs a positive number"`,
 	software:         bool                 `row:"Backend" reg:"flag" about:"draw on the CPU instead of the GPU"`,
 	using json_option: Json_Option,
-	threads:          int                  `mcp:"-" row:"Threads" reg:"count" arg:"N" about:"threads for parallel work, this one included; 1: everything on one thread" default:"one per core" check:"Positive" invalid:"needs a count of at least 1"`,
+	threads:          int                  `mcp:"-" row:"Threads" reg:"count" arg:"N" about:"threads for all parallel work, this one included (a quarter render songs and audio, the rest frames); 1: everything on one thread" default:"one per core" check:"Positive" invalid:"needs a count of at least 1"`,
 	image_cache:      int                  `mcp:"-" row:"Image_Cache" reg:"count" arg:"MB" about:"decoded images kept in memory; the least recently used are freed between frames and decode again when used" default:"1024" check:"Not_Negative" invalid:"needs a size in MB"`,
 }
 

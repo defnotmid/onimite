@@ -50,8 +50,10 @@ Clip_Builds :: struct {
 	running:     int,
 	cancel:      bool,
 	jobs:        []Clip_Job,
-	// Where the jobs run (nil: on the owner's thread).
+	// Where the jobs run (nil: on the owner's thread), and where their
+	// media's songs render.
 	pool:        ^thread.Pool,
+	background:  ^thread.Pool,
 	// What a job loads, and the load-time data its state reuses (nil: it
 	// makes its own; script/shared.odin).
 	shared:      ^script.Shared,
@@ -75,13 +77,14 @@ Clip_Job :: struct {
 // Builds for `names` (in the order they are needed), with a job per pool
 // thread (up to CLIP_JOBS); nothing runs until clip_builds_start or
 // clip_builds_wait. `shared` must outlive the builds.
-clip_builds_make :: proc(names: []string, pool: ^thread.Pool, shared: ^script.Shared, script_path, media_dir: string, args, props: []string, video: ^enc.Video_Decoders) -> ^Clip_Builds {
+clip_builds_make :: proc(names: []string, pool, background: ^thread.Pool, shared: ^script.Shared, script_path, media_dir: string, args, props: []string, video: ^enc.Video_Decoders) -> ^Clip_Builds {
 	b := new(Clip_Builds)
 	b.slots = make([]Clip_Slot, len(names))
 	for n, i in names {
 		b.slots[i].name = strings.clone(n)
 	}
 	b.pool = pool
+	b.background = background
 	b.shared = shared
 	b.jobs = make([]Clip_Job, clamp(min(om.pool_count(pool), CLIP_JOBS), 1, max(len(names), 1)))
 	for &j in b.jobs {
@@ -219,7 +222,7 @@ clip_job_build :: proc(j: ^Clip_Job) -> bool {
 		return false
 	}
 	if j.script == nil {
-		media_open(&j.media, om.IMAGE_BUDGET_DEFAULT, b.video)
+		media_open(&j.media, om.IMAGE_BUDGET_DEFAULT, b.video, b.background)
 		if os.exists(b.media_dir) {
 			om.media_load_dir(&j.media, b.media_dir)
 		}

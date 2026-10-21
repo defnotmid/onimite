@@ -70,6 +70,12 @@ App_State :: struct {
 	// with --threads 1: everything runs on its caller.
 	pool:           ^thread.Pool,
 	pool_storage:   thread.Pool,
+	// The background pool, capped (background_threads): songs' renders and
+	// the other audio work (odawg's engine, through `background_work`), so
+	// that frames keep the cores they need. Nil with --threads 1.
+	background:         ^thread.Pool,
+	background_storage: thread.Pool,
+	background_work:    om.Pool_Work,
 }
 
 app_init :: proc(app: ^App_State) {
@@ -78,8 +84,8 @@ app_init :: proc(app: ^App_State) {
 	app.image_budget = om.IMAGE_BUDGET_DEFAULT
 	_ = virtual.arena_init_growing(&app.failure_arena)
 	enc.video_decoders_init(&app.video)
-	media_open(&app.media, app.image_budget, &app.video)
 	pool_set_threads(app, 0)
+	media_open(&app.media, app.image_budget, &app.video, app.background)
 	speech.set_log(speech_log, false)
 }
 
@@ -90,32 +96,57 @@ speech_log :: proc(message: string) {
 }
 
 // A media ready to load (every one the app makes is set up here): the
-// image budget and the host's decoder for video clips on `video` (nil:
-// none).
-media_open :: proc(m: ^om.Media, budget: int, video: ^enc.Video_Decoders) {
+// image budget, the host's decoder for video clips on `video` (nil: none)
+// and the pool its songs render on (nil: their caller).
+media_open :: proc(m: ^om.Media, budget: int, video: ^enc.Video_Decoders, background: ^thread.Pool) {
 	om.media_init(m)
 	m.cache.budget = budget
 	if video != nil {
 		m.videos.source = enc.video_source(video)
 	}
+	om.music_set_pool(m, background)
 }
 
-// The task pool for `threads` threads in all (0: one per core): the caller
-// plus `threads - 1` workers. One thread means no pool.
+// The task pools, sharing `threads` threads in all (0: one per core): the
+// background pool takes its share (background_threads) and the frame pool
+// the rest, the caller included, so the two together use what was given.
+// One thread means no pools: everything runs on its caller.
 @(private)
 pool_set_threads :: proc(app: ^App_State, threads: int) {
-	if app.pool != nil {
-		thread.pool_finish(app.pool)
-		thread.pool_destroy(app.pool)
-		app.pool = nil
+	if app.media.music != nil {
+		om.music_set_pool(&app.media, nil)
+	}
+	om.pool_work_destroy(&app.background_work)
+	for p in ([2]^^thread.Pool{&app.pool, &app.background}) {
+		if p^ != nil {
+			thread.pool_finish(p^)
+			thread.pool_destroy(p^)
+			p^ = nil
+		}
 	}
 	n := threads if threads > 0 else os.get_processor_core_count()
-	if n <= 1 {
-		return
+	if n > 1 {
+		background := background_threads(n)
+		thread.pool_init(&app.background_storage, os.heap_allocator(), background)
+		thread.pool_start(&app.background_storage)
+		app.background = &app.background_storage
+		if workers := n - background - 1; workers > 0 {
+			thread.pool_init(&app.pool_storage, os.heap_allocator(), workers)
+			thread.pool_start(&app.pool_storage)
+			app.pool = &app.pool_storage
+		}
 	}
-	thread.pool_init(&app.pool_storage, os.heap_allocator(), n - 1)
-	thread.pool_start(&app.pool_storage)
-	app.pool = &app.pool_storage
+	om.pool_work_init(&app.background_work, app.background)
+	if app.media.music != nil {
+		om.music_set_pool(&app.media, app.background)
+	}
+}
+
+// The background pool's share of `n` threads: a quarter (at least one), so
+// a song rendering while the preview plays leaves the frames the rest.
+@(private)
+background_threads :: proc(n: int) -> int {
+	return max(n / 4, 1)
 }
 
 app_destroy :: proc(app: ^App_State) {

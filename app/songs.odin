@@ -10,6 +10,7 @@ import orender "deps:odawg/render"
 import odevice "deps:odawg/device"
 import otheory "deps:odawg/theory"
 import osong "deps:odawg/song"
+import common "deps:odecs/common"
 
 // Songs as the commands list them (`timeline`, `show song/NAME`): their
 // form and tracks on the video clock, from odawg's composed tables.
@@ -107,7 +108,7 @@ write_song :: proc(b: ^strings.Builder, t: Timeline_Song) {
 // that made it; the render isn't kept. Info rows (its loudness) only with
 // `info`.
 @(private)
-song_check_diagnostics :: proc(s: ^script.Script, info: bool) -> []om.Diagnostic {
+song_check_diagnostics :: proc(s: ^script.Script, info: bool, pool: ^common.Work_Pool) -> []om.Diagnostic {
 	out := make([dynamic]om.Diagnostic, context.temp_allocator)
 	for x in s.songs {
 		if x.sound {
@@ -116,7 +117,7 @@ song_check_diagnostics :: proc(s: ^script.Script, info: bool) -> []om.Diagnostic
 		findings := make(obase.Findings, context.temp_allocator)
 		// its sample sets first: a Sampler not loaded is silent
 		om.song_clip_load(x.clip)
-		render := orender.output_from_song(&x.clip.song, {}, context.temp_allocator)
+		render := orender.output_from_song(&x.clip.song, {pool = pool}, context.temp_allocator)
 		ocheck.findings_from_render(&x.clip.song, &render, &findings)
 		for f in findings {
 			severity := om.Severity.Warning

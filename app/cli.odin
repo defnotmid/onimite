@@ -695,7 +695,7 @@ inspect :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 		finding_add(&findings, nil, LOAD_FRAME, d)
 	}
 	// Each song rendered alone, through odawg's checks.
-	for d in song_check_diagnostics(&app.script, .Info in regs.flags) {
+	for d in song_check_diagnostics(&app.script, .Info in regs.flags, &app.background_work.work_pool) {
 		finding_add(&findings, nil, LOAD_FRAME, d)
 	}
 	failed := false

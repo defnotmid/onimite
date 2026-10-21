@@ -847,10 +847,30 @@ show_media_file :: proc(sh: ^Show, name: string) -> Error {
 				append(&morphs, json.String(tname))
 			}
 		}
+		// The names `nodes =` and `materials =` take (as in the file, once
+		// each), and what o3d could not read of it.
+		names :: proc(all: []string) -> json.Array {
+			out := make(json.Array, 0, len(all), context.temp_allocator)
+			seen := make(map[string]bool, len(all), context.temp_allocator)
+			for n in all {
+				if n != "" && !seen[n] {
+					seen[n] = true
+					append(&out, json.String(n))
+				}
+			}
+			return out
+		}
+		warnings := make(json.Array, 0, len(model.warnings), context.temp_allocator)
+		for w in model.warnings {
+			append(&warnings, json.String(w))
+		}
 		sh.res.fields["meshes"] = json.Integer(len(model.meshes))
 		sh.res.fields["nodes"] = json.Integer(len(model.nodes))
+		sh.res.fields["node_names"] = names(model.nodes.name[:len(model.nodes)])
+		sh.res.fields["material_names"] = names(model.material_names[:])
 		sh.res.fields["animations"] = clips
 		sh.res.fields["morphs"] = morphs
+		sh.res.fields["warnings"] = warnings
 	case .Subtitles, .Captions:
 		c := &m.captions[name]
 		n := om.caption_count(c)

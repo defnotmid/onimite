@@ -174,7 +174,7 @@ Encoder :: struct {
 	// Encoder-thread state. The native encoder's slices run on the task
 	// pool through `work`; the encoder must not move while open (pool tasks
 	// point into it).
-	work:        Pool_Work,
+	work:        om.Pool_Work,
 	native:      native.Options,
 	// The mix (interleaved stereo at the mix rate) and how much of it the
 	// video writer has been given.
@@ -195,7 +195,7 @@ open :: proc(e: ^Encoder, path: string, width, height, fps: int, opts: Options =
 	cfg.gop = opts.gop
 	cfg.preference = .Native if opts.software else .Automatic
 	cfg.alpha = .Premultiplied
-	pool_work_init(&e.work, opts.pool)
+	om.pool_work_init(&e.work, opts.pool)
 	slices := opts.native_slices if opts.native_slices > 0 else clamp(os.get_processor_core_count() - 2, 1, common.MAX_STATIC_POOL_THREADS)
 	e.native = {pool = &e.work.work_pool, h264_slice_count = min(slices, (height + 15) / 16)}
 	cfg.native_options = &e.native
@@ -328,7 +328,7 @@ close :: proc(e: ^Encoder) -> Error {
 		}
 	}
 	video.destroy(&e.writer)
-	pool_work_destroy(&e.work)
+	om.pool_work_destroy(&e.work)
 	for s in e.slots {
 		delete(s.own)
 	}
@@ -453,112 +453,4 @@ rgba_to_i420 :: proc(pixels: []u8, width, height: int, out: []u8) {
 	cw, ch := width / 2, height / 2
 	y := width * height
 	video.rgba_to_i420(pixels, width * 4, width, height, {out[:y], out[y:][:cw * ch], out[y + cw * ch:][:cw * ch]}, {width, cw, cw}, &k, .Opaque, {})
-}
-
-// ---- slices on the task pool ------------------------------------------------------
-
-// odecs' `Work_Pool` on the application's task pool, which the frame
-// builders use at the same time. Ranges (one item each) are claimed from
-// an atomic ticket by the encoder thread and by helper tasks, so the encoder
-// never waits for a helper that hasn't started (it may queue behind builder
-// tasks) and runs everything itself when the pool is busy; it only waits for
-// ranges being coded. A helper takes ranges of whichever call is current and
-// leaves when none are left.
-Pool_Work :: struct {
-	work_pool: common.Work_Pool,
-	pool:      ^thread.Pool,
-	helpers:   int,
-	// Helper tasks queued or running.
-	live:      sync.Futex,
-	// Call number << 32 | next range (TICKET_CLOSED while a call is set up).
-	ticket:    u64,
-	count:     int,
-	task:      common.Range_Proc,
-	data:      rawptr,
-	finished:  sync.Futex,
-}
-
-@(private)
-TICKET_CLOSED :: u64(0xffff_ffff)
-
-pool_work_init :: proc(w: ^Pool_Work, pool: ^thread.Pool) {
-	w^ = {work_pool = {run = pool_work_run, user = w}, pool = pool, ticket = TICKET_CLOSED}
-	if pool != nil {
-		w.helpers = len(pool.threads)
-	}
-}
-
-// Waits for the helper tasks to leave (they find nothing to do).
-pool_work_destroy :: proc(w: ^Pool_Work) {
-	for {
-		live := sync.atomic_load(&w.live)
-		if live == 0 {
-			break
-		}
-		sync.futex_wait(&w.live, u32(live))
-	}
-}
-
-@(private)
-pool_work_run :: proc(wp: ^common.Work_Pool, count: int, task: common.Range_Proc, data: rawptr) {
-	w := (^Pool_Work)(wp.user)
-	if count <= 0 {
-		return
-	}
-	if w.pool == nil || count == 1 {
-		task(data, 0, count)
-		return
-	}
-	call := (sync.atomic_load(&w.ticket) >> 32) + 1
-	sync.atomic_store(&w.ticket, call << 32 | TICKET_CLOSED)
-	w.count, w.task, w.data = count, task, data
-	sync.atomic_store(&w.finished, 0)
-	sync.atomic_store(&w.ticket, call << 32)
-	// Helpers still queued from earlier calls take this one's ranges too.
-	missing := min(w.helpers, count - 1) - int(sync.atomic_load(&w.live))
-	for _ in 0 ..< missing {
-		sync.atomic_add(&w.live, 1)
-		thread.pool_add_task(w.pool, runtime.heap_allocator(), pool_work_helper, w)
-	}
-	pool_work_take(w)
-	for {
-		done := sync.atomic_load(&w.finished)
-		if int(done) == count {
-			break
-		}
-		sync.futex_wait(&w.finished, u32(done))
-	}
-	// The pool keeps a record of every finished task until popped (popping
-	// is linear in their number): keep the list short.
-	om.pool_drain_done(w.pool)
-}
-
-@(private)
-pool_work_helper :: proc(t: thread.Task) {
-	w := (^Pool_Work)(t.data)
-	pool_work_take(w)
-	if sync.atomic_sub(&w.live, 1) == 1 {
-		sync.futex_broadcast(&w.live)
-	}
-}
-
-// Codes ranges of the current call until none are left. A range's fields
-// are read only after the ticket confirmed it belongs to the current call
-// (the call can't change until its ranges finish).
-@(private)
-pool_work_take :: proc(w: ^Pool_Work) {
-	for {
-		v := sync.atomic_load(&w.ticket)
-		i := int(v & TICKET_CLOSED)
-		if u64(i) == TICKET_CLOSED || i >= w.count {
-			return
-		}
-		if _, ok := sync.atomic_compare_exchange_strong(&w.ticket, v, v + 1); !ok {
-			continue
-		}
-		w.task(w.data, i, i + 1)
-		if int(sync.atomic_add(&w.finished, 1)) + 1 == w.count {
-			sync.futex_broadcast(&w.finished)
-		}
-	}
 }

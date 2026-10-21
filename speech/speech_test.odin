@@ -5,6 +5,7 @@ import "core:os"
 import "core:slice"
 import "core:testing"
 import "deps:ottis/assets"
+import common "deps:odecs/common"
 
 // The key changes with everything a line's samples depend on and nothing
 // else.
@@ -103,16 +104,27 @@ test_store_hit_is_synthesis :: proc(t: ^testing.T) {
 
 	text := "Up top, the lamp was dark."
 	o := Options{voice = "alba", seed = 3, temperature = DEFAULT_TEMPERATURE}
-	a, err := synthesize(text, o)
+	lines: [1]Line
+	fails: [1]Failure
+	synthesize({{text, o}}, lines[:], fails[:])
+	a := lines[0]
 	defer line_destroy(&a)
-	testing.expect_value(t, err.code, Error.None)
+	testing.expect_value(t, fails[0].code, Error.None)
 	testing.expect(t, a.ready && len(a.samples) > 0 && len(a.words) == 6)
 	testing.expect_value(t, word_text(a, 3), "lamp")
 
-	b, err2 := synthesize(text, o)
-	defer line_destroy(&b)
-	testing.expect_value(t, err2.code, Error.None)
-	testing.expect(t, slice.equal(a.samples, b.samples))
+	// again, beside another line, the two on a pool: the same samples
+	pool: common.Static_Pool
+	common.init_static_pool(&pool, 2)
+	defer common.destroy_static_pool(&pool)
+	both: [2]Line
+	fails2: [2]Failure
+	synthesize({{"Below, the sea was loud.", o}, {text, o}}, both[:], fails2[:], &pool.work_pool)
+	defer for &l in both {
+		line_destroy(&l)
+	}
+	testing.expect_value(t, fails2[1].code, Error.None)
+	testing.expect(t, slice.equal(a.samples, both[1].samples))
 
 	k := line_key(text, o)
 	testing.expect_value(t, store_write(dir, k, a).code, Error.None)

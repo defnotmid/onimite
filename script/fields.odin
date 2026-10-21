@@ -20,7 +20,7 @@ FIELD_LOG_MAX :: 96
 @(private)
 Field_Log :: struct {
 	table: rawptr, // the table being checked (lua.topointer), nil when none
-	keys:  [FIELD_LOG_MAX]cstring,
+	keys:  [FIELD_LOG_MAX]string, // views of the bindings' key literals (or interned Lua strings)
 	n:     int,
 }
 
@@ -40,7 +40,7 @@ fields_begin :: proc(L: ^lua.State, t: c.int) {
 @(private)
 field :: proc(L: ^lua.State, t: c.int, key: cstring) -> c.int {
 	if field_log.table != nil && field_log.n < FIELD_LOG_MAX && lua.topointer(L, t) == field_log.table {
-		field_log.keys[field_log.n] = key
+		field_log.keys[field_log.n] = string(key)
 		field_log.n += 1
 	}
 	return lua.getfield(L, t, key)
@@ -50,22 +50,39 @@ field :: proc(L: ^lua.State, t: c.int, key: cstring) -> c.int {
 @(private)
 field_used :: proc(key: cstring) {
 	if field_log.table != nil && field_log.n < FIELD_LOG_MAX {
-		field_log.keys[field_log.n] = key
+		field_log.keys[field_log.n] = string(key)
 		field_log.n += 1
 	}
 }
 
 // Reports the string keys of the table at `t` that were not read since
-// `fields_begin`, as `call.key`, and stops noting.
+// `fields_begin`, as `call.key`, and stops noting. It runs on every node of
+// every frame, so the usual case (every key read) walks the keys in place;
+// only a table with an unread key is listed, sorted and reported.
 @(private)
 fields_end :: proc(L: ^lua.State, s: ^Script, at: c.int, call: string) {
 	defer field_log.table = nil
 	if field_log.table == nil || field_log.n >= FIELD_LOG_MAX {
 		return
 	}
-	for key in sorted_keys(L, at) {
-		if !field_was_read(key) {
-			report_unused(L, s, call, key)
+	t := lua.absindex(L, at)
+	lua.pushnil(L)
+	for lua.next(L, t) != 0 {
+		unread := false
+		if lua.type(L, -2) == .STRING {
+			n: c.size_t
+			p := lua.tolstring(L, -2, &n)
+			unread = !field_was_read(string((cast([^]u8)p)[:n]))
+		}
+		lua.pop(L, 1)
+		if unread {
+			lua.pop(L, 1)
+			for key in sorted_keys(L, t) {
+				if !field_was_read(key) {
+					report_unused(L, s, call, key)
+				}
+			}
+			return
 		}
 	}
 }
@@ -102,7 +119,7 @@ push_key :: proc(L: ^lua.State, t: c.int, key: string) {
 @(private)
 field_was_read :: proc(key: string) -> bool {
 	for k in field_log.keys[:field_log.n] {
-		if string(k) == key {
+		if k == key {
 			return true
 		}
 	}
@@ -113,17 +130,17 @@ field_was_read :: proc(key: string) -> bool {
 // the nearest within a third of its length in edits (at least one; a swap
 // of neighbours is one edit).
 @(private)
-closest_key :: proc(key: string, candidates: []cstring) -> string {
+closest_key :: proc(key: string, candidates: []string) -> string {
 	for k in candidates {
-		if len(key) >= 3 && strings.has_prefix(string(k), key) {
-			return string(k)
+		if len(key) >= 3 && strings.has_prefix(k, key) {
+			return k
 		}
 	}
 	best, best_d := "", max(1, len(key) / 3) + 1
 	for k in candidates {
-		d := edit_distance(key, string(k))
+		d := edit_distance(key, k)
 		if d < best_d {
-			best, best_d = string(k), d
+			best, best_d = k, d
 		}
 	}
 	return best

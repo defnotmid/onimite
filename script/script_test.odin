@@ -203,6 +203,56 @@ video { width = 64, height = 36, fps = 30, duration = 1 }
 	testing.expectf(t, ok == nil, "load failed: %s", error_message(s.failure, context.temp_allocator))
 }
 
+// 3D vectors and paths: the vec3 helpers on { x, y, z } lists; a path passes
+// through its points, ends where it ends (open) or comes back (closed),
+// travels at an even speed and eases its fraction.
+@(test)
+test_std_vec3_and_paths :: proc(t: ^testing.T) {
+	dir, derr := os.make_directory_temp("", "onimite_script_test_*", context.temp_allocator)
+	testing.expect(t, derr == nil)
+	defer os.remove_all(dir)
+	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
+	src := `
+local function near(a, b, e) return math.abs(a - b) < (e or 1e-9) end
+local function same(a, b, e) return near(a[1], b[1], e) and near(a[2], b[2], e) and near(a[3], b[3], e) end
+assert(same(vec3_add({ 1, 2, 3 }, { 4, 5, 6 }), { 5, 7, 9 }) and same(vec3_sub({ 4, 5, 6 }, { 1, 2, 3 }), { 3, 3, 3 }))
+assert(same(vec3_scale({ 1, -2, 3 }, 2), { 2, -4, 6 }) and same(vec3_lerp({ 0, 0, 0 }, { 2, 4, 6 }, 0.25), { 0.5, 1, 1.5 }))
+assert(vec3_dot({ 1, 2, 3 }, { 4, 5, 6 }) == 32 and same(vec3_cross({ 1, 0, 0 }, { 0, 1, 0 }), { 0, 0, 1 }))
+assert(vec3_length({ 3, 4, 0 }) == 5 and vec3_distance({ 1, 1, 1 }, { 1, 4, 5 }) == 5)
+assert(same(vec3_normalize({ 0, 0, 2 }), { 0, 0, 1 }) and same(vec3_normalize({ 0, 0, 0 }), { 0, 0, 0 }))
+
+local P = { { 0, 0, 0 }, { 4, 0, 0 }, { 4, 0, 3 }, { 10, 2, 3 } }
+assert(same(path_at(P, 0), P[1], 1e-6) and same(path_at(P, 1), P[4], 1e-6) and same(path_at(P, 2), P[4], 1e-6))
+-- even speed: equal steps of t cover about equal distances (as chords: a
+-- little less where the path turns)
+local steps = {}
+for i = 1, 20 do steps[i] = vec3_distance(path_at(P, (i - 1) / 20), path_at(P, i / 20)) end
+local lo, hi = math.huge, 0
+for _, d in ipairs(steps) do lo, hi = math.min(lo, d), math.max(hi, d) end
+assert(hi / lo < 1.1, hi / lo)
+-- it passes through the inner points
+local closest = math.huge
+for i = 0, 400 do closest = math.min(closest, vec3_distance(path_at(P, i / 400), P[3])) end
+assert(closest < 0.05, closest)
+-- closed: t wraps, 1 is back at the start
+local C = { { 1, 0, 0 }, { 0, 0, 1 }, { -1, 0, 0 }, { 0, 0, -1 } }
+assert(same(path_at(C, 1, { closed = true }), C[1], 1e-6) and same(path_at(C, 1.25, { closed = true }), path_at(C, 0.25, { closed = true }), 1e-9))
+-- the tangent: along the first segment at the start, unit length
+local d = path_tangent(P, 0)
+assert(near(vec3_length(d), 1, 1e-6) and d[1] > 0.99, d[1])
+-- easing reshapes t: ease_in starts slower than linear
+assert(vec3_distance(P[1], path_at(P, 0.2, { easing = ease_in })) < vec3_distance(P[1], path_at(P, 0.2)))
+assert(not pcall(path_at, { { 0, 0, 0 } }, 0.5))
+
+video { width = 64, height = 36, fps = 30, duration = 1 }
+`
+	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
+	s: Script
+	defer unload(&s)
+	ok := load(&s, path)
+	testing.expectf(t, ok == nil, "load failed: %s", error_message(s.failure, context.temp_allocator))
+}
+
 // A scene with `transition` gets its overlap from the transition's duration
 // (unless it has one) and a wrapped render; the previous scene leaves by it.
 @(test)

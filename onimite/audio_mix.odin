@@ -9,6 +9,7 @@ import odevice "deps:odawg/device"
 import odsp "deps:odawg/dsp"
 import orender "deps:odawg/render"
 import osong "deps:odawg/song"
+import common "deps:odecs/common"
 
 // The mix: every track placed on the video timeline, as one odawg song
 // (odawg's song/mix.odin) that odawg's engine streams: a clip is a Clip node
@@ -398,17 +399,16 @@ mix_stats :: proc(s: orender.Master_Stats) -> Mix_Stats {
 }
 
 // Renders `[from, to)` (mix samples) of the mix into interleaved stereo:
-// odawg's export (the stream cut into time segments on every core, each
-// from an exact seek, the master over them in order), each segment
-// interleaved into `out` as it comes: the samples streaming from `from`
-// gives, however it is cut.
-mix_render :: proc(mx: ^Mix, from, to: int, threads := 0, segment: f64 = 0, allocator := context.allocator) -> (out: []f32, stats: Mix_Stats) {
+// odawg's export (the mix as one stream, its nodes on `pool`; nil: the
+// caller's thread alone), each chunk interleaved into `out` as it comes:
+// the same samples on any pool.
+mix_render :: proc(mx: ^Mix, from, to: int, pool: ^common.Work_Pool = nil, allocator := context.allocator) -> (out: []f32, stats: Mix_Stats) {
 	n := max(to - from, 0)
 	out = make([]f32, n * 2, allocator)
 	if n == 0 {
 		return
 	}
-	got := orender.export_song(&mx.song, {from = f64(from) / MIX_RATE, to = f64(to) / MIX_RATE, threads = threads, segment = segment}, {&out, proc(data: rawptr, at: i64, l, r: []f32, stems: [][2][]f32) {
+	got := orender.export_song(&mx.song, {from = f64(from) / MIX_RATE, to = f64(to) / MIX_RATE, pool = pool}, {&out, proc(data: rawptr, at: i64, l, r: []f32, stems: [][2][]f32) {
 		out := (^[]f32)(data)^
 		for i in 0 ..< len(l) {
 			k := 2 * (int(at) + i)
@@ -425,11 +425,11 @@ mix_render :: proc(mx: ^Mix, from, to: int, threads := 0, segment: f64 = 0, allo
 
 // Mixes `[from, to)` (mix samples) of the placed tracks into interleaved
 // stereo, the whole range at once.
-mix_tracks :: proc(placed: []Placed_Track, from, to: int, opts: Mix_Options = {}, allocator := context.allocator) -> (out: []f32, stats: Mix_Stats) {
+mix_tracks :: proc(placed: []Placed_Track, from, to: int, opts: Mix_Options = {}, pool: ^common.Work_Pool = nil, allocator := context.allocator) -> (out: []f32, stats: Mix_Stats) {
 	mx: Mix
 	mix_init(&mx, placed, opts)
 	defer mix_destroy(&mx)
-	return mix_render(&mx, from, to, allocator = allocator)
+	return mix_render(&mx, from, to, pool, allocator)
 }
 
 // The mix played block by block (the preview's audio callback): one

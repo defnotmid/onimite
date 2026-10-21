@@ -9,6 +9,7 @@ import "core:strings"
 import oanalyze "deps:odawg/analyze"
 import obase "deps:odawg/base"
 import orender "deps:odawg/render"
+import common "deps:odecs/common"
 import om "../onimite"
 import script "../script"
 
@@ -59,7 +60,7 @@ audio_parts :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 		if x.sound {
 			continue
 		}
-		append(&songs, song_parts(x))
+		append(&songs, song_parts(x, &app.background_work.work_pool))
 	}
 	res := Audio_Parts_Result{songs = songs[:]}
 	b := strings.builder_make(context.temp_allocator)
@@ -93,7 +94,7 @@ audio_parts :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 
 // One song rendered alone (its sample sets loaded first), its parts' rows.
 @(private = "file")
-song_parts :: proc(x: script.Script_Song) -> Song_Parts {
+song_parts :: proc(x: script.Script_Song, pool: ^common.Work_Pool) -> Song_Parts {
 	om.song_clip_load(x.clip)
 	g := &x.clip.song
 	n := len(g.parts)
@@ -104,7 +105,7 @@ song_parts :: proc(x: script.Script_Song) -> Song_Parts {
 	defer for &m in pm.meters {
 		oanalyze.meter_destroy(&m)
 	}
-	orender.export_song(g, {stems = true}, {data = &pm, take = proc(data: rawptr, at: i64, l, r: []f32, stems: [][2][]f32) {
+	orender.export_song(g, {stems = true, pool = pool}, {data = &pm, take = proc(data: rawptr, at: i64, l, r: []f32, stems: [][2][]f32) {
 		pm := (^Part_Meters)(data)
 		for i in 0 ..< min(len(pm.meters), len(stems)) {
 			oanalyze.meter_push(&pm.meters[i], stems[i][0], stems[i][1])

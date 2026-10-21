@@ -117,8 +117,8 @@ test_view3d_layer :: proc(t: ^testing.T) {
 	testing.expectf(t, psnr > 30, "GPU vs CPU: %.1f dB", psnr)
 }
 
-// A sphere whose radius follows the frame makes a mesh every frame: from
-// the scene's second frame on, `geometry_growth`. One that keeps its
+// A sphere whose radius follows the frame makes a mesh every frame:
+// `geometry_growth` once that happens on consecutive frames. One that keeps its
 // radius and grows through `scale` makes one mesh and reports nothing.
 @(private = "file")
 render_growing :: proc(f: Frame, ctx: ^Context) {
@@ -163,9 +163,44 @@ test_view3d_geometry_growth :: proc(t: ^testing.T) {
 			}
 		}
 	}
-	// The scaled sphere: one mesh, no growth; the growing one: its first
-	// frame makes one, each later frame another.
-	testing.expect_value(t, growth, [6]int{0, 0, 0, 0, 1, 1})
+	// The scaled sphere: one mesh, no growth. The growing one's first frame
+	// reuses the scaled sphere's (radius 1), then each frame makes another:
+	// growth once it is made again frame after frame.
+	testing.expect_value(t, growth, [6]int{0, 0, 0, 0, 0, 1})
+	testing.expect_value(t, len(media.view3d.geometries.list), 3)
+}
+
+// Shapes of fixed parameters that first show up on later frames (a puff,
+// then a plume) are no growth: each makes its one mesh.
+@(test)
+test_view3d_late_shapes_are_not_growth :: proc(t: ^testing.T) {
+	render_late :: proc(f: Frame, ctx: ^Context) {
+		meshes := make([dynamic]Mesh, context.temp_allocator)
+		append(&meshes, Mesh{geometry = {.Sphere, {1, 16, 8, 0, 0, 0, 0}}, scale = {1, 1, 1}, material = MATERIAL_RED})
+		if f.index >= 2 {
+			append(&meshes, Mesh{geometry = {.Sphere, {2, 16, 8, 0, 0, 0, 0}}, scale = {1, 1, 1}, material = MATERIAL_RED})
+		}
+		if f.index >= 4 {
+			append(&meshes, Mesh{geometry = {.Sphere, {3, 16, 8, 0, 0, 0, 0}}, scale = {1, 1, 1}, material = MATERIAL_RED})
+		}
+		view3d(ctx, f, {w = 32, h = 32, camera = o3d.CAMERA_DEFAULT, meshes = meshes[:]})
+	}
+	@(static) scenes: [1]Scene
+	scenes = [1]Scene{{name = "Late", duration = Frames(6), render = render_late}}
+	v := Video{width = 32, height = 32, fps = 30, background = BLACK, scenes = scenes[:]}
+	media: Media
+	media_init(&media)
+	defer media_destroy(&media)
+	r: Renderer
+	testing.expect_value(t, renderer_init(&r, &v, &media), Error.None)
+	defer renderer_destroy(&r)
+	for f in 0 ..< 6 {
+		diagnostics_clear(&r.ctx)
+		render_frame(&r, f)
+		for d in r.ctx.diagnostics {
+			testing.expectf(t, d.code != .Geometry_Growth, "frame %d: %v", f, d)
+		}
+	}
 	testing.expect_value(t, len(media.view3d.geometries.list), 3)
 }
 

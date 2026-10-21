@@ -27,7 +27,7 @@ import otheory "deps:odawg/theory"
 // sounds a track plays by name, like a clip. A song is data (its form, its
 // tracks and every note). Its sound is made once, when something needs all
 // of it (a lane's peaks, a table a frame reads): its render, kept with it,
-// made a segment at a time on every core (the preview's playhead first);
+// made in one pass, odawg's stream on the host's background pool;
 // lanes and tables are views of it. The mix streams songs from odawg's
 // engine. The video's sample sets (what its Samplers play) are one bank,
 // shared by its songs.
@@ -46,14 +46,17 @@ Music :: struct {
 	// song is composed, and only the zones its notes reach loaded, when its
 	// sound is first wanted (music_load).
 	bank:    odevice.Bank,
-	// The renderers (threads making songs' renders: started by music_drain,
-	// ending when no segment is left), how many run, whether they must stop
-	// (the media goes), the video sample nearest which they render first
-	// (atomic), segments landed and songs whole since the host looked
-	// (atomic), what a waiting command hears a segment land on, and who
-	// they tell.
-	renderers: [dynamic]^thread.Thread,
-	running:   int,
+	// Where songs render: the host's background pool (music_set_pool; nil:
+	// on their caller) and odawg's engine's view of it. The driver renders
+	// the wanted songs one after another (started by music_drain, ending
+	// when none is left); whether it runs, whether it must stop (the media
+	// goes), the video sample whose song it renders first (atomic), spans
+	// landed and songs whole since the host looked (atomic), what a
+	// waiting command hears a span land on, and who they tell.
+	pool:      ^thread.Pool,
+	work:      Pool_Work,
+	driver:    Pool_Job,
+	running:   bool,
 	stopping:  bool,
 	focus:     i64,
 	landed:    int,
@@ -100,7 +103,8 @@ Song_Clip :: struct {
 music_init :: proc(mu: ^Music) {
 	mu.songs = make(map[string]^Song_Clip)
 	mu.retired = make([dynamic]^Song_Clip)
-	mu.renderers = make([dynamic]^thread.Thread)
+	mu.driver.procedure = music_driver
+	pool_work_init(&mu.work, nil)
 	a := runtime.heap_allocator()
 	mu.bank.sets = make([dynamic]odevice.Sample_Set, a)
 	mu.bank.zones = make([dynamic]odevice.Zone, a)
@@ -113,15 +117,12 @@ music_init :: proc(mu: ^Music) {
 
 @(private)
 music_destroy :: proc(mu: ^Music) {
-	// the renderers finish the segment they are on
+	// the driver finishes the song it is on
 	sync.mutex_lock(&mu.lock)
 	mu.stopping = true
 	sync.mutex_unlock(&mu.lock)
-	for t in mu.renderers {
-		thread.join(t)
-		thread.destroy(t)
-	}
-	delete(mu.renderers)
+	pool_join(&mu.driver)
+	pool_work_destroy(&mu.work)
 	for name, sc in mu.songs {
 		delete(name)
 		song_clip_free(sc)
@@ -462,27 +463,25 @@ song_off_grid :: proc(sc: ^Song_Clip, t: f64) -> (off, beat: f64, ok: bool) {
 
 // ---- a song's render, and the tables read from it -----------------------------------
 
-// Samples a render segment covers: whole peak buckets, so none straddles
-// two segments. Long enough that the exact seek starting each run (its
-// effects' memory, seconds) costs little against it; short enough that the
-// segment at a jump lands in well under a second.
-SONG_SEGMENT :: 16 * MIX_RATE
+// Samples a render segment covers: what lands at once (the tables' rows it
+// completes filled, the host told), whole peak buckets so none straddles
+// two segments.
+SONG_SEGMENT :: 4 * MIX_RATE
 // Samples a render peak covers (min and max, the lanes' level 0).
 SONG_BUCKET :: 256
 
 Segment_State :: enum u8 {
 	Todo,
-	Taken, // a renderer is making it
 	Done,
 }
 
 // A song's render: what it sounds like, made once and kept. Its mix as its
 // master puts it out (16-bit stereo interleaved) and, per bucket, the
 // peaks of the mix and of each part (row 0 the mix, row p + 1 part p: what
-// lanes draw; the parts' sound itself is not kept). It is made a segment
-// at a time, each from an exact seek, so any segment can be made first:
-// `state` is per segment (Segment_State, atomic), `left` how many are not
-// done (atomic). Memory once something wants it (song_render_want), heap.
+// lanes draw; the parts' sound itself is not kept). It is made in one
+// pass from the start, landing a segment at a time: `state` is per segment
+// (Segment_State, atomic), `left` how many are not done (atomic). Memory
+// once something wants it (song_render_want), heap.
 Song_Render :: struct {
 	samples:   []i16,
 	peaks:     [][2]i8,
@@ -490,7 +489,8 @@ Song_Render :: struct {
 	frames:    int,
 	state:     []u8,
 	left:      int,
-	wanted:    bool, // the renderers make it (under the music's lock)
+	wanted:    bool, // the driver makes it (under the music's lock)
+	taken:     bool, // the driver is making it, or made it (under the music's lock)
 }
 
 // A song's band rows (a spectrogram) are a .Bands table of its mix, a row
@@ -557,7 +557,7 @@ song_table_ready :: proc(st: ^Song_Table) -> bool {
 }
 
 // Asks for the song's render: its memory and segments now, the sound as
-// the renderers make it (music_drain).
+// the driver makes it (music_drain).
 song_render_want :: proc(sc: ^Song_Clip) {
 	mu := sc.music
 	sync.guard(&mu.lock)
@@ -589,7 +589,7 @@ song_render_whole :: proc(sc: ^Song_Clip) -> bool {
 }
 
 // Whether `st` is complete; if not, the song's render is asked for (the
-// renderers fill it as they go and tell the host, Music.wake).
+// driver fills it as it goes and tells the host, Music.wake).
 song_table_later :: proc(sc: ^Song_Clip, st: ^Song_Table) -> bool {
 	if song_table_ready(st) {
 		return true
@@ -598,80 +598,45 @@ song_table_later :: proc(sc: ^Song_Clip, st: ^Song_Table) -> bool {
 	return false
 }
 
-// Has the song's render made now (the renderers on every core, this thread
-// waiting) and `st` filled: what a command reading the whole song does.
+// Has the song's render made now (the driver on the background pool, or
+// here without one; this thread waiting) and `st` filled: what a command
+// reading the whole song does.
 song_table_build :: proc(sc: ^Song_Clip, st: ^Song_Table) {
 	if song_table_ready(st) {
 		return
 	}
 	song_render_want(sc)
 	mu := sc.music
-	sync.guard(&mu.lock)
 	music_start(mu)
-	for sync.atomic_load(&sc.render.left) > 0 {
+	sync.guard(&mu.lock)
+	for !mu.stopping && sync.atomic_load(&sc.render.left) > 0 {
 		sync.cond_wait(&mu.landing, &mu.lock)
 	}
 }
 
-// Makes the song's render from segment `g` (taken): one engine from an
-// exact seek, a block at a time, the mix into the render and every
-// bucket's peaks (the mix's and each part's, from the block's stems), each
-// segment landed as it is made; on into the next while nobody has taken it
-// (no seek again: the pre-roll is paid once a run).
+// Makes the song's render: odawg's stream from the start with the parts'
+// stems, its nodes on the background pool, each chunk landing in order
+// (song_take). Whatever the stream leaves (the render rounds the song's
+// length up) lands as silence.
 @(private = "file")
-render_run :: proc(sc: ^Song_Clip, g: int) {
+render_song :: proc(sc: ^Song_Clip) {
 	mu := sc.music
 	song_clip_load(sc)
-	run: Song_Run
-	if !orender.engine_init(&run.engine, &sc.song) {
+	orender.export_song(&sc.song, {stems = true, pool = &mu.work.work_pool}, {data = sc, take = song_take})
+	land_through(sc, sc.render.frames)
+}
+
+// A chunk of the stream from sample `at`: into the render (16-bit), its
+// buckets' peaks (the mix's and each part's), then what it completes lands.
+@(private = "file")
+song_take :: proc(data: rawptr, at: i64, l, r: []f32, stems: [][2][]f32) {
+	sc := (^Song_Clip)(data)
+	rd := &sc.render
+	from := int(at)
+	n := min(len(l), rd.frames - from)
+	if n <= 0 {
 		return
 	}
-	defer orender.engine_destroy(&run.engine)
-	orender.engine_seek(&run.engine, i64(g * SONG_SEGMENT), true)
-	parts := len(sc.song.parts)
-	BLOCK :: orender.BLOCK
-	run.buf = make([]f32, 2 * BLOCK * (1 + parts), context.temp_allocator)
-	run.stems = make([][2][]f32, parts, context.temp_allocator)
-	for g := g; ; g += 1 {
-		render_segment(sc, &run, g)
-		sync.guard(&mu.lock)
-		if mu.stopping || g + 1 >= len(sc.render.state) || sc.render.state[g + 1] != u8(Segment_State.Todo) {
-			break
-		}
-		sc.render.state[g + 1] = u8(Segment_State.Taken)
-	}
-}
-
-// A run: its engine, a block of the mix and of each part's stem. Temp
-// memory.
-@(private = "file")
-Song_Run :: struct {
-	engine: orender.Engine,
-	buf:    []f32,
-	stems:  [][2][]f32,
-}
-
-// The run's next `n` samples (at most a block): the mix and the stems into
-// its block. Returns the mix.
-@(private = "file")
-run_block :: proc(run: ^Song_Run, n: int) -> (l, r: []f32) {
-	BLOCK :: orender.BLOCK
-	l, r = run.buf[:n], run.buf[BLOCK:][:n]
-	for &st, p in run.stems {
-		st = {run.buf[2 * BLOCK * (p + 1):][:n], run.buf[2 * BLOCK * (p + 1) + BLOCK:][:n]}
-	}
-	orender.engine_process(&run.engine, l, r, run.stems)
-	return
-}
-
-// Segment `g` from the run (at its start), then landed: marked done and
-// the mix tables' rows the render now holds filled.
-@(private = "file")
-render_segment :: proc(sc: ^Song_Clip, run: ^Song_Run, g: int) {
-	rd := &sc.render
-	from := g * SONG_SEGMENT
-	to := min(from + SONG_SEGMENT, rd.frames)
-	BLOCK :: orender.BLOCK
 	// Eight samples a step, the rest one at a time.
 	peak :: proc(l, r: []f32) -> [2]i8 {
 		V :: #simd[8]f32
@@ -690,45 +655,68 @@ render_segment :: proc(sc: ^Song_Clip, run: ^Song_Run, g: int) {
 		lo, hi = min(lo, simd.reduce_min(vlo)), max(hi, simd.reduce_max(vhi))
 		return {i8(clamp(lo, -1, 1) * 127), i8(clamp(hi, -1, 1) * 127)}
 	}
-	#no_bounds_check for at := from; at < to; at += BLOCK {
-		n := min(BLOCK, to - at)
-		l, r := run_block(run, n)
-		out := rd.samples[2 * at:][:2 * n]
+	// a bucket a chunk starts inside of keeps what the last chunk found
+	merge :: proc(p: ^[2]i8, x: [2]i8, inside: bool) {
+		p^ = {min(p[0], x[0]), max(p[1], x[1])} if inside else x
+	}
+	parts := stems[:min(len(stems), len(sc.song.parts))]
+	out := rd.samples[2 * from:][:2 * n]
+	#no_bounds_check {
 		for i in 0 ..< n {
 			out[2 * i] = i16(clamp(l[i], -1, 1) * 32767)
 			out[2 * i + 1] = i16(clamp(r[i], -1, 1) * 32767)
 		}
-		for k := 0; k < n; k += SONG_BUCKET {
-			b := (at + k) / SONG_BUCKET
-			z := min(k + SONG_BUCKET, n)
-			rd.peaks[b] = peak(l[k:z], r[k:z])
-			for st, p in run.stems {
-				rd.peaks[(p + 1) * rd.buckets + b] = peak(st[0][k:z], st[1][k:z])
+		for k := 0; k < n; {
+			b := (from + k) / SONG_BUCKET
+			z := min((b + 1) * SONG_BUCKET - from, n)
+			inside := (from + k) % SONG_BUCKET != 0
+			merge(&rd.peaks[b], peak(l[k:z], r[k:z]), inside)
+			for st, p in parts {
+				merge(&rd.peaks[(p + 1) * rd.buckets + b], peak(st[0][k:z], st[1][k:z]), inside)
 			}
+			k = z
 		}
 	}
-	sync.atomic_store(&rd.state[g], u8(Segment_State.Done))
+	land_through(sc, from + n)
+}
+
+// Lands the segments the render now holds up to sample `upto`: marked
+// done, the mix tables' rows they complete filled, the host told.
+@(private = "file")
+land_through :: proc(sc: ^Song_Clip, upto: int) {
+	rd := &sc.render
 	mu := sc.music
-	tables: []^Song_Table
-	{
-		sync.guard(&mu.lock)
-		tables = slice.clone(sc.tables[:], context.temp_allocator)
-	}
-	for st in tables {
-		table_fill_held(sc, st, from, to)
-	}
-	if sync.atomic_sub(&rd.left, 1) == 1 {
-		for st in tables {
-			sync.atomic_store(&st.complete, true)
+	for g in 0 ..< len(rd.state) {
+		from := g * SONG_SEGMENT
+		to := min(from + SONG_SEGMENT, rd.frames)
+		if to > upto {
+			break
 		}
-		sync.atomic_add(&mu.whole, 1)
-	}
-	sync.atomic_add(&mu.landed, 1)
-	sync.mutex_lock(&mu.lock)
-	sync.cond_broadcast(&mu.landing)
-	sync.mutex_unlock(&mu.lock)
-	if mu.wake != nil {
-		mu.wake(mu.wake_data)
+		if sync.atomic_load(&rd.state[g]) == u8(Segment_State.Done) {
+			continue
+		}
+		sync.atomic_store(&rd.state[g], u8(Segment_State.Done))
+		tables: []^Song_Table
+		{
+			sync.guard(&mu.lock)
+			tables = slice.clone(sc.tables[:], context.temp_allocator)
+		}
+		for st in tables {
+			table_fill_held(sc, st, from, to)
+		}
+		if sync.atomic_sub(&rd.left, 1) == 1 {
+			for st in tables {
+				sync.atomic_store(&st.complete, true)
+			}
+			sync.atomic_add(&mu.whole, 1)
+		}
+		sync.atomic_add(&mu.landed, 1)
+		sync.mutex_lock(&mu.lock)
+		sync.cond_broadcast(&mu.landing)
+		sync.mutex_unlock(&mu.lock)
+		if mu.wake != nil {
+			mu.wake(mu.wake_data)
+		}
 	}
 }
 
@@ -815,7 +803,11 @@ song_table_fill_rows :: proc(sc: ^Song_Clip, st: ^Song_Table, first, last: int) 
 	song_clip_load(sc)
 	buf := make([]f32, 2 * (to - from), context.temp_allocator)
 	l, r := buf[:to - from], buf[to - from:]
-	orender.export_into(&sc.song, {from = f64(from) / MIX_RATE, to = f64(to) / MIX_RATE}, {l, r})
+	// the driver may be using the music's own view of the pool
+	work: Pool_Work
+	pool_work_init(&work, sc.music.pool)
+	defer pool_work_destroy(&work)
+	orender.export_into(&sc.song, {from = f64(from) / MIX_RATE, to = f64(to) / MIX_RATE, pool = &work.work_pool}, {l, r})
 	for step in lo ..= hi {
 		out := orender.table_row(t, step)
 		start := orender.row_start(t, step)
@@ -832,34 +824,40 @@ song_table_fill_rows :: proc(sc: ^Song_Clip, st: ^Song_Table, first, last: int) 
 	}
 }
 
-// Starts the renderers on the renders wanted so far, unless they run (they
-// take what is wanted meanwhile too). The host drains once it has asked
+// Starts the driver on the renders wanted so far, unless it runs (it
+// takes what is wanted meanwhile too). The host drains once it has asked
 // for everything a pass needs (a frame, the lanes).
 music_drain :: proc(m: ^Media) {
 	if m == nil || m.music == nil {
 		return
 	}
-	sync.guard(&m.music.lock)
 	music_start(m.music)
 }
 
-// The renderers, one per core but two (the window and the worker keep
-// theirs), at low priority: they are background work. Started under the
-// music's lock.
+// The driver, on the background pool, or here (returning when every
+// wanted song is made) when there is none.
 @(private = "file")
 music_start :: proc(mu: ^Music) {
-	if mu.running > 0 || mu.stopping || next_segment(mu).song == nil {
+	sync.mutex_lock(&mu.lock)
+	if mu.running || mu.stopping || next_song(mu) == nil {
+		sync.mutex_unlock(&mu.lock)
 		return
 	}
-	for t in mu.renderers {
-		thread.join(t)
-		thread.destroy(t)
-	}
-	clear(&mu.renderers)
-	for _ in 0 ..< max(os.get_processor_core_count() - 2, 1) {
-		mu.running += 1
-		append(&mu.renderers, thread.create_and_start_with_data(mu, music_renderer, priority = .Low, name = "song renderer"))
-	}
+	mu.running = true
+	sync.mutex_unlock(&mu.lock)
+	// the last run may still be returning from its procedure
+	pool_join(&mu.driver)
+	pool_spawn(mu.pool, &mu.driver, runtime.heap_allocator())
+}
+
+// The pool the media's songs render on (nil: their caller), lent by the
+// host; set while no song renders.
+music_set_pool :: proc(m: ^Media, pool: ^thread.Pool) {
+	mu := m.music
+	pool_join(&mu.driver)
+	pool_work_destroy(&mu.work)
+	mu.pool = pool
+	pool_work_init(&mu.work, pool)
 }
 
 // Whether renders wait for music_drain.
@@ -869,71 +867,56 @@ music_queued :: proc(m: ^Media) -> bool {
 	}
 	mu := m.music
 	sync.guard(&mu.lock)
-	return mu.running == 0 && next_segment(mu).song != nil
+	return !mu.running && next_song(mu) != nil
 }
 
-// The video sample the renderers make first (the preview's playhead): each
-// song's segment nearest it on the song's own clock.
+// The video sample the driver makes first (the preview's playhead): the
+// song sounding there, else the nearest.
 music_focus :: proc(m: ^Media, sample: int) {
 	if m != nil && m.music != nil {
 		sync.atomic_store(&m.music.focus, i64(sample))
 	}
 }
 
-// A segment to make, and whose.
-@(private = "file")
-Segment_Ref :: struct {
-	song:    ^Song_Clip,
-	segment: int,
-}
-
-// The segment nearest the focus of every render wanted, among the media's
+// The wanted song not yet taken nearest the focus, among the media's
 // current songs (not retired ones); under the music's lock.
 @(private = "file")
-next_segment :: proc(mu: ^Music) -> (best: Segment_Ref) {
+next_song :: proc(mu: ^Music) -> (best: ^Song_Clip) {
 	focus := int(sync.atomic_load(&mu.focus))
 	nearest := max(int)
 	for _, sc in mu.songs {
 		rd := &sc.render
-		if !rd.wanted || sync.atomic_load(&rd.left) == 0 {
+		if !rd.wanted || rd.taken || sync.atomic_load(&rd.left) == 0 {
 			continue
 		}
-		at := focus - int(math.round(sc.song.start * MIX_RATE))
-		for x, g in rd.state {
-			if x != u8(Segment_State.Todo) {
-				continue
-			}
-			a, z := g * SONG_SEGMENT, (g + 1) * SONG_SEGMENT
-			d := at < a ? a - at : (at >= z ? at - z + 1 : 0)
-			// one a renderer is running into comes after the rest
-			if g > 0 && rd.state[g - 1] == u8(Segment_State.Taken) {
-				d += 1 << 40
-			}
-			if d < nearest {
-				best, nearest = {sc, g}, d
-			}
+		a := int(math.round(sc.song.start * MIX_RATE))
+		z := a + rd.frames
+		d := focus < a ? a - focus : (focus >= z ? focus - z + 1 : 0)
+		if d < nearest {
+			best, nearest = sc, d
 		}
 	}
 	return
 }
 
-// A renderer: the segment nearest the focus, one at a time, until none is
-// left.
+// The driver: the wanted song nearest the focus, one at a time, until none
+// is left.
 @(private = "file")
-music_renderer :: proc(data: rawptr) {
-	mu := (^Music)(data)
+music_driver :: proc(job: ^Pool_Job) {
+	mu := container_of(job, Music, "driver")
 	for {
 		sync.mutex_lock(&mu.lock)
-		next := next_segment(mu) if !mu.stopping else {}
-		if next.song == nil {
-			mu.running -= 1
+		sc := next_song(mu) if !mu.stopping else nil
+		if sc == nil {
+			mu.running = false
 			sync.mutex_unlock(&mu.lock)
 			return
 		}
-		next.song.render.state[next.segment] = u8(Segment_State.Taken)
+		sc.render.taken = true
 		sync.mutex_unlock(&mu.lock)
-		render_run(next.song, next.segment)
-		free_all(context.temp_allocator)
+		// scoped: without a pool this is the caller's thread
+		runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
+		render_song(sc)
 	}
 }
 

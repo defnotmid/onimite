@@ -93,7 +93,7 @@ Media_Kind_Info :: struct {
 
 @(rodata)
 MEDIA_KINDS := [Media_Kind]Media_Kind_Info {
-	.Image     = {"image", "IMG", {".png", ".jpg", ".jpeg", ".bmp", ".gif", ".tga", ".qoi", ".webp"}, "an image"},
+	.Image     = {"image", "IMG", {".png", ".jpg", ".jpeg", ".bmp", ".gif", ".tga", ".qoi", ".webp", ".hdr"}, "an image"},
 	.Video     = {"video", "VID", {".mp4", ".mov", ".m4v", ".webm"}, ""},
 	.Audio     = {"sound", "AUD", {".wav", ".wave", ".ogg", ".oga", ".opus", ".m4a", ".aac", ".mp3", ".flac"}, "audio"},
 	.Font      = {"font", "FNT", {".ttf", ".otf", ".ttc"}, "a font"},
@@ -102,7 +102,7 @@ MEDIA_KINDS := [Media_Kind]Media_Kind_Info {
 	.Shader    = {"shader", "SHD", {".sksl", ".glsl", ".frag"}, ""},
 	.Subtitles = {"subtitles", "SUB", {".vtt", ".srt"}, "subtitles (WebVTT or SRT)"},
 	.Captions  = {"captions", "CAP", {".json"}, ""},
-	.Model     = {"glTF model", "MDL", {".glb", ".gltf", ".3mf", ".obj"}, "a glTF 2.0 model"},
+	.Model     = {"glTF model", "MDL", {".glb", ".gltf", ".3mf", ".obj", ".usdz", ".usdc"}, "a glTF 2.0 model"},
 }
 
 // The kind file `name` loads as, by its extension (a .json file as Lottie
@@ -642,7 +642,17 @@ media_load_dir :: proc(m: ^Media, dir: string, pool: ^thread.Pool = nil) -> Erro
 		delete(jobs)
 	}
 	for fi in infos {
-		if fi.type != .Regular || (only != "" && fi.name != only) {
+		if only != "" && fi.name != only {
+			continue
+		}
+		// a link counts as the file it points to (a large model linked in
+		// rather than copied)
+		if fi.type == .Symlink {
+			target, stat_err := os.stat(fi.fullpath, context.temp_allocator)
+			if stat_err != nil || target.type != .Regular {
+				continue
+			}
+		} else if fi.type != .Regular {
 			continue
 		}
 		kind := media_kind_of(fi.name) or_continue

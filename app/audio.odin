@@ -7,6 +7,7 @@ import "core:slice"
 import "core:strings"
 import wav "deps:odecs/audio/wav"
 import orender "deps:odawg/render"
+import common "deps:odecs/common"
 import om "../onimite"
 import script "../script"
 import vg "deps:ovg"
@@ -25,7 +26,7 @@ build_audio :: proc(app: ^App_State) -> Error {
 		return nil
 	}
 	s := &app.script
-	b := clip_builds_make(script.audio_pending_names(s), app.pool, s.shared, s.path, app.media.dir, s.args, s.props, &app.video)
+	b := clip_builds_make(script.audio_pending_names(s), app.pool, app.background, s.shared, s.path, app.media.dir, s.args, s.props, &app.video)
 	defer clip_builds_destroy(b)
 	clip_builds_wait(b)
 	if _, f := clip_builds_drain(b, &app.media, s); f.code != .None {
@@ -87,7 +88,7 @@ solo :: proc(placed: []om.Placed_Track, name: string) -> (heard: int) {
 audio_mix :: proc(app: ^App_State, r: ^om.Renderer, start, end: int, track := "") -> (mix: []f32, placed: [dynamic]om.Placed_Track, stats: om.Mix_Stats, err: Error) {
 	placed = placed_tracks(app, r, track) or_return
 	fps := r.video.fps
-	mix, stats = om.mix_tracks(placed[:], om.frames_to_samples(start, fps), om.frames_to_samples(end, fps), r.video.mix)
+	mix, stats = om.mix_tracks(placed[:], om.frames_to_samples(start, fps), om.frames_to_samples(end, fps), r.video.mix, &app.background_work.work_pool)
 	return
 }
 
@@ -199,7 +200,7 @@ Analysis_Tables :: struct {
 }
 
 @(private)
-analysis_tables :: proc(mix: []f32) -> (t: Analysis_Tables) {
+analysis_tables :: proc(mix: []f32, pool: ^common.Work_Pool) -> (t: Analysis_Tables) {
 	n := len(mix) / 2
 	buf := make([]f32, 2 * n, context.temp_allocator)
 	l, r := buf[:n], buf[n:]
@@ -210,7 +211,7 @@ analysis_tables :: proc(mix: []f32) -> (t: Analysis_Tables) {
 	orender.table_init_frames(&t.bands, .Bands, n, ANALYSIS_STEP, 1, allocator = a)
 	orender.table_init_frames(&t.stereo, .Stereo, n, ANALYSIS_STEP, 1, allocator = a)
 	orender.table_init_frames(&t.crest, .Crest, n, ANALYSIS_STEP, 1, allocator = a)
-	orender.tables_fill(nil, {&t.bands, &t.stereo, &t.crest}, {l, r}, nil)
+	orender.tables_fill(nil, {&t.bands, &t.stereo, &t.crest}, {l, r}, nil, pool)
 	return
 }
 
@@ -296,7 +297,7 @@ audio_analyze :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 	doc.silent_ranges = silent
 	from := om.frames_to_samples(start, fps)
 	n := len(mix) / 2
-	tables := analysis_tables(mix)
+	tables := analysis_tables(mix, &app.background_work.work_pool)
 	mix_whole := analysis_measures(&tables, 0, n)
 	put_sound(&doc, mix_whole)
 	band_hz := make([]f64, len(orender.BAND_HZ), context.temp_allocator)
@@ -329,9 +330,9 @@ audio_analyze :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 		bus_placed := slice.clone(placed[:], context.temp_allocator)
 		for b in r.video.buses {
 			count := solo(bus_placed, b.name)
-			bm, _ := om.mix_tracks(bus_placed, om.frames_to_samples(start, fps), om.frames_to_samples(end, fps), r.video.mix, context.temp_allocator)
+			bm, _ := om.mix_tracks(bus_placed, om.frames_to_samples(start, fps), om.frames_to_samples(end, fps), r.video.mix, &app.background_work.work_pool, context.temp_allocator)
 			br := om.analyze_audio(bm, context.temp_allocator)
-			append(&bus_tables, analysis_tables(bm))
+			append(&bus_tables, analysis_tables(bm, &app.background_work.work_pool))
 			bus := Audio_Bus{name = b.name, tracks = count, integrated_lufs = level(br.integrated_lufs), true_peak_dbtp = level(br.true_peak_db)}
 			put_sound(&bus, analysis_measures(&bus_tables[len(bus_tables) - 1], 0, len(bm) / 2))
 			append(&buses, bus)

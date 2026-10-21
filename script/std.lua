@@ -3,7 +3,7 @@
 -- @remotion/transitions and GSAP's staggers, plus a beat clock. Plain Lua
 -- over the native API (script/script.odin loads it with #load).
 
-local floor, abs, exp, sin, cos, max, pi = math.floor, math.abs, math.exp, math.sin, math.cos, math.max, math.pi
+local floor, abs, exp, sin, cos, max, pi, sqrt = math.floor, math.abs, math.exp, math.sin, math.cos, math.max, math.pi, math.sqrt
 
 -- Math helpers: plain Lua, as fast as the arithmetic itself (a call into
 -- Odin would cost more than the work). noise() and mix_color() are native.
@@ -18,6 +18,23 @@ function smoothstep(a, b, x) local t = progress(x, a, b) return t * t * (3 - 2 *
 function fract(x) return x - floor(x) end
 function round(x) return x >= 0 and floor(x + 0.5) or -floor(-x + 0.5) end
 function sign(x) return x > 0 and 1 or (x < 0 and -1 or 0) end
+
+-- 3D vectors as { x, y, z } lists, what view3d positions are: each gives a
+-- new list and leaves its arguments alone.
+function vec3_add(a, b) return { a[1] + b[1], a[2] + b[2], a[3] + b[3] } end
+function vec3_sub(a, b) return { a[1] - b[1], a[2] - b[2], a[3] - b[3] } end
+function vec3_scale(a, s) return { a[1] * s, a[2] * s, a[3] * s } end
+function vec3_lerp(a, b, t) return { a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t, a[3] + (b[3] - a[3]) * t } end
+function vec3_dot(a, b) return a[1] * b[1] + a[2] * b[2] + a[3] * b[3] end
+function vec3_cross(a, b) return { a[2] * b[3] - a[3] * b[2], a[3] * b[1] - a[1] * b[3], a[1] * b[2] - a[2] * b[1] } end
+function vec3_length(a) return sqrt(a[1] * a[1] + a[2] * a[2] + a[3] * a[3]) end
+function vec3_distance(a, b) return vec3_length(vec3_sub(a, b)) end
+-- a at length 1 (a zero vector stays zero).
+function vec3_normalize(a)
+  local n = vec3_length(a)
+  if n == 0 then return { 0, 0, 0 } end
+  return { a[1] / n, a[2] / n, a[3] / n }
+end
 
 -- Below a frame at any rate: boundaries computed by adding seconds stay put.
 local EPS = 1e-6
@@ -108,6 +125,88 @@ function stagger(i, each, opts)
   local far = max(origin - 1, n - origin)
   if far <= 0 then return 0 end
   return ease(opts.easing, d / far, 1) * (opts.amount or far * each)
+end
+
+-- Paths through 3D points ({ x, y, z } lists): a centripetal Catmull-Rom
+-- curve through every point (no loops or cusps where points bunch up),
+-- travelled at an even speed: path_at(points, t) is where it is a
+-- fraction t of its length along (0..1, clamped; `closed = true` joins the
+-- last point to the first and wraps t). `easing` (any easing ease() takes)
+-- reshapes t first. A camera on a path looks ahead with path_at(P, t +
+-- 0.02) as its target, or along path_tangent.
+local PATH_KEYS = { "closed", "easing" }
+local PATH_STEPS = 16 -- samples a segment, measuring its length
+
+-- Point k of the path: wrapped when closed; past an open end, the end
+-- mirrored (the curve leaves the end along its first segment).
+local function path_point(p, k, closed)
+  local n = #p
+  if closed then return p[(k - 1) % n + 1] end
+  if k < 1 then local a, b = p[1], p[2] return { 2 * a[1] - b[1], 2 * a[2] - b[2], 2 * a[3] - b[3] } end
+  if k > n then local a, b = p[n], p[n - 1] return { 2 * a[1] - b[1], 2 * a[2] - b[2], 2 * a[3] - b[3] } end
+  return p[k]
+end
+
+-- Segment i (from point i to i + 1) at u (0..1): x, y, z.
+local function path_eval(p, i, u, closed)
+  local p0, p1, p2, p3 = path_point(p, i - 1, closed), path_point(p, i, closed), path_point(p, i + 1, closed), path_point(p, i + 2, closed)
+  -- knots at the square roots of the distances (repeated points kept apart)
+  local t1 = max(vec3_distance(p0, p1) ^ 0.5, 1e-4)
+  local t2 = t1 + max(vec3_distance(p1, p2) ^ 0.5, 1e-4)
+  local t3 = t2 + max(vec3_distance(p2, p3) ^ 0.5, 1e-4)
+  local t = t1 + (t2 - t1) * u
+  local out = {}
+  for c = 1, 3 do
+    local a1 = ((t1 - t) * p0[c] + t * p1[c]) / t1
+    local a2 = ((t2 - t) * p1[c] + (t - t1) * p2[c]) / (t2 - t1)
+    local a3 = ((t3 - t) * p2[c] + (t - t2) * p3[c]) / (t3 - t2)
+    local b1 = ((t2 - t) * a1 + t * a2) / t2
+    local b2 = ((t3 - t) * a2 + (t - t1) * a3) / (t3 - t1)
+    out[c] = ((t2 - t) * b1 + (t - t1) * b2) / (t2 - t1)
+  end
+  return out
+end
+
+-- The segment and its parameter a fraction t of the path's length along:
+-- its samples' lengths summed, the one the length falls in, interpolated.
+local function path_find(p, t, opts, name)
+  if opts then check_fields(opts, name, PATH_KEYS) else opts = EMPTY end
+  local n, closed = #p, opts.closed
+  assert(n >= 2, name .. ": give at least two points")
+  if closed then t = fract(t) else t = clamp01(t) end
+  if opts.easing then t = ease(opts.easing, t, 1) end
+  local segs = closed and n or n - 1
+  local lens, total, prev = { [0] = 0 }, 0, p[1]
+  for k = 1, segs * PATH_STEPS do
+    local i = (k - 1) // PATH_STEPS + 1
+    local q = path_eval(p, i, (k - (i - 1) * PATH_STEPS) / PATH_STEPS, closed)
+    total = total + vec3_distance(prev, q)
+    lens[k], prev = total, q
+  end
+  local want, lo, hi = t * total, 0, segs * PATH_STEPS
+  while hi - lo > 1 do
+    local mid = (lo + hi) // 2
+    if lens[mid] <= want then lo = mid else hi = mid end
+  end
+  local span = lens[hi] - lens[lo]
+  local g = lo + (span > 0 and (want - lens[lo]) / span or 0)
+  local i = math.min(floor(g / PATH_STEPS) + 1, segs)
+  return i, g / PATH_STEPS - (i - 1), closed
+end
+
+function path_at(points, t, opts)
+  local i, u, closed = path_find(points, t, opts, "path_at")
+  return path_eval(points, i, u, closed)
+end
+
+-- The unit direction of travel at t (along the curve, not its speed).
+function path_tangent(points, t, opts)
+  local i, u, closed = path_find(points, t, opts, "path_tangent")
+  local h = 1e-3
+  local a, b
+  if u + h <= 1 then a, b = path_eval(points, i, u, closed), path_eval(points, i, u + h, closed)
+  else a, b = path_eval(points, i, u - h, closed), path_eval(points, i, u, closed) end
+  return vec3_normalize(vec3_sub(b, a))
 end
 
 -- A decaying pulse on every whole unit of x: 1 at each integer, about 0 a

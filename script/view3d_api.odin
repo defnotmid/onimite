@@ -5,6 +5,8 @@ import "core:fmt"
 import "core:math"
 import "core:math/linalg"
 import "core:slice"
+import "core:strings"
+import "core:sync"
 import "deps:o3d"
 import om "../onimite"
 import lua "vendor:lua/5.4"
@@ -55,8 +57,11 @@ l_view3d :: proc "c" (L: ^lua.State) -> c.int {
 	}
 	lua.pop(L, 1)
 	v.lights = read_list(L, s, 1, "lights", o3d.Light, read_light)
-	v.meshes = read_list(L, s, 1, "meshes", om.Mesh, read_mesh)
-	v.models = read_list(L, s, 1, "models", om.Model_Pose, read_model)
+	items: View3d_Items
+	read_items(L, s, 1, &items)
+	read_groups(L, s, 1, nil, {}, &items)
+	resolve_attach_names(L, &items)
+	v.meshes, v.models, v.particles = items.meshes[:], items.models[:], items.particles[:]
 	bloom_filter, has_bloom := read_bloom_filter(L, 1)
 	if has_bloom {
 		om.group_begin(ctx, om.Group{filter = bloom_filter})
@@ -272,6 +277,7 @@ read_mesh :: proc(L: ^lua.State, s: ^Script, t: c.int) -> (m: om.Mesh, ok: bool)
 	}
 	defer fields_pop(L, s, t, "mesh", outer)
 	m.position, m.rotation, m.scale = read_pose_transform(L, t)
+	m.attach = read_attach(L, s, t)
 	m.instances = read_list(L, s, t, "instances", o3d.Instance, read_instance)
 	m.material = o3d.MATERIAL_DEFAULT
 	default_mat := "MeshStandardMaterial"
@@ -495,8 +501,12 @@ read_material :: proc(L: ^lua.State, s: ^Script, t: c.int, default_type: string,
 		m.flags += {.Basic}
 		m.mode = .Points
 	case "ShaderMaterial":
+	case "ShadowMaterial":
+		// only the shadows it receives: black at `opacity` where lit less
+		m.flags += {.Shadow_Only}
+		m.color = {}
 	case:
-		bad_string(L, "material type", kind, "MeshStandardMaterial, MeshBasicMaterial, MeshToonMaterial, LineBasicMaterial, PointsMaterial or ShaderMaterial")
+		bad_string(L, "material type", kind, "MeshStandardMaterial, MeshBasicMaterial, MeshToonMaterial, ShadowMaterial, LineBasicMaterial, PointsMaterial or ShaderMaterial")
 	}
 	if get_bool(L, t, "transparent", false) {
 		m.flags += {.Transparent}
@@ -521,14 +531,25 @@ read_material :: proc(L: ^lua.State, s: ^Script, t: c.int, default_type: string,
 		if lua.istable(L, -1) {
 			ut := lua.absindex(L, -1)
 			uniforms := make([dynamic]o3d.Uniform, context.temp_allocator)
+			maps := make([dynamic]om.Shader_Map, context.temp_allocator)
 			for key in sorted_keys(L, ut) {
 				push_key(L, ut, key)
+				// an image of the media by name: the sampler2D's texture
+				if lua.type(L, -1) == .STRING {
+					str := string(lua.tostring(L, -1))
+					if kind, ok := om.media_kind_of(str); ok && kind == .Image {
+						append(&maps, om.Shader_Map{key, strings.clone(str, context.temp_allocator)})
+						lua.pop(L, 1)
+						continue
+					}
+				}
 				values := make([dynamic]f32, context.temp_allocator)
 				read_shader_floats(L, -1, &values)
 				append(&uniforms, o3d.Uniform{name = key, value = values[:]})
 				lua.pop(L, 1)
 			}
 			sh.uniforms = uniforms[:]
+			sh.maps = maps[:]
 		}
 		lua.pop(L, 1)
 		shader^ = sh
@@ -536,6 +557,9 @@ read_material :: proc(L: ^lua.State, s: ^Script, t: c.int, default_type: string,
 	}
 	m.color = read_color3(L, t, "color", m.color)
 	m.opacity = get_num(L, t, "opacity", m.opacity)
+	if kind == "ShadowMaterial" {
+		return
+	}
 	if kind == "LineBasicMaterial" {
 		m.size = get_num(L, t, "linewidth", m.size)
 		if !get_bool(L, t, "size_attenuation", true) {
@@ -544,6 +568,7 @@ read_material :: proc(L: ^lua.State, s: ^Script, t: c.int, default_type: string,
 		return
 	}
 	maps[.Color] = get_str(L, t, om.TEXTURE_MAPS[.Color], "")
+	maps[.Alpha] = get_str(L, t, om.TEXTURE_MAPS[.Alpha], "")
 	if cutoff := get_num(L, t, "alpha_test", 0); cutoff > 0 {
 		m.alpha_cutoff = cutoff
 		m.flags += {.Alpha_Mask}
@@ -578,7 +603,7 @@ read_material :: proc(L: ^lua.State, s: ^Script, t: c.int, default_type: string,
 		m.flags += {.Flat_Shading}
 	}
 	for k in om.Texture_Map {
-		if k != .Color {
+		if k != .Color && k != .Alpha {
 			maps[k] = get_str(L, t, om.TEXTURE_MAPS[k], "")
 		}
 	}
@@ -624,7 +649,7 @@ read_model :: proc(L: ^lua.State, s: ^Script, t: c.int) -> (p: om.Model_Pose, ok
 	p.src = get_str(L, t, "src", "")
 	if p.src == "" {
 		field_log = outer
-		bad_string(L, "model src", "", "a .glb, .gltf, .3mf or .obj file of the media")
+		bad_string(L, "model src", "", "a .glb, .gltf, .3mf, .obj, .usdz or .usdc file of the media")
 		return
 	}
 	defer fields_pop(L, s, t, "model", outer)
@@ -688,7 +713,243 @@ read_model :: proc(L: ^lua.State, s: ^Script, t: c.int) -> (p: om.Model_Pose, ok
 	}
 	p.outline_width = get_num(L, t, "outline_width", 0)
 	p.outline_color = read_color3(L, t, "outline_color", {})
+	p.attach = read_attach(L, s, t)
+	p.name = strings.clone(get_str(L, t, "name", ""), context.temp_allocator)
+	parts := make([dynamic]om.Model_Part, context.temp_allocator)
+	read_parts(L, s, t, "nodes", .Node, &parts)
+	read_parts(L, s, t, "materials", .Material, &parts)
+	p.parts = parts[:]
 	return p, true
+}
+
+// `attach = { model = i or "name", node = "Name" }`: rides on that node of
+// the view's model number `i` (1-based: the top-level models, then the
+// groups' in order) or the model of that `name`, as it is posed.
+@(private = "file")
+read_attach :: proc(L: ^lua.State, s: ^Script, t: c.int) -> (a: om.Attach) {
+	field(L, t, "attach")
+	defer lua.pop(L, 1)
+	if !lua.istable(L, -1) {
+		return
+	}
+	at := lua.absindex(L, -1)
+	outer := fields_push(L, at)
+	defer fields_pop(L, s, at, "attach", outer)
+	field(L, at, "model")
+	if lua.type(L, -1) == .STRING {
+		a.model_name = strings.clone(string(lua.tostring(L, -1)), context.temp_allocator)
+		a.model = -1 // numbered once the view's models are all read
+	} else {
+		a.model = int(lua.tointeger(L, -1))
+	}
+	lua.pop(L, 1)
+	a.node = strings.clone(get_str(L, at, "node", ""), context.temp_allocator)
+	if a.model == 0 || a.node == "" {
+		lua.L_error(L, "attach takes { model = <its number in models, from 1, or its name>, node = <a node's name in that model> }")
+	}
+	return
+}
+
+// Numbers the attachments that named their model.
+@(private = "file")
+resolve_attach_names :: proc(L: ^lua.State, items: ^View3d_Items) {
+	models := items.models[:]
+	number :: proc(L: ^lua.State, a: ^om.Attach, models: []om.Model_Pose) {
+		if a.model != -1 {
+			return
+		}
+		for m, i in models {
+			if m.name == a.model_name {
+				a.model = i + 1
+				return
+			}
+		}
+		lua.L_error(L, "attach: no model named %s in this view3d", strings.clone_to_cstring(a.model_name, context.temp_allocator))
+	}
+	for &m in items.meshes {
+		number(L, &m.attach, models)
+	}
+	for &m in models {
+		number(L, &m.attach, models)
+	}
+	for &e in items.particles {
+		number(L, &e.attach, models)
+	}
+}
+
+// What a view3d and its groups draw, in read order.
+@(private = "file")
+View3d_Items :: struct {
+	meshes:    [dynamic]om.Mesh,
+	models:    [dynamic]om.Model_Pose,
+	particles: [dynamic]om.Particle_Emitter,
+}
+
+@(private = "file")
+read_items :: proc(L: ^lua.State, s: ^Script, t: c.int, items: ^View3d_Items) {
+	if items.meshes == nil {
+		items.meshes = make([dynamic]om.Mesh, context.temp_allocator)
+		items.models = make([dynamic]om.Model_Pose, context.temp_allocator)
+		items.particles = make([dynamic]om.Particle_Emitter, context.temp_allocator)
+	}
+	append(&items.meshes, ..read_list(L, s, t, "meshes", om.Mesh, read_mesh))
+	append(&items.models, ..read_list(L, s, t, "models", om.Model_Pose, read_model))
+	append(&items.particles, ..read_list(L, s, t, "particles", om.Particle_Emitter, read_particles))
+}
+
+// A particle emitter: `rate` a second, each living `lifetime` seconds
+// (`time`: its clock, default the frame's), born within `spread` of
+// `position`, moving at `velocity` give or take `velocity_spread` under
+// `gravity`; `size` / `size_end`, `color` / `color_end` and `opacity` /
+// `opacity_end` over its life, `spin` radians a second; the sprite `map`,
+// `additive`, `softness` (world units) and `size_attenuation`.
+@(private = "file")
+read_particles :: proc(L: ^lua.State, s: ^Script, t: c.int) -> (e: om.Particle_Emitter, ok: bool) {
+	outer := fields_push(L, t)
+	defer fields_pop(L, s, t, "particles", outer)
+	e.seed = u64(get_num(L, t, "seed", 1))
+	e.rate = get_num(L, t, "rate", 0)
+	e.lifetime = get_num(L, t, "lifetime", 1)
+	e.time = get_num(L, t, "time", om.frame_seconds(s.frame))
+	e.position = read_vec3(L, t, "position", {})
+	e.spread = read_vec3(L, t, "spread", {}, splat = true)
+	e.velocity = read_vec3(L, t, "velocity", {})
+	e.velocity_spread = read_vec3(L, t, "velocity_spread", {}, splat = true)
+	e.gravity = read_vec3(L, t, "gravity", {})
+	size := get_num(L, t, "size", 0.1)
+	e.size = {size, get_num(L, t, "size_end", size)}
+	c0 := read_color3(L, t, "color", {1, 1, 1})
+	c1 := read_color3(L, t, "color_end", c0)
+	o0 := get_num(L, t, "opacity", 1)
+	o1 := get_num(L, t, "opacity_end", o0)
+	e.color = {{c0.x, c0.y, c0.z, o0}, {c1.x, c1.y, c1.z, o1}}
+	e.spin = get_num(L, t, "spin", 0)
+	e.material = o3d.MATERIAL_DEFAULT
+	e.material.flags += {.Basic, .Additive} if get_bool(L, t, "additive", false) else {.Basic, .Transparent}
+	if !get_bool(L, t, "size_attenuation", true) {
+		e.material.flags += {.No_Size_Attenuation}
+	}
+	e.material.softness = get_num(L, t, "softness", 0)
+	e.sprite = strings.clone(get_str(L, t, "map", ""), context.temp_allocator)
+	e.attach = read_attach(L, s, t)
+	return e, e.rate > 0
+}
+
+// view3d's `groups`: each `{ position, rotation, scale, attach, meshes,
+// models, groups }` places what is in it by its transform (on its parent
+// group's); a group's `attach` holds for what in it has none of its own.
+@(private = "file")
+read_groups :: proc(L: ^lua.State, s: ^Script, t: c.int, parent: Maybe(o3d.Mat4), parent_attach: om.Attach, items: ^View3d_Items) {
+	field(L, t, "groups")
+	defer lua.pop(L, 1)
+	if !lua.istable(L, -1) {
+		return
+	}
+	list := lua.absindex(L, -1)
+	for i in 1 ..= int(lua.rawlen(L, list)) {
+		lua.rawgeti(L, list, lua.Integer(i))
+		if !lua.istable(L, -1) {
+			lua.pop(L, 1)
+			continue
+		}
+		gt := lua.absindex(L, -1)
+		outer := fields_push(L, gt)
+		pos, rot, scl := read_pose_transform(L, gt)
+		g := om.group_transform(parent) * o3d.compose(pos, rot, scl)
+		attach := read_attach(L, s, gt)
+		if attach.model == 0 {
+			attach = parent_attach
+		}
+		first_mesh, first_model, first_emitter := len(items.meshes), len(items.models), len(items.particles)
+		read_items(L, s, gt, items)
+		for &m in items.meshes[first_mesh:] {
+			m.group = g
+			if m.attach.model == 0 {
+				m.attach = attach
+			}
+		}
+		for &m in items.models[first_model:] {
+			m.group = g
+			if m.attach.model == 0 {
+				m.attach = attach
+			}
+		}
+		for &m in items.particles[first_emitter:] {
+			m.group = g
+			if m.attach.model == 0 {
+				m.attach = attach
+			}
+		}
+		read_groups(L, s, gt, g, attach, items)
+		fields_pop(L, s, gt, "group", outer)
+		lua.pop(L, 1)
+	}
+}
+
+// A model's `nodes` or `materials`: by name in the model's file, each
+// `{ hidden, cast_shadow, receive_shadow }`, a node's own `position`,
+// `rotation` (radians) and `scale` replaced, a material's `material` drawn
+// in its place.
+@(private = "file")
+read_parts :: proc(L: ^lua.State, s: ^Script, t: c.int, key: cstring, of: type_of(om.Model_Part{}.of), parts: ^[dynamic]om.Model_Part) {
+	field(L, t, key)
+	defer lua.pop(L, 1)
+	if !lua.istable(L, -1) {
+		return
+	}
+	pt := lua.absindex(L, -1)
+	for name in sorted_keys(L, pt) {
+		push_key(L, pt, name)
+		if !lua.istable(L, -1) {
+			lua.L_error(L, "model %s.%s takes a table", key, strings.clone_to_cstring(name, context.temp_allocator))
+		}
+		at := lua.absindex(L, -1)
+		outer := fields_push(L, at)
+		part := om.Model_Part{of = of, name = name}
+		part.state.hidden = get_bool(L, at, "hidden", false)
+		for flag in ([2]struct{key: cstring, flag: o3d.Material_Flag}{{"cast_shadow", .Cast_Shadow}, {"receive_shadow", .Receive_Shadow}}) {
+			field(L, at, flag.key)
+			if !lua.isnil(L, -1) {
+				if lua.toboolean(L, -1) {
+					part.state.add += {flag.flag}
+				} else {
+					part.state.remove += {flag.flag}
+				}
+			}
+			lua.pop(L, 1)
+		}
+		if of == .Node {
+			x := &part.transform
+			if has_field(L, at, "position") {
+				x.set += {.Translation}
+				x.translation = read_vec3(L, at, "position", {})
+			}
+			if has_field(L, at, "rotation") {
+				x.set += {.Rotation}
+				e := read_vec3(L, at, "rotation", {})
+				// Euler XYZ as o3d.compose: R = Rx * Ry * Rz
+				qx := quaternion(w = math.cos(e.x / 2), x = math.sin(e.x / 2), y = 0, z = 0)
+				qy := quaternion(w = math.cos(e.y / 2), x = 0, y = math.sin(e.y / 2), z = 0)
+				qz := quaternion(w = math.cos(e.z / 2), x = 0, y = 0, z = math.sin(e.z / 2))
+				x.rotation = qx * qy * qz
+			}
+			if has_field(L, at, "scale") {
+				x.set += {.Scale}
+				x.scale = read_vec3(L, at, "scale", {1, 1, 1}, splat = true)
+			}
+		} else {
+			field(L, at, "material")
+			if lua.istable(L, -1) {
+				over := om.Model_Material{material = o3d.MATERIAL_DEFAULT}
+				read_material(L, s, lua.absindex(L, -1), "MeshStandardMaterial", &over.material, &over.maps, &over.shader)
+				part.material = over
+			}
+			lua.pop(L, 1)
+		}
+		fields_pop(L, s, at, "model part", outer)
+		append(parts, part)
+		lua.pop(L, 1)
+	}
 }
 
 // Reads `position`, `rotation` and `scale`, with optional `from` / `to`
@@ -810,6 +1071,17 @@ read_vec3 :: proc(L: ^lua.State, t: c.int, key: cstring, def: o3d.Vec3, splat :=
 	return v
 }
 
+// The {x, y, z} list at stack index `at`.
+@(private = "file")
+read_vec3_at :: proc(L: ^lua.State, at: c.int) -> (v: o3d.Vec3) {
+	for k in 0 ..< 3 {
+		lua.rawgeti(L, at, lua.Integer(k + 1))
+		v[k] = f32(lua.tonumber(L, -1))
+		lua.pop(L, 1)
+	}
+	return
+}
+
 // `key` as an sRGB colour (three.js's Color): any CSS colour, `rgb()`, or
 // a number as three.js writes them (0xff8800); else `def`.
 @(private = "file")
@@ -835,4 +1107,94 @@ get_bool :: proc(L: ^lua.State, t: c.int, key: cstring, def: bool) -> bool {
 		return bool(lua.toboolean(L, -1))
 	}
 	return def
+}
+
+// model_info(name): what a model of the media holds: its rest-pose box
+// (`min`, `max`, `size`, `center`), the node and material names its
+// `nodes` / `materials` take, its animations (`{ name, duration }`) and
+// morph target names; nil when the media has no such model.
+@(private)
+l_model_info :: proc "c" (L: ^lua.State) -> c.int {
+	s := host(L)
+	context = s.odin_context
+	media := measure_media(L, s, "model_info")
+	name := string(lua.L_checkstring(L, 1))
+	v := &media.view3d
+	sync.shared_lock(&v.lock)
+	defer sync.shared_unlock(&v.lock)
+	model, found := &v.models[name]
+	if !found {
+		lua.pushnil(L)
+		return 1
+	}
+	push_vec3 :: proc(L: ^lua.State, key: cstring, p: o3d.Vec3) {
+		lua.createtable(L, 3, 0)
+		for x, i in p {
+			lua.pushnumber(L, lua.Number(x))
+			lua.rawseti(L, -2, lua.Integer(i + 1))
+		}
+		lua.setfield(L, -2, key)
+	}
+	push_names :: proc(L: ^lua.State, key: cstring, names: []string) {
+		lua.createtable(L, i32(len(names)), 0)
+		seen := make(map[string]bool, len(names), context.temp_allocator)
+		k := 0
+		for n in names {
+			if n == "" || seen[n] {
+				continue
+			}
+			seen[n] = true
+			k += 1
+			lua.pushlstring(L, cstring(raw_data(n)), c.size_t(len(n)))
+			lua.rawseti(L, -2, lua.Integer(k))
+		}
+		lua.setfield(L, -2, key)
+	}
+	lua.createtable(L, 0, 8)
+	if lo, hi, ok := o3d.model_bounds(model, &v.geometries); ok {
+		push_vec3(L, "min", lo)
+		push_vec3(L, "max", hi)
+		push_vec3(L, "size", hi - lo)
+		push_vec3(L, "center", (lo + hi) / 2)
+	}
+	push_names(L, "nodes", model.nodes.name[:len(model.nodes)])
+	push_names(L, "materials", model.material_names[:])
+	push_names(L, "morphs", model.target_names[:])
+	lua.createtable(L, i32(len(model.animations)), 0)
+	for a, i in model.animations {
+		lua.createtable(L, 0, 2)
+		lua.pushlstring(L, cstring(raw_data(a.name)), c.size_t(len(a.name)))
+		lua.setfield(L, -2, "name")
+		set_num(L, "duration", f32(a.duration))
+		lua.rawseti(L, -2, lua.Integer(i + 1))
+	}
+	lua.setfield(L, -2, "animations")
+	return 1
+}
+
+// view3d_project(camera, point, size): where `point` ({x, y, z}) shows in a
+// view3d of `size` ({ width, height }; default the video's) seen by
+// `camera` (as view3d's): `{ x, y }` from the view's top left, `depth` (0
+// near .. 1 far) and `in_front` (false: behind the camera).
+@(private)
+l_view3d_project :: proc "c" (L: ^lua.State) -> c.int {
+	s := host(L)
+	context = s.odin_context
+	lua.L_checktype(L, 1, i32(lua.Type.TABLE))
+	lua.L_checktype(L, 2, i32(lua.Type.TABLE))
+	cam := read_camera(L, s, 1)
+	p := read_vec3_at(L, 2)
+	w, h := s.video.width, s.video.height
+	if lua.istable(L, 3) {
+		w = int(get_num(L, 3, "width", f32(w)))
+		h = int(get_num(L, 3, "height", f32(h)))
+	}
+	pixel, depth, in_front := o3d.camera_project(cam, w, h, p)
+	lua.createtable(L, 0, 4)
+	set_num(L, "x", pixel.x)
+	set_num(L, "y", pixel.y)
+	set_num(L, "depth", depth)
+	lua.pushboolean(L, b32(in_front))
+	lua.setfield(L, -2, "in_front")
+	return 1
 }

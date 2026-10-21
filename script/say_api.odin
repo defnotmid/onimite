@@ -9,6 +9,7 @@ import "core:os"
 import "core:slice"
 import "core:strings"
 import "core:sync"
+import common "deps:odecs/common"
 import om "../onimite"
 import "../speech"
 import lua "vendor:lua/5.4"
@@ -69,6 +70,90 @@ said_names :: proc(s: ^Script) -> []string {
 	}
 	slice.sort(names[:])
 	return names[:]
+}
+
+// A line the load's first pass missed: what to speak, its copies owned.
+Say_Miss :: struct {
+	name:    string,
+	key:     speech.Key,
+	request: speech.Request,
+}
+
+// A line the batch made for the second pass, and why it was not stored
+// (None when it was).
+Say_Made :: struct {
+	line: speech.Line,
+	kept: speech.Failure,
+}
+
+@(private)
+say_miss :: proc(s: ^Script, name: string, k: speech.Key, text: string, o: speech.Options) {
+	for x in s.say_misses {
+		if x.key == k {
+			return // the same line under another name: made once
+		}
+	}
+	r := speech.Request{text = strings.clone(text), options = o}
+	r.options.voice = strings.clone(o.voice)
+	r.options.voice_file = strings.clone(o.voice_file)
+	r.options.voice_samples = slice.clone(o.voice_samples)
+	append(&s.say_misses, Say_Miss{strings.clone(name), k, r})
+}
+
+@(private)
+say_misses_clear :: proc(s: ^Script) {
+	for &x in s.say_misses {
+		delete(x.name)
+		delete(x.request.text)
+		delete(x.request.options.voice)
+		delete(x.request.options.voice_file)
+		delete(x.request.options.voice_samples)
+	}
+	delete(s.say_misses)
+	s.say_misses = nil
+}
+
+@(private)
+say_made_clear :: proc(s: ^Script) {
+	for _, &x in s.say_made {
+		speech.line_destroy(&x.line)
+		speech.failure_destroy(&x.kept)
+	}
+	delete(s.say_made)
+	s.say_made = nil
+}
+
+// Between a load's passes: the lines its first pass missed, synthesized
+// together on the background pool and stored; the second pass reads them
+// (say_made), and a line that failed gets its stand-in and error there.
+@(private)
+say_synthesize :: proc(s: ^Script) {
+	defer say_misses_clear(s)
+	n := len(s.say_misses)
+	speech.log(fmt.tprintf("say: synthesizing %d line%s", n, "" if n == 1 else "s"))
+	requests := make([]speech.Request, n, context.temp_allocator)
+	for x, i in s.say_misses {
+		requests[i] = x.request
+	}
+	lines := make([]speech.Line, n, context.temp_allocator)
+	fails := make([]speech.Failure, n, context.temp_allocator)
+	// the media's background pool, where its songs render
+	work: om.Pool_Work
+	om.pool_work_init(&work, s.media.music.pool if s.media != nil && s.media.music != nil else nil)
+	defer om.pool_work_destroy(&work)
+	speech.synthesize(requests, lines, fails, &work.work_pool)
+	s.spoke = true
+	dir, has_dir := speech.store_dir()
+	for x, i in s.say_misses {
+		if fails[i].code != .None {
+			continue // known to speech now: the second pass gives the stand-in
+		}
+		kept := speech.store_write(dir, x.key, lines[i]) if has_dir else speech.Failure{code = .No_Store_Dir}
+		if s.say_made == nil {
+			s.say_made = make(map[speech.Key]Say_Made)
+		}
+		s.say_made[x.key] = {lines[i], speech.failure_clone(kept)}
+	}
 }
 
 @(private)
@@ -132,24 +217,43 @@ l_say :: proc "c" (L: ^lua.State) -> c.int {
 		dir, has_dir := speech.store_dir()
 		l: speech.Line
 		have := false
-		if has_dir {
+		kept: speech.Failure
+		if made, ok := s.say_made[k]; ok {
+			// made by this load's batch (say_synthesize)
+			l, kept, have = made.line, made.kept, true
+			delete_key(&s.say_made, k)
+		} else if has_dir {
 			l, have = speech.store_read(dir, k)
 		}
 		why := speech.Failure{code = .Unknown_Voice, path = o.voice}
 		if !have && (speech.voice_known(o.voice) || o.voice_hash != 0) {
+			if s.say_defer {
+				// the load's first pass: a stand-in until the batch makes it
+				say_miss(s, name, k, text, o)
+				l = speech.placeholder(text)
+				om.media_add_audio_samples(m, name, l.samples, l.rate, 1)
+				om.media_add_captions(m, name, line_captions(l))
+				push_line(L, name, text, o, l)
+				speech.line_destroy(&l)
+				return 1
+			}
+			// a line only this pass reaches (its first pass took another way)
 			speech.log(fmt.tprintf("say(%s): synthesizing the line", name))
-			l, why = speech.synthesize(text, o)
+			lines: [1]speech.Line
+			fails: [1]speech.Failure
+			speech.synthesize({{text, o}}, lines[:], fails[:])
+			l, why = lines[0], fails[0]
 			have = why.code == .None
 			s.spoke = true
 			if have {
-				kept := speech.store_write(dir, k, l) if has_dir else speech.Failure{code = .No_Store_Dir}
-				if kept.code != .None {
-					// This load has the line; the others of the process (clip
-					// builds) don't synthesize it again: theirs is silent.
-					report_warning(L, s, {code = .Tts_Not_Kept, a = name, b = speech.error_message(kept)})
-					speech.failed(k, kept)
-				}
+				kept = speech.store_write(dir, k, l) if has_dir else speech.Failure{code = .No_Store_Dir}
 			}
+		}
+		if have && kept.code != .None {
+			// This load has the line; the others of the process (clip
+			// builds) don't synthesize it again: theirs is silent.
+			report_warning(L, s, {code = .Tts_Not_Kept, a = name, b = speech.error_message(kept)})
+			speech.failed(k, kept)
 		}
 		if !have {
 			// An error: a render refuses to ship the silent line.

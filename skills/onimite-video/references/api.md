@@ -192,7 +192,9 @@ local d2 = stagger(3, nil, { n = 7, amount = 0.6, easing = ease_in })
 ```lua
 -- math helpers (plain Lua): lerp, clamp(x, lo, hi), clamp01, progress, remap, smoothstep(a, b, x),
 -- fract, round (half away from zero), sign, hash(n, seed) (a repeatable random 0..1: use it,
--- not math.random, so every frame builder agrees); and native noise / colour mixing
+-- not math.random, so every frame builder agrees); and native noise / colour mixing.
+-- 3D: vec3_add/sub/scale/lerp/dot/cross/length/distance/normalize on { x, y, z } lists, and
+-- path_at / path_tangent for camera paths (3d.md, "Camera paths and vectors")
 local x = lerp(100, 900, ease(ease_out, f.seconds, 2))
 local p = progress(f.seconds, 1, 3)          -- 0..1 between 1 s and 3 s (clamped)
 local y = remap(f.seconds, 0, 4, 200, 800)   -- 0..4 s mapped to 200..800
@@ -676,9 +678,11 @@ directional and spot lights (up to 4 directional/spot PCF shadows), tone mapping
 `MeshStandardMaterial`, `MeshBasicMaterial`, `LineBasicMaterial` and `PointsMaterial` with
 texture maps from `media/`, custom GLSL ES `ShaderMaterial`s, per-frame `LineGeometry`,
 `LineSegmentsGeometry` and `PointsGeometry` plus `wireframe` and `instances` (`InstancedMesh`),
-glTF models (`.glb`/`.gltf` in `media/`, including skinned characters, morph targets and
+glTF, 3MF, OBJ and USD models (in `media/`, including skinned characters, morph targets and
 `KHR_lights_punctual`) at a time of their animation with optional `morphs` and `material`
-overrides, an environment map: read [3d.md](3d.md). Animate sizes through a mesh's `scale`,
+overrides and changes to their parts by name, `groups`, `attach` to a model's part,
+particles, `ShadowMaterial`, an environment map (`.hdr` too), `model_info(name)` and
+`view3d_project(camera, point)`: read [3d.md](3d.md). Animate sizes through a mesh's `scale`,
 not its primitive geometry's parameters.
 
 ## Script environment
