@@ -728,6 +728,34 @@ test_view3d_labels :: proc(t: ^testing.T) {
 	testing.expectf(t, blue >= 40 && blue <= 80, "%d blue pixels", blue)
 }
 
+// A view whose background names a colour, not an image, starts every
+// pixel at it: opaque over the video's white, and an additive glow lands on
+// it (sRGB #800000 added to opaque black is #800000).
+@(test)
+test_view3d_background_color :: proc(t: ^testing.T) {
+	render_backed :: proc(f: Frame, ctx: ^Context) {
+		glow := MATERIAL_GREEN_BASIC
+		glow.color, glow.flags = {128.0 / 255, 0, 0}, {.Basic, .Additive}
+		meshes := make([]Mesh, 1, context.temp_allocator)
+		meshes[0] = {geometry = {.Box, {1.4, 1.4, 0.1, 1, 1, 1, 0}}, scale = {1, 1, 1}, material = glow}
+		view3d(ctx, f, {w = 64, h = 48, camera = o3d.CAMERA_DEFAULT, meshes = meshes, background = "#000000"})
+	}
+	@(static) scenes: [1]Scene
+	scenes = [1]Scene{{name = "Backed", duration = Frames(1), render = render_backed}}
+	v := Video{width = 64, height = 48, fps = 30, background = WHITE, scenes = scenes[:]}
+	media: Media
+	media_init(&media)
+	defer media_destroy(&media)
+	r: Renderer
+	testing.expect_value(t, renderer_init(&r, &v, &media), Error.None)
+	defer renderer_destroy(&r)
+	px := render_frame(&r, 0)
+	testing.expectf(t, len(r.ctx.diagnostics) == 0, "diagnostics: %v", r.ctx.diagnostics[:])
+	testing.expect_value(t, pixel(px, 64, 2, 2), [4]u8{0, 0, 0, 255})
+	mid := pixel(px, 64, 32, 24)
+	testing.expectf(t, abs(int(mid.r) - 128) <= 2 && mid.g == 0 && mid.b == 0 && mid.a == 255, "glow on black: %v", mid)
+}
+
 // A lens flare's elements show over everything, `distance` of the way from
 // its point to the point's mirror through the centre, and not at all while
 // the scene hides its point.

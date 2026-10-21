@@ -834,62 +834,51 @@ attach_shape3d :: proc(L: ^lua.State, s: ^Script, body_id: b3.BodyId, kind: Phys
 	}
 	lua.settop(L, top)
 
-	if field(L, t, "cylinder") == c.int(lua.Type.TABLE) {
-		ct := lua.absindex(L, -1)
-		outer := fields_push(L, ct)
-		r := get_num(L, ct, "radius", 0)
-		h := get_num(L, ct, "height", 0)
-		sides := c.int(clamp(int(get_num(L, ct, "segments", 16)), 6, 32))
-		if r == 0 && h == 0 && lua.rawlen(L, ct) >= 2 {
-			pair := read_pair(L, ct)
-			r, h = pair[0], pair[1]
-		}
-		fields_pop(L, s, ct, fmt.tprintf("physics3d.bodies[%d].cylinder", i + 1), outer)
-		if !(r > 0 && h > 0) {
-			lua.L_error(L, "physics3d: bodies[%d].cylinder needs positive { radius, height }", i32(i + 1))
-		}
-		hull := b3.CreateCylinder(h, r, 0, sides)
-		if hull == nil {
-			lua.L_error(L, "physics3d: bodies[%d].cylinder could not build hull", i32(i + 1))
-		}
-		defer b3.DestroyHull(hull)
-		_ = b3.CreateTransformedHullShape(body_id, shape, hull, local_xf, scale)
-		return true
+	// A cylinder is a cone with equal radii: both are a ring at -height/2
+	// and a ring (or, with radius_top 0, a point) at +height/2, about the
+	// body's centre like every shape.
+	cylinder := field(L, t, "cylinder") == c.int(lua.Type.TABLE)
+	if !cylinder {
+		lua.settop(L, top)
 	}
-	lua.settop(L, top)
-
-	if field(L, t, "cone") == c.int(lua.Type.TABLE) {
+	if cylinder || field(L, t, "cone") == c.int(lua.Type.TABLE) {
+		kind := "cylinder" if cylinder else "cone"
 		ct := lua.absindex(L, -1)
 		outer := fields_push(L, ct)
 		r1 := get_num(L, ct, "radius", get_num(L, ct, "radius_bottom", 0))
-		r2 := get_num(L, ct, "radius_top", 0)
+		r2 := r1 if cylinder else get_num(L, ct, "radius_top", 0)
 		h := get_num(L, ct, "height", 0)
-		slices := c.int(clamp(int(get_num(L, ct, "segments", 16)), 6, 32))
+		sides := clamp(int(get_num(L, ct, "segments", 16)), 6, 32)
 		if r1 == 0 && h == 0 && lua.rawlen(L, ct) >= 2 {
 			pair := read_pair(L, ct)
 			r1, h = pair[0], pair[1]
-		}
-		fields_pop(L, s, ct, fmt.tprintf("physics3d.bodies[%d].cone", i + 1), outer)
-		if !(r1 > 0 && r2 >= 0 && h > 0) {
-			lua.L_error(L, "physics3d: bodies[%d].cone needs positive { radius, height }", i32(i + 1))
-		}
-		var_hull: ^b3.HullData
-		if r2 > 0 {
-			var_hull = b3.CreateCone(h, r1, r2, slices)
-		} else {
-			pts := make([dynamic]b3.Vec3, 0, int(slices) + 1, context.temp_allocator)
-			append(&pts, b3.Vec3{0, h * 0.5, 0})
-			for k in 0 ..< int(slices) {
-				ang := 2 * math.PI * f32(k) / f32(slices)
-				append(&pts, b3.Vec3{r1 * math.cos(ang), -h * 0.5, r1 * math.sin(ang)})
+			if cylinder {
+				r2 = r1
 			}
-			var_hull = build_hull3d(L, pts[:], i)
 		}
-		if var_hull == nil {
-			lua.L_error(L, "physics3d: bodies[%d].cone could not build hull", i32(i + 1))
+		fields_pop(L, s, ct, fmt.tprintf("physics3d.bodies[%d].%s", i + 1, kind), outer)
+		if !(r1 > 0 && r2 >= 0 && h > 0) {
+			lua.L_error(L, "physics3d: bodies[%d].%s needs positive { radius, height }", i32(i + 1), strings.clone_to_cstring(kind, context.temp_allocator))
 		}
-		defer b3.DestroyHull(var_hull)
-		_ = b3.CreateTransformedHullShape(body_id, shape, var_hull, local_xf, scale)
+		pts := make([]b3.Vec3, sides + (sides if r2 > 0 else 1), context.temp_allocator)
+		for k in 0 ..< sides {
+			ang := 2 * math.PI * f32(k) / f32(sides)
+			c, sn := math.cos(ang), math.sin(ang)
+			pts[k] = {r1 * c, -h * 0.5, r1 * sn}
+			if r2 > 0 {
+				pts[sides + k] = {r2 * c, h * 0.5, r2 * sn}
+			}
+		}
+		if r2 == 0 {
+			pts[sides] = {0, h * 0.5, 0}
+		}
+		// every point kept (a 32-sided prism fits Box3D's limits), as b3CreateCylinder did
+		hull := b3.CreateHull(raw_data(pts), c.int(len(pts)), c.int(len(pts)))
+		if hull == nil {
+			hull = build_hull3d(L, pts, i)
+		}
+		defer b3.DestroyHull(hull)
+		_ = b3.CreateTransformedHullShape(body_id, shape, hull, local_xf, scale)
 		return true
 	}
 	lua.settop(L, top)
@@ -898,13 +887,21 @@ attach_shape3d :: proc(L: ^lua.State, s: ^Script, body_id: b3.BodyId, kind: Phys
 	case c.int(lua.Type.STRING):
 		name := string(lua.tostring(L, -1))
 		pts, _ := model_geometry(L, s, name, scale, i, "hull", false)
-		hull := build_hull3d(L, pts, i)
+		// every point kept (a 32-sided prism fits Box3D's limits), as b3CreateCylinder did
+		hull := b3.CreateHull(raw_data(pts), c.int(len(pts)), c.int(len(pts)))
+		if hull == nil {
+			hull = build_hull3d(L, pts, i)
+		}
 		defer b3.DestroyHull(hull)
 		_ = b3.CreateTransformedHullShape(body_id, shape, hull, local_xf, {1, 1, 1})
 		return true
 	case c.int(lua.Type.TABLE):
 		pts := read_vec3_list(L, -1, scale)
-		hull := build_hull3d(L, pts, i)
+		// every point kept (a 32-sided prism fits Box3D's limits), as b3CreateCylinder did
+		hull := b3.CreateHull(raw_data(pts), c.int(len(pts)), c.int(len(pts)))
+		if hull == nil {
+			hull = build_hull3d(L, pts, i)
+		}
 		defer b3.DestroyHull(hull)
 		_ = b3.CreateTransformedHullShape(body_id, shape, hull, local_xf, {1, 1, 1})
 		return true

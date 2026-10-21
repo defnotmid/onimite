@@ -1,5 +1,6 @@
 package onimite_script
 
+import "core:encoding/base64"
 import "core:encoding/json"
 import "core:fmt"
 import "core:math/linalg"
@@ -220,6 +221,11 @@ assert(same(vec3_scale({ 1, -2, 3 }, 2), { 2, -4, 6 }) and same(vec3_lerp({ 0, 0
 assert(vec3_dot({ 1, 2, 3 }, { 4, 5, 6 }) == 32 and same(vec3_cross({ 1, 0, 0 }, { 0, 1, 0 }), { 0, 0, 1 }))
 assert(vec3_length({ 3, 4, 0 }) == 5 and vec3_distance({ 1, 1, 1 }, { 1, 4, 5 }) == 5)
 assert(same(vec3_normalize({ 0, 0, 2 }), { 0, 0, 1 }) and same(vec3_normalize({ 0, 0, 0 }), { 0, 0, 0 }))
+-- turned as a mesh's rotation turns it: a quarter about z takes x to y; X then Y then Z as
+-- three.js (Rx Ry Rz: a quarter about y takes x to -z, then a quarter about x takes that to y)
+assert(same(vec3_apply_euler({ 1, 0, 0 }, { 0, 0, math.pi / 2 }), { 0, 1, 0 }, 1e-9))
+assert(same(vec3_apply_euler({ 1, 0, 0 }, { math.pi / 2, math.pi / 2, 0 }), { 0, 1, 0 }, 1e-9))
+assert(same(vec3_apply_euler({ 0, 1, 0 }, { 0, 0, -0.95 }), { math.sin(0.95), math.cos(0.95), 0 }, 1e-9))
 
 local P = { { 0, 0, 0 }, { 4, 0, 0 }, { 4, 0, 3 }, { 10, 2, 3 } }
 assert(same(path_at(P, 0), P[1], 1e-6) and same(path_at(P, 1), P[4], 1e-6) and same(path_at(P, 2), P[4], 1e-6))
@@ -1317,6 +1323,7 @@ local sim = shared("sim3d", function()
       { name = "pill", capsule = { radius = 0.25, height = 1 }, position = { -2, 2, 0 } },
       { name = "drum", cylinder = { radius = 0.4, height = 0.8, segments = 12 }, position = { 4, 2, 0 } },
       { name = "tip", cone = { radius = 0.4, height = 0.8, segments = 12 }, position = { -4, 2, 0 } },
+      { name = "frustum", cone = { radius = 0.4, radius_top = 0.2, height = 0.8, segments = 32 }, position = { 10, 2, 0 } },
       { name = "tetra", hull = { { 0, 0, 0 }, { 1, 0, 0 }, { 0, 1, 0 }, { 0, 0, 1 } }, position = { 6, 2, 0 } },
       { name = "crate_dyn", hull = "crate.obj", scale = 0.8, position = { -6, 2, 0 } },
       { name = "crate_stat", mesh = "crate.obj", position = { -8, 0.5, 0 }, static = true },
@@ -1338,12 +1345,17 @@ end)
 local p0, r0 = physics3d_at(sim, "cube", 0)
 local p1, r1 = physics_at(sim, "cube", 1.2)
 assert(math.abs(p0[2] - 2) < 1e-4 and p1[2] < 0.6 and p1[2] > 0.4, tostring(p1[2]))
+-- cylinders and cones are about their centres: each rests on its base with its centre half its height up
+for _, name in ipairs({ "drum", "tip", "frustum" }) do
+  local p = physics3d_at(sim, name, 1.2)
+  assert(math.abs(p[2] - 0.4) < 0.02, name .. " rests at " .. p[2])
+end
 local mp, mr = physics3d_at(sim, "mover", 0.5)
 assert(math.abs(mp[1] - 1.0) < 1e-2 and math.abs(mr[2] - 0.5) < 1e-2)
 local inst = physics3d_instances(sim, 1.0, { "cube", "ball", "crate_dyn" })
 assert(#inst == 3 and #inst[1].position == 3 and #inst[1].rotation == 3)
 local default_inst = physics3d_instances(sim, 1.0)
-assert(#default_inst == 10, tostring(#default_inst))
+assert(#default_inst == 11, tostring(#default_inst))
 
 -- Diagnostics check: overlap, offscreen, unsettled and unused option fields.
 local bad = physics3d {
@@ -1702,6 +1714,129 @@ end }
 		testing.expect_value(t, len(e.bursts), 1)
 		if len(e.bursts) == 1 {
 			testing.expect_value(t, e.bursts[0].count, 4)
+		}
+	}
+	testing.expect(t, found)
+}
+
+// model_info's parts: each named node's own pose, what `nodes` replaces
+// (Body: 2 up, a quarter turn about z), and the rest box of it and what is
+// under it in the model's space (Tip, 1 along Body's x, is 1 up: its
+// triangle spans y 2.5..3.5). sky{} bakes an image by name at load, once
+// for the same sky, which environment and background take.
+@(test)
+test_model_parts_and_sky :: proc(t: ^testing.T) {
+	dir, derr := os.make_directory_temp("", "onimite_parts_test_*", context.temp_allocator)
+	testing.expect(t, derr == nil)
+	defer os.remove_all(dir)
+	Bin :: struct #packed {
+		pos: [3][3]f32,
+		idx: [3]u16,
+		_:   u16,
+	}
+	b := Bin{pos = {{-0.5, -0.5, 0}, {0.5, -0.5, 0}, {0, 0.5, 0}}, idx = {0, 1, 2}}
+	data, _ := base64.encode(([^]u8)(&b)[:size_of(Bin)], allocator = context.temp_allocator)
+	gltf := fmt.tprintf(`{{
+  "asset": {{"version": "2.0"}},
+  "buffers": [{{"uri": "data:application/octet-stream;base64,%s", "byteLength": 44}}],
+  "bufferViews": [{{"buffer": 0, "byteOffset": 0, "byteLength": 36}}, {{"buffer": 0, "byteOffset": 36, "byteLength": 6}}],
+  "accessors": [
+    {{"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3", "min": [-0.5, -0.5, 0], "max": [0.5, 0.5, 0]}},
+    {{"bufferView": 1, "componentType": 5123, "count": 3, "type": "SCALAR"}}
+  ],
+  "meshes": [{{"primitives": [{{"attributes": {{"POSITION": 0}}, "indices": 1}}]}}],
+  "nodes": [
+    {{"name": "Body", "translation": [0, 2, 0], "rotation": [0, 0, 0.70710678, 0.70710678], "children": [1]}},
+    {{"name": "Tip", "mesh": 0, "translation": [1, 0, 0]}}
+  ],
+  "scenes": [{{"nodes": [0]}}],
+  "scene": 0
+}}`, data)
+	model_path, _ := filepath.join({dir, "tri.gltf"}, context.temp_allocator)
+	testing.expect(t, os.write_entire_file(model_path, transmute([]u8)gltf) == nil)
+	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
+	src := `
+local function near(a, b) return math.abs(a - b) < 1e-4 end
+local info = model_info("tri.gltf")
+local body, tip = info.parts.Body, info.parts.Tip
+assert(near(body.position[2], 2) and near(body.rotation[3], math.pi / 2) and near(body.scale[1], 1))
+assert(near(body.min[1], -0.5) and near(body.max[1], 0.5) and near(body.min[2], 2.5) and near(body.max[2], 3.5))
+assert(near(tip.position[1], 1) and near(tip.rotation[3], 0) and near(tip.min[2], 2.5) and near(tip.center[2], 3))
+local dawn = sky { name = "dawn", sun = { 1, 0.1, 0 }, turbidity = 10, size = 64 }
+assert(dawn == "dawn" and sky { name = "dawn", sun = { 1, 0.1, 0 }, turbidity = 10, size = 64 } == "dawn")
+video { width = 32, height = 32, fps = 10, duration = 0.1, render = function(f)
+  view3d { camera = { position = { 0, 0, 5 } }, environment = dawn, background = dawn,
+    models = { { src = "tri.gltf" } } }
+end }
+`
+	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
+	media: om.Media
+	om.media_init(&media)
+	defer om.media_destroy(&media)
+	testing.expect_value(t, om.media_load_dir(&media, dir), om.Error.None)
+	sh: Shared
+	defer shared_destroy(&sh)
+	s: Script
+	defer unload(&s)
+	testing.expectf(t, load(&s, path, nil, &media, &sh) == nil, "load failed: %s", error_message(s.failure, context.temp_allocator))
+	testing.expect_value(t, len(media.view3d.skies), 1)
+	r: om.Renderer
+	testing.expect_value(t, om.renderer_init(&r, &s.video, &media), om.Error.None)
+	defer om.renderer_destroy(&r)
+	om.render_frame(&r, 0)
+	testing.expectf(t, len(r.ctx.diagnostics) == 0, "diagnostics: %v", r.ctx.diagnostics[:])
+}
+
+// Each of several groups keeps what it holds, whatever the groups before it
+// held (a first group without meshes once had the next one start the
+// lists over, losing its models and particles), and an emitter left behind
+// (world_space) may ride its group's body.
+@(test)
+test_view3d_groups_items :: proc(t: ^testing.T) {
+	dir, derr := os.make_directory_temp("", "onimite_groups_test_*", context.temp_allocator)
+	testing.expect(t, derr == nil)
+	defer os.remove_all(dir)
+	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
+	src := `
+local sim = physics3d { duration = 2, gravity = 0, bodies = { { name = "ship", box = 1 } } }
+video { width = 32, height = 32, fps = 10, duration = 0.1, render = function(f)
+  view3d { camera = { position = { 0, 0, 10 } },
+    groups = {
+      { position = { 1, 0, 0 }, particles = { { rate = 0, bursts = { { t = 0, count = 2 } } } } },
+      { position = { 2, 0, 0 }, attach = { sim = sim, body = "ship" },
+        particles = { { rate = 0, bursts = { { t = 0, count = 2 } }, world_space = true } } },
+      { position = { 3, 0, 0 }, meshes = { { geometry = { type = "BoxGeometry" } } } },
+    } }
+end }
+`
+	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
+	media: om.Media
+	om.media_init(&media)
+	defer om.media_destroy(&media)
+	sh: Shared
+	defer shared_destroy(&sh)
+	s: Script
+	defer unload(&s)
+	testing.expectf(t, load(&s, path, nil, &media, &sh) == nil, "load failed: %s", error_message(s.failure, context.temp_allocator))
+	r: om.Renderer
+	testing.expect_value(t, om.renderer_init(&r, &s.video, &media), om.Error.None)
+	defer om.renderer_destroy(&r)
+	om.render_frame(&r, 0)
+	testing.expectf(t, len(r.ctx.diagnostics) == 0, "diagnostics: %v", r.ctx.diagnostics[:])
+	found := false
+	for n in r.ctx.tree.nodes {
+		v, ok := n.kind.(om.View3d)
+		if !ok {
+			continue
+		}
+		found = true
+		testing.expect_value(t, len(v.particles), 2)
+		testing.expect_value(t, len(v.meshes), 1)
+		if len(v.particles) == 2 && len(v.meshes) == 1 {
+			testing.expect_value(t, om.group_transform(v.particles[0].group)[3].x, 1)
+			testing.expect_value(t, om.group_transform(v.particles[1].group)[3].x, 2)
+			testing.expect_value(t, om.group_transform(v.meshes[0].group)[3].x, 3)
+			testing.expect(t, v.particles[1].world_space && v.particles[1].attach.track.sample != nil)
 		}
 	}
 	testing.expect(t, found)

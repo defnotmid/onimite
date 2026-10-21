@@ -547,6 +547,9 @@ View3d_Media :: struct {
 	shaders:     o3d.Shaders,
 	models:      map[string]o3d.Model,
 	textures_of: map[string]o3d.Texture_Id,
+	// Skies made by name (`view3d_sky`), with what each was baked from, so
+	// a script loaded again with the same sky gets the same image.
+	skies:       map[string]View3d_Sky,
 	// External textures labels are bound to, the ith label of a layer to
 	// the ith (made as needed, under the lock).
 	label_textures: [dynamic]o3d.Texture_Id,
@@ -557,11 +560,45 @@ View3d_Media :: struct {
 	allocator:   runtime.Allocator,
 }
 
+// A sky of three.js's Sky (Preetham) as baked: its settings and the
+// image's width.
+View3d_Sky :: struct {
+	sky:   o3d.Sky,
+	width: int,
+}
+
+// Bakes `sky` into an equirectangular HDR image `width` across named
+// `name`, with its environment maps, which a view3d's `environment` and
+// `background` then take like a media image: heavy, so at load. The image
+// already made under `name` from the same sky is kept (another load of the
+// script, a reload). False when `name` is a media image's or video's.
+view3d_sky :: proc(m: ^Media, name: string, sky: View3d_Sky) -> bool {
+	if name in m.images || name in m.videos.by_name {
+		return false
+	}
+	v := &m.view3d
+	context.allocator = v.allocator
+	sync.guard(&v.lock)
+	if made, ok := v.skies[name]; ok && made == sky {
+		return true
+	}
+	id := o3d.sky_texture(&v.textures, sky.sky, sky.width)
+	o3d.environment_prefilter(&v.textures, id)
+	key := name
+	if name not_in v.skies {
+		key = strings.clone(name)
+	}
+	v.textures_of[key] = id
+	v.skies[key] = sky
+	return true
+}
+
 @(private)
 view3d_media_init :: proc(v: ^View3d_Media) {
 	v.allocator = context.allocator
 	v.models = make(map[string]o3d.Model)
 	v.textures_of = make(map[string]o3d.Texture_Id)
+	v.skies = make(map[string]View3d_Sky)
 	v.outlines = make(map[Outline_Key]o3d.Extruded)
 }
 
@@ -577,6 +614,7 @@ view3d_media_destroy :: proc(v: ^View3d_Media) {
 		delete(name)
 	}
 	delete(v.textures_of)
+	delete(v.skies) // its names are textures_of's
 	delete(v.label_textures)
 	delete(v.outlines)
 	o3d.geometries_destroy(&v.geometries)
@@ -1195,7 +1233,11 @@ view3d_scene :: proc(r: ^Renderer, n: View3d, scene: ^o3d.Scene, size: [2]int, l
 	}
 	scene.environment = view3d_texture(r, n.environment)
 	scene.environment_intensity = n.environment_intensity
-	scene.background = view3d_texture(r, n.background)
+	if col, is_color := view3d_background_color(r, n.background); is_color {
+		scene.background_color = col
+	} else {
+		scene.background = view3d_texture(r, n.background)
+	}
 	scene.background_intensity = n.background_intensity
 	scene.background_blurriness = n.background_blurriness
 	scene.tone_mapping = n.tone_mapping
@@ -1473,6 +1515,19 @@ o3d_is_builtin :: proc(name: string) -> bool {
 		}
 	}
 	return false
+}
+
+// A view's `background` that names no image of the media (nor a sky or a
+// video) but a CSS colour: the colour every pixel starts as (three.js's
+// scene.background = new Color()), so the view is opaque and what adds
+// light (additive glows, bloom) lands on it rather than on nothing.
+@(private = "file")
+view3d_background_color :: proc(r: ^Renderer, name: string) -> (col: o3d.Vec4, ok: bool) {
+	if name == "" || name in r.media.view3d.textures_of || name in r.media.images || name in r.media.videos.by_name {
+		return {}, false
+	}
+	c := vg.css_color_parse(name) or_return
+	return {c.r, c.g, c.b, c.a}, true
 }
 
 // The texture of media image `name` (0 for none), reporting an image the

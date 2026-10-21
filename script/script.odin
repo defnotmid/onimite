@@ -703,6 +703,7 @@ API := [?]Api_Function {
 	{"sound", l_sound, .Load},
 	{"physics", l_physics, .Load},
 	{"physics3d", l_physics3d, .Load},
+	{"sky", l_sky, .Load},
 	{"audio_add", l_audio_add, .Load},
 	{"captions_load", l_captions_load, .Load},
 	// Nodes and what the frame being built knows.

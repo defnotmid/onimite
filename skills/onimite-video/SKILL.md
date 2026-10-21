@@ -567,8 +567,8 @@ video { ..., buses = { music = {}, voice = {}, sfx = {} },
   document with `--json`, the MCP server's messages).
 - `rect`/`text`/`group` at load: "can only be called while rendering a frame". Draw inside
   `render`; measure (`text_width` & co) anywhere.
-- `video{}`, `scene{}`, `cue`, `physics{}`, `physics3d{}`, `audio_add`, `captions_load` and `say` inside
-  `render`: "works at load, not while rendering a frame". They set the video up; call them at
+- `video{}`, `scene{}`, `cue`, `song{}`, `sound{}`, `physics{}`, `physics3d{}`, `sky{}`, `audio_add`, `captions_load`
+  and `say` inside `render`: "works at load, not while rendering a frame". They set the video up; call them at
   the top level of the script.
 - A video needs scenes or a `duration` ("the video has no scenes and no duration").
 - `animate` picks its value type from the first key's `from`: number, colour string, `{x, y}`

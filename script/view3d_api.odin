@@ -57,7 +57,12 @@ l_view3d :: proc "c" (L: ^lua.State) -> c.int {
 	}
 	lua.pop(L, 1)
 	v.lights = read_list(L, s, 1, "lights", o3d.Light, read_light)
-	items: View3d_Items
+	items := View3d_Items {
+		meshes    = make([dynamic]om.Mesh, context.temp_allocator),
+		models    = make([dynamic]om.Model_Pose, context.temp_allocator),
+		particles = make([dynamic]om.Particle_Emitter, context.temp_allocator),
+		labels    = make([dynamic]om.View3d_Label, context.temp_allocator),
+	}
 	read_items(L, s, 1, &items)
 	read_groups(L, s, 1, nil, {}, &items)
 	resolve_attach_names(L, &items)
@@ -819,7 +824,9 @@ read_attach :: proc(L: ^lua.State, s: ^Script, t: c.int) -> (a: om.Attach) {
 	return
 }
 
-// Numbers the attachments that named their model.
+// Numbers the attachments that named their model, and checks that an
+// emitter whose particles are left behind (world_space) is on a body,
+// its own or its group's.
 @(private = "file")
 resolve_attach_names :: proc(L: ^lua.State, items: ^View3d_Items) {
 	models := items.models[:]
@@ -843,6 +850,10 @@ resolve_attach_names :: proc(L: ^lua.State, items: ^View3d_Items) {
 	}
 	for &e in items.particles {
 		number(L, &e.attach, models)
+		// on its own or its group's body
+		if e.world_space && e.attach.track.sample == nil {
+			lua.L_error(L, "particles: world_space = true needs attach = { sim = <a physics3d{} result>, body = ... } (its own or its group's): only a body's past poses are known")
+		}
 	}
 	for &l in items.labels {
 		number(L, &l.attach, models)
@@ -860,12 +871,6 @@ View3d_Items :: struct {
 
 @(private = "file")
 read_items :: proc(L: ^lua.State, s: ^Script, t: c.int, items: ^View3d_Items) {
-	if items.meshes == nil {
-		items.meshes = make([dynamic]om.Mesh, context.temp_allocator)
-		items.models = make([dynamic]om.Model_Pose, context.temp_allocator)
-		items.particles = make([dynamic]om.Particle_Emitter, context.temp_allocator)
-		items.labels = make([dynamic]om.View3d_Label, context.temp_allocator)
-	}
 	append(&items.meshes, ..read_list(L, s, t, "meshes", om.Mesh, read_mesh))
 	append(&items.models, ..read_list(L, s, t, "models", om.Model_Pose, read_model))
 	append(&items.particles, ..read_list(L, s, t, "particles", om.Particle_Emitter, read_particles))
@@ -1017,9 +1022,6 @@ read_particles :: proc(L: ^lua.State, s: ^Script, t: c.int) -> (e: om.Particle_E
 	e.material.softness = get_num(L, t, "softness", 0)
 	e.sprite = strings.clone(get_str(L, t, "map", ""), context.temp_allocator)
 	e.attach = read_attach(L, s, t)
-	if e.world_space && e.attach.track.sample == nil {
-		lua.L_error(L, "particles: world_space = true needs attach = { sim = <a physics3d{} result>, body = ... }: only a body's past poses are known")
-	}
 	return e, e.rate > 0 || len(e.bursts) > 0
 }
 
@@ -1303,10 +1305,45 @@ get_bool :: proc(L: ^lua.State, t: c.int, key: cstring, def: bool) -> bool {
 	return def
 }
 
+// sky{ name, sun, up, turbidity, rayleigh, mie_coefficient,
+// mie_directional_g, size }: three.js's Sky (Preetham) baked at load into an
+// equirectangular HDR image `size` across (1024) named `name` ("sky"), for
+// a view3d's `environment` and `background`; returns the name.
+@(private)
+l_sky :: proc "c" (L: ^lua.State) -> c.int {
+	s := host(L)
+	context = s.odin_context
+	lua.L_checktype(L, 1, i32(lua.Type.TABLE))
+	fields_begin(L, 1)
+	media := measure_media(L, s, "sky")
+	name := strings.clone(get_str(L, 1, "name", "sky"), context.temp_allocator)
+	sky := om.View3d_Sky {
+		sky = {
+			sun               = read_vec3(L, 1, "sun", o3d.SKY_DEFAULT.sun),
+			up                = read_vec3(L, 1, "up", o3d.SKY_DEFAULT.up),
+			turbidity         = get_num(L, 1, "turbidity", o3d.SKY_DEFAULT.turbidity),
+			rayleigh          = get_num(L, 1, "rayleigh", o3d.SKY_DEFAULT.rayleigh),
+			mie_coefficient   = get_num(L, 1, "mie_coefficient", o3d.SKY_DEFAULT.mie_coefficient),
+			mie_directional_g = get_num(L, 1, "mie_directional_g", o3d.SKY_DEFAULT.mie_directional_g),
+		},
+		width = clamp(int(get_num(L, 1, "size", 1024)), 64, 4096),
+	}
+	fields_end(L, s, 1, "sky")
+	if linalg.length(sky.sky.sun) == 0 || linalg.length(sky.sky.up) == 0 {
+		lua.L_error(L, "sky: sun and up need a direction (not { 0, 0, 0 })")
+	}
+	if !om.view3d_sky(media, name, sky) {
+		lua.L_error(L, "sky: %s is already a media file's name", strings.clone_to_cstring(name, context.temp_allocator))
+	}
+	lua.pushlstring(L, cstring(raw_data(name)), c.size_t(len(name)))
+	return 1
+}
+
 // model_info(name): what a model of the media holds: its rest-pose box
 // (`min`, `max`, `size`, `center`), the node and material names its
-// `nodes` / `materials` take, its animations (`{ name, duration }`) and
-// morph target names; nil when the media has no such model.
+// `nodes` / `materials` take, each named node's pose and box (`parts`), its
+// animations (`{ name, duration }`) and morph target names; nil when the
+// media has no such model.
 @(private)
 l_model_info :: proc "c" (L: ^lua.State) -> c.int {
 	s := host(L)
@@ -1352,6 +1389,39 @@ l_model_info :: proc "c" (L: ^lua.State) -> c.int {
 		push_vec3(L, "center", (lo + hi) / 2)
 	}
 	push_names(L, "nodes", model.nodes.name[:len(model.nodes)])
+	// parts[name]: a node's own position, rotation (Euler XYZ, radians) and
+	// scale in its parent, what `nodes = { name = {...} }` replaces, and the
+	// rest-pose box of it and what is under it in the model's space
+	n := len(model.nodes)
+	boxes := make([][2]o3d.Vec3, n, context.temp_allocator)
+	o3d.model_node_bounds(model, &v.geometries, boxes)
+	lua.createtable(L, 0, i32(n))
+	for i in 0 ..< n {
+		name := model.nodes.name[i]
+		if name == "" {
+			continue
+		}
+		lua.pushlstring(L, cstring(raw_data(name)), c.size_t(len(name)))
+		if lua.rawget(L, -2) != c.int(lua.Type.NIL) {
+			lua.pop(L, 1) // a name used again: the first node's, as `nodes` takes
+			continue
+		}
+		lua.pop(L, 1)
+		lua.pushlstring(L, cstring(raw_data(name)), c.size_t(len(name)))
+		lua.createtable(L, 0, 7)
+		position, rotation, scale := euler_pose(model.nodes.local[i])
+		push_vec3(L, "position", position)
+		push_vec3(L, "rotation", rotation)
+		push_vec3(L, "scale", scale)
+		if lo, hi := boxes[i][0], boxes[i][1]; lo.x <= hi.x {
+			push_vec3(L, "min", lo)
+			push_vec3(L, "max", hi)
+			push_vec3(L, "size", hi - lo)
+			push_vec3(L, "center", (lo + hi) / 2)
+		}
+		lua.rawset(L, -3)
+	}
+	lua.setfield(L, -2, "parts")
 	push_names(L, "materials", model.material_names[:])
 	push_names(L, "morphs", model.target_names[:])
 	lua.createtable(L, i32(len(model.animations)), 0)
@@ -1364,6 +1434,27 @@ l_model_info :: proc "c" (L: ^lua.State) -> c.int {
 	}
 	lua.setfield(L, -2, "animations")
 	return 1
+}
+
+// A transform's translation, Euler XYZ rotation (radians: three.js's
+// Euler.setFromRotationMatrix, as o3d.compose builds it) and scale.
+@(private = "file")
+euler_pose :: proc(m: o3d.Mat4) -> (position, rotation, scale: o3d.Vec3) {
+	position = {m[0, 3], m[1, 3], m[2, 3]}
+	for j in 0 ..< 3 {
+		scale[j] = linalg.length(o3d.Vec3{m[0, j], m[1, j], m[2, j]})
+	}
+	r :: proc(m: o3d.Mat4, s: o3d.Vec3, i, j: int) -> f32 {
+		return m[i, j] / s[j] if s[j] != 0 else 0
+	}
+	rotation.y = math.asin(clamp(r(m, scale, 0, 2), -1, 1))
+	if abs(r(m, scale, 0, 2)) < 0.9999999 {
+		rotation.x = math.atan2(-r(m, scale, 1, 2), r(m, scale, 2, 2))
+		rotation.z = math.atan2(-r(m, scale, 0, 1), r(m, scale, 0, 0))
+	} else {
+		rotation.x = math.atan2(r(m, scale, 2, 1), r(m, scale, 1, 1))
+	}
+	return
 }
 
 // view3d_project(camera, point, size): where `point` ({x, y, z}) shows in a

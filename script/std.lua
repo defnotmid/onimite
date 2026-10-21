@@ -36,6 +36,18 @@ function vec3_normalize(a)
   return { a[1] / n, a[2] / n, a[3] / n }
 end
 
+-- a turned by the Euler XYZ rotation e (radians), as a mesh with
+-- `rotation = e` turns its points (three.js's Vector3.applyEuler): a point
+-- on a turned body, a direction along its axis.
+function vec3_apply_euler(a, e)
+  local cx, sx, cy, sy, cz, sz = cos(e[1]), sin(e[1]), cos(e[2]), sin(e[2]), cos(e[3]), sin(e[3])
+  return {
+    cy * cz * a[1] - cy * sz * a[2] + sy * a[3],
+    (cx * sz + sx * sy * cz) * a[1] + (cx * cz - sx * sy * sz) * a[2] - sx * cy * a[3],
+    (sx * sz - cx * sy * cz) * a[1] + (sx * cz + cx * sy * sz) * a[2] + cx * cy * a[3],
+  }
+end
+
 -- Below a frame at any rate: boundaries computed by adding seconds stay put.
 local EPS = 1e-6
 

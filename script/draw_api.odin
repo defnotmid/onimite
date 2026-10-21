@@ -531,14 +531,19 @@ read_bloom_into :: proc(L: ^lua.State, t: c.int, prims: ^[dynamic]vg.Filter_Prim
 		return false
 	}
 	base_ref := vg.Filter_Ref{kind = .Source_Graphic} if len(prims) == 0 else vg.Filter_Ref{kind = .Result, index = u16(len(prims) - 1)}
+	// What passes the threshold, as light: slope (c - threshold) on the
+	// premultiplied colour and alpha alike (an arithmetic composite works
+	// on premultiplied values; a component transfer would divide by alpha
+	// first, so a faint glow over nothing would bloom as if it were bright).
 	slope := 1.0 / max(1.0 - threshold, 1e-3)
-	lin := vg.Transfer_Function{kind = .Linear, slope = slope, intercept = -threshold * slope}
 	append(
 		prims,
 		vg.Filter_Primitive{
-			op = .Component_Transfer,
+			op = .Composite,
 			in1 = base_ref,
-			transfer = {0 = lin, 1 = lin, 2 = lin, 3 = vg.TRANSFER_IDENTITY},
+			in2 = base_ref,
+			composite = .Arithmetic,
+			k = {0, slope, 0, -threshold * slope},
 		},
 		vg.Filter_Primitive{
 			op = .Gaussian_Blur,
