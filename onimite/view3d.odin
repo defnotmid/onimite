@@ -118,18 +118,26 @@ Particle_Emitter :: struct {
 	group:           Maybe(o3d.Mat4),
 }
 
-// A 2D label on a 3D point (view3d's `labels`): its nodes (`content`,
-// laid out in a `w x h` panel) drawn as a sprite of that size at `at`, the
-// panel's bottom centre on the point, hidden pixel by pixel where the
-// scene is nearer; `depth_offset` (world units) pulls it toward the camera,
-// so a label on a surface shows.
+// A 2D panel on a 3D point: its nodes (`content`, laid out in a `w x h`
+// panel) drawn as a sprite of that size at `at`.
+// - A label (view3d's `labels`): the panel's bottom centre on the point,
+//   hidden pixel by pixel where the scene is nearer; `depth_offset` (world
+//   units) pulls it toward the camera, so a label on a surface shows.
+// - A lens flare's element (view3d's `lensflares`, three.js's
+//   LensflareElement): centred `distance` of the way from the point to its
+//   mirror through the layer's centre (0: on it, 1: mirrored), added to
+//   what is behind, over everything, and faded as a whole by how much of a
+//   disc of `occlusion_radius` pixels around the point the scene hides.
 View3d_Label :: struct {
-	at:           o3d.Vec3,
-	w, h:         f32,
-	depth_offset: f32,
-	content:      i32,
-	attach:       Attach,
-	group:        Maybe(o3d.Mat4),
+	at:               o3d.Vec3,
+	w, h:             f32,
+	depth_offset:     f32,
+	content:          i32,
+	attach:           Attach,
+	group:            Maybe(o3d.Mat4),
+	flare:            bool,
+	distance:         f32,
+	occlusion_radius: f32,
 }
 
 // The transform of the groups a mesh or model is in (view3d's `groups`),
@@ -182,6 +190,8 @@ Mesh :: struct {
 	path_kind:     Path_Kind,
 	path_closed:   bool,
 	points:        []o3d.Vec3,
+	// One per point when given (sRGB and opacity): three.js's vertex colours.
+	colors:        []o3d.Vec4,
 	tube_radius:   f32,
 	tube_segments: int,
 	instances:     []o3d.Instance,
@@ -329,6 +339,7 @@ view3d :: proc(ctx: ^Context, f: Frame, v: View3d) {
 	v.meshes = clone_slice(v.meshes, arena)
 	for &m in v.meshes {
 		m.points = clone_slice(m.points, arena)
+		m.colors = clone_slice(m.colors, arena)
 		m.instances = clone_slice(m.instances, arena)
 		for &name in m.maps {
 			name = strings.clone(name, arena)
@@ -915,7 +926,7 @@ draw_view3d :: proc(r: ^Renderer, n: View3d) {
 		append(&job.videos, Video_Binding{labels[i].texture, img})
 	}
 	sync.shared_lock(&v.lock)
-	view3d_scene(r, n, &job.scene, labels)
+	view3d_scene(r, n, &job.scene, {int(pw), int(ph)}, labels)
 	job.scene.depth = vg.image_id_valid(job.depth_image)
 	sync.shared_unlock(&v.lock)
 	if r.gpu3d == nil {
@@ -971,7 +982,7 @@ view3d_videos :: proc(r: ^Renderer, n: View3d, job: ^View3d_Job) {
 // reporting the media it names that is missing or does not decode and any
 // ShaderMaterial problems.
 @(private = "file")
-view3d_scene :: proc(r: ^Renderer, n: View3d, scene: ^o3d.Scene, labels: []View3d_Label_Sprite = nil) {
+view3d_scene :: proc(r: ^Renderer, n: View3d, scene: ^o3d.Scene, size: [2]int, labels: []View3d_Label_Sprite = nil) {
 	v := &r.media.view3d
 	o3d.scene_clear(scene)
 	scene.camera = n.camera
@@ -1112,6 +1123,18 @@ view3d_scene :: proc(r: ^Renderer, n: View3d, scene: ^o3d.Scene, labels: []View3
 		material.flags += {.Basic, .Transparent, .No_Size_Attenuation, .Premultiplied_Color_Map}
 		material.color_map = labels[i].texture
 		material.depth_offset = l.depth_offset
+		if l.flare {
+			// its place along the line from the point through the centre, in
+			// its own sizes (pixels down, offsets up); over everything (the
+			// near plane), the probe still at the point
+			px, _, _ := o3d.camera_project(n.camera, size.x, size.y, at.xyz)
+			d := (o3d.Vec2{f32(size.x), f32(size.y)} * 0.5 - px) * 2 * l.distance
+			sprite[0].offset = {d.x / sprite[0].size.x, -d.y / sprite[0].size.y}
+			material.flags += {.Additive}
+			material.flags -= {.Transparent}
+			material.depth_offset = 1e6
+			material.occlusion_radius = l.occlusion_radius
+		}
 		append(&scene.draws, o3d.Draw{o3d.scene_particles(scene, sprite[:]), 1, material})
 	}
 	for i in attached {
@@ -1137,6 +1160,9 @@ view3d_scene :: proc(r: ^Renderer, n: View3d, scene: ^o3d.Scene, labels: []View3
 view3d_mesh :: proc(r: ^Renderer, scene: ^o3d.Scene, mesh: Mesh, transform: o3d.Mat4) {
 	v := &r.media.view3d
 	material := view3d_material(r, scene, mesh.material, mesh.maps, mesh.shader)
+	if len(mesh.colors) > 0 {
+		material.flags += {.Vertex_Colors}
+	}
 	geo_id: o3d.Geometry_Id
 	switch mesh.path_kind {
 	case .None:
@@ -1159,11 +1185,11 @@ view3d_mesh :: proc(r: ^Renderer, scene: ^o3d.Scene, mesh: Mesh, transform: o3d.
 			geo_id = v.geometries.keys[mesh.geometry]
 		}
 	case .Polyline:
-		geo_id = o3d.scene_polyline(scene, mesh.points, mesh.path_closed)
+		geo_id = o3d.scene_polyline(scene, mesh.points, mesh.path_closed, mesh.colors)
 	case .Line_Segments:
-		geo_id = o3d.scene_line_segments(scene, mesh.points)
+		geo_id = o3d.scene_line_segments(scene, mesh.points, mesh.colors)
 	case .Points:
-		geo_id = o3d.scene_points(scene, mesh.points)
+		geo_id = o3d.scene_points(scene, mesh.points, mesh.colors)
 	case .Tube:
 		geo_id = o3d.scene_tube(scene, mesh.points, mesh.tube_radius, mesh.tube_segments, mesh.path_closed)
 	}

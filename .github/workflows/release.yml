@@ -83,8 +83,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/o3d
-          # Pinned like ottis: o3d is released on its own (v0.0.28).
-          ref: v0.0.28
+          # Pinned like ottis: o3d is released on its own (v0.0.29).
+          ref: v0.0.29
           path: o3d
       - uses: actions/checkout@v4
         with:

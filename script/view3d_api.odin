@@ -369,16 +369,19 @@ read_geometry :: proc(L: ^lua.State, s: ^Script, t: c.int, m: ^om.Mesh) -> (ok: 
 		m.path_kind = .Polyline
 		m.path_closed = get_bool(L, t, "closed", false)
 		m.points = read_points(L, t, "points")
+		m.colors = read_point_colors(L, t, len(m.points))
 		return true
 	case "LineSegmentsGeometry":
 		defer fields_pop(L, s, t, "geometry", outer)
 		m.path_kind = .Line_Segments
 		m.points = read_points(L, t, "points")
+		m.colors = read_point_colors(L, t, len(m.points))
 		return true
 	case "PointsGeometry":
 		defer fields_pop(L, s, t, "geometry", outer)
 		m.path_kind = .Points
 		m.points = read_points(L, t, "points")
+		m.colors = read_point_colors(L, t, len(m.points))
 		return true
 	case "ShapeGeometry", "ExtrudeGeometry":
 		// An outline (outline{}, path_data, morph_at) in 3D: 1 unit per
@@ -478,6 +481,34 @@ read_points :: proc(L: ^lua.State, t: c.int, key: cstring) -> []o3d.Vec3 {
 	return pts[:]
 }
 
+// A path geometry's `colors`: one per point (sRGB and opacity; any colour
+// form, `"#rrggbbaa"` and `rgba()` with their alpha), three.js's vertex
+// colours; nil when not given.
+@(private = "file")
+read_point_colors :: proc(L: ^lua.State, t: c.int, count: int) -> []o3d.Vec4 {
+	field(L, t, "colors")
+	defer lua.pop(L, 1)
+	if !lua.istable(L, -1) {
+		return nil
+	}
+	if n := int(lua.rawlen(L, -1)); n != count {
+		lua.L_error(L, "%s", fmt.ctprintf("colors has %d colours for %d points: give one per point", n, count))
+	}
+	colors := make([]o3d.Vec4, count, context.temp_allocator)
+	for &col, i in colors {
+		lua.rawgeti(L, -1, lua.Integer(i + 1))
+		if lua.type(L, -1) == .NUMBER {
+			h := u32(lua.tointeger(L, -1))
+			col = {f32(h >> 16 & 255) / 255, f32(h >> 8 & 255) / 255, f32(h & 255) / 255, 1}
+		} else {
+			v := read_color_value(L, -1)
+			col = {v.r, v.g, v.b, v.a}
+		}
+		lua.pop(L, 1)
+	}
+	return colors
+}
+
 // MeshStandardMaterial, MeshBasicMaterial (unlit: its colour, opacity and
 // `map`), MeshToonMaterial (banded light), LineBasicMaterial (`linewidth`, `size_attenuation`),
 // PointsMaterial (`size`, `size_attenuation`, `map`) or ShaderMaterial
@@ -510,6 +541,15 @@ read_material :: proc(L: ^lua.State, s: ^Script, t: c.int, default_type: string,
 	}
 	if get_bool(L, t, "transparent", false) {
 		m.flags += {.Transparent}
+	}
+	// three.js's blending: "additive" adds colour x opacity to what is
+	// behind, drawn with the transparent ones, depth tested, not written
+	switch blending := get_str(L, t, "blending", "normal"); blending {
+	case "normal":
+	case "additive":
+		m.flags += {.Additive}
+	case:
+		bad_string(L, "material blending", blending, "normal or additive")
 	}
 	switch side := get_str(L, t, "side", "front"); side {
 	case "front":
@@ -801,6 +841,7 @@ read_items :: proc(L: ^lua.State, s: ^Script, t: c.int, items: ^View3d_Items) {
 	append(&items.models, ..read_list(L, s, t, "models", om.Model_Pose, read_model))
 	append(&items.particles, ..read_list(L, s, t, "particles", om.Particle_Emitter, read_particles))
 	append(&items.labels, ..read_list(L, s, t, "labels", om.View3d_Label, read_label))
+	read_lensflares(L, s, t, &items.labels)
 }
 
 // A label: `draw` lays out its nodes in a `w x h` panel (its own units
@@ -816,19 +857,81 @@ read_label :: proc(L: ^lua.State, s: ^Script, t: c.int) -> (l: om.View3d_Label, 
 	l.h = get_num(L, t, "h", 60)
 	l.depth_offset = get_num(L, t, "depth_offset", 0)
 	l.attach = read_attach(L, s, t)
+	l.content = read_panel(L, s, t, "a label takes draw = function() ... end: its nodes, laid out in its w x h panel")
+	return l, l.w > 0 && l.h > 0
+}
+
+// A panel's `draw` function, run into a content group: its nodes.
+@(private = "file")
+read_panel :: proc(L: ^lua.State, s: ^Script, t: c.int, missing: cstring) -> i32 {
 	field(L, t, "draw")
 	if !lua.isfunction(L, -1) {
 		lua.pop(L, 1)
-		lua.L_error(L, "a label takes draw = function() ... end: its nodes, laid out in its w x h panel")
+		lua.L_error(L, missing)
 	}
 	ctx := render_ctx(L, s)
-	l.content = om.shader_content_begin(ctx)
+	content := om.shader_content_begin(ctx)
 	status := lua.pcall(L, 0, 0, 0)
 	om.group_end(ctx)
 	if status != 0 {
 		lua.error(L)
 	}
-	return l, l.w > 0 && l.h > 0
+	return content
+}
+
+// view3d's `lensflares` (three.js's Lensflare): each `{ position,
+// occlusion_radius, attach, elements = { { size, distance, draw }, ... } }`
+// adds its elements as panels: `size` pixels square, `distance` along the
+// line from the point through the centre, all faded by how much of the
+// point the scene hides.
+@(private = "file")
+read_lensflares :: proc(L: ^lua.State, s: ^Script, t: c.int, labels: ^[dynamic]om.View3d_Label) {
+	field(L, t, "lensflares")
+	defer lua.pop(L, 1)
+	if !lua.istable(L, -1) {
+		return
+	}
+	list := lua.absindex(L, -1)
+	for i in 1 ..= int(lua.rawlen(L, list)) {
+		lua.rawgeti(L, list, lua.Integer(i))
+		if lua.istable(L, -1) {
+			ft := lua.absindex(L, -1)
+			outer := fields_push(L, ft)
+			at := read_vec3(L, ft, "position", {})
+			radius := get_num(L, ft, "occlusion_radius", 8)
+			attach := read_attach(L, s, ft)
+			field(L, ft, "elements")
+			fields_pop(L, s, ft, "lensflare", outer)
+			if lua.istable(L, -1) {
+				et := lua.absindex(L, -1)
+				for k in 1 ..= int(lua.rawlen(L, et)) {
+					lua.rawgeti(L, et, lua.Integer(k))
+					if lua.istable(L, -1) {
+						el := lua.absindex(L, -1)
+						eo := fields_push(L, el)
+						size := get_num(L, el, "size", 100)
+						l := om.View3d_Label {
+							at               = at,
+							w                = size,
+							h                = size,
+							attach           = attach,
+							flare            = true,
+							distance         = get_num(L, el, "distance", 0),
+							occlusion_radius = radius,
+						}
+						l.content = read_panel(L, s, el, "a lens flare element takes draw = function() ... end: its nodes, laid out in its size x size panel")
+						fields_pop(L, s, el, "lensflare element", eo)
+						if size > 0 {
+							append(labels, l)
+						}
+					}
+					lua.pop(L, 1)
+				}
+			}
+			lua.pop(L, 1)
+		}
+		lua.pop(L, 1)
+	}
 }
 
 // A particle emitter: `rate` a second, each living `lifetime` seconds

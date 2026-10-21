@@ -681,7 +681,8 @@ texture maps from `media/`, custom GLSL ES `ShaderMaterial`s, per-frame `LineGeo
 glTF, 3MF, OBJ and USD models (in `media/`, including skinned characters, morph targets and
 `KHR_lights_punctual`) at a time of their animation with optional `morphs` and `material`
 overrides and changes to their parts by name, `groups`, `attach` to a model's part,
-particles, `labels` on 3D points (hidden behind what is nearer), `ShadowMaterial`, an
+particles, `labels` on 3D points (hidden behind what is nearer), `lensflares` (fading as
+the scene covers their point), `blending = "additive"`, per-point `colors`, `ShadowMaterial`, an
 environment map (`.hdr` too), `model_info(name)` and `view3d_project(camera, point)`: read
 [3d.md](3d.md). A shader can read a 3D layer's depth (`{ depth_of = "uScene" }`, shaders.md). Animate sizes through a mesh's `scale`,
 not its primitive geometry's parameters.

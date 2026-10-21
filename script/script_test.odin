@@ -1520,3 +1520,71 @@ end }
 	testing.expectf(t, len(r.ctx.diagnostics) == 0, "unexpected diagnostics: %v", r.ctx.diagnostics[:])
 }
 
+
+// view3d's blending, per-point colours and lens flares read into the node:
+// an additive material, points with a colour each (a count that differs is
+// an error), a flare's elements as flare panels; a misspelled flare key
+// is an unused field.
+@(test)
+test_view3d_blending_colors_flares :: proc(t: ^testing.T) {
+	dir, derr := os.make_directory_temp("", "onimite_flares_test_*", context.temp_allocator)
+	testing.expect(t, derr == nil)
+	defer os.remove_all(dir)
+	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
+	src := `
+video { width = 64, height = 48, fps = 10, duration = 0.1, background = "#000000", render = function(f)
+  view3d { camera = { position = { 0, 0, 5 } },
+    meshes = {
+      { geometry = { type = "SphereGeometry" }, material = { type = "MeshBasicMaterial", color = "#204080", blending = "additive" } },
+      { geometry = { type = "PointsGeometry", points = { { -1, 0, 0 }, { 1, 0, 0 } }, colors = { "#ff0000", rgba(0, 255, 0, 0.5) } },
+        material = { size = 0.2 } },
+    },
+    lensflares = { { position = { 1.5, 1, 0 }, occlusion_radus = 4, elements = {
+      { size = 12, distance = 0, draw = function() rect { x = 0, y = 0, w = 12, h = 12, fill = "#fff" } end },
+      { size = 6, distance = 0.6, draw = function() rect { x = 0, y = 0, w = 6, h = 6, fill = "#88f" } end },
+    } } },
+  }
+  assert(not pcall(view3d, { meshes = { { geometry = { type = "PointsGeometry", points = { { 0, 0, 0 } }, colors = { "#fff", "#000" } } } } }))
+end }
+`
+	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
+	media: om.Media
+	om.media_init(&media)
+	defer om.media_destroy(&media)
+	sh: Shared
+	defer shared_destroy(&sh)
+	s: Script
+	defer unload(&s)
+	testing.expectf(t, load(&s, path, nil, &media, &sh) == nil, "load failed: %s", error_message(s.failure, context.temp_allocator))
+	r: om.Renderer
+	testing.expect_value(t, om.renderer_init(&r, &s.video, &media), om.Error.None)
+	defer om.renderer_destroy(&r)
+	om.render_frame(&r, 0)
+	unused := 0
+	for d in r.ctx.diagnostics {
+		testing.expectf(t, d.code == .Unused_Field, "diagnostic: %v", d)
+		unused += 1 if d.code == .Unused_Field else 0
+	}
+	testing.expect_value(t, unused, 1)
+	found := false
+	for n in r.ctx.tree.nodes {
+		v, ok := n.kind.(om.View3d)
+		if !ok || len(v.meshes) != 2 {
+			continue
+		}
+		found = true
+		testing.expect(t, .Additive in v.meshes[0].material.flags)
+		testing.expect_value(t, len(v.meshes[1].colors), 2)
+		if len(v.meshes[1].colors) == 2 {
+			testing.expect_value(t, v.meshes[1].colors[1], o3d.Vec4{0, 1, 0, 0.5})
+		}
+		testing.expect_value(t, len(v.labels), 2)
+		if len(v.labels) == 2 {
+			testing.expect(t, v.labels[0].flare && v.labels[1].flare)
+			testing.expect_value(t, v.labels[1].distance, 0.6)
+			testing.expect_value(t, v.labels[1].w, 6)
+			testing.expect_value(t, v.labels[0].occlusion_radius, 8) // the misspelled key leaves the default
+		}
+	}
+	testing.expect(t, found)
+}

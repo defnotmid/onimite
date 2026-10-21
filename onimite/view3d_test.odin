@@ -727,3 +727,67 @@ test_view3d_labels :: proc(t: ^testing.T) {
 	testing.expect_value(t, blue_on_box, 0)
 	testing.expectf(t, blue >= 40 && blue <= 80, "%d blue pixels", blue)
 }
+
+// A lens flare's elements show over everything, `distance` of the way from
+// its point to the point's mirror through the centre, and not at all while
+// the scene hides its point.
+@(test)
+test_view3d_lensflares :: proc(t: ^testing.T) {
+	CLEAR :: o3d.Vec3{1.0, 0.6, 0}
+	render_flares :: proc(f: Frame, ctx: ^Context) {
+		panel :: proc(ctx: ^Context) -> i32 {
+			content := shader_content_begin(ctx)
+			rect(ctx, {x = 0, y = 0, w = 6, h = 6, fill = rgb(0, 0, 255)})
+			group_end(ctx)
+			return content
+		}
+		labels := make([]View3d_Label, 3, context.temp_allocator)
+		// behind the box: hidden, though drawn over it when seen
+		labels[0] = {at = {0, 0, -1}, w = 6, h = 6, content = panel(ctx), flare = true, distance = 0.5, occlusion_radius = 2}
+		// clear of it: on its point and on the point's mirror
+		labels[1] = {at = CLEAR, w = 6, h = 6, content = panel(ctx), flare = true, distance = 0, occlusion_radius = 2}
+		labels[2] = {at = CLEAR, w = 6, h = 6, content = panel(ctx), flare = true, distance = 1, occlusion_radius = 2}
+		meshes := make([]Mesh, 1, context.temp_allocator)
+		meshes[0] = {geometry = {.Box, {1.4, 1.4, 0.1, 1, 1, 1, 0}}, scale = {1, 1, 1}, material = MATERIAL_GREEN_BASIC}
+		view3d(ctx, f, {w = 64, h = 48, camera = o3d.CAMERA_DEFAULT, meshes = meshes, labels = labels})
+	}
+	@(static) scenes: [1]Scene
+	scenes = [1]Scene{{name = "Flares", duration = Frames(1), render = render_flares}}
+	v := Video{width = 64, height = 48, fps = 30, background = BLACK, scenes = scenes[:]}
+	media: Media
+	media_init(&media)
+	defer media_destroy(&media)
+	r: Renderer
+	testing.expect_value(t, renderer_init(&r, &v, &media), Error.None)
+	defer renderer_destroy(&r)
+	px := render_frame(&r, 0)
+	testing.expectf(t, len(r.ctx.diagnostics) == 0, "diagnostics: %v", r.ctx.diagnostics[:])
+	at, _, _ := o3d.camera_project(o3d.CAMERA_DEFAULT, 64, 48, CLEAR)
+	mirror := o3d.Vec2{64, 48} - at
+	near :: proc(x, y: int, p: o3d.Vec2) -> bool {
+		return abs(f32(x) + 0.5 - p.x) < 5 && abs(f32(y) + 0.5 - p.y) < 5
+	}
+	on_point, on_mirror, centre, other := 0, 0, 0, 0
+	for y in 0 ..< 48 {
+		for x in 0 ..< 64 {
+			p := pixel(px, 64, x, y)
+			if p.b < 200 || p.r > 60 {
+				continue
+			}
+			switch {
+			case near(x, y, at):
+				on_point += 1
+			case near(x, y, mirror):
+				on_mirror += 1
+			case near(x, y, {32, 24}):
+				centre += 1
+			case:
+				other += 1
+			}
+		}
+	}
+	testing.expectf(t, on_point >= 25 && on_point <= 49, "%d blue pixels on the point", on_point)
+	testing.expectf(t, on_mirror >= 25 && on_mirror <= 49, "%d blue pixels on its mirror", on_mirror)
+	testing.expect_value(t, centre, 0)
+	testing.expect_value(t, other, 0)
+}
