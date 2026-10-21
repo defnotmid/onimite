@@ -1706,3 +1706,87 @@ end }
 	}
 	testing.expect(t, found)
 }
+
+// view3d_project's depth runs 0 at the near plane to 1 at the far one
+// (o3d's own is reversed): nearer points have less, and a point 10 units out
+// with near 1, far 100 is at far (z - near) / (z (far - near)).
+@(test)
+test_view3d_project_depth :: proc(t: ^testing.T) {
+	dir, derr := os.make_directory_temp("", "onimite_project_test_*", context.temp_allocator)
+	testing.expect(t, derr == nil)
+	defer os.remove_all(dir)
+	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
+	src := `
+local cam = { position = { 0, 0, 0 }, target = { 0, 0, -1 }, near = 1, far = 100 }
+local a = view3d_project(cam, { 0, 0, -10 }, { width = 100, height = 100 })
+local b = view3d_project(cam, { 0, 0, -50 }, { width = 100, height = 100 })
+assert(a.in_front and b.in_front and a.depth < b.depth, a.depth .. " " .. b.depth)
+local want = 100 * (10 - 1) / (10 * (100 - 1))
+assert(math.abs(a.depth - want) < 1e-4, a.depth .. " ~= " .. want)
+assert(math.abs(a.x - 50) < 1e-3 and math.abs(a.y - 50) < 1e-3)
+video { width = 32, height = 32, fps = 10, duration = 0.1 }
+`
+	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
+	media: om.Media
+	om.media_init(&media)
+	defer om.media_destroy(&media)
+	sh: Shared
+	defer shared_destroy(&sh)
+	s: Script
+	defer unload(&s)
+	testing.expectf(t, load(&s, path, nil, &media, &sh) == nil, "load failed: %s", error_message(s.failure, context.temp_allocator))
+}
+
+// A material's projection: its maps by the mesh's uvs (the default) or
+// projected along three axes in the mesh's own space or the world's, with
+// the repeats per unit and the blend's sharpness; another name is
+// invalid_value, naming the ones there are.
+@(test)
+test_view3d_projection :: proc(t: ^testing.T) {
+	dir, derr := os.make_directory_temp("", "onimite_projection_test_*", context.temp_allocator)
+	testing.expect(t, derr == nil)
+	defer os.remove_all(dir)
+	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
+	src := `
+video { width = 32, height = 32, fps = 10, duration = 0.1, render = function(f)
+  view3d { camera = { position = { 0, 0, 5 } }, meshes = {
+    { geometry = { type = "BoxGeometry" }, material = { projection = "object", projection_scale = 0.5, projection_sharpness = 6 } },
+    { geometry = { type = "BoxGeometry" }, material = { type = "MeshBasicMaterial", projection = "world" } },
+    { geometry = { type = "BoxGeometry" } },
+  } }
+  view3d { meshes = { { geometry = { type = "BoxGeometry" }, material = { projection = "cubic" } } } }
+end }
+`
+	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
+	media: om.Media
+	om.media_init(&media)
+	defer om.media_destroy(&media)
+	sh: Shared
+	defer shared_destroy(&sh)
+	s: Script
+	defer unload(&s)
+	testing.expectf(t, load(&s, path, nil, &media, &sh) == nil, "load failed: %s", error_message(s.failure, context.temp_allocator))
+	r: om.Renderer
+	testing.expect_value(t, om.renderer_init(&r, &s.video, &media), om.Error.None)
+	defer om.renderer_destroy(&r)
+	om.render_frame(&r, 0)
+	testing.expect_value(t, len(r.ctx.diagnostics), 1)
+	if len(r.ctx.diagnostics) == 1 {
+		d := r.ctx.diagnostics[0]
+		testing.expect(t, d.code == .Invalid_Value && d.name == "material projection" && d.a == "cubic")
+	}
+	found := false
+	for n in r.ctx.tree.nodes {
+		v, ok := n.kind.(om.View3d)
+		if !ok || len(v.meshes) != 3 {
+			continue
+		}
+		found = true
+		testing.expect_value(t, v.meshes[0].material.projection, o3d.Map_Projection.Object)
+		testing.expect_value(t, v.meshes[0].material.projection_scale, 0.5)
+		testing.expect_value(t, v.meshes[0].material.projection_sharpness, 6)
+		testing.expect_value(t, v.meshes[1].material.projection, o3d.Map_Projection.World)
+		testing.expect_value(t, v.meshes[2].material.projection, o3d.Map_Projection.Uv)
+	}
+	testing.expect(t, found)
+}

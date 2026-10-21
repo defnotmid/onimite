@@ -613,6 +613,20 @@ read_material :: proc(L: ^lua.State, s: ^Script, t: c.int, default_type: string,
 		m.alpha_cutoff = cutoff
 		m.flags += {.Alpha_Mask}
 	}
+	// how its maps land: by the mesh's uvs, or projected along three axes
+	// and blended by the normal (triplanar: meshes without uvs), in the
+	// mesh's own space (moving with it) or the world's
+	switch proj := get_str(L, t, "projection", "uv"); proj {
+	case "uv":
+	case "object":
+		m.projection = .Object
+	case "world":
+		m.projection = .World
+	case:
+		bad_string(L, "material projection", proj, "uv, object or world")
+	}
+	m.projection_scale = get_num(L, t, "projection_scale", 1)
+	m.projection_sharpness = get_num(L, t, "projection_sharpness", 4)
 	if kind == "PointsMaterial" {
 		m.size = get_num(L, t, "size", m.size)
 		if !get_bool(L, t, "size_attenuation", true) {
@@ -1373,7 +1387,7 @@ l_view3d_project :: proc "c" (L: ^lua.State) -> c.int {
 	lua.createtable(L, 0, 4)
 	set_num(L, "x", pixel.x)
 	set_num(L, "y", pixel.y)
-	set_num(L, "depth", depth)
+	set_num(L, "depth", 1 - depth) // o3d's depth is reversed (1 near); scripts read 0 near .. 1 far
 	lua.pushboolean(L, b32(in_front))
 	lua.setfield(L, -2, "in_front")
 	return 1
