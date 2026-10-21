@@ -16,6 +16,7 @@ import "core:thread"
 import oanalyze "deps:odawg/analyze"
 import oassets "deps:odawg/assets"
 import obase "deps:odawg/base"
+import ocheck "deps:odawg/check"
 import odevice "deps:odawg/device"
 import orender "deps:odawg/render"
 import osong "deps:odawg/song"
@@ -73,6 +74,20 @@ Music :: struct {
 	banks:     int,
 	wake:      proc(data: rawptr),
 	wake_data: rawptr,
+	// What songs' renders measure as they are made (music_set_measures):
+	// only what the command reads, since a meter costs as much as a song.
+	measures:  bit_set[Song_Measure],
+}
+
+Song_Measure :: enum u8 {
+	Mix, // as odawg's checks measure the mix (`inspect`'s song check)
+	Parts, // each part's loudness meter and peak (`audio parts`)
+}
+
+// What the renders made from now on measure; set before they start.
+music_set_measures :: proc(m: ^Media, measures: bit_set[Song_Measure]) {
+	sync.guard(&m.music.lock)
+	m.music.measures = measures
 }
 
 // A composed song in the media. Everything but the bank is in `arena`.
@@ -176,6 +191,15 @@ song_clip_free :: proc(sc: ^Song_Clip) {
 	delete(sc.render.samples, a)
 	delete(sc.render.peaks, a)
 	delete(sc.render.state, a)
+	for &m in sc.render.part_meters {
+		oanalyze.meter_destroy(&m)
+	}
+	delete(sc.render.part_meters, a)
+	delete(sc.render.part_peaks, a)
+	if .Mix in sc.render.measured {
+		ocheck.measuring_destroy(&sc.render.measuring)
+		delete(sc.render.measuring.part_peaks, a)
+	}
 	virtual.arena_destroy(&sc.arena)
 	free(sc)
 }
@@ -491,6 +515,13 @@ Song_Render :: struct {
 	left:      int,
 	wanted:    bool, // the driver makes it (under the music's lock)
 	taken:     bool, // the driver is making it, or made it (under the music's lock)
+	// What the render measured as it was made, before it was rounded to 16
+	// bits: each part's loudness meter and peak (`audio parts`), and the mix
+	// as odawg's checks measure it; read once the render is whole.
+	part_meters: []oanalyze.Meter,
+	part_peaks:  []f32,
+	measuring:   ocheck.Measuring,
+	measured:    bit_set[Song_Measure],
 }
 
 // A song's band rows (a spectrogram) are a .Bands table of its mix, a row
@@ -574,6 +605,17 @@ song_render_want :: proc(sc: ^Song_Clip) {
 	segments := (rd.frames + SONG_SEGMENT - 1) / SONG_SEGMENT
 	rd.state = make([]u8, segments, a)
 	rd.left = segments
+	rd.measured = mu.measures
+	if .Parts in rd.measured {
+		rd.part_meters = make([]oanalyze.Meter, len(sc.song.parts), a)
+		rd.part_peaks = make([]f32, len(sc.song.parts), a)
+		for &m in rd.part_meters {
+			oanalyze.meter_init(&m, orender.RATE)
+		}
+	}
+	if .Mix in rd.measured {
+		ocheck.measuring_init(&rd.measuring, &sc.song, a)
+	}
 }
 
 // Whether segment `g` of the render is made (its samples and peaks may be
@@ -605,6 +647,12 @@ song_table_build :: proc(sc: ^Song_Clip, st: ^Song_Table) {
 	if song_table_ready(st) {
 		return
 	}
+	song_render_build(sc)
+}
+
+// Has the song's render made now, whole, with its measures (this thread
+// waiting).
+song_render_build :: proc(sc: ^Song_Clip) {
 	song_render_want(sc)
 	mu := sc.music
 	music_start(mu)
@@ -660,6 +708,17 @@ song_take :: proc(data: rawptr, at: i64, l, r: []f32, stems: [][2][]f32) {
 		p^ = {min(p[0], x[0]), max(p[1], x[1])} if inside else x
 	}
 	parts := stems[:min(len(stems), len(sc.song.parts))]
+	// measured in float, in order (the sink is called one chunk at a time)
+	if .Mix in rd.measured {
+		// the mix alone: the checks look at the song's mix (no per-part rules)
+		ocheck.measuring_push(&rd.measuring, l[:n], r[:n], nil)
+	}
+	if .Parts in rd.measured {
+		for st, p in parts {
+			oanalyze.meter_push(&rd.part_meters[p], st[0][:n], st[1][:n])
+			rd.part_peaks[p] = max(rd.part_peaks[p], orender.peak_from_samples(st[0][:n], st[1][:n]))
+		}
+	}
 	out := rd.samples[2 * from:][:2 * n]
 	#no_bounds_check {
 		for i in 0 ..< n {

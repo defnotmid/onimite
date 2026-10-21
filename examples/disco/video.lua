@@ -95,7 +95,7 @@ end
 
 video { width = W, height = H, fps = 30, duration = score.duration, background = "#0b0613",
   audio = { { score, fade_out = 1.5 } },
-  -- the song mixes near -26 LUFS: lifted to about -14 under the limiter
+  -- the song mixes near -27 LUFS: lifted to about -16 under the limiter
   master_gain_db = 12,
   limiter = { ceiling_db = -1 },
   render = function(f)

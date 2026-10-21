@@ -6,11 +6,9 @@ import om "../onimite"
 import script "../script"
 import obase "deps:odawg/base"
 import ocheck "deps:odawg/check"
-import orender "deps:odawg/render"
 import odevice "deps:odawg/device"
 import otheory "deps:odawg/theory"
 import osong "deps:odawg/song"
-import common "deps:odecs/common"
 
 // Songs as the commands list them (`timeline`, `show song/NAME`): their
 // form and tracks on the video clock, from odawg's composed tables.
@@ -104,21 +102,20 @@ write_song :: proc(b: ^strings.Builder, t: Timeline_Song) {
 }
 
 // What odawg's checks find in each song the script made, rendered alone
-// (silent parts, clipping, its peak and loudness), as findings at the line
-// that made it; the render isn't kept. Info rows (its loudness) only with
+// (clipping, its peak and loudness), as findings at the line that made it:
+// measured as its kept render was made. Info rows (its loudness) only with
 // `info`.
 @(private)
-song_check_diagnostics :: proc(s: ^script.Script, info: bool, pool: ^common.Work_Pool) -> []om.Diagnostic {
+song_check_diagnostics :: proc(s: ^script.Script, info: bool) -> []om.Diagnostic {
 	out := make([dynamic]om.Diagnostic, context.temp_allocator)
 	for x in s.songs {
 		if x.sound {
 			continue
 		}
 		findings := make(obase.Findings, context.temp_allocator)
-		// its sample sets first: a Sampler not loaded is silent
-		om.song_clip_load(x.clip)
-		render := orender.output_from_song(&x.clip.song, {pool = pool}, context.temp_allocator)
-		ocheck.findings_from_render(&x.clip.song, &render, &findings)
+		om.song_render_build(x.clip)
+		measures := ocheck.measures_from(&x.clip.render.measuring, context.temp_allocator)
+		ocheck.findings_from_measures(&x.clip.song, &measures, &findings)
 		for f in findings {
 			severity := om.Severity.Warning
 			switch f.severity {

@@ -8,8 +8,6 @@ import "core:slice"
 import "core:strings"
 import oanalyze "deps:odawg/analyze"
 import obase "deps:odawg/base"
-import orender "deps:odawg/render"
-import common "deps:odecs/common"
 import om "../onimite"
 import script "../script"
 
@@ -44,15 +42,10 @@ Audio_Parts_Result :: struct {
 	drift: []string     `json:"drift"`,
 }
 
-// A meter and a peak per part, fed a segment at a time.
-@(private = "file")
-Part_Meters :: struct {
-	meters: []oanalyze.Meter,
-	peaks:  []f32,
-}
-
 @(private)
 audio_parts :: proc(app: ^App_State, regs: Command_Regs) -> Error {
+	// songs' renders meter each part
+	om.music_set_measures(&app.media, {.Parts})
 	build_audio(app) or_return
 	s := &app.script
 	songs := make([dynamic]Song_Parts, context.temp_allocator)
@@ -60,7 +53,7 @@ audio_parts :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 		if x.sound {
 			continue
 		}
-		append(&songs, song_parts(x, &app.background_work.work_pool))
+		append(&songs, song_parts(x))
 	}
 	res := Audio_Parts_Result{songs = songs[:]}
 	b := strings.builder_make(context.temp_allocator)
@@ -92,35 +85,23 @@ audio_parts :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 	return nil
 }
 
-// One song rendered alone (its sample sets loaded first), its parts' rows.
+// One song's parts' rows, from its render (made once, alone: the song's
+// own render, which measured each part as it was made).
 @(private = "file")
-song_parts :: proc(x: script.Script_Song, pool: ^common.Work_Pool) -> Song_Parts {
-	om.song_clip_load(x.clip)
+song_parts :: proc(x: script.Script_Song) -> Song_Parts {
+	om.song_render_build(x.clip)
+	rd := &x.clip.render
 	g := &x.clip.song
 	n := len(g.parts)
-	pm := Part_Meters{make([]oanalyze.Meter, n, context.temp_allocator), make([]f32, n, context.temp_allocator)}
-	for &m in pm.meters {
-		oanalyze.meter_init(&m, orender.RATE)
-	}
-	defer for &m in pm.meters {
-		oanalyze.meter_destroy(&m)
-	}
-	orender.export_song(g, {stems = true, pool = pool}, {data = &pm, take = proc(data: rawptr, at: i64, l, r: []f32, stems: [][2][]f32) {
-		pm := (^Part_Meters)(data)
-		for i in 0 ..< min(len(pm.meters), len(stems)) {
-			oanalyze.meter_push(&pm.meters[i], stems[i][0], stems[i][1])
-			pm.peaks[i] = max(pm.peaks[i], orender.peak_from_samples(stems[i][0], stems[i][1]))
-		}
-	}})
 	rows := make([]Part_Row, n, context.temp_allocator)
 	for name, i in g.parts {
-		l := oanalyze.loudness_from_meter(&pm.meters[i], context.temp_allocator)
+		l := oanalyze.loudness_from_meter(&rd.part_meters[i], context.temp_allocator)
 		row := Part_Row{name = name, lufs = -100, peak_db = -100}
 		if !math.is_inf(l.integrated) && l.integrated > -100 {
 			row.lufs = math.round(l.integrated * 10) / 10
 		}
-		if pm.peaks[i] > 0 {
-			row.peak_db = math.round(obase.gain_to_db(f64(pm.peaks[i])) * 10) / 10
+		if rd.part_peaks[i] > 0 {
+			row.peak_db = math.round(obase.gain_to_db(f64(rd.part_peaks[i])) * 10) / 10
 		}
 		// its played notes in time order (not the ones made at compose: a
 		// release trigger's, a keyswitch), named as odawg names them

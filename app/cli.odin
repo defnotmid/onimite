@@ -636,6 +636,8 @@ Inspect_Result :: struct {
 // with code 2 per --fail-on.
 @(private)
 inspect :: proc(app: ^App_State, regs: Command_Regs) -> Error {
+	// songs' renders measure their mix for the song check
+	om.music_set_measures(&app.media, {.Mix})
 	r := renderer_scaled(app, 0.25) or_return
 	fps := r.video.fps
 	start, end := resolve_range(app, &r.timeline, fps, regs.spec) or_return
@@ -695,7 +697,7 @@ inspect :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 		finding_add(&findings, nil, LOAD_FRAME, d)
 	}
 	// Each song rendered alone, through odawg's checks.
-	for d in song_check_diagnostics(&app.script, .Info in regs.flags, &app.background_work.work_pool) {
+	for d in song_check_diagnostics(&app.script, .Info in regs.flags) {
 		finding_add(&findings, nil, LOAD_FRAME, d)
 	}
 	failed := false
