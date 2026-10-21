@@ -1588,3 +1588,101 @@ end }
 	}
 	testing.expect(t, found)
 }
+
+// thrusts push a body by its mass times an acceleration, held over a window,
+// in its own frame: 2 m/s² for a second moves a body 1 m in that second and
+// 2 m a second after; off its centre the same push turns it as well. In 2D
+// the same in pixels.
+@(test)
+test_physics_thrusts :: proc(t: ^testing.T) {
+	dir, derr := os.make_directory_temp("", "onimite_thrusts_test_*", context.temp_allocator)
+	testing.expect(t, derr == nil)
+	defer os.remove_all(dir)
+	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
+	src := `
+local sim = physics3d { duration = 3, gravity = 0, bounds = false,
+  bodies = { { name = "centred", box = 1, density = 2 }, { name = "off", box = 1, position = { 5, 0, 0 } } },
+  thrusts = {
+    { from = 0, to = 1, body = "centred", acceleration = { 0, 0, 2 } },
+    { from = 0, to = 1, body = "off", acceleration = { 0, 0, 2 }, at = { 0.5, 0, 0 } },
+  } }
+local function near(a, b, eps, what) assert(math.abs(a - b) < eps, what .. ": " .. a .. " ~= " .. b) end
+local p1 = physics3d_at(sim, "centred", 1)
+local p2, r2 = physics3d_at(sim, "centred", 2)
+near(p1[3], 1, 0.03, "a second of 2 m/s²")
+near(p2[3], 3, 0.05, "then 2 m/s")
+near(p2[1], 0, 1e-4, "straight") near(r2[2], 0, 1e-4, "no turn")
+local _, ro = physics3d_at(sim, "off", 2)
+assert(math.abs(ro[2]) > 0.1, "off its centre it turns: " .. ro[2])
+
+local flat = physics { duration = 3, gravity = 0,
+  bodies = { { name = "tile", box = { 40, 40 }, x = 100, y = 100, leaves = true } },
+  thrusts = { { from = 0, to = 1, body = "tile", ax = 0, ay = 200 } } }
+local _, y1 = physics_at(flat, "tile", 1)
+local _, y2 = physics_at(flat, "tile", 2)
+near(y1, 200, 3, "a second of 200 px/s²") near(y2, 400, 5, "then 200 px/s")
+video { width = 32, height = 32, fps = 10, duration = 0.1 }
+`
+	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
+	media: om.Media
+	om.media_init(&media)
+	defer om.media_destroy(&media)
+	sh: Shared
+	defer shared_destroy(&sh)
+	s: Script
+	defer unload(&s)
+	testing.expectf(t, load(&s, path, nil, &media, &sh) == nil, "load failed: %s", error_message(s.failure, context.temp_allocator))
+}
+
+// attach = { sim, body } rides a physics3d body (meshes and emitters alike);
+// an emitter's start, stop and bursts read into it; world_space without a
+// body is an error.
+@(test)
+test_view3d_attach_body :: proc(t: ^testing.T) {
+	dir, derr := os.make_directory_temp("", "onimite_attach_body_test_*", context.temp_allocator)
+	testing.expect(t, derr == nil)
+	defer os.remove_all(dir)
+	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
+	src := `
+local sim = physics3d { duration = 2, gravity = 0, bodies = { { name = "ship", box = 1, velocity = { 1, 0, 0 } } } }
+video { width = 32, height = 32, fps = 10, duration = 0.1, render = function(f)
+  view3d { camera = { position = { 0, 0, 10 } },
+    meshes = { { geometry = { type = "BoxGeometry" }, attach = { sim = sim, body = "ship" } } },
+    particles = { { rate = 0, bursts = { { t = 0, count = 4 } }, start = 0.2, stop = 0.5, world_space = true,
+      attach = { sim = sim, body = 1 } } } }
+  assert(not pcall(view3d, { particles = { { rate = 5, world_space = true } } }))
+end }
+`
+	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
+	media: om.Media
+	om.media_init(&media)
+	defer om.media_destroy(&media)
+	sh: Shared
+	defer shared_destroy(&sh)
+	s: Script
+	defer unload(&s)
+	testing.expectf(t, load(&s, path, nil, &media, &sh) == nil, "load failed: %s", error_message(s.failure, context.temp_allocator))
+	r: om.Renderer
+	testing.expect_value(t, om.renderer_init(&r, &s.video, &media), om.Error.None)
+	defer om.renderer_destroy(&r)
+	om.render_frame(&r, 0)
+	testing.expectf(t, len(r.ctx.diagnostics) == 0, "diagnostics: %v", r.ctx.diagnostics[:])
+	found := false
+	for n in r.ctx.tree.nodes {
+		v, ok := n.kind.(om.View3d)
+		if !ok || len(v.particles) != 1 {
+			continue
+		}
+		found = true
+		testing.expect(t, v.meshes[0].attach.track.sample != nil)
+		e := v.particles[0]
+		testing.expect(t, e.world_space && e.attach.track.sample != nil)
+		testing.expect_value(t, e.start, 0.2)
+		testing.expect_value(t, e.stop, 0.5)
+		testing.expect_value(t, len(e.bursts), 1)
+		if len(e.bursts) == 1 {
+			testing.expect_value(t, e.bursts[0].count, 4)
+		}
+	}
+	testing.expect(t, found)
+}

@@ -28,6 +28,7 @@ import om "../onimite"
 //         },
 //         joints = { { "rope", b = "ball", from = { 900, 0 } } },   -- a = nil: the world
 //         kicks = { { t = 2, body = "tile", vx = 400, vy = -300 } },
+//         thrusts = { { from = 1, to = 1.5, body = "tile", ax = 0, ay = -900, at = { 40, 0 } } },
 //       }
 //     end)
 //     local x, y, angle = physics_at(sim, "tile", f.seconds)
@@ -140,6 +141,17 @@ Physics_Kick :: struct {
 	done:     bool,
 }
 
+// A push held from `from` to `to`: the body's mass times its acceleration
+// (`ax`, `ay` px/s²) as a force at `at` (px), both in the body's own frame,
+// so it turns with the body and turns it when off its centre.
+@(private = "file")
+Physics_Thrust :: struct {
+	from, to:     f32,
+	body:         int,
+	acceleration: [2]f32,
+	at:           [2]f32,
+}
+
 @(private)
 l_physics :: proc "c" (L: ^lua.State) -> c.int {
 	s := host(L)
@@ -166,6 +178,8 @@ l_physics :: proc "c" (L: ^lua.State) -> c.int {
 	joints_at := lua.gettop(L)
 	field(L, 1, "kicks")
 	kicks_at := lua.gettop(L)
+	field(L, 1, "thrusts")
+	thrusts_at := lua.gettop(L)
 	fields_end(L, s, 1, "physics")
 	if !(duration > 0) || duration > 600 {
 		lua.L_error(L, "physics: duration must be seconds in (0, 600], got %f", f64(duration))
@@ -242,6 +256,35 @@ l_physics :: proc "c" (L: ^lua.State) -> c.int {
 		}
 	}
 
+	thrusts := make([dynamic]Physics_Thrust, context.temp_allocator)
+	if lua.istable(L, thrusts_at) {
+		for j in 0 ..< int(lua.rawlen(L, thrusts_at)) {
+			lua.rawgeti(L, thrusts_at, lua.Integer(j + 1))
+			t := lua.gettop(L)
+			if !lua.istable(L, t) {
+				lua.L_error(L, "physics: thrusts[%d] is not a table", i32(j + 1))
+			}
+			fields_begin(L, t)
+			field(L, t, "body")
+			th := Physics_Thrust {
+				from         = get_num(L, t, "from", 0),
+				to           = get_num(L, t, "to", 0),
+				body         = body_ref(L, -1, bodies, names, "thrusts", j),
+				acceleration = {get_num(L, t, "ax", 0), get_num(L, t, "ay", 0)} / PHYSICS_SCALE,
+			}
+			if field(L, t, "at") == c.int(lua.Type.TABLE) {
+				th.at = read_pair(L, -1) / PHYSICS_SCALE
+			}
+			lua.pop(L, 1)
+			if th.body < 0 {
+				lua.L_error(L, "physics: thrusts[%d] needs a body", i32(j + 1))
+			}
+			append(&thrusts, th)
+			fields_end(L, s, t, fmt.tprintf("physics.thrusts[%d]", j + 1))
+			lua.settop(L, t - 1)
+		}
+	}
+
 	canvas := [2]f32{f32(s.video.width), f32(s.video.height)}
 	steps := int(math.ceil(duration * rate))
 	samples := steps + 1
@@ -290,6 +333,14 @@ l_physics :: proc "c" (L: ^lua.State) -> c.int {
 				b2.Body_SetLinearVelocity(body.id, b2.Body_GetLinearVelocity(body.id) + kick.velocity)
 				b2.Body_SetAngularVelocity(body.id, b2.Body_GetAngularVelocity(body.id) + kick.spin)
 				b2.Body_SetAwake(body.id, true)
+			}
+		}
+		// thrusts on this step: Box2D clears forces after each step
+		for th in thrusts {
+			body := &bodies[th.body]
+			if th.from <= was + 1e-6 && was < th.to - 1e-6 && body.enabled {
+				force := b2.Body_GetWorldVector(body.id, th.acceleration) * b2.Body_GetMass(body.id)
+				b2.Body_ApplyForce(body.id, force, b2.Body_GetWorldPoint(body.id, th.at), true)
 			}
 		}
 		for &body, i in bodies {

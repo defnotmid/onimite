@@ -775,6 +775,21 @@ read_attach :: proc(L: ^lua.State, s: ^Script, t: c.int) -> (a: om.Attach) {
 	at := lua.absindex(L, -1)
 	outer := fields_push(L, at)
 	defer fields_pop(L, s, at, "attach", outer)
+	// a physics3d body: { sim = physics3d{...}, body = name or number }
+	if field(L, at, "sim") == c.int(lua.Type.TABLE) {
+		sim := lua.gettop(L)
+		lua.getfield(L, sim, "tracks")
+		tr := (^Physics3d_Tracks)(lua.touserdata(L, -1))
+		lua.pop(L, 1)
+		if tr == nil || tr.magic != PHYSICS3D_TRACKS {
+			lua.L_error(L, "attach.sim takes the table physics3d{} returned")
+		}
+		field(L, at, "body")
+		a.track = {sample = track3d_sample, data = tr, body = track3d_body(L, tr, sim, lua.gettop(L), "attach")}
+		lua.pop(L, 2)
+		return
+	}
+	lua.pop(L, 1)
 	field(L, at, "model")
 	if lua.type(L, -1) == .STRING {
 		a.model_name = strings.clone(string(lua.tostring(L, -1)), context.temp_allocator)
@@ -785,7 +800,7 @@ read_attach :: proc(L: ^lua.State, s: ^Script, t: c.int) -> (a: om.Attach) {
 	lua.pop(L, 1)
 	a.node = strings.clone(get_str(L, at, "node", ""), context.temp_allocator)
 	if a.model == 0 || a.node == "" {
-		lua.L_error(L, "attach takes { model = <its number in models, from 1, or its name>, node = <a node's name in that model> }")
+		lua.L_error(L, "attach takes { model = <its number in models, from 1, or its name>, node = <a node's name in that model> } or { sim = <a physics3d{} result>, body = <a body's name or number> }")
 	}
 	return
 }
@@ -961,6 +976,25 @@ read_particles :: proc(L: ^lua.State, s: ^Script, t: c.int) -> (e: om.Particle_E
 	o1 := get_num(L, t, "opacity_end", o0)
 	e.color = {{c0.x, c0.y, c0.z, o0}, {c1.x, c1.y, c1.z, o1}}
 	e.spin = get_num(L, t, "spin", 0)
+	e.start = get_num(L, t, "start", 0)
+	e.stop = get_num(L, t, "stop", max(f32))
+	if field(L, t, "bursts") == c.int(lua.Type.TABLE) {
+		bt := lua.gettop(L)
+		bursts := make([]om.Particle_Burst, int(lua.rawlen(L, bt)), context.temp_allocator)
+		for &b, k in bursts {
+			lua.rawgeti(L, bt, lua.Integer(k + 1))
+			if lua.istable(L, -1) {
+				one := lua.gettop(L)
+				bo := fields_push(L, one)
+				b = {t = get_num(L, one, "t", 0), count = max(int(get_num(L, one, "count", 0)), 0)}
+				fields_pop(L, s, one, "particles.bursts", bo)
+			}
+			lua.pop(L, 1)
+		}
+		e.bursts = bursts
+	}
+	lua.pop(L, 1)
+	e.world_space = get_bool(L, t, "world_space", false)
 	e.material = o3d.MATERIAL_DEFAULT
 	e.material.flags += {.Basic, .Additive} if get_bool(L, t, "additive", false) else {.Basic, .Transparent}
 	if !get_bool(L, t, "size_attenuation", true) {
@@ -969,7 +1003,10 @@ read_particles :: proc(L: ^lua.State, s: ^Script, t: c.int) -> (e: om.Particle_E
 	e.material.softness = get_num(L, t, "softness", 0)
 	e.sprite = strings.clone(get_str(L, t, "map", ""), context.temp_allocator)
 	e.attach = read_attach(L, s, t)
-	return e, e.rate > 0
+	if e.world_space && e.attach.track.sample == nil {
+		lua.L_error(L, "particles: world_space = true needs attach = { sim = <a physics3d{} result>, body = ... }: only a body's past poses are known")
+	}
+	return e, e.rate > 0 || len(e.bursts) > 0
 }
 
 // view3d's `groups`: each `{ position, rotation, scale, attach, meshes,
@@ -994,32 +1031,32 @@ read_groups :: proc(L: ^lua.State, s: ^Script, t: c.int, parent: Maybe(o3d.Mat4)
 		pos, rot, scl := read_pose_transform(L, gt)
 		g := om.group_transform(parent) * o3d.compose(pos, rot, scl)
 		attach := read_attach(L, s, gt)
-		if attach.model == 0 {
+		if om.attach_none(attach) {
 			attach = parent_attach
 		}
 		first_mesh, first_model, first_emitter, first_label := len(items.meshes), len(items.models), len(items.particles), len(items.labels)
 		read_items(L, s, gt, items)
 		for &m in items.meshes[first_mesh:] {
 			m.group = g
-			if m.attach.model == 0 {
+			if om.attach_none(m.attach) {
 				m.attach = attach
 			}
 		}
 		for &m in items.models[first_model:] {
 			m.group = g
-			if m.attach.model == 0 {
+			if om.attach_none(m.attach) {
 				m.attach = attach
 			}
 		}
 		for &m in items.particles[first_emitter:] {
 			m.group = g
-			if m.attach.model == 0 {
+			if om.attach_none(m.attach) {
 				m.attach = attach
 			}
 		}
 		for &m in items.labels[first_label:] {
 			m.group = g
-			if m.attach.model == 0 {
+			if om.attach_none(m.attach) {
 				m.attach = attach
 			}
 		}

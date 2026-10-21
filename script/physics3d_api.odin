@@ -26,6 +26,7 @@ import lua "vendor:lua/5.4"
 //         },
 //         joints = { { "rope", b = "ball", from = { 0, 8, 0 } } },
 //         kicks = { { t = 2, body = "cube", velocity = { 3, 4, 0 } } },
+//         thrusts = { { from = 1, to = 1.5, body = "cube", acceleration = { 0, 0, 2 }, at = { 0.5, 0, 0 } } },
 //       }
 //     end)
 //     local pos, rot = physics3d_at(sim, "cube", f.seconds)
@@ -125,6 +126,18 @@ Physics3d_Kick :: struct {
 	spin:     b3.Vec3,
 }
 
+// A push held from `from` to `to` (a thruster, an engine, a hand): the
+// body's mass times `acceleration` (m/s²) as a force at `at`, both in the
+// body's own frame, so it turns with the body and turns it when off its
+// centre (Unity's AddForceAtPosition with ForceMode.Acceleration).
+@(private = "file")
+Physics3d_Thrust :: struct {
+	from, to:     f32,
+	body:         i32,
+	acceleration: b3.Vec3,
+	at:           b3.Vec3,
+}
+
 @(private)
 l_physics3d :: proc "c" (L: ^lua.State) -> c.int {
 	s := host(L)
@@ -181,6 +194,8 @@ l_physics3d :: proc "c" (L: ^lua.State) -> c.int {
 	joints_at := lua.gettop(L)
 	field(L, 1, "kicks")
 	kicks_at := lua.gettop(L)
+	field(L, 1, "thrusts")
+	thrusts_at := lua.gettop(L)
 	fields_end(L, s, 1, "physics3d")
 
 	if !(duration > 0) || duration > 600 {
@@ -268,6 +283,32 @@ l_physics3d :: proc "c" (L: ^lua.State) -> c.int {
 		}
 	}
 
+	thrusts := make([dynamic]Physics3d_Thrust, context.temp_allocator)
+	if lua.istable(L, thrusts_at) {
+		for j in 0 ..< int(lua.rawlen(L, thrusts_at)) {
+			lua.rawgeti(L, thrusts_at, lua.Integer(j + 1))
+			t := lua.gettop(L)
+			if !lua.istable(L, t) {
+				lua.L_error(L, "physics3d: thrusts[%d] is not a table", i32(j + 1))
+			}
+			fields_begin(L, t)
+			field(L, t, "body")
+			th := Physics3d_Thrust {
+				from         = get_num(L, t, "from", 0),
+				to           = get_num(L, t, "to", 0),
+				body         = i32(body3d_ref(L, -1, bodies, names, "thrusts", j)),
+				acceleration = read_vec3(L, t, "acceleration", {}),
+				at           = read_vec3(L, t, "at", {}),
+			}
+			if th.body < 0 {
+				lua.L_error(L, "physics3d: thrusts[%d] needs a body", i32(j + 1))
+			}
+			append(&thrusts, th)
+			fields_end(L, s, t, fmt.tprintf("physics3d.thrusts[%d]", j + 1))
+			lua.settop(L, t - 1)
+		}
+	}
+
 	steps := int(math.ceil(duration * rate))
 	samples := steps + 1
 	tracks := make_tracks3d(s.shared, bodies, samples, rate, duration)
@@ -313,6 +354,16 @@ l_physics3d :: proc "c" (L: ^lua.State) -> c.int {
 				b3.Body_SetLinearVelocity(body.id, b3.Body_GetLinearVelocity(body.id) + kick.velocity)
 				b3.Body_SetAngularVelocity(body.id, b3.Body_GetAngularVelocity(body.id) + kick.spin)
 				b3.Body_SetAwake(body.id, true)
+			}
+		}
+		// thrusts on this step: Box3D clears forces after each step
+		for th in thrusts {
+			body := &bodies[th.body]
+			if th.from <= was + 1e-6 && was < th.to - 1e-6 && .Enabled in body.flags {
+				xf := b3.Body_GetTransform(body.id)
+				force := b3_rotate_vector(xf.q, th.acceleration) * b3.Body_GetMass(body.id)
+				point := b3.ToVec3(xf.p) + b3_rotate_vector(xf.q, th.at)
+				b3.Body_ApplyForce(body.id, force, b3.ToPos(point), true)
 			}
 		}
 		for mi in movers {
@@ -1389,4 +1440,36 @@ push_vec3 :: proc(L: ^lua.State, v: [3]f32) {
 		lua.pushnumber(L, lua.Number(v[k]))
 		lua.rawseti(L, -2, lua.Integer(k + 1))
 	}
+}
+
+// Body `body` of tracks `data` at `t` seconds: its pose and its velocity
+// over the step around `t` (what an attach to it reads, at any time; held
+// at the ends, without physics3d_at's warnings).
+@(private)
+track3d_sample :: proc(data: rawptr, body: int, t: f32) -> (pose: o3d.Mat4, velocity: o3d.Vec3) {
+	tr := (^Physics3d_Tracks)(data)
+	row := body * tr.samples
+	last := tr.samples - 1
+	if last < 1 {
+		s := tr.poses[row]
+		pose = linalg.matrix4_from_quaternion(s.q)
+		pose[3] = {s.p.x, s.p.y, s.p.z, 1}
+		return
+	}
+	u := clamp(t * tr.rate, 0, f32(last))
+	k := min(int(u), last - 1)
+	s0, s1 := tr.poses[row + k], tr.poses[row + k + 1]
+	w := u - f32(k)
+	p := linalg.lerp(s0.p, s1.p, w)
+	pose = linalg.matrix4_from_quaternion(b3.NLerp(s0.q, s1.q, w))
+	pose[3] = {p.x, p.y, p.z, 1}
+	velocity = (s1.p - s0.p) * tr.rate
+	return
+}
+
+// The index of the body an attach names (a name or a number) in a
+// physics3d result at `sim_idx`.
+@(private)
+track3d_body :: proc(L: ^lua.State, tr: ^Physics3d_Tracks, sim_idx, body_idx: c.int, fn: cstring) -> int {
+	return resolve_track3d_body(L, tr, sim_idx, body_idx, fn)
 }

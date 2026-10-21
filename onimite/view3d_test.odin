@@ -342,7 +342,7 @@ test_gltf :: proc() -> string {
     {{"bufferView": 4, "componentType": 5126, "count": 2, "type": "VEC3"}},
     {{"bufferView": 5, "componentType": 5126, "count": 3, "type": "VEC3", "min": [0.8, 0, 0], "max": [0.8, 0, 0]}}
   ],
-  "materials": [{{"pbrMetallicRoughness": {{"baseColorFactor": [1, 0, 0, 1], "metallicFactor": 0, "roughnessFactor": 1}}, "doubleSided": true}}],
+  "materials": [{{"name": "Red", "pbrMetallicRoughness": {{"baseColorFactor": [1, 0, 0, 1], "metallicFactor": 0, "roughnessFactor": 1}}, "doubleSided": true}}],
   "meshes": [{{
     "primitives": [{{"attributes": {{"POSITION": 0, "NORMAL": 1}}, "indices": 2, "material": 0, "targets": [{{"POSITION": 5}}]}}],
     "weights": [0],
@@ -790,4 +790,89 @@ test_view3d_lensflares :: proc(t: ^testing.T) {
 	testing.expectf(t, on_mirror >= 25 && on_mirror <= 49, "%d blue pixels on its mirror", on_mirror)
 	testing.expect_value(t, centre, 0)
 	testing.expect_value(t, other, 0)
+}
+
+// A ShaderMaterial given to one part of a model (here its material "Red") is
+// compiled and drawn in place of the file's material (red): the triangle
+// draws green, with nothing else in the view to compile that shader first.
+@(test)
+test_view3d_part_shader :: proc(t: ^testing.T) {
+	dir, derr := os.make_directory_temp("", "onimite_part_shader_test_*", context.temp_allocator)
+	testing.expect(t, derr == nil)
+	defer os.remove_all(dir)
+	path, _ := filepath.join({dir, "tri.gltf"}, context.temp_allocator)
+	testing.expect(t, os.write_entire_file(path, transmute([]u8)test_gltf()) == nil)
+	media: Media
+	media_init(&media)
+	defer media_destroy(&media)
+	testing.expect_value(t, media_load_dir(&media, dir), Error.None)
+	@(static) scenes: [1]Scene
+	scenes = [1]Scene{{name = "Only", duration = Frames(1), render = proc(f: Frame, ctx: ^Context) {
+		at := o3d.CAMERA_DEFAULT
+		at.position = {0, 0, 3}
+		parts := make([]Model_Part, 1, context.temp_allocator)
+		parts[0] = {of = .Material, name = "Red", state = {}, material = Model_Material{
+			material = o3d.MATERIAL_DEFAULT,
+			shader = Shader_Material{
+				vertex_shader = "void main() { gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }",
+				fragment_shader = "void main() { gl_FragColor = vec4(0.0, 1.0, 0.0, 1.0); }",
+			},
+		}}
+		view3d(ctx, f, {
+			w = 40, h = 40,
+			camera = at,
+			lights = {{kind = .Ambient, color = {1, 1, 1}, intensity = 3}},
+			models = {{src = "tri.gltf", scale = {1, 1, 1}, animation_index = -1, parts = parts}},
+		})
+	}}}
+	v := Video{width = 40, height = 40, fps = 30, background = BLACK, scenes = scenes[:]}
+	r: Renderer
+	testing.expect_value(t, renderer_init(&r, &v, &media), Error.None)
+	defer renderer_destroy(&r)
+	px := render_frame(&r, 0)
+	testing.expectf(t, len(r.ctx.diagnostics) == 0, "diagnostics: %v", r.ctx.diagnostics[:])
+	green, red := 0, 0
+	for y in 0 ..< 40 {
+		for x in 0 ..< 40 {
+			p := pixel(px, 40, x, y)
+			green += 1 if p.g > 200 && p.r < 50 else 0
+			red += 1 if p.r > 50 else 0
+		}
+	}
+	testing.expectf(t, green > 20 && red == 0, "green %d, red %d", green, red)
+}
+
+// An emitter's births: steady ones at i / rate from `start` until `stop`,
+// bursts at once, each alive for its lifetime. On a body with `world_space`,
+// a particle is placed by the body as it was when born and keeps the body's
+// velocity from then (on a body speeding up, x = t², it falls behind); one
+// riding the body stays with it.
+@(test)
+test_particle_births_and_world_space :: proc(t: ^testing.T) {
+	bursts := [2]Particle_Burst{{t = 0.2, count = 5}, {t = 0.05, count = 3}}
+	e := Particle_Emitter{rate = 10, lifetime = 1, time = 1, start = 0.5, stop = 0.8, bursts = bursts[:], size = {1, 1}}
+	testing.expect_value(t, len(particle_births(e)), 3 + 5 + 3)       // 0.5, 0.6, 0.7; both bursts
+	e.time = 1.1
+	testing.expect_value(t, len(particle_births(e)), 3 + 5)           // the 0.05 burst is gone
+	e.stop = max(f32)
+	testing.expect_value(t, len(particle_births(e)), 7 + 5)           // 0.5 .. 1.1
+
+	speeding :: proc(data: rawptr, body: int, at: f32) -> (pose: o3d.Mat4, velocity: o3d.Vec3) {
+		return o3d.compose({at * at, 0, 0}), {2 * at, 0, 0}
+	}
+	steady := Particle_Emitter{rate = 4, lifetime = 2, time = 1, stop = max(f32), size = {1, 1}, world_space = true}
+	steady.attach.track = {sample = speeding}
+	births := particle_births(steady)
+	testing.expect_value(t, len(births), 5)                           // 0, 0.25, .. 1
+	behind := particle_rows(steady, 1, births)
+	for b, k in births {
+		want := b.at * b.at + 2 * b.at * (steady.time - b.at)
+		testing.expectf(t, abs(behind[k].position.x - want) < 1e-5, "born at %v: x %v, want %v", b.at, behind[k].position.x, want)
+	}
+	steady.world_space = false
+	pose, _ := speeding(nil, 0, steady.time)
+	riding := particle_rows(steady, pose, births)
+	for p in riding {
+		testing.expectf(t, abs(p.position.x - 1) < 1e-5, "riding: x %v", p.position.x)
+	}
 }

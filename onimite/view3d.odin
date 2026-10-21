@@ -83,26 +83,59 @@ Shader_Map :: struct {
 }
 
 // Where a mesh or model rides: on node `node` of the view's model number
-// `model` (1-based; 0: nowhere), as that node is posed this frame.
+// `model` (1-based; 0: nowhere), as that node is posed this frame; or on a
+// physics3d body (`track`), as it is at any time, in the space of the
+// groups around it.
 Attach :: struct {
 	model: int,
 	node:  string,
 	// The model's `name` when it was named, numbered once the view is read.
 	model_name: string,
+	track:      Body_Track,
+}
+
+// A physics3d body something rides: `sample` gives its pose and velocity at
+// time `t` from the simulation's tracks (`data`); nil when none.
+Body_Track :: struct {
+	sample: proc(data: rawptr, body: int, t: f32) -> (pose: o3d.Mat4, velocity: o3d.Vec3),
+	data:   rawptr,
+	body:   int,
+}
+
+// Whether `a` places nothing (no model's node, no body).
+attach_none :: proc "contextless" (a: Attach) -> bool {
+	return a.model == 0 && a.track.sample == nil
+}
+
+// The frame something attached by `a` in groups `group` is placed in: a
+// body's pose at `t` inside the groups, or a posed node (`on`) around them.
+@(private = "file")
+attach_frame :: proc(on: o3d.Mat4, a: Attach, group: Maybe(o3d.Mat4), t: f32) -> o3d.Mat4 {
+	if a.track.sample != nil {
+		pose, _ := a.track.sample(a.track.data, a.track.body, t)
+		return group_transform(group) * pose
+	}
+	return on * group_transform(group)
 }
 
 // A particle emitter (view3d's `particles`): a particle born every
-// 1/`rate` seconds lives `lifetime` seconds, placed and drawn from the
-// emitter's seed and its own number alone, so a frame shows the same
-// particles however it is reached. Each is born within `spread` (half
-// sizes) of `position`, moves at `velocity` (give or take
-// `velocity_spread`) under `gravity`, its size, colour and opacity going
-// from the first to the second over its life, turning `spin` radians a
-// second from a random angle.
+// 1/`rate` seconds from `start` until `stop`, and `count` at once at each
+// burst, lives `lifetime` seconds, placed and drawn from the emitter's seed
+// and its own number alone, so a frame shows the same particles however it
+// is reached. Each is born within `spread` (half sizes) of `position`,
+// moves at `velocity` (give or take `velocity_spread`) under `gravity`, its
+// size, colour and opacity going from the first to the second over its
+// life, turning `spin` radians a second from a random angle. Attached to a
+// body with `world_space`, each is placed by the body as it was at its
+// birth and keeps the body's velocity from then (gas left behind);
+// otherwise they ride the emitter.
 Particle_Emitter :: struct {
 	seed:            u64,
 	rate, lifetime:  f32,
 	time:            f32,
+	start, stop:     f32,
+	bursts:          []Particle_Burst,
+	world_space:     bool,
 	position:        o3d.Vec3,
 	spread:          o3d.Vec3,
 	velocity:        o3d.Vec3,
@@ -116,6 +149,12 @@ Particle_Emitter :: struct {
 	sprite:          string,
 	attach:          Attach,
 	group:           Maybe(o3d.Mat4),
+}
+
+// `count` particles born at once at `t` on the emitter's clock.
+Particle_Burst :: struct {
+	t:     f32,
+	count: int,
 }
 
 // A 2D panel on a 3D point: its nodes (`content`, laid out in a `w x h`
@@ -378,6 +417,7 @@ view3d :: proc(ctx: ^Context, f: Frame, v: View3d) {
 	v.particles = clone_slice(v.particles, arena)
 	for &e in v.particles {
 		e.sprite = strings.clone(e.sprite, arena)
+		e.bursts = clone_slice(e.bursts, arena)
 		e.attach.node = strings.clone(e.attach.node, arena)
 		e.attach.model_name = ""
 	}
@@ -752,6 +792,13 @@ view3d_make_shaders :: proc(m: ^Media, n: View3d) {
 				view3d_shader_make(m, sh)
 			}
 		}
+		for part in pose.parts {
+			if over, ok := part.material.?; ok {
+				if sh, has_sh := over.shader.?; has_sh {
+					view3d_shader_make(m, sh)
+				}
+			}
+		}
 	}
 }
 
@@ -986,6 +1033,8 @@ view3d_scene :: proc(r: ^Renderer, n: View3d, scene: ^o3d.Scene, size: [2]int, l
 	v := &r.media.view3d
 	o3d.scene_clear(scene)
 	scene.camera = n.camera
+	// the view's clock, for what rides a physics body
+	now := f32(n.clock_index) / f32(max(n.clock_fps, 1))
 	append(&scene.lights, ..n.lights)
 	// Meshes attached to a model's part draw after the models.
 	attached := make([dynamic]int, context.temp_allocator)
@@ -994,7 +1043,7 @@ view3d_scene :: proc(r: ^Renderer, n: View3d, scene: ^o3d.Scene, size: [2]int, l
 			append(&attached, i)
 			continue
 		}
-		view3d_mesh(r, scene, mesh, group_transform(mesh.group) * o3d.compose(mesh.position, mesh.rotation, mesh.scale))
+		view3d_mesh(r, scene, mesh, attach_frame(1, mesh.attach, mesh.group, now) * o3d.compose(mesh.position, mesh.rotation, mesh.scale))
 	}
 	// Where attached meshes and models ride: their part's world, read right
 	// after the model it belongs to is posed.
@@ -1075,7 +1124,7 @@ view3d_scene :: proc(r: ^Renderer, n: View3d, scene: ^o3d.Scene, size: [2]int, l
 			}
 		}
 		first := len(scene.draws)
-		o3d.gltf_draw(scene, model, model_on[mi] * group_transform(pose.group) * o3d.compose(pose.position, pose.rotation, pose.scale), anim, pose.time, pose.loop, pose.flags, &r.view3d.pose, morphs = pose.morphs, outline_width = pose.outline_width, outline_color = pose.outline_color, parts = parts)
+		o3d.gltf_draw(scene, model, attach_frame(model_on[mi], pose.attach, pose.group, now) * o3d.compose(pose.position, pose.rotation, pose.scale), anim, pose.time, pose.loop, pose.flags, &r.view3d.pose, morphs = pose.morphs, outline_width = pose.outline_width, outline_color = pose.outline_color, parts = parts)
 		for mesh, k in n.meshes {
 			if mesh.attach.model == mi + 1 {
 				mesh_on[k] = view3d_attach_world(r, model, pose.src, mesh.attach.node)
@@ -1108,7 +1157,7 @@ view3d_scene :: proc(r: ^Renderer, n: View3d, scene: ^o3d.Scene, size: [2]int, l
 		if e.attach.model > len(n.models) {
 			report(&r.ctx, .Error, {code = .Attach_Target, name = "particles", n = i64(e.attach.model)})
 		}
-		view3d_particles(r, scene, e, emitter_on[i] * group_transform(e.group))
+		view3d_particles(r, scene, e, attach_frame(emitter_on[i], e.attach, e.group, e.time))
 	}
 	for l, i in n.labels {
 		if i >= len(labels) || labels[i].texture == 0 {
@@ -1117,7 +1166,7 @@ view3d_scene :: proc(r: ^Renderer, n: View3d, scene: ^o3d.Scene, size: [2]int, l
 		if l.attach.model > len(n.models) {
 			report(&r.ctx, .Error, {code = .Attach_Target, name = "label", n = i64(l.attach.model)})
 		}
-		at := label_on[i] * group_transform(l.group) * o3d.Vec4{l.at.x, l.at.y, l.at.z, 1}
+		at := attach_frame(label_on[i], l.attach, l.group, now) * o3d.Vec4{l.at.x, l.at.y, l.at.z, 1}
 		sprite := [1]o3d.Particle{{position = at.xyz, size = labels[i].pixels, color = {1, 1, 1, 1}, offset = {0, 0.5}}}
 		material := o3d.MATERIAL_DEFAULT
 		material.flags += {.Basic, .Transparent, .No_Size_Attenuation, .Premultiplied_Color_Map}
@@ -1142,7 +1191,7 @@ view3d_scene :: proc(r: ^Renderer, n: View3d, scene: ^o3d.Scene, size: [2]int, l
 		if mesh.attach.model > len(n.models) {
 			report(&r.ctx, .Error, {code = .Attach_Target, name = "mesh", n = i64(mesh.attach.model)})
 		}
-		view3d_mesh(r, scene, mesh, mesh_on[i] * group_transform(mesh.group) * o3d.compose(mesh.position, mesh.rotation, mesh.scale))
+		view3d_mesh(r, scene, mesh, attach_frame(mesh_on[i], mesh.attach, mesh.group, now) * o3d.compose(mesh.position, mesh.rotation, mesh.scale))
 	}
 	scene.environment = view3d_texture(r, n.environment)
 	scene.environment_intensity = n.environment_intensity
@@ -1222,15 +1271,56 @@ view3d_label_texture :: proc(v: ^View3d_Media, i: int) -> o3d.Texture_Id {
 // in and attached to), into `scene`.
 @(private = "file")
 view3d_particles :: proc(r: ^Renderer, scene: ^o3d.Scene, e: Particle_Emitter, world: o3d.Mat4) {
-	if e.rate <= 0 || e.lifetime <= 0 || e.time < 0 {
+	rows := particle_rows(e, world, particle_births(e))
+	if len(rows) == 0 {
 		return
 	}
-	// born at i / rate, alive while younger than the lifetime
-	first := max(int(math.floor((e.time - e.lifetime) * e.rate)) + 1, 0)
-	last := int(math.floor(e.time * e.rate))
-	if last < first {
-		return
+	material := e.material
+	material.color_map = view3d_texture(r, e.sprite)
+	append(&scene.draws, o3d.Draw{o3d.scene_particles(scene, rows), 1, material})
+}
+
+// A particle's number (what its draws are seeded by) and when it was born.
+Particle_Birth :: struct {
+	i:  int,
+	at: f32,
+}
+
+// The births of emitter `e` alive at its time (temp memory): the steady ones
+// at i / rate (younger than the lifetime, from `start`, before `stop`), then
+// each burst's, numbered apart from them.
+@(private)
+particle_births :: proc(e: Particle_Emitter) -> []Particle_Birth {
+	if e.lifetime <= 0 || e.time < 0 {
+		return nil
 	}
+	BURST_NUMBERS :: 1 << 40
+	births := make([dynamic]Particle_Birth, 0, 64, context.temp_allocator)
+	if e.rate > 0 {
+		first := max(int(math.floor((e.time - e.lifetime) * e.rate)) + 1, int(math.ceil(e.start * e.rate)), 0)
+		last := int(math.floor(e.time * e.rate))
+		if e.stop <= e.time {
+			last = min(last, int(math.ceil(e.stop * e.rate)) - 1)
+		}
+		for i in first ..= last {
+			append(&births, Particle_Birth{i, f32(i) / e.rate})
+		}
+	}
+	for b, k in e.bursts {
+		if b.t <= e.time && e.time - b.t < e.lifetime {
+			for j in 0 ..< b.count {
+				append(&births, Particle_Birth{BURST_NUMBERS + (k << 20) + j, b.t})
+			}
+		}
+	}
+	return births[:]
+}
+
+// The particles of `births` at the emitter's time (temp memory): riding
+// `world`, or, left behind (`world_space` on a body), placed by the body as
+// it was at each birth with its velocity added, in the view's world.
+@(private)
+particle_rows :: proc(e: Particle_Emitter, world: o3d.Mat4, births: []Particle_Birth) -> []o3d.Particle {
 	// a number in [0, 1) for particle i's draw k (splitmix64)
 	random :: proc "contextless" (seed: u64, i, k: int) -> f32 {
 		z := seed + u64(i) * 0x9e3779b97f4a7c15 + u64(k) * 0xbf58476d1ce4e5b9
@@ -1239,29 +1329,39 @@ view3d_particles :: proc(r: ^Renderer, scene: ^o3d.Scene, e: Particle_Emitter, w
 		z ~= z >> 31
 		return f32(z >> 40) / f32(1 << 24)
 	}
-	rows := make([]o3d.Particle, last - first + 1, context.temp_allocator)
+	behind := e.world_space && e.attach.track.sample != nil
+	g := group_transform(e.group)
+	rows := make([]o3d.Particle, len(births), context.temp_allocator)
 	for &p, j in rows {
-		i := first + j
-		age := e.time - f32(i) / e.rate
+		b := births[j]
+		age := e.time - b.at
 		u := clamp(age / e.lifetime, 0, 1)
 		off, dv: o3d.Vec3
 		for k in 0 ..< 3 {
-			off[k] = e.spread[k] * (2 * random(e.seed, i, k) - 1)
-			dv[k] = e.velocity_spread[k] * (2 * random(e.seed, i, k + 3) - 1)
+			off[k] = e.spread[k] * (2 * random(e.seed, b.i, k) - 1)
+			dv[k] = e.velocity_spread[k] * (2 * random(e.seed, b.i, k + 3) - 1)
 		}
-		local := e.position + off + (e.velocity + dv) * age + e.gravity * (0.5 * age * age)
+		local, v := e.position + off, e.velocity + dv
+		at: o3d.Vec3
+		if behind {
+			pose, velocity := e.attach.track.sample(e.attach.track.data, e.attach.track.body, b.at)
+			born := g * pose
+			from := (born * o3d.Vec4{local.x, local.y, local.z, 1}).xyz
+			moving := (born * o3d.Vec4{v.x, v.y, v.z, 0}).xyz + (g * o3d.Vec4{velocity.x, velocity.y, velocity.z, 0}).xyz
+			at = from + moving * age + e.gravity * (0.5 * age * age)
+		} else {
+			q := local + v * age + e.gravity * (0.5 * age * age)
+			at = (world * o3d.Vec4{q.x, q.y, q.z, 1}).xyz
+		}
 		size := e.size[0] + (e.size[1] - e.size[0]) * u
-		at := world * o3d.Vec4{local.x, local.y, local.z, 1}
 		p = {
-			position = at.xyz,
+			position = at,
 			size     = {size, size},
 			color    = e.color[0] + (e.color[1] - e.color[0]) * u,
-			rotation = random(e.seed, i, 6) * 2 * math.PI + e.spin * age,
+			rotation = random(e.seed, b.i, 6) * 2 * math.PI + e.spin * age,
 		}
 	}
-	material := e.material
-	material.color_map = view3d_texture(r, e.sprite)
-	append(&scene.draws, o3d.Draw{o3d.scene_particles(scene, rows), 1, material})
+	return rows
 }
 
 // The world of node `node` of `model` as just posed: what attaches to it

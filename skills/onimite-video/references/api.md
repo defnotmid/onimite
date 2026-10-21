@@ -344,7 +344,7 @@ end }
 
 - Options: `duration` (seconds simulated, required), `gravity` (2000), `rate` (60 steps a
   second), `hit_speed` (100: the slowest impact, px/s, that counts as a contact), `bodies`,
-  `joints`, `kicks`. Lengths are canvas pixels, angles degrees (clockwise), times seconds
+  `joints`, `kicks`, `thrusts`. Lengths are canvas pixels, angles degrees (clockwise), times seconds
   on the simulation's clock.
 - A body: a shape, `box = { w, h }`, `circle = r` or `polygon = { x1, y1, ... }` (about its
   centre), and/or `shapes = { { box = ..., x, y, angle }, ... }` for one body of several
@@ -371,6 +371,9 @@ end }
   centre) to `to` (on b, default its centre), `length` defaulting to their distance. Joined
   bodies pass through each other unless `collide = true`.
 - Kicks: `{ t, body, vx, vy, spin }` add to its velocity at `t` (the same for any mass).
+- Thrusts: `{ from, to, body, ax, ay, at = { x, y } }` push it from `from` to `to` with its
+  mass times (`ax`, `ay`) px/s² as a force at `at` (px), both in the body's own frame: the
+  push turns with it and, off its centre, turns it (a jet on a hull, a hand on a lever).
 - The result: `sim.bodies[i] = { name, settled, moving }` (`settled`: when it came to rest
   for good, nil if it never did; `moving`: it still moved at the end), `sim.names[name] = i`,
   `sim.contacts = { { t, a, b, x, y, speed }, ... }` in time order (`a`, `b` body indices, the
@@ -393,7 +396,7 @@ end }
   for good; `leaves = true` when it should), `physics_unsettled` (a frame samples past the
   end while a body still moves: simulate longer), `physics_outline_gaps` (an `outline` body
   collides with less than 97% of its shape: parts under 0.5 px across can't collide).
-- In 3D: `physics3d{}` (Box3D) takes the same bodies, joints and kicks in metres for
+- In 3D: `physics3d{}` (Box3D) takes the same bodies, joints, kicks and thrusts in metres for
   `view3d{}`, with `physics3d_at` and `physics3d_instances` (3d.md, "Physics in 3D").
 - Same script, same result: it runs on one thread at load, so renders and previews agree.
   Values computed inside `shared`'s function exist only in the state that ran it: compute
