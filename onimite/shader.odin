@@ -53,6 +53,10 @@ import "deps:oksl"
 // group of nodes.
 Shader_Input :: struct {
 	src:        string,
+	// The depth of the 3D layer drawn by the group input of this name: its
+	// distance from the camera per pixel (rgb, world units; a = 1 where
+	// drawn), from the same render as its colour.
+	depth_of:   string,
 	// A group child: its content node (`shader_content_begin`), 0 for none,
 	// and the size of its pixel space (0: the shader box's).
 	content:    i32,
@@ -130,6 +134,8 @@ Shader_Channel_Kind :: enum u8 {
 	Image,
 	Video,
 	Group,
+	// The depth of the 3D layer the group channel `of` draws.
+	Depth,
 }
 
 Shader_Channel :: struct {
@@ -143,6 +149,10 @@ Shader_Channel :: struct {
 	// Group content node and its pixel space (0: the shader box's).
 	content: i32,
 	w, h:    f32,
+	// A group: a depth channel reads its 3D layer's depth. Depth: the group
+	// channel it reads.
+	capture_depth: bool,
+	of:            int,
 }
 
 // The node: per pass of its program (the graph's order), the uniform block
@@ -439,9 +449,28 @@ shader :: proc(ctx: ^Context, f: Frame, p: Shader_Params) -> bool {
 			ch := shader_input_channel(m, in_)
 			if ch < 0 {
 				report(ctx, .Warning, {code = NO_CHANNEL[m.profile], name = shader_pass_label(label, pass.name), a = in_.channel})
-			} else if in_.pass == "" && ch in m.channels_used {
+			} else if in_.pass == "" && ch in m.channels_used && in_.input.depth_of == "" {
 				n.channels[pi][ch] = shader_channel(ctx, f, label, in_.input)
 			}
+		}
+		// Depth channels, once the group channels they read are bound.
+		for in_ in passes[pi].inputs {
+			ch := shader_input_channel(m, in_)
+			if ch < 0 || in_.input.depth_of == "" || ch not_in m.channels_used {
+				continue
+			}
+			of := -1
+			for src in passes[pi].inputs {
+				if src.channel == in_.input.depth_of {
+					of = shader_input_channel(m, src)
+				}
+			}
+			if of < 0 || n.channels[pi][of].kind != .Group {
+				report(ctx, .Error, {code = .Shader_Depth_Of, name = label, a = in_.channel, b = in_.input.depth_of})
+				continue
+			}
+			n.channels[pi][of].capture_depth = true
+			n.channels[pi][ch] = {kind = .Depth, of = of}
 		}
 		// Channels reading a pass, or an input that shows this frame.
 		bound: bit_set[0 ..< oksl.CHANNEL_COUNT]
@@ -657,6 +686,7 @@ Shader_State :: struct {
 	image:         [dynamic]vg.Image_Id,
 	width:         [dynamic]u32,
 	height:        [dynamic]u32,
+	format:        [dynamic]vg.Pixel_Format,
 	used_frame:    [dynamic]int,
 	draw_gen:      int,
 	// By media image name; an invalid id: opaque, the regular texture serves.
@@ -701,6 +731,7 @@ shader_state_destroy :: proc(s: ^Shader_State, c: ^vg.Canvas) {
 	delete(s.image)
 	delete(s.width)
 	delete(s.height)
+	delete(s.format)
 	delete(s.used_frame)
 	delete(s.premultiplied)
 	delete(s.scratch)
@@ -746,6 +777,7 @@ shader_run_pass :: proc(r: ^Renderer, n: Shader, g: ^oksl.Pass_Graph, pi: int, p
 	pass := g.passes[pi]
 	channels: [oksl.CHANNEL_COUNT]vg.Image_Id
 	res: [oksl.CHANNEL_COUNT][3]f32
+	depth: [oksl.CHANNEL_COUNT]Depth_Capture
 	for e in g.edges[pass.edges.start:][:pass.edges.count] {
 		ch := int(e.channel)
 		switch e.source {
@@ -753,11 +785,26 @@ shader_run_pass :: proc(r: ^Renderer, n: Shader, g: ^oksl.Pass_Graph, pi: int, p
 			// Transparent black: no image, no size.
 			channels[ch], res[ch] = {}, {}
 		case .External:
-			channels[ch], res[ch] = shader_channel_image(r, n.channels[pi][ch], n.w, n.h, sx, sy)
+			c := n.channels[pi][ch]
+			if c.kind == .Depth {
+				continue // once the group it reads is drawn, below
+			}
+			if c.capture_depth {
+				r.depth_capture = &depth[ch]
+			}
+			channels[ch], res[ch] = shader_channel_image(r, c, n.w, n.h, sx, sy)
+			r.depth_capture = nil
 		case .Buffer:
 			channels[ch], res[ch] = outputs.this[e.id], outputs.size
 		case .Previous:
 			channels[ch], res[ch] = outputs.last[e.id], outputs.size
+		}
+	}
+	for e in g.edges[pass.edges.start:][:pass.edges.count] {
+		ch := int(e.channel)
+		if c := n.channels[pi][ch]; e.source == .External && c.kind == .Depth {
+			// sampled at the same coordinates as the group it comes from
+			channels[ch], res[ch] = depth[c.of].image, res[c.of]
 		}
 	}
 	// The block lives in the frame arena; finish it in place.
@@ -786,6 +833,8 @@ shader_channel_image :: proc(r: ^Renderer, ch: Shader_Channel, w, h, sx, sy: f32
 		if slot, got := video_clip_image(r, ch.clip, ch.stream, ch.seconds); got {
 			id = r.video_images.image[slot]
 		}
+	case .Depth:
+		// bound by shader_run_pass from the group channel it reads
 	case .Group:
 		// `.eval` divides by the resolution: the box units, not the pixels.
 		cw := ch.w if ch.w > 0 else w
@@ -880,7 +929,7 @@ fill_layer :: proc(r: ^Renderer, image: vg.Image_Id, box: vg.Rect, opacity: Mayb
 // render) not used yet this frame: one of that size, else a free one
 // resized, else a new one.
 @(private)
-frame_image :: proc(r: ^Renderer, w, h: u32) -> vg.Image_Id {
+frame_image :: proc(r: ^Renderer, w, h: u32, format := vg.Pixel_Format.RGBA8) -> vg.Image_Id {
 	s := &r.shader_state
 	frame_no := s.draw_gen
 	free_slot := -1
@@ -888,20 +937,20 @@ frame_image :: proc(r: ^Renderer, w, h: u32) -> vg.Image_Id {
 		if s.used_frame[k] == frame_no {
 			continue
 		}
-		if s.width[k] == w && s.height[k] == h {
+		if s.width[k] == w && s.height[k] == h && s.format[k] == format {
 			s.used_frame[k] = frame_no
 			return id
 		}
 		free_slot = k
 	}
 	if free_slot >= 0 {
-		if vg.realloc_image(&r.canvas, s.image[free_slot], w, h, .RGBA8, {.Premultiplied}) != nil {
+		if vg.realloc_image(&r.canvas, s.image[free_slot], w, h, format, {.Premultiplied} if format == .RGBA8 else {}) != nil {
 			return {}
 		}
-		s.width[free_slot], s.height[free_slot], s.used_frame[free_slot] = w, h, frame_no
+		s.width[free_slot], s.height[free_slot], s.format[free_slot], s.used_frame[free_slot] = w, h, format, frame_no
 		return s.image[free_slot]
 	}
-	id, err := vg.create_image_empty(&r.canvas, w, h, .RGBA8, {.Premultiplied})
+	id, err := vg.create_image_empty(&r.canvas, w, h, format, {.Premultiplied} if format == .RGBA8 else {})
 	if err != nil {
 		report(&r.ctx, .Error, {code = .Shader_Image, gpu = err})
 		return {}
@@ -909,6 +958,7 @@ frame_image :: proc(r: ^Renderer, w, h: u32) -> vg.Image_Id {
 	append(&s.image, id)
 	append(&s.width, w)
 	append(&s.height, h)
+	append(&s.format, format)
 	append(&s.used_frame, frame_no)
 	return id
 }

@@ -47,6 +47,29 @@ video { width = 1920, height = 1080, fps = 30, duration = 2, render = function(f
 end }
 ```
 
+- **Depth of a 3D layer**: `uDepth = { depth_of = "uScene" }` binds the depth of the `view3d`
+  drawn in the group input `uScene`, from the same render as its colour (no second 3D render):
+  `uDepth.eval(coord)` (same coordinates as `uScene`) gives `r` = distance from the camera along
+  its axis in world units, `a` = 1 where something was drawn (`r` = the camera's `far` and
+  `a` = 0 where nothing was). For haze, depth of field and edge effects:
+
+```lua
+local HAZE = [[
+uniform shader uScene;
+uniform shader uDepth;
+half4 main(float2 c) {
+  half4 col = uScene.eval(c);
+  half4 d = uDepth.eval(c);
+  float fog = d.a > 0.5 ? clamp((d.r - 3.0) / 6.0, 0.0, 1.0) : 1.0;   // 3..9 units fade to haze
+  return mix(col, half4(0.75, 0.8, 0.9, 1.0), fog);
+}]]
+shader(f, { sksl = HAZE, x = 0, y = 0, w = 1920, h = 1080, uniforms = {
+  uScene = function() view3d { camera = cam, lights = lights, meshes = meshes } end,
+  uDepth = { depth_of = "uScene" } } })
+```
+
+  The first `view3d` drawn in that group gives the depth; it covers that 3D layer's box (make
+  it fill the group). A `depth_of` naming anything but a group input is `shader_depth_of`.
 - `shader(f, {...})` or `shader{...}` (video clock). Source: `sksl = [[...]]`,
   `shadertoy = [[...]]`, `glsl = [[...]]`, or `src = "glow.sksl"` / `"tunnel.glsl"` /
   `"wave.frag"` (in `media/` or relative to the script; `.glsl` means Shadertoy, `.frag` GLSL,

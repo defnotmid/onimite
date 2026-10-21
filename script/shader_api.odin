@@ -466,6 +466,10 @@ read_input :: proc(L: ^lua.State, idx: c.int, arena := context.allocator) -> (in
 		}
 		return {src = strings.clone(name, arena), speed = 1}, true
 	case .TABLE:
+		// The depth of another input's 3D layer, from the same render
+		if has_field(L, idx, "depth_of") {
+			return {depth_of = strings.clone(get_str(L, idx, "depth_of", ""), arena)}, true
+		}
 		if !has_field(L, idx, "src") {
 			return {}, false
 		}

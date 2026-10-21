@@ -4,8 +4,10 @@ import "base:runtime"
 import "core:fmt"
 import "core:math"
 import "core:os"
+import "core:slice"
 import "core:strings"
 import "core:sync"
+import "core:thread"
 import "deps:o3d"
 import "deps:oksl"
 import vg "deps:ovg"
@@ -38,6 +40,7 @@ View3d :: struct {
 	meshes:                []Mesh,
 	models:                []Model_Pose,
 	particles:             []Particle_Emitter,
+	labels:                []View3d_Label,
 	// Media images: the equirectangular environment lighting the scene
 	// and the background behind it ("" for none), and their strengths.
 	environment:           string,
@@ -113,6 +116,20 @@ Particle_Emitter :: struct {
 	sprite:          string,
 	attach:          Attach,
 	group:           Maybe(o3d.Mat4),
+}
+
+// A 2D label on a 3D point (view3d's `labels`): its nodes (`content`,
+// laid out in a `w x h` panel) drawn as a sprite of that size at `at`, the
+// panel's bottom centre on the point, hidden pixel by pixel where the
+// scene is nearer; `depth_offset` (world units) pulls it toward the camera,
+// so a label on a surface shows.
+View3d_Label :: struct {
+	at:           o3d.Vec3,
+	w, h:         f32,
+	depth_offset: f32,
+	content:      i32,
+	attach:       Attach,
+	group:        Maybe(o3d.Mat4),
 }
 
 // The transform of the groups a mesh or model is in (view3d's `groups`),
@@ -342,6 +359,11 @@ view3d :: proc(ctx: ^Context, f: Frame, v: View3d) {
 			}
 		}
 	}
+	v.labels = clone_slice(v.labels, arena)
+	for &l in v.labels {
+		l.attach.node = strings.clone(l.attach.node, arena)
+		l.attach.model_name = ""
+	}
 	v.particles = clone_slice(v.particles, arena)
 	for &e in v.particles {
 		e.sprite = strings.clone(e.sprite, arena)
@@ -474,6 +496,9 @@ View3d_Media :: struct {
 	shaders:     o3d.Shaders,
 	models:      map[string]o3d.Model,
 	textures_of: map[string]o3d.Texture_Id,
+	// External textures labels are bound to, the ith label of a layer to
+	// the ith (made as needed, under the lock).
+	label_textures: [dynamic]o3d.Texture_Id,
 	// Outline geometry by outline content and options (caps and sides
 	// groups too; a ShapeGeometry's are its whole).
 	outlines:    map[Outline_Key]o3d.Extruded,
@@ -501,6 +526,7 @@ view3d_media_destroy :: proc(v: ^View3d_Media) {
 		delete(name)
 	}
 	delete(v.textures_of)
+	delete(v.label_textures)
 	delete(v.outlines)
 	o3d.geometries_destroy(&v.geometries)
 	o3d.textures_destroy(&v.textures)
@@ -756,6 +782,21 @@ View3d_Job :: struct {
 	images:        ^vg.Image_Store,
 	prepared:      bool,
 	err:           o3d.Error,
+	// The image its depth goes to (a shader's depth input reads it; invalid:
+	// none), and the distance written where nothing is drawn.
+	depth_image:   vg.Image_Id,
+	far:           f32,
+	// Rendered on the CPU at its row (`view3d_job_run` with no GPU): the
+	// renderer's software 3D renderer and task pool.
+	software:      ^o3d.Software,
+	pool:          ^thread.Pool,
+}
+
+// A 3D layer's depth image while a shader's group input is drawn: the
+// first layer drawn in it leaves its depth here.
+Depth_Capture :: struct {
+	image:         vg.Image_Id,
+	width, height: u32,
 }
 
 Video_Binding :: struct {
@@ -854,24 +895,36 @@ draw_view3d :: proc(r: ^Renderer, n: View3d) {
 	s := &r.view3d
 	job := view3d_jobs_next(&s.jobs)
 	job.image, job.width, job.height = image, pw, ph
-	view3d_videos(r, n, job)
-	sync.shared_lock(&v.lock)
-	view3d_scene(r, n, &job.scene)
-	if r.gpu3d == nil {
-		// The CPU draws it now; the job's scene serves the next layer.
-		pixels := o3d.software_render(&s.software, &job.scene, &v.geometries, &v.shaders, int(pw), int(ph), r.pool, &v.textures)
-		sync.shared_unlock(&v.lock)
-		s.jobs.count -= 1
-		if err := vg.update_image(c, image, vg.image_source_rgba(pixels, pw, ph), 0, 0); err != nil {
-			report(&r.ctx, .Error, {code = .Image_Upload, name = "view3d", gpu = err})
-			return
-		}
-	} else {
-		sync.shared_unlock(&v.lock)
-		// rendered at this point of the canvas's rows: after the clips' frames
-		// it samples were made, before the layer shows it
-		vg.run_external(c, view3d_job_run, job)
+	job.depth_image, job.far = {}, n.camera.far
+	// a shader's depth input reads this layer's depth, from this render
+	if d := r.depth_capture; d != nil && !vg.image_id_valid(d.image) {
+		job.depth_image = frame_image(r, pw, ph, .RGBA16F)
+		d.image, d.width, d.height = job.depth_image, pw, ph
 	}
+	view3d_videos(r, n, job)
+	// each label's nodes drawn into its panel image, bound to its texture
+	labels := make([]View3d_Label_Sprite, len(n.labels), context.temp_allocator)
+	for l, i in n.labels {
+		lw := u32(clamp(math.ceil(l.w * sx), 1, 4096))
+		lh := u32(clamp(math.ceil(l.h * sy), 1, 4096))
+		img := draw_content(r, l.content, l.w, l.h, lw, lh)
+		if !vg.image_id_valid(img) {
+			continue
+		}
+		labels[i] = {view3d_label_texture(v, i), {f32(lw), f32(lh)}}
+		append(&job.videos, Video_Binding{labels[i].texture, img})
+	}
+	sync.shared_lock(&v.lock)
+	view3d_scene(r, n, &job.scene, labels)
+	job.scene.depth = vg.image_id_valid(job.depth_image)
+	sync.shared_unlock(&v.lock)
+	if r.gpu3d == nil {
+		// the CPU draws it at its row too, reading the images made before it
+		job.software, job.pool, job.images, job.media = &s.software, r.pool, &c.images, v
+	}
+	// rendered at this point of the canvas's rows: after the images it
+	// samples (clips' frames, labels) were made, before the layer shows it
+	vg.run_external(c, view3d_job_run, job)
 	fill_layer(r, image, {n.x, n.y, n.w, n.h}, n.opacity)
 }
 
@@ -918,7 +971,7 @@ view3d_videos :: proc(r: ^Renderer, n: View3d, job: ^View3d_Job) {
 // reporting the media it names that is missing or does not decode and any
 // ShaderMaterial problems.
 @(private = "file")
-view3d_scene :: proc(r: ^Renderer, n: View3d, scene: ^o3d.Scene) {
+view3d_scene :: proc(r: ^Renderer, n: View3d, scene: ^o3d.Scene, labels: []View3d_Label_Sprite = nil) {
 	v := &r.media.view3d
 	o3d.scene_clear(scene)
 	scene.camera = n.camera
@@ -937,6 +990,10 @@ view3d_scene :: proc(r: ^Renderer, n: View3d, scene: ^o3d.Scene) {
 	mesh_on := make([]o3d.Mat4, len(n.meshes), context.temp_allocator)
 	model_on := make([]o3d.Mat4, len(n.models), context.temp_allocator)
 	emitter_on := make([]o3d.Mat4, len(n.particles), context.temp_allocator)
+	label_on := make([]o3d.Mat4, len(n.labels), context.temp_allocator)
+	for &m in label_on {
+		m = 1
+	}
 	for &m in mesh_on {
 		m = 1
 	}
@@ -1023,6 +1080,11 @@ view3d_scene :: proc(r: ^Renderer, n: View3d, scene: ^o3d.Scene) {
 				emitter_on[k] = view3d_attach_world(r, model, pose.src, e.attach.node)
 			}
 		}
+		for l, k in n.labels {
+			if l.attach.model == mi + 1 {
+				label_on[k] = view3d_attach_world(r, model, pose.src, l.attach.node)
+			}
+		}
 		if over, ok := pose.material.?; ok {
 			mat := view3d_material(r, scene, over.material, over.maps, over.shader)
 			mat.flags += pose.flags
@@ -1036,6 +1098,21 @@ view3d_scene :: proc(r: ^Renderer, n: View3d, scene: ^o3d.Scene) {
 			report(&r.ctx, .Error, {code = .Attach_Target, name = "particles", n = i64(e.attach.model)})
 		}
 		view3d_particles(r, scene, e, emitter_on[i] * group_transform(e.group))
+	}
+	for l, i in n.labels {
+		if i >= len(labels) || labels[i].texture == 0 {
+			continue
+		}
+		if l.attach.model > len(n.models) {
+			report(&r.ctx, .Error, {code = .Attach_Target, name = "label", n = i64(l.attach.model)})
+		}
+		at := label_on[i] * group_transform(l.group) * o3d.Vec4{l.at.x, l.at.y, l.at.z, 1}
+		sprite := [1]o3d.Particle{{position = at.xyz, size = labels[i].pixels, color = {1, 1, 1, 1}, offset = {0, 0.5}}}
+		material := o3d.MATERIAL_DEFAULT
+		material.flags += {.Basic, .Transparent, .No_Size_Attenuation, .Premultiplied_Color_Map}
+		material.color_map = labels[i].texture
+		material.depth_offset = l.depth_offset
+		append(&scene.draws, o3d.Draw{o3d.scene_particles(scene, sprite[:]), 1, material})
 	}
 	for i in attached {
 		mesh := n.meshes[i]
@@ -1097,6 +1174,24 @@ view3d_mesh :: proc(r: ^Renderer, scene: ^o3d.Scene, mesh: Mesh, transform: o3d.
 	}
 }
 
+// A label's sprite this frame: the texture its panel image is bound to and
+// the panel's size in the layer's pixels.
+View3d_Label_Sprite :: struct {
+	texture: o3d.Texture_Id,
+	pixels:  [2]f32,
+}
+
+// The external texture the `i`th label of a layer is bound to, made the
+// first time a layer has that many.
+@(private = "file")
+view3d_label_texture :: proc(v: ^View3d_Media, i: int) -> o3d.Texture_Id {
+	sync.guard(&v.lock)
+	for len(v.label_textures) <= i {
+		append(&v.label_textures, o3d.texture_add_external(&v.textures, 1, 1))
+	}
+	return v.label_textures[i]
+}
+
 // Emitter `e`'s particles alive at its time, placed by `world` (what it is
 // in and attached to), into `scene`.
 @(private = "file")
@@ -1129,10 +1224,11 @@ view3d_particles :: proc(r: ^Renderer, scene: ^o3d.Scene, e: Particle_Emitter, w
 			dv[k] = e.velocity_spread[k] * (2 * random(e.seed, i, k + 3) - 1)
 		}
 		local := e.position + off + (e.velocity + dv) * age + e.gravity * (0.5 * age * age)
+		size := e.size[0] + (e.size[1] - e.size[0]) * u
 		at := world * o3d.Vec4{local.x, local.y, local.z, 1}
 		p = {
 			position = at.xyz,
-			size     = e.size[0] + (e.size[1] - e.size[0]) * u,
+			size     = {size, size},
 			color    = e.color[0] + (e.color[1] - e.color[0]) * u,
 			rotation = random(e.seed, i, 6) * 2 * math.PI + e.spin * age,
 		}

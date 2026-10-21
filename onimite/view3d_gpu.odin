@@ -1,5 +1,6 @@
 package onimite
 
+import "core:slice"
 import "core:sync"
 import "deps:o3d"
 import o3d_gpu "deps:o3d/sdlgpu"
@@ -94,7 +95,11 @@ view3d_gpu_done :: proc(v: ^View3d_Media, jobs: []^View3d_Job) -> (err: o3d.Erro
 // what it drew).
 view3d_job_run :: proc(user: rawptr, gpu: rawptr) {
 	job := (^View3d_Job)(user)
-	if gpu == nil || !job.prepared {
+	if gpu == nil {
+		view3d_job_run_software(job)
+		return
+	}
+	if !job.prepared {
 		return
 	}
 	job.prepared = false
@@ -109,7 +114,46 @@ view3d_job_run :: proc(user: rawptr, gpu: rawptr) {
 		}
 	}
 	job.err = o3d_gpu.record(&g.gpu, g.jobs[job.slot], target, (^sdl.GPUCommandBuffer)(gpu))
+	if job.err == nil && vg.image_id_valid(job.depth_image) {
+		if depth := vgsdl.image_store_texture(job.images, job.depth_image); depth != nil {
+			job.err = o3d_gpu.record_depth_into(&g.gpu, g.jobs[job.slot], depth, job.far, (^sdl.GPUCommandBuffer)(gpu))
+		}
+	}
 	for b in job.videos {
 		o3d_gpu.texture_set_external(&g.gpu, &v.textures, b.texture, nil)
+	}
+}
+
+
+// The CPU's turn at the job's row (the tables read-locked by the flush):
+// the images it samples are drawn by now; it renders into the layer's
+// image, and its depth image when a shader reads it.
+@(private)
+view3d_job_run_software :: proc(job: ^View3d_Job) {
+	if job.software == nil {
+		return
+	}
+	pixels_of :: proc(images: ^vg.Image_Store, id: vg.Image_Id) -> []u8 {
+		e := vg.image_store_get(images, id)
+		return e.image.pixels if e != nil else nil
+	}
+	v, sw := job.media, job.software
+	for b in job.videos {
+		if px := pixels_of(job.images, b.image); px != nil {
+			if info, ok := vg.image_store_info(job.images, b.image); ok {
+				o3d.software_set_external(sw, b.texture, px, int(info.width), int(info.height))
+			}
+		}
+	}
+	defer for b in job.videos {
+		o3d.software_set_external(sw, b.texture, nil, 0, 0)
+	}
+	w, h := int(job.width), int(job.height)
+	pixels := o3d.software_render(sw, &job.scene, &v.geometries, &v.shaders, w, h, job.pool, &v.textures)
+	copy(pixels_of(job.images, job.image), pixels)
+	if vg.image_id_valid(job.depth_image) {
+		if out := pixels_of(job.images, job.depth_image); len(out) >= w * h * 8 {
+			o3d.depth_image(job.scene.camera, o3d.software_depth(sw), w, h, job.far, slice.reinterpret([]f16, out)[:w * h * 4])
+		}
 	}
 }

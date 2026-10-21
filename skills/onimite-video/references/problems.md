@@ -59,6 +59,7 @@ output puts it before the message. Match on `code` and `fields`, not on the mess
 | `shader_unset_uniform` | warning | `` shader {name}: uniform `{uniform}` is not set `` (`{name}` is `"ShaderMaterial"` for a `view3d` `ShaderMaterial`) |
 | `shader_unbound_channel` | warning | `` shader {name}: `{channel}` has no image bound `` |
 | `shader_pass_input` | warning | `` shader {name}: `{uniform}` binds an input; a program of passes binds inputs in its passes `` |
+| `shader_depth_of` | error | ``shader {name}: `{channel}` takes the depth of {q:ref}, which is not a group input of this shader``: `depth_of` names an input that isn't a group (a function of nodes) of the same shader; the channel reads nothing |
 | `shader_pass_unbound` | warning | `` shader {name}: {pass}'s `{channel}` has nothing bound `` |
 | `shader_load` | error | `shader {name} can not be loaded by the renderer: {gpu}` |
 | `shader_run` | error | `shader {name}: {gpu}` |

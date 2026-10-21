@@ -679,3 +679,51 @@ test_view3d_threemf :: proc(t: ^testing.T) {
 	px := render_frame(&r, 0)
 	testing.expect(t, pixel(px, 40, 20, 20).r > 150)
 }
+
+// Labels on the CPU: a label behind a green box is hidden where the box is
+// nearer, one in front of nothing shows whole, its panel's bottom centre
+// on its point.
+@(test)
+test_view3d_labels :: proc(t: ^testing.T) {
+	render_labels :: proc(f: Frame, ctx: ^Context) {
+		panel :: proc(ctx: ^Context) -> i32 {
+			content := shader_content_begin(ctx)
+			rect(ctx, {x = 0, y = 0, w = 10, h = 6, fill = rgb(0, 0, 255)})
+			group_end(ctx)
+			return content
+		}
+		behind, front := panel(ctx), panel(ctx)
+		labels := make([]View3d_Label, 2, context.temp_allocator)
+		labels[0] = {at = {0, -0.2, -1}, w = 10, h = 6, content = behind}
+		labels[1] = {at = {1.4, -0.2, 1}, w = 10, h = 6, content = front}
+		meshes := make([]Mesh, 1, context.temp_allocator)
+		meshes[0] = {geometry = {.Box, {1.4, 1.4, 0.1, 1, 1, 1, 0}}, scale = {1, 1, 1}, material = MATERIAL_GREEN_BASIC}
+		view3d(ctx, f, {w = 64, h = 48, camera = o3d.CAMERA_DEFAULT, meshes = meshes, labels = labels})
+	}
+	@(static) scenes: [1]Scene
+	scenes = [1]Scene{{name = "Labels", duration = Frames(1), render = render_labels}}
+	v := Video{width = 64, height = 48, fps = 30, background = BLACK, scenes = scenes[:]}
+	media: Media
+	media_init(&media)
+	defer media_destroy(&media)
+	r: Renderer
+	testing.expect_value(t, renderer_init(&r, &v, &media), Error.None)
+	defer renderer_destroy(&r)
+	px := render_frame(&r, 0)
+	testing.expectf(t, len(r.ctx.diagnostics) == 0, "diagnostics: %v", r.ctx.diagnostics[:])
+	blue_on_box, blue := 0, 0
+	for y in 0 ..< 48 {
+		for x in 0 ..< 64 {
+			p := pixel(px, 64, x, y)
+			if p.b > 200 && p.r < 60 && p.g < 60 {
+				blue += 1
+				if x >= 22 && x < 42 && y >= 14 && y < 34 {
+					blue_on_box += 1
+				}
+			}
+		}
+	}
+	// the box hides the label behind it; the one in front shows its 10 x 6
+	testing.expect_value(t, blue_on_box, 0)
+	testing.expectf(t, blue >= 40 && blue <= 80, "%d blue pixels", blue)
+}

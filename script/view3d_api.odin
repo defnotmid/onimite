@@ -61,7 +61,7 @@ l_view3d :: proc "c" (L: ^lua.State) -> c.int {
 	read_items(L, s, 1, &items)
 	read_groups(L, s, 1, nil, {}, &items)
 	resolve_attach_names(L, &items)
-	v.meshes, v.models, v.particles = items.meshes[:], items.models[:], items.particles[:]
+	v.meshes, v.models, v.particles, v.labels = items.meshes[:], items.models[:], items.particles[:], items.labels[:]
 	bloom_filter, has_bloom := read_bloom_filter(L, 1)
 	if has_bloom {
 		om.group_begin(ctx, om.Group{filter = bloom_filter})
@@ -775,6 +775,9 @@ resolve_attach_names :: proc(L: ^lua.State, items: ^View3d_Items) {
 	for &e in items.particles {
 		number(L, &e.attach, models)
 	}
+	for &l in items.labels {
+		number(L, &l.attach, models)
+	}
 }
 
 // What a view3d and its groups draw, in read order.
@@ -783,6 +786,7 @@ View3d_Items :: struct {
 	meshes:    [dynamic]om.Mesh,
 	models:    [dynamic]om.Model_Pose,
 	particles: [dynamic]om.Particle_Emitter,
+	labels:    [dynamic]om.View3d_Label,
 }
 
 @(private = "file")
@@ -791,10 +795,40 @@ read_items :: proc(L: ^lua.State, s: ^Script, t: c.int, items: ^View3d_Items) {
 		items.meshes = make([dynamic]om.Mesh, context.temp_allocator)
 		items.models = make([dynamic]om.Model_Pose, context.temp_allocator)
 		items.particles = make([dynamic]om.Particle_Emitter, context.temp_allocator)
+		items.labels = make([dynamic]om.View3d_Label, context.temp_allocator)
 	}
 	append(&items.meshes, ..read_list(L, s, t, "meshes", om.Mesh, read_mesh))
 	append(&items.models, ..read_list(L, s, t, "models", om.Model_Pose, read_model))
 	append(&items.particles, ..read_list(L, s, t, "particles", om.Particle_Emitter, read_particles))
+	append(&items.labels, ..read_list(L, s, t, "labels", om.View3d_Label, read_label))
+}
+
+// A label: `draw` lays out its nodes in a `w x h` panel (its own units
+// from the top left), shown with the panel's bottom centre on the 3D point
+// `at`, hidden where the scene is nearer; `depth_offset` (world units)
+// pulls it toward the camera; `attach` as a mesh's.
+@(private = "file")
+read_label :: proc(L: ^lua.State, s: ^Script, t: c.int) -> (l: om.View3d_Label, ok: bool) {
+	outer := fields_push(L, t)
+	defer fields_pop(L, s, t, "label", outer)
+	l.at = read_vec3(L, t, "at", {})
+	l.w = get_num(L, t, "w", 200)
+	l.h = get_num(L, t, "h", 60)
+	l.depth_offset = get_num(L, t, "depth_offset", 0)
+	l.attach = read_attach(L, s, t)
+	field(L, t, "draw")
+	if !lua.isfunction(L, -1) {
+		lua.pop(L, 1)
+		lua.L_error(L, "a label takes draw = function() ... end: its nodes, laid out in its w x h panel")
+	}
+	ctx := render_ctx(L, s)
+	l.content = om.shader_content_begin(ctx)
+	status := lua.pcall(L, 0, 0, 0)
+	om.group_end(ctx)
+	if status != 0 {
+		lua.error(L)
+	}
+	return l, l.w > 0 && l.h > 0
 }
 
 // A particle emitter: `rate` a second, each living `lifetime` seconds
@@ -860,7 +894,7 @@ read_groups :: proc(L: ^lua.State, s: ^Script, t: c.int, parent: Maybe(o3d.Mat4)
 		if attach.model == 0 {
 			attach = parent_attach
 		}
-		first_mesh, first_model, first_emitter := len(items.meshes), len(items.models), len(items.particles)
+		first_mesh, first_model, first_emitter, first_label := len(items.meshes), len(items.models), len(items.particles), len(items.labels)
 		read_items(L, s, gt, items)
 		for &m in items.meshes[first_mesh:] {
 			m.group = g
@@ -875,6 +909,12 @@ read_groups :: proc(L: ^lua.State, s: ^Script, t: c.int, parent: Maybe(o3d.Mat4)
 			}
 		}
 		for &m in items.particles[first_emitter:] {
+			m.group = g
+			if m.attach.model == 0 {
+				m.attach = attach
+			}
+		}
+		for &m in items.labels[first_label:] {
 			m.group = g
 			if m.attach.model == 0 {
 				m.attach = attach

@@ -77,6 +77,9 @@ Renderer :: struct {
 	// CPU; a recording renderer leaves them to its player's (set by the
 	// owner after `renderer_init`).
 	view3d:       View3d_State,
+	// While a shader's group input that a depth channel reads is drawn:
+	// where its 3D layer leaves its depth image (nil otherwise).
+	depth_capture: ^Depth_Capture,
 	gpu3d:        ^View3d_Gpu,
 	// ovg's SVG and Lottie renderers serve one document each (bound to its
 	// images): one per document this renderer has drawn, found by document
@@ -311,6 +314,14 @@ flush_frame :: proc(r: ^Renderer, output: vg.Render_Output) {
 		return
 	}
 	list := jobs.list[:jobs.count]
+	if r.gpu3d == nil {
+		// the CPU renders them at their rows, reading the tables
+		sync.shared_lock(&r.media.view3d.lock)
+		vg.flush(&r.canvas, output)
+		sync.shared_unlock(&r.media.view3d.lock)
+		jobs.count = 0
+		return
+	}
 	err, locked := view3d_gpu_prepare(r.gpu3d, &r.media.view3d, list, &r.canvas.images)
 	if err != nil {
 		report(&r.ctx, .Error, {code = .View3d_Render, o3d = err})
