@@ -21,8 +21,6 @@ import odevice "deps:odawg/device"
 import orender "deps:odawg/render"
 import osong "deps:odawg/song"
 import ospec "deps:odawg/spec"
-import otempo "deps:odawg/tempo"
-import otheory "deps:odawg/theory"
 
 // Songs: odawg's composed songs (`song{}`, `sound{}` in scripts) as media
 // sounds a track plays by name, like a clip. A song is data (its form, its
@@ -370,119 +368,6 @@ value_key :: proc(v: json.Value) -> u64 {
 	}
 	walk(&h, v)
 	return h
-}
-
-// ---- questions on the video's clock --------------------------------------------------
-
-// Where song seconds `t` are on the video.
-song_video_seconds :: proc(sc: ^Song_Clip, t: f64) -> f64 {
-	return sc.song.start + t
-}
-
-// The song's notes that start a sound: one onset per start time (song
-// seconds), its strength the loudest velocity there relative to the
-// song's loudest: what onsets of its samples would find, exactly.
-song_onsets :: proc(sc: ^Song_Clip, allocator := context.allocator) -> (r: oanalyze.Onsets) {
-	r.onsets = make([dynamic]oanalyze.Onset, allocator)
-	s := &sc.song
-	loudest: f32
-	for i in s.by_time {
-		loudest = max(loudest, s.notes.velocity[i])
-	}
-	for i in s.by_time {
-		t := f32(s.notes.time[i])
-		v := s.notes.velocity[i] / max(loudest, 1e-6)
-		if n := len(r.onsets); n > 0 && abs(r.onsets[n - 1].time - t) < 0.5e-3 {
-			r.onsets[n - 1].strength = max(r.onsets[n - 1].strength, v)
-			continue
-		}
-		append(&r.onsets, oanalyze.Onset{t, v})
-	}
-	if len(s.sections) > 0 {
-		r.bpm = f32(s.sections[0].bpm0)
-	}
-	return
-}
-
-// The song's beat times (song seconds) to its end, every beat of its tempo
-// map (temp memory).
-song_beats :: proc(sc: ^Song_Clip) -> []f64 {
-	s := &sc.song
-	out := make([dynamic]f64, context.temp_allocator)
-	total := osong.total_beats(s)
-	for b := 0.0; b < total - 1e-9; b += 1 {
-		append(&out, otempo.seconds_from_beat(&s.tempo, b))
-	}
-	return out[:]
-}
-
-// A note sounding at a moment of a song: its part, what it plays (a pad
-// name or a pitch), where it started (song seconds), and whether it is
-// still held (else its release rings).
-Sounding_Note :: struct {
-	part:     string,
-	note:     string,
-	time:     f64,
-	velocity: f32,
-	held:     bool,
-}
-
-// The notes sounding at song seconds `t`, by track (temp memory).
-song_notes_at :: proc(sc: ^Song_Clip, t: f64) -> []Sounding_Note {
-	s := &sc.song
-	out := make([dynamic]Sounding_Note, context.temp_allocator)
-	for tr in s.tracks {
-		kind := s.devices[tr.instrument]
-		p := s.params[tr.instrument]
-		for i in tr.notes.first ..< tr.notes.first + tr.notes.count {
-			n := orender.note_from_row(s, int(i))
-			if n.kind != .Attack {
-				continue // made at compose: it sounds as the played note's tail
-			}
-			env := odevice.Voice_Env{bank = &sc.music.bank}
-			if n.time <= t && t < n.time + odevice.note_tail(&p, n, &env) {
-				append(&out, Sounding_Note{s.parts[tr.part], note_name(s, n.pad, n.pitch), n.time, n.velocity, t < n.time + n.duration})
-			}
-		}
-	}
-	return out[:]
-}
-
-// A note as odawg names it: a drum pad ("kick") or a pitch ("A2").
-note_name :: proc(s: ^osong.Song, pad: u32, pitch: f32) -> string {
-	if pad != 0 {
-		return osong.pad_name(s, pad)
-	}
-	return otheory.string_from_pitch(pitch)
-}
-
-// Where song seconds `t` are in the song's form (false outside it).
-song_place :: proc(sc: ^Song_Clip, t: f64) -> (osong.Place, bool) {
-	return osong.place_from_seconds(&sc.song, t)
-}
-
-// How far song seconds `t` are from the song's half-beat grid ("8n" from
-// its section's start), and how long a beat lasts there: where a sound
-// over the song belongs. Not ok where the song has no beat: a section no
-// drum (a pad) plays in, where sounds go with the words, not the grid.
-song_off_grid :: proc(sc: ^Song_Clip, t: f64) -> (off, beat: f64, ok: bool) {
-	s := &sc.song
-	beaten := false
-	for sec in s.sections {
-		if t < sec.start || t >= sec.stop {
-			continue
-		}
-		for i in 0 ..< len(s.notes) {
-			n := s.notes[i]
-			beaten ||= n.pad != 0 && n.time >= sec.start && n.time < sec.stop
-		}
-	}
-	if !beaten {
-		return
-	}
-	snapped := osong.seconds_snapped(s, t, "8n") or_return
-	b := otempo.beat_from_seconds(&s.tempo, t)
-	return t - snapped, 60 / otempo.bpm_from_beat(&s.tempo, b), true
 }
 
 // ---- a song's render, and the tables read from it -----------------------------------

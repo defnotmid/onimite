@@ -870,6 +870,48 @@ test_view3d_part_shader :: proc(t: ^testing.T) {
 	testing.expectf(t, green > 20 && red == 0, "green %d, red %d", green, red)
 }
 
+// A model attached to another model's node rides it with no mesh attached
+// (a guard on attached meshes once left it at the world's origin): the
+// first model at x = 2 puts its node "tri" at x = 1, so the second, whose own
+// triangle sits 1 left of its node, draws at x = 0, not at x = -1.
+@(test)
+test_view3d_attach_model_node :: proc(t: ^testing.T) {
+	dir, derr := os.make_directory_temp("", "onimite_attach_model_test_*", context.temp_allocator)
+	testing.expect(t, derr == nil)
+	defer os.remove_all(dir)
+	path, _ := filepath.join({dir, "tri.gltf"}, context.temp_allocator)
+	testing.expect(t, os.write_entire_file(path, transmute([]u8)test_gltf()) == nil)
+	media: Media
+	media_init(&media)
+	defer media_destroy(&media)
+	testing.expect_value(t, media_load_dir(&media, dir), Error.None)
+	@(static) scenes: [1]Scene
+	scenes = [1]Scene{{name = "Only", duration = Frames(1), render = proc(f: Frame, ctx: ^Context) {
+		view3d(ctx, f, {
+			w = 80, h = 40,
+			camera = o3d.CAMERA_DEFAULT,
+			lights = {{kind = .Ambient, color = {1, 1, 1}, intensity = 3}},
+			models = {
+				{src = "tri.gltf", position = {2, 0, 0}, scale = {1, 1, 1}, animation_index = -1},
+				{src = "tri.gltf", scale = {1, 1, 1}, animation_index = -1, attach = {model = 1, node = "tri"}},
+			},
+		})
+	}}}
+	v := Video{width = 80, height = 40, fps = 30, background = BLACK, scenes = scenes[:]}
+	r: Renderer
+	testing.expect_value(t, renderer_init(&r, &v, &media), Error.None)
+	defer renderer_destroy(&r)
+	px := render_frame(&r, 0)
+	testing.expectf(t, len(r.ctx.diagnostics) == 0, "diagnostics: %v", r.ctx.diagnostics[:])
+	red :: proc(px: []u8, world: o3d.Vec3) -> bool {
+		at, _, _ := o3d.camera_project(o3d.CAMERA_DEFAULT, 80, 40, world)
+		return pixel(px, 80, int(at.x), int(at.y)).r > 50
+	}
+	testing.expect(t, red(px, {0, -0.2, 0}))   // the attached triangle, on the node
+	testing.expect(t, red(px, {1, -0.2, 0}))   // the first model's
+	testing.expect(t, !red(px, {-1, -0.2, 0})) // where it would be unattached
+}
+
 // An emitter's births: steady ones at i / rate from `start` until `stop`,
 // bursts at once, each alive for its lifetime. On a body with `world_space`,
 // a particle is placed by the body as it was when born and keeps the body's

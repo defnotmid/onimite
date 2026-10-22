@@ -98,15 +98,16 @@ draw_box :: proc(s: ^State, box: ^Box, dt: f32) {
 
 		// text
 		if .Draw_Text in box.flags && len(box.str) > 0 {
-			tw := render.measure_text(s.font, box.str, box.font_size)
 			lh := render.line_height(s.font, box.font_size)
 			tx: f32
 			switch box.text_align {
 			case .Left:
 				tx = x + box.text_padding
 			case .Center:
+				tw := box.text_width if box.has_text_width else render.measure_text(s.font, box.str, box.font_size)
 				tx = x + (w - tw) * 0.5
 			case .Right:
+				tw := box.text_width if box.has_text_width else render.measure_text(s.font, box.str, box.font_size)
 				tx = x + w - tw - box.text_padding
 			}
 			ty := y + (h - lh) * 0.5

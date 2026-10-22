@@ -8,6 +8,7 @@ import "core:slice"
 import "core:strings"
 import oanalyze "deps:odawg/analyze"
 import obase "deps:odawg/base"
+import osong "deps:odawg/song"
 import om "../onimite"
 import script "../script"
 
@@ -115,11 +116,10 @@ song_parts :: proc(x: script.Script_Song) -> Song_Parts {
 				continue
 			}
 			for k in tr.notes.first ..< tr.notes.first + tr.notes.count {
-				nt := g.notes[k]
-				if nt.kind != .Attack {
+				if g.notes.kind[k] != .Attack {
 					continue
 				}
-				append(&notes, Timed{nt.time, om.note_name(g, nt.pad, nt.pitch)})
+				append(&notes, Timed{g.notes.time[k], osong.note_name(g, g.notes.pad[k], g.notes.pitch[k])})
 			}
 		}
 		slice.stable_sort_by(notes[:], proc(a, b: Timed) -> bool {return a.time < b.time})

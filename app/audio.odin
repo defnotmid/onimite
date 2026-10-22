@@ -6,7 +6,9 @@ import "core:os"
 import "core:slice"
 import "core:strings"
 import wav "deps:odecs/audio/wav"
+import oanalyze "deps:odawg/analyze"
 import orender "deps:odawg/render"
+import osong "deps:odawg/song"
 import common "deps:odecs/common"
 import om "../onimite"
 import script "../script"
@@ -194,19 +196,14 @@ Audio_Bus :: struct {
 ANALYSIS_STEP :: om.MIX_RATE / 20
 
 // The tables odawg measures a stretch of sound by (bands, stereo, crest),
-// a row every ANALYSIS_STEP, over interleaved stereo `mix`; temp memory.
+// a row every ANALYSIS_STEP, over stereo channels `l, r`; temp memory.
 Analysis_Tables :: struct {
 	bands, stereo, crest: orender.Table,
 }
 
 @(private)
-analysis_tables :: proc(mix: []f32, pool: ^common.Work_Pool) -> (t: Analysis_Tables) {
-	n := len(mix) / 2
-	buf := make([]f32, 2 * n, context.temp_allocator)
-	l, r := buf[:n], buf[n:]
-	for i in 0 ..< n {
-		l[i], r[i] = mix[2 * i], mix[2 * i + 1]
-	}
+analysis_tables :: proc(l, r: []f32, pool: ^common.Work_Pool) -> (t: Analysis_Tables) {
+	n := min(len(l), len(r))
 	a := context.temp_allocator
 	orender.table_init_frames(&t.bands, .Bands, n, ANALYSIS_STEP, 1, allocator = a)
 	orender.table_init_frames(&t.stereo, .Stereo, n, ANALYSIS_STEP, 1, allocator = a)
@@ -252,11 +249,11 @@ Audio_Analyze_Result :: struct {
 
 // `-inf` (silence) as null.
 @(private)
-level :: proc(v: f32) -> Maybe(f64) {
+level :: proc(v: f64) -> Maybe(f64) {
 	if math.is_inf(v) || math.is_nan(v) || v < -200 {
 		return nil
 	}
-	return f64(v)
+	return v
 }
 
 @(private)
@@ -277,27 +274,37 @@ audio_analyze :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 	start, end := resolve_range(app, &r.timeline, fps, regs.spec) or_return
 	mix, placed, _ := audio_mix(app, r, start, end, regs.track) or_return
 	defer delete(mix)
-	rep := om.analyze_audio(mix)
-	defer om.audio_report_destroy(&rep)
+	l, right := om.channels_from_interleaved(mix)
+	lu := oanalyze.loudness_from_samples(l, right, om.MIX_RATE, context.temp_allocator)
+	max_momentary := math.inf_f64(-1)
+	for v in lu.momentary {
+		max_momentary = max(max_momentary, f64(v))
+	}
+	// short-term values from 3 s on are whole 3 s blocks
+	max_short_term := math.inf_f64(-1)
+	for v in lu.short_term[min(29, len(lu.short_term)):] {
+		max_short_term = max(max_short_term, f64(v))
+	}
 	offset := f64(start) / f64(fps)
 
 	doc := Audio_Report_Doc {
-		integrated_lufs     = level(rep.integrated_lufs),
-		loudness_range_lu   = f64(rep.loudness_range) if len(rep.short_term_curve) >= 30 else nil,
-		max_momentary_lufs  = level(rep.max_momentary),
-		max_short_term_lufs = level(rep.max_short_term),
-		sample_peak_dbfs    = level(rep.sample_peak_db),
-		true_peak_dbtp      = level(rep.true_peak_db),
-		clipped_samples     = rep.clipped_samples,
+		integrated_lufs     = level(lu.integrated),
+		loudness_range_lu   = lu.range if len(lu.short_term) >= 30 else nil,
+		max_momentary_lufs  = level(max_momentary),
+		max_short_term_lufs = level(max_short_term),
+		sample_peak_dbfs    = level(lu.sample_peak),
+		true_peak_dbtp      = level(lu.true_peak),
+		clipped_samples     = oanalyze.clipped_from_samples(l, right),
 	}
-	silent := make([][2]f64, len(rep.silent_ranges), context.temp_allocator)
-	for s, i in rep.silent_ranges {
-		silent[i] = {f64(s[0]) + offset, f64(s[1]) + offset}
+	silences := oanalyze.silences_from_samples(l, right, om.MIX_RATE, -60, 0.5, context.temp_allocator)
+	silent := make([][2]f64, len(silences), context.temp_allocator)
+	for s, i in silences {
+		silent[i] = {s[0] + offset, s[1] + offset}
 	}
 	doc.silent_ranges = silent
 	from := om.frames_to_samples(start, fps)
-	n := len(mix) / 2
-	tables := analysis_tables(mix, &app.background_work.work_pool)
+	n := len(l)
+	tables := analysis_tables(l, right, &app.background_work.work_pool)
 	mix_whole := analysis_measures(&tables, 0, n)
 	put_sound(&doc, mix_whole)
 	band_hz := make([]f64, len(orender.BAND_HZ), context.temp_allocator)
@@ -314,9 +321,9 @@ audio_analyze :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 		b := clamp(om.frames_to_samples(s.end_frame, fps) - from, 0, n)
 		sec := Audio_Section{name = s.scene.name, start_seconds = f64(a) / om.MIX_RATE + offset, end_seconds = f64(b) / om.MIX_RATE + offset}
 		if b > a {
-			part := om.analyze_audio(mix[a * 2:b * 2], context.temp_allocator)
-			sec.integrated_lufs = level(part.integrated_lufs)
-			sec.true_peak_dbtp = level(part.true_peak_db)
+			part := oanalyze.loudness_from_samples(l[a:b], right[a:b], om.MIX_RATE, context.temp_allocator)
+			sec.integrated_lufs = level(part.integrated)
+			sec.true_peak_dbtp = level(part.true_peak)
 			put_sound(&sec, analysis_measures(&tables, a, b))
 		}
 		append(&sections, sec)
@@ -331,10 +338,11 @@ audio_analyze :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 		for b in r.video.buses {
 			count := solo(bus_placed, b.name)
 			bm, _ := om.mix_tracks(bus_placed, om.frames_to_samples(start, fps), om.frames_to_samples(end, fps), r.video.mix, &app.background_work.work_pool, context.temp_allocator)
-			br := om.analyze_audio(bm, context.temp_allocator)
-			append(&bus_tables, analysis_tables(bm, &app.background_work.work_pool))
-			bus := Audio_Bus{name = b.name, tracks = count, integrated_lufs = level(br.integrated_lufs), true_peak_dbtp = level(br.true_peak_db)}
-			put_sound(&bus, analysis_measures(&bus_tables[len(bus_tables) - 1], 0, len(bm) / 2))
+			bl, br_ch := om.channels_from_interleaved(bm)
+			br := oanalyze.loudness_from_samples(bl, br_ch, om.MIX_RATE, context.temp_allocator)
+			append(&bus_tables, analysis_tables(bl, br_ch, &app.background_work.work_pool))
+			bus := Audio_Bus{name = b.name, tracks = count, integrated_lufs = level(br.integrated), true_peak_dbtp = level(br.true_peak)}
+			put_sound(&bus, analysis_measures(&bus_tables[len(bus_tables) - 1], 0, len(bl)))
 			append(&buses, bus)
 		}
 	}
@@ -355,9 +363,9 @@ audio_analyze :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 		}
 	}
 	doc.masking = masking[:]
-	curve := make([]Maybe(f64), len(rep.momentary_curve), context.temp_allocator)
-	for l, i in rep.momentary_curve {
-		if v, ok := level(l).?; ok {
+	curve := make([]Maybe(f64), len(lu.momentary), context.temp_allocator)
+	for m, i in lu.momentary {
+		if v, ok := level(f64(m)).?; ok {
 			curve[i] = math.round(v * 10) / 10
 		}
 	}
@@ -365,7 +373,7 @@ audio_analyze :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 
 	res := Audio_Analyze_Result{report = doc, missing_files = missing_audio(app)}
 	if regs.path != "" {
-		if !write_waveform(app, r, regs.path, mix, rep, &tables.bands, placed[:], start) {
+		if !write_waveform(app, r, regs.path, l, right, lu.momentary, &tables.bands, placed[:], start) {
 			return fail(app, {code = .Write, path = regs.path})
 		}
 		res.waveform = regs.path
@@ -466,7 +474,8 @@ audio_onsets :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 	start, end := resolve_range(app, &r.timeline, fps, regs.spec) or_return
 	mix, _, _ := audio_mix(app, r, start, end, regs.track) or_return
 	defer delete(mix)
-	rep := om.onsets_from_interleaved(mix, context.temp_allocator)
+	l, right := om.channels_from_interleaved(mix)
+	rep := oanalyze.onsets_from_samples(l, right, om.MIX_RATE, context.temp_allocator)
 	offset := f64(start) / f64(fps)
 	res := Audio_Onsets_Result {
 		start_seconds = offset,
@@ -583,11 +592,11 @@ audio_at :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 			if p.song != nil {
 				t := at.file_seconds
 				sa: Song_At
-				if place, inside := om.song_place(p.song, t); inside {
+				if place, inside := osong.place_from_seconds(&p.song.song, t); inside {
 					sa.section, sa.bar, sa.beat = place.name, place.bar + 1, place.beat + 1
 				}
 				notes := make([dynamic]Note_At, context.temp_allocator)
-				for n in om.song_notes_at(p.song, t) {
+				for n in osong.notes_at(&p.song.song, t) {
 					if p.part != "" && n.part != p.part {
 						continue
 					}
@@ -682,7 +691,7 @@ heat :: proc(v: f32) -> (u8, u8, u8, u8) {
 // legend; under it the spectrogram: odawg's third-octave band rows of the
 // mix (render.BAND_HZ, a row per column), 20 Hz at the bottom.
 @(private)
-write_waveform :: proc(app: ^App_State, r: ^om.Renderer, path: string, mix: []f32, rep: om.Audio_Report, bands: ^orender.Table, placed: []om.Placed_Track, start_frame: int) -> bool {
+write_waveform :: proc(app: ^App_State, r: ^om.Renderer, path: string, l, right, momentary: []f32, bands: ^orender.Table, placed: []om.Placed_Track, start_frame: int) -> bool {
 	W :: 1600
 	TOP :: 28
 	WAVE_H :: 300
@@ -710,7 +719,7 @@ write_waveform :: proc(app: ^App_State, r: ^om.Renderer, path: string, mix: []f3
 		vg.fill_glyph_outlines(c, font, glyphs[:], em, vg.paint_color(color), p)
 	}
 
-	n := len(mix) / 2
+	n := min(len(l), len(right))
 	duration := max(f64(n) / om.MIX_RATE, 1e-6)
 	x_of :: proc(seconds, duration: f64) -> f32 {return f32(seconds / duration * W)}
 	mid := f32(TOP + WAVE_H / 2)
@@ -724,7 +733,7 @@ write_waveform :: proc(app: ^App_State, r: ^om.Renderer, path: string, mix: []f3
 		b := min((x + 1) * per, n)
 		lo, hi: f32 = 0, 0
 		for i in a ..< b {
-			v := (mix[i * 2] + mix[i * 2 + 1]) * 0.5
+			v := (l[i] + right[i]) * 0.5
 			lo = min(lo, v)
 			hi = max(hi, v)
 		}
@@ -734,9 +743,9 @@ write_waveform :: proc(app: ^App_State, r: ^om.Renderer, path: string, mix: []f3
 	vg.fill_path(&c, &p, vg.paint_color(vg.rgb(56, 189, 248)))
 
 	vg.path_reset(&p)
-	for l, i in rep.momentary_curve {
+	for m, i in momentary {
 		x := x_of((f64(i) + 4) * 0.1, duration)
-		y := f32(TOP) + f32(WAVE_H) * (clamp(l, -60, 0) / -60)
+		y := f32(TOP) + f32(WAVE_H) * (clamp(m, -60, 0) / -60)
 		if i == 0 {
 			vg.path_move_to(&p, x, y)
 		} else {
@@ -782,7 +791,7 @@ write_waveform :: proc(app: ^App_State, r: ^om.Renderer, path: string, mix: []f3
 	}
 	// Every onset of the mix (ticks as tall as they are strong) and the
 	// script's cues (green, named; a family by its first).
-	onsets := om.onsets_from_interleaved(mix, context.temp_allocator)
+	onsets := oanalyze.onsets_from_samples(l, right, om.MIX_RATE, context.temp_allocator)
 	vg.path_reset(&p)
 	for o in onsets.onsets {
 		vg.path_rect(&p, x_of(f64(o.time), duration) - 0.5, TOP + WAVE_H - 10 * o.strength, 1, 10 * o.strength)

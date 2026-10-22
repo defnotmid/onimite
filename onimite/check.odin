@@ -77,14 +77,20 @@ finite :: proc(values: ..f32) -> bool {
 // (they are not drawn).
 @(private = "file")
 check_glyphs :: proc(r: ^Renderer, t: Text, node: i32) {
-	font, _ := media_find_font(r.media, t.font, t.weight)
-	for c in t.text {
-		if c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == 0xA0 || c < 0x20 || vg.rune_is_default_ignorable(c) {
-			continue
+	check_str :: proc(r: ^Renderer, text, family: string, weight: int, italic: bool, node: i32) {
+		font, _ := media_find_font(r.media, family, weight, italic)
+		for c in text {
+			if c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == 0xA0 || c < 0x20 || vg.rune_is_default_ignorable(c) {
+				continue
+			}
+			if _, g := vg.font_collection_glyph(&r.media.fonts, c, font); g == 0 {
+				report(&r.ctx, .Error, {code = .Missing_Glyph, name = text, a = fmt.tprintf("%c", c), n = i64(c), node = node})
+			}
 		}
-		if _, g := vg.font_collection_glyph(&r.media.fonts, c, font); g == 0 {
-			report(&r.ctx, .Error, {code = .Missing_Glyph, name = t.text, a = fmt.tprintf("%c", c), n = i64(c), node = node})
-		}
+	}
+	check_str(r, t.text, t.font, t.weight, t.italic, node)
+	for s in t.spans {
+		check_str(r, s.text, s.font if s.font != "" else t.font, s.weight if s.weight != 0 else t.weight, s.italic.? or_else t.italic, node)
 	}
 }
 

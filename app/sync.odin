@@ -6,6 +6,8 @@ import "core:slice"
 import "core:strings"
 import om "../onimite"
 import oanalyze "deps:odawg/analyze"
+import orender "deps:odawg/render"
+import osong "deps:odawg/song"
 import script "../script"
 
 // Sync points: everything a script tags with the same `id` (cues, scenes,
@@ -87,7 +89,7 @@ placed_onsets :: proc(m: ^om.Media, p: om.Placed_Track, min_strength: f32) -> []
 	rep: oanalyze.Onsets
 	if p.song != nil {
 		// a song's onsets are its notes
-		rep = om.song_onsets(p.song, context.temp_allocator)
+		rep = orender.onsets_from_song(&p.song.song, context.temp_allocator)
 	} else {
 		ok: bool
 		if rep, ok = om.media_onsets(m, p.track.src); !ok {
@@ -480,7 +482,7 @@ off_beat_check :: proc(app: ^App_State, r: ^om.Renderer) -> []om.Diagnostic {
 				continue
 			}
 			ok: bool
-			off, period, ok = om.song_off_grid(sp.song, t - f64(sp.start - sp.file_start) / om.MIX_RATE)
+			off, period, ok = osong.off_grid(&sp.song.song, t - f64(sp.start - sp.file_start) / om.MIX_RATE)
 			over_song = true
 			if !ok {
 				period = 0

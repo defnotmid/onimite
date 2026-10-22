@@ -629,7 +629,7 @@ video { width = 1920, height = 1080, fps = 30, duration = 2, render = function(f
 end }
 ```
 
-Measure with the same family, size, weight and `letter_spacing` you draw with; results are
+Measure with the same family, size, weight, `italic` and `letter_spacing` you draw with; results are
 kept by text and font, so measuring every frame is cheap.
 
 ```lua

@@ -9,16 +9,6 @@ import oanalyze "deps:odawg/analyze"
 // the music: odawg's analysis (analyze/onsets) of interleaved stereo at
 // MIX_RATE (a clip, a mix).
 
-onsets_from_interleaved :: proc(x: []f32, allocator := context.allocator) -> oanalyze.Onsets {
-	l, r := channels_from_interleaved(x)
-	return oanalyze.onsets_from_samples(l, r, MIX_RATE, allocator)
-}
-
-@(private = "file")
-onsets_from_clip :: proc(clip: Audio_Clip, allocator := context.allocator) -> oanalyze.Onsets {
-	return onsets_from_interleaved(clip.samples[:clip.frames * 2], allocator)
-}
-
 // Interleaved stereo as two channels (temp memory), as odawg reads sound.
 channels_from_interleaved :: proc(x: []f32) -> (l, r: []f32) {
 	n := len(x) / 2
@@ -59,10 +49,12 @@ media_onsets :: proc(m: ^Media, name: string) -> (r: oanalyze.Onsets, ok: bool) 
 			return e.report, true
 		}
 		oanalyze.onsets_destroy(&e.report)
-		e^ = {raw_data(clip.samples), onsets_from_clip(clip, c.entries.allocator)}
+		l, rr := channels_from_interleaved(clip.samples[:clip.frames * 2])
+		e^ = {raw_data(clip.samples), oanalyze.onsets_from_samples(l, rr, MIX_RATE, c.entries.allocator)}
 		return e.report, true
 	}
-	e := Onset_Cache_Entry{raw_data(clip.samples), onsets_from_clip(clip, c.entries.allocator)}
+	l, rr := channels_from_interleaved(clip.samples[:clip.frames * 2])
+	e := Onset_Cache_Entry{raw_data(clip.samples), oanalyze.onsets_from_samples(l, rr, MIX_RATE, c.entries.allocator)}
 	c.entries[strings.clone(name, c.entries.allocator)] = e
 	return e.report, true
 }

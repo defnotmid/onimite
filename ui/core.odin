@@ -176,6 +176,8 @@ Box :: struct {
 	opacity:                         f32,
 	font_size:                       f32,
 	text_padding:                    f32,
+	text_width:                      f32,
+	has_text_width:                  bool,
 	image:                           ^render.Image,
 	// Drawn after the box's own background, border and text and before its
 	// children, with the box's final rect (raddbg's custom draw function).
@@ -513,6 +515,7 @@ build_box :: proc(s: ^State, flags: Box_Flags, string_key: string) -> ^Box {
 	box.active_color = s.theme.active
 	box.border_thickness = 1
 	box.min_size = {0, 0}
+	box.has_text_width = false // set again by layout when the text sizes the box
 	box.custom_draw = nil
 	box.custom_draw_data = nil
 
@@ -605,6 +608,7 @@ layout_standalone :: proc(s: ^State, box: ^Box, axis: Axis2) {
 			pad := box.pref_size[axis].value
 			if axis == .X {
 				tw := render.measure_text(s.font, box.str, box.font_size)
+				box.text_width, box.has_text_width = tw, true
 				box.fixed_size[axis] = pad + tw + box.text_padding * 2
 			} else {
 				lh := render.line_height(s.font, box.font_size)

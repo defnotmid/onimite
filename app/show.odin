@@ -718,11 +718,11 @@ show_song :: proc(sh: ^Show, rest: string) -> Error {
 			found = true
 			child(sh, fmt.tprintf("song/%s/parts/%s", name, item), .Part, fmt.tprintf("%s  %s  %d notes  %+.1f dB  pan %.2f", osong.style_name(g, tr.style), g.labels[tr.instrument], osong.track_note_count(g, t), tr.gain_db, tr.pan))
 			for i in tr.notes.first ..< tr.notes.first + tr.notes.count {
-				n := g.notes[i]
-				if n.kind != .Attack {
+				if g.notes.kind[i] != .Attack {
 					continue // made at compose (a release trigger's, a keyswitch)
 				}
-				append(&sh.children, Show_Child{fmt.tprintf("%.3fs", g.start + n.time), "note", fmt.tprintf("beat %.2f  %-6s %.3fs  vel %.2f", n.beat, om.note_name(g, n.pad, n.pitch), n.duration, n.velocity)})
+				n := g.notes[i]
+				append(&sh.children, Show_Child{fmt.tprintf("%.3fs", g.start + n.time), "note", fmt.tprintf("beat %.2f  %-6s %.3fs  vel %.2f", n.beat, osong.note_name(g, n.pad, n.pitch), n.duration, n.velocity)})
 			}
 		}
 		if !found {

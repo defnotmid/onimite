@@ -1,11 +1,13 @@
 package onimite_app
 
+import "base:intrinsics"
 import "core:encoding/json"
 import "core:fmt"
 import "core:hash"
 import "core:math"
 import "core:os"
 import "core:path/filepath"
+import "core:simd"
 import "core:slice"
 import "core:strconv"
 import "core:strings"
@@ -280,11 +282,19 @@ WAVE_SOURCE_KINDS := [Wave_Source_Kind]proc(b: ^Wave_Builder, src: ^Wave_Source)
 		for bucket in src.filled ..< hi {
 			s0 := bucket * WAVE_BUCKET * 2
 			s1 := min(s0 + WAVE_BUCKET * 2, len(data))
+			span := data[s0:s1]
+			V :: #simd[8]f32
+			vlo, vhi: V
 			mn, mx: f32
-			for x in data[s0:s1] {
-				mn = min(mn, x)
-				mx = max(mx, x)
+			i := 0
+			for ; i + 8 <= len(span); i += 8 {
+				v := intrinsics.unaligned_load((^V)(raw_data(span[i:])))
+				vlo, vhi = simd.min(vlo, v), simd.max(vhi, v)
 			}
+			for x in span[i:] {
+				mn, mx = min(mn, x), max(mx, x)
+			}
+			mn, mx = min(mn, simd.reduce_min(vlo)), max(mx, simd.reduce_max(vhi))
 			level0[bucket] = {i8(clamp(mn, -1, 1) * 127), i8(clamp(mx, -1, 1) * 127)}
 		}
 		src.filled = hi
@@ -779,10 +789,10 @@ part_notes :: proc(x: ^Timeline_Build, it: int, ref: Timeline_Ref) {
 				continue
 			}
 			for i in tr.notes.first ..< tr.notes.first + tr.notes.count {
-				n := s.notes[i]
-				if n.pad != ref.pad || n.kind != .Attack {
+				if s.notes.kind[i] != .Attack || s.notes.pad[i] != ref.pad {
 					continue
 				}
+				n := s.notes[i]
 				a := zero + int(n.time * om.MIX_RATE)
 				z := a + max(int(n.duration * om.MIX_RATE), 1)
 				if z <= p.start || a >= p.end {

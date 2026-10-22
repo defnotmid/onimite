@@ -411,11 +411,11 @@ compose :: proc(L: ^lua.State, s: ^Script, name: string, v: json.Value, sound: b
 		}
 		for sec in sc.song.sections {
 			check(L, s, name, sec.name)
-			add_cue(L, s, sec.name, om.song_video_seconds(sc, sec.start), "", at)
+			add_cue(L, s, sec.name, sc.song.start + sec.start, "", at)
 		}
 		for mk in sc.song.markers {
 			check(L, s, name, mk.name)
-			add_cue(L, s, mk.name, om.song_video_seconds(sc, mk.seconds), "", at)
+			add_cue(L, s, mk.name, sc.song.start + mk.seconds, "", at)
 		}
 	}
 	append(&s.songs, Script_Song{strings.clone(name), sc, key, sound, strings.clone(at)})
@@ -712,7 +712,7 @@ l_song_section :: proc "c" (L: ^lua.State) -> c.int {
 	s := host(L)
 	context = s.odin_context
 	sc := song_of(L)
-	p, inside := om.song_place(sc, video_seconds_arg(L, 1, "section") - sc.song.start)
+	p, inside := osong.place_from_seconds(&sc.song, video_seconds_arg(L, 1, "section") - sc.song.start)
 	if !inside {
 		lua.pushnil(L)
 		return 1
@@ -770,7 +770,7 @@ l_song_events :: proc "c" (L: ^lua.State) -> c.int {
 		lua.createtable(L, 0, 5)
 		lua.pushnumber(L, lua.Number(g.start + n.time))
 		lua.setfield(L, -2, "time")
-		name := om.note_name(g, n.pad, n.pitch)
+		name := osong.note_name(g, n.pad, n.pitch)
 		lua.pushlstring(L, cstring(raw_data(name)), c.size_t(len(name)))
 		lua.setfield(L, -2, "note")
 		lua.pushnumber(L, lua.Number(n.duration))

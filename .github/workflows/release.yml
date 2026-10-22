@@ -71,7 +71,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/odecs
-          # Pinned like ottis: onimite, ovg v0.0.17, o3d v0.0.31, odawg v0.0.20 and ottis v0.0.7 decode through odecs v0.0.10.
+          # Pinned like ottis: onimite, ovg v0.0.17, o3d v0.0.31, odawg v0.0.21 and ottis v0.0.7 decode through odecs v0.0.10.
           ref: v0.0.10
           path: odecs
       - uses: actions/checkout@v4
@@ -89,8 +89,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/odawg
-          # Pinned like ottis: odawg is released on its own (v0.0.20).
-          ref: v0.0.20
+          # Pinned like ottis: odawg is released on its own (v0.0.21).
+          ref: v0.0.21
           path: odawg
 
       - uses: ./onimite/.github/actions/setup-toolchain

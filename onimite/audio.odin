@@ -1,8 +1,7 @@
 package onimite
 
 import "core:encoding/json"
-import "core:math"
-import "core:strings"
+import oassets "deps:odawg/assets"
 import odaudio "deps:odecs/audio"
 
 // Sound: tracks placed on the video (or scene) clock, after fframes'
@@ -152,112 +151,10 @@ clip_from_samples :: proc(samples: []f32, rate, channels: int) -> Audio_Clip {
 		source_channels = channels,
 	}
 	if rate != MIX_RATE {
-		clip.samples, clip.frames = resample_stereo(stereo, rate, MIX_RATE)
+		clip.samples = oassets.resample(stereo, 2, rate)
+		clip.frames = len(clip.samples) / 2
 		delete(stereo)
 	}
 	return clip
-}
-
-// Windowed-sinc (Lanczos, a = 8) resampling of interleaved stereo. The
-// rates' ratio is rational, so output sample i sits at one of `to / gcd`
-// fractional phases: the normalized kernel of each phase is computed once and
-// the interior is a plain multiply-add sweep. Edges, where the kernel is cut
-// off, keep the direct form.
-resample_stereo :: proc(src: []f32, from_rate, to_rate: int) -> (out: []f32, frames: int) {
-	A :: 8
-	n := len(src) / 2
-	ratio := f64(to_rate) / f64(from_rate)
-	out_n := int(f64(n) * ratio)
-	out = make([]f32, out_n * 2)
-	// Downsampling widens the kernel to filter out what can't be kept.
-	cutoff := min(ratio, 1)
-	width := f64(A) / cutoff
-
-	g := gcd(from_rate, to_rate)
-	step, phases := from_rate / g, to_rate / g
-	if phases > 4096 {
-		resample_direct(src, out, 0, out_n, ratio, cutoff, width)
-		return out, out_n
-	}
-	// Per phase: taps at base + first ..< base + first + taps.
-	first := int(math.floor(-width)) + 1
-	taps := int(math.floor(width)) - first + 2
-	weights := make([]f64, phases * taps, context.temp_allocator)
-	for p in 0 ..< phases {
-		frac := f64(p) / f64(phases)
-		row := weights[p * taps:][:taps]
-		wsum: f64
-		for k in 0 ..< taps {
-			x := (f64(first + k) - frac) * cutoff
-			row[k] = lanczos(x, A)
-			wsum += row[k]
-		}
-		if wsum != 0 {
-			for &w in row {
-				w /= wsum
-			}
-		}
-	}
-	for i in 0 ..< out_n {
-		num := i * step
-		base, p := num / phases, num % phases
-		lo := base + first
-		if lo < 0 || lo + taps > n {
-			resample_direct(src, out, i, i + 1, ratio, cutoff, width)
-			continue
-		}
-		row := weights[p * taps:][:taps]
-		s := src[lo * 2:][:taps * 2]
-		l, r: f64
-		for k in 0 ..< taps {
-			l += f64(s[k * 2]) * row[k]
-			r += f64(s[k * 2 + 1]) * row[k]
-		}
-		out[i * 2], out[i * 2 + 1] = f32(l), f32(r)
-	}
-	return out, out_n
-}
-
-@(private)
-resample_direct :: proc(src, out: []f32, i0, i1: int, ratio, cutoff, width: f64) {
-	n := len(src) / 2
-	for i in i0 ..< i1 {
-		center := f64(i) / ratio
-		lo := max(int(math.floor(center - width)) + 1, 0)
-		hi := min(int(math.floor(center + width)), n - 1)
-		l, r, wsum: f64
-		for j in lo ..= hi {
-			w := lanczos((f64(j) - center) * cutoff, 8)
-			l += f64(src[j * 2]) * w
-			r += f64(src[j * 2 + 1]) * w
-			wsum += w
-		}
-		if wsum != 0 {
-			l /= wsum
-			r /= wsum
-		}
-		out[i * 2], out[i * 2 + 1] = f32(l), f32(r)
-	}
-}
-
-@(private)
-gcd :: proc "contextless" (a, b: int) -> int {
-	a, b := a, b
-	for b != 0 {
-		a, b = b, a % b
-	}
-	return a
-}
-
-@(private)
-lanczos :: proc "contextless" (x: f64, a: f64) -> f64 {
-	if x == 0 {
-		return 1
-	}
-	if abs(x) >= a {
-		return 0
-	}
-	px := math.PI * x
-	return a * math.sin(px) * math.sin(px / a) / (px * px)
 }
 

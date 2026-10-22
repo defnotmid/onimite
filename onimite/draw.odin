@@ -750,10 +750,7 @@ paint_shape :: proc(r: ^Renderer, style: Shape_Style, rule := vg.Fill_Rule.Non_Z
 }
 
 @(private = "file")
-draw_text :: proc(r: ^Renderer, t: Text, i: i32) {
-	if t.text == "" && len(t.spans) == 0 {
-		return
-	}
+layout_text :: proc(r: ^Renderer, t: Text) -> ^vg.Text_Layout {
 	// Paint tags: 0 is the text's own fill, i + 1 is span i's.
 	clear(&r.pieces)
 	style := vg.Text_Style{t.font, t.size, t.weight, t.italic, t.letter_spacing, 0}
@@ -770,6 +767,15 @@ draw_text :: proc(r: ^Renderer, t: Text, i: i32) {
 	}
 	l := &r.text
 	vg.text_layout(&r.media.fonts, r.pieces[:], {t.x, t.y, vg.Text_Align(t.align), vg.Text_Baseline(t.baseline), t.line_height}, l)
+	return l
+}
+
+@(private = "file")
+draw_text :: proc(r: ^Renderer, t: Text, i: i32) {
+	if t.text == "" && len(t.spans) == 0 {
+		return
+	}
+	l := layout_text(r, t)
 	for family in l.missing {
 		report_missing_font(&r.ctx, family)
 	}
@@ -1009,9 +1015,8 @@ node_bbox :: proc(r: ^Renderer, i: i32) -> vg.Rect {
 		if n.text == "" && len(n.spans) == 0 {
 			return EMPTY
 		}
-		piece := vg.Text_Piece{n.text, {n.font, n.size, n.weight, n.italic, n.letter_spacing, 0}, 0, 0}
-		vg.text_layout(&r.media.fonts, {piece}, {n.x, n.y, vg.Text_Align(n.align), vg.Text_Baseline(n.baseline), n.line_height}, &r.text)
-		return {r.text.min.x, r.text.min.y, r.text.max.x - r.text.min.x, r.text.max.y - r.text.min.y}
+		l := layout_text(r, n)
+		return {l.min.x, l.min.y, l.max.x - l.min.x, l.max.y - l.min.y}
 	case Image:
 		img := r.media.images[n.src] or_else nil
 		if img == nil || img.width <= 0 || img.height <= 0 {

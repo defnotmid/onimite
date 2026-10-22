@@ -10,6 +10,7 @@ import "core:sync"
 import om "../onimite"
 import oanalyze "deps:odawg/analyze"
 import orender "deps:odawg/render"
+import osong "deps:odawg/song"
 import lua "vendor:lua/5.4"
 
 // Media functions: synced video frames, subtitles, audio spectra, and the
@@ -1065,7 +1066,7 @@ l_audio_onsets :: proc "c" (L: ^lua.State) -> c.int {
 // beat of its tempo map, seconds into the song.
 @(private = "file")
 push_song_onsets :: proc(L: ^lua.State, sc: ^om.Song_Clip) {
-	rep := om.song_onsets(sc, context.temp_allocator)
+	rep := orender.onsets_from_song(&sc.song, context.temp_allocator)
 	lua.createtable(L, 0, 4)
 	lua.createtable(L, c.int(len(rep.onsets)), 0)
 	for o, i in rep.onsets {
@@ -1083,7 +1084,7 @@ push_song_onsets :: proc(L: ^lua.State, sc: ^om.Song_Clip) {
 		lua.pushnumber(L, 0)
 		lua.setfield(L, -2, "offset")
 	}
-	beats := om.song_beats(sc)
+	beats := osong.beat_seconds(&sc.song)
 	lua.createtable(L, c.int(len(beats)), 0)
 	for b, i in beats {
 		lua.pushnumber(L, lua.Number(b))

@@ -13,6 +13,7 @@ Font_Query :: struct {
 	family:         string,
 	size:           f32,
 	weight:         int,
+	italic:         bool,
 	letter_spacing: f32,
 }
 
@@ -29,15 +30,22 @@ text_fit :: proc(m: ^Media, q: Font_Query, s: string, max_width: f32, ellipsis :
 		return s, ok
 	}
 	ell := measure(m, q, ellipsis)
-	end := 0
+	ends := make([dynamic]int, 0, len(s), context.temp_allocator)
 	for i := 0; i < len(s); {
 		_, n := utf8.decode_rune_in_string(s[i:])
-		if measure(m, q, s[:i + n]) + ell > max_width {
-			break
-		}
 		i += n
-		end = i
+		append(&ends, i)
 	}
+	lo, hi := 0, len(ends)
+	for lo < hi {
+		mid := (lo + hi) / 2
+		if measure(m, q, s[:ends[mid]]) + ell <= max_width {
+			lo = mid + 1
+		} else {
+			hi = mid
+		}
+	}
+	end := ends[lo - 1] if lo > 0 else 0
 	return strings.concatenate({strings.trim_right_space(s[:end]), ellipsis}, allocator), ok
 }
 
@@ -52,14 +60,22 @@ text_break_lines :: proc(m: ^Media, q: Font_Query, s: string, max_width: f32, al
 		last_space := -1
 		i := 0
 		for i < len(paragraph) {
-			r, n := utf8.decode_rune_in_string(paragraph[i:])
-			if r == ' ' {
+			for i < len(paragraph) && paragraph[i] == ' ' {
 				last_space = i
+				i += 1
 			}
-			if measure(m, q, paragraph[line_start:i + n]) > max_width && i > line_start {
-				brk := last_space if last_space > line_start else i
-				append(&list, strings.trim_right_space(paragraph[line_start:brk]))
-				line_start = brk
+			word_end := i
+			for word_end < len(paragraph) && paragraph[word_end] != ' ' {
+				_, n := utf8.decode_rune_in_string(paragraph[word_end:])
+				word_end += n
+			}
+			if word_end == i || measure(m, q, paragraph[line_start:word_end]) <= max_width {
+				i = word_end
+				continue
+			}
+			if last_space > line_start {
+				append(&list, strings.trim_right_space(paragraph[line_start:last_space]))
+				line_start = last_space
 				for line_start < len(paragraph) && paragraph[line_start] == ' ' {
 					line_start += 1
 				}
@@ -67,7 +83,27 @@ text_break_lines :: proc(m: ^Media, q: Font_Query, s: string, max_width: f32, al
 				i = line_start
 				continue
 			}
-			i += n
+			// A single word wider than max_width: binary search the rune where it overflows.
+			ends := make([dynamic]int, 0, word_end - line_start, context.temp_allocator)
+			for p := line_start; p < word_end; {
+				_, n := utf8.decode_rune_in_string(paragraph[p:])
+				p += n
+				append(&ends, p)
+			}
+			lo, hi := 1, len(ends)
+			for lo < hi {
+				mid := (lo + hi) / 2
+				if measure(m, q, paragraph[line_start:ends[mid]]) <= max_width {
+					lo = mid + 1
+				} else {
+					hi = mid
+				}
+			}
+			brk := ends[lo - 1]
+			append(&list, strings.trim_right_space(paragraph[line_start:brk]))
+			line_start = brk
+			last_space = -1
+			i = line_start
 		}
 		append(&list, strings.trim_right_space(paragraph[line_start:]))
 	}
@@ -84,7 +120,7 @@ report_missing_font :: proc(ctx: ^Context, family: string) {
 
 @(private)
 font_found :: proc(m: ^Media, q: Font_Query) -> bool {
-	_, found := media_find_font(m, q.family, q.weight)
+	_, found := media_find_font(m, q.family, q.weight, q.italic)
 	return found
 }
 
@@ -96,7 +132,7 @@ measure :: proc(m: ^Media, q: Font_Query, s: string) -> f32 {
 	layout.runs.allocator = context.temp_allocator
 	layout.lines.allocator = context.temp_allocator
 	layout.missing.allocator = context.temp_allocator
-	piece := vg.Text_Piece{text = s, style = {q.family, q.size, q.weight, false, q.letter_spacing, 0}}
+	piece := vg.Text_Piece{text = s, style = {q.family, q.size, q.weight, q.italic, q.letter_spacing, 0}}
 	vg.text_layout(&m.fonts, {piece}, {}, &layout)
 	return vg.text_layout_width(&layout)
 }

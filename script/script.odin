@@ -1869,6 +1869,7 @@ font_query :: proc(L: ^lua.State, t: c.int) -> om.Font_Query {
 		family = get_str(L, t, "font", ""),
 		size = get_num(L, t, "size", 16),
 		weight = int(get_num(L, t, "weight", 400)),
+		italic = read_italic(L, t),
 		letter_spacing = get_num(L, t, "letter_spacing", 0),
 	}
 }
@@ -1938,7 +1939,7 @@ l_text_width :: proc "c" (L: ^lua.State) -> c.int {
 	// Shaping costs: widths are kept by text and font, so scripts can measure
 	// every frame without keeping their own memo.
 	key := hash.fnv64a(transmute([]u8)str) ~ hash.fnv64a(transmute([]u8)q.family) * 31 ~
-		u64(transmute(u32)q.size) << 20 ~ u64(q.weight) << 7 ~ u64(transmute(u32)q.letter_spacing) * 1099511628211
+		u64(transmute(u32)q.size) << 20 ~ u64(q.weight) << 7 ~ u64(q.italic) ~ u64(transmute(u32)q.letter_spacing) * 1099511628211
 	w, cached := s.widths[key]
 	if !cached {
 		ok: bool
