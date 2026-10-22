@@ -149,8 +149,8 @@ view3d_job_run_software :: proc(job: ^View3d_Job, images: ^vg.Image_Store) {
 		o3d.software_set_external(sw, b.texture, nil, 0, 0)
 	}
 	w, h := int(job.width), int(job.height)
-	pixels := o3d.software_render(sw, &job.scene, &v.geometries, &v.shaders, w, h, job.pool, &v.textures)
-	copy(pixels_of(images, job.image), pixels)
+	// resolved straight into the layer's image (o3d keeps no frame of its own)
+	o3d.software_render(sw, &job.scene, &v.geometries, &v.shaders, w, h, job.pool, &v.textures, out = pixels_of(images, job.image))
 	if vg.image_id_valid(job.depth_image) {
 		if out := pixels_of(images, job.depth_image); len(out) >= w * h * 8 {
 			o3d.depth_image(job.scene.camera, o3d.software_depth(sw), w, h, job.far, slice.reinterpret([]f16, out)[:w * h * 4])
