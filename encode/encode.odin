@@ -112,6 +112,8 @@ Options :: struct {
 	gop:            int,
 	// Skip Vulkan Video and use the native encoder.
 	software:       bool,
+	// odecs' ultrafast preset: encode speed over size (`render --draft`).
+	ultrafast:      bool,
 	// Add an AAC stereo track at onimite' mix rate (see `write_audio`).
 	audio:          bool,
 	// AAC bit rate; 0 is 192 kb/s.
@@ -194,6 +196,7 @@ open :: proc(e: ^Encoder, path: string, width, height, fps: int, opts: Options =
 	cfg.qp = int(opts.qp)
 	cfg.gop = opts.gop
 	cfg.preference = .Native if opts.software else .Automatic
+	cfg.ultrafast = opts.ultrafast
 	cfg.alpha = .Premultiplied
 	om.pool_work_init(&e.work, opts.pool)
 	slices := opts.native_slices if opts.native_slices > 0 else clamp(os.get_processor_core_count() - 2, 1, common.MAX_STATIC_POOL_THREADS)

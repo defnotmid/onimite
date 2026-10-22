@@ -39,9 +39,18 @@ File_Watcher :: struct {
 file_watcher_start :: proc(w: ^File_Watcher, script_path, media_dir: string) {
 	w^ = {}
 	w.script_path = os_path(script_path)
-	w.script_dir = os_path(filepath.dir(script_path))
+	w.script_dir = watch_dir(w.script_path)
 	w.media_dir = os_path(media_dir)
 	w.thread = thread.create_and_start_with_poly_data(w, file_watcher_loop)
+}
+
+// The script's folder, as directory listings spell it: a bare `video.lua`
+// (the preview started in its folder) has no directory part, which would
+// leave nothing to walk.
+@(private)
+watch_dir :: proc(script_path: string) -> string {
+	dir := filepath.dir(script_path)
+	return os_path(dir if dir != "" else ".")
 }
 
 // `path` as directory listings spell it (macOS lists /var as

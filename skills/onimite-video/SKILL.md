@@ -271,7 +271,9 @@ onimite render video.lua 10s..20s -o part.mp4       # a range; the audio is cut 
 onimite render video.lua -o frames/                 # PNGs (any -o not ending in .mp4): frames/000000.png ...
 ```
 
-`--draft`: half resolution (unless `--scale`), QP 32, one-second GOP. A scaled size rounds to
+`--draft`: half resolution (unless `--scale`), QP 32, one-second GOP, and odecs' own encoder
+(`--native`, or no hardware encoder) on its ultrafast preset: an H.265 draft renders 1.5 to 3.6
+times faster for about 1 dB, an H.264 one up to 16% faster in files up to 30% larger. A scaled size rounds to
 even (1080x1350 at half is 540x676). `--h265`, `--qp N`
 (0 best .. 51), `--native` (odecs' own encoder instead of Vulkan Video hardware encoding),
 `--software` (draw on the CPU; also for machines without a usable GPU), `--scale S`,

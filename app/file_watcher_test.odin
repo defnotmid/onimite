@@ -41,6 +41,17 @@ test_file_watcher :: proc(t: ^testing.T) {
 	testing.expect_value(t, file_watcher_take(&w), File_Changes{.Media})
 }
 
+// A script named without a folder (`preview video.lua` from its folder)
+// watches the working directory, not nothing.
+@(test)
+test_file_watcher_bare_script :: proc(t: ^testing.T) {
+	cwd, _ := os.get_working_directory(context.temp_allocator)
+	want, _ := os.stat(cwd, context.temp_allocator)
+	got := watch_dir("video.lua")
+	defer delete(got)
+	testing.expect_value(t, got, want.fullpath)
+}
+
 @(private = "file")
 join :: proc(parts: []string) -> string {
 	p, _ := filepath.join(parts, context.temp_allocator)
