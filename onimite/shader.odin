@@ -695,6 +695,8 @@ Shader_State :: struct {
 	pool:          ^thread.Pool,
 	// Float rows the CPU interpreter shades half-float targets through.
 	scratch:       [dynamic][4]f32,
+	// The interpreter's working memory, one per band worker.
+	runs:          [dynamic]oksl.Scratch,
 }
 
 // What the CPU program callback needs.
@@ -735,6 +737,10 @@ shader_state_destroy :: proc(s: ^Shader_State, c: ^vg.Canvas) {
 	delete(s.used_frame)
 	delete(s.premultiplied)
 	delete(s.scratch)
+	for &r in s.runs {
+		oksl.scratch_destroy(&r)
+	}
+	delete(s.runs)
 	s^ = {}
 }
 
@@ -1056,6 +1062,8 @@ Shader_Band :: struct {
 	format:   vg.Pixel_Format,
 	scratch:  [][4]f32,
 	sampler:  vg.Program_Sampler,
+	// Working memory by worker (pool task index).
+	runs:     []oksl.Scratch,
 	// Next band to shade (rows next * BAND_ROWS ..), shared by workers.
 	next:     ^int,
 }
@@ -1067,7 +1075,7 @@ shader_cpu_run :: proc(user: rawptr, uniforms: []u8, width, height: int, out: []
 	sc := (^Shader_Cpu)(user)
 	s := sc.state
 	next := 0
-	band := Shader_Band{sc.module, uniforms, width, height, out, stride, format, nil, sampler, &next}
+	band := Shader_Band{sc.module, uniforms, width, height, out, stride, format, nil, sampler, nil, &next}
 	if format == .RGBA16F {
 		// Grown once and kept: no allocation per frame.
 		if len(s.scratch) < width * height {
@@ -1077,6 +1085,10 @@ shader_cpu_run :: proc(user: rawptr, uniforms: []u8, width, height: int, out: []
 	}
 	bands := (height + BAND_ROWS - 1) / BAND_ROWS
 	takers := make([]^Shader_Band, clamp(pool_count(s.pool), 1, bands), context.temp_allocator)
+	if len(s.runs) < len(takers) {
+		resize(&s.runs, len(takers))
+	}
+	band.runs = s.runs[:len(takers)]
 	for &t in takers {
 		t = &band
 	}
@@ -1085,11 +1097,12 @@ shader_cpu_run :: proc(user: rawptr, uniforms: []u8, width, height: int, out: []
 
 @(private = "file")
 shader_band_task :: proc(t: thread.Task) {
-	shader_bands((^^Shader_Band)(t.data)^)
+	b := (^^Shader_Band)(t.data)^
+	shader_bands(b, &b.runs[t.user_index])
 }
 
 @(private = "file")
-shader_bands :: proc(b: ^Shader_Band) {
+shader_bands :: proc(b: ^Shader_Band, scratch: ^oksl.Scratch) {
 	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 	for {
 		i := sync.atomic_add(b.next, 1)
@@ -1100,7 +1113,7 @@ shader_bands :: proc(b: ^Shader_Band) {
 		h := min(BAND_ROWS, b.height - y)
 		opts := oksl.Run_Options{sampler = b.sampler.sample, user = b.sampler.data, y = y, w = b.width, h = h}
 		if b.format != .RGBA16F {
-			oksl.run(&b.module.program, b.uniforms, b.width, b.height, b.out, b.stride, opts)
+			oksl.run(&b.module.program, b.uniforms, b.width, b.height, b.out, b.stride, scratch, opts)
 			continue
 		}
 		// Pixels the program discards keep the cleared target's values.
@@ -1110,7 +1123,7 @@ shader_bands :: proc(b: ^Shader_Band) {
 				b.scratch[row * b.width + x] = {f32(dst[x][0]), f32(dst[x][1]), f32(dst[x][2]), f32(dst[x][3])}
 			}
 		}
-		oksl.run_f32(&b.module.program, b.uniforms, b.width, b.height, b.scratch, opts)
+		oksl.run_f32(&b.module.program, b.uniforms, b.width, b.height, b.scratch, scratch, opts)
 		for row in y ..< y + h {
 			dst := ([^][4]f16)(&b.out[row * b.stride])[:b.width]
 			for x in 0 ..< b.width {
