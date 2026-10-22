@@ -42,12 +42,12 @@ view3d_gpu_destroy :: proc(g: ^View3d_Gpu) {
 	g^ = {}
 }
 
-// Prepares the frame's jobs (their images in `images`, an SDL_GPU canvas's
-// or player's) for the rows that record them (`view3d_job_run`): o3d makes
+// Prepares the frame's jobs for the rows that record them
+// (`view3d_job_run`): o3d makes
 // and uploads what they draw. The tables stay read-locked until
 // `view3d_gpu_done`, after the frame is drawn (`locked`: false when the
 // GPU can't render).
-view3d_gpu_prepare :: proc(g: ^View3d_Gpu, v: ^View3d_Media, jobs: []^View3d_Job, images: ^vg.Image_Store) -> (err: o3d.Error, locked: bool) {
+view3d_gpu_prepare :: proc(g: ^View3d_Gpu, v: ^View3d_Media, jobs: []^View3d_Job) -> (err: o3d.Error, locked: bool) {
 	switch g.state {
 	case .Untried:
 		if g.failure = o3d_gpu.init(&g.gpu, g.device); g.failure != nil {
@@ -66,7 +66,7 @@ view3d_gpu_prepare :: proc(g: ^View3d_Gpu, v: ^View3d_Media, jobs: []^View3d_Job
 		if i == len(g.jobs) {
 			append(&g.jobs, new(o3d_gpu.Job))
 		}
-		job.gpu, job.slot, job.media, job.images, job.err = g, i, v, images, nil
+		job.gpu, job.slot, job.media, job.err = g, i, v, nil
 		e := o3d_gpu.prepare(&g.gpu, g.jobs[i], &job.scene, &v.geometries, &v.shaders, job.width, job.height, &v.textures)
 		job.prepared = e == nil
 		if e != nil && err == nil {
@@ -91,12 +91,12 @@ view3d_gpu_done :: proc(v: ^View3d_Media, jobs: []^View3d_Job) -> (err: o3d.Erro
 
 // A canvas row's work (vg.run_external): records the job's render into its
 // image on the frame's command buffer, its video maps bound to the frames
-// made by the rows before it. Once per prepare (a frame drawn again keeps
-// what it drew).
-view3d_job_run :: proc(user: rawptr, gpu: rawptr) {
+// made by the rows before it, in `images` (the canvas's or the player's).
+// Once per prepare (a frame drawn again keeps what it drew).
+view3d_job_run :: proc(user: rawptr, gpu: rawptr, images: ^vg.Image_Store) {
 	job := (^View3d_Job)(user)
 	if gpu == nil {
-		view3d_job_run_software(job)
+		view3d_job_run_software(job, images)
 		return
 	}
 	if !job.prepared {
@@ -104,18 +104,18 @@ view3d_job_run :: proc(user: rawptr, gpu: rawptr) {
 	}
 	job.prepared = false
 	g, v := job.gpu, job.media
-	target := vgsdl.image_store_texture(job.images, job.image)
+	target := vgsdl.image_store_texture(images, job.image)
 	if target == nil {
 		return
 	}
 	for b in job.videos {
-		if frame := vgsdl.image_store_texture(job.images, b.image); frame != nil {
+		if frame := vgsdl.image_store_texture(images, b.image); frame != nil {
 			o3d_gpu.texture_set_external(&g.gpu, &v.textures, b.texture, frame)
 		}
 	}
 	job.err = o3d_gpu.record(&g.gpu, g.jobs[job.slot], target, (^sdl.GPUCommandBuffer)(gpu))
 	if job.err == nil && vg.image_id_valid(job.depth_image) {
-		if depth := vgsdl.image_store_texture(job.images, job.depth_image); depth != nil {
+		if depth := vgsdl.image_store_texture(images, job.depth_image); depth != nil {
 			job.err = o3d_gpu.record_depth_into(&g.gpu, g.jobs[job.slot], depth, job.far, (^sdl.GPUCommandBuffer)(gpu))
 		}
 	}
@@ -129,7 +129,7 @@ view3d_job_run :: proc(user: rawptr, gpu: rawptr) {
 // the images it samples are drawn by now; it renders into the layer's
 // image, and its depth image when a shader reads it.
 @(private)
-view3d_job_run_software :: proc(job: ^View3d_Job) {
+view3d_job_run_software :: proc(job: ^View3d_Job, images: ^vg.Image_Store) {
 	if job.software == nil {
 		return
 	}
@@ -139,8 +139,8 @@ view3d_job_run_software :: proc(job: ^View3d_Job) {
 	}
 	v, sw := job.media, job.software
 	for b in job.videos {
-		if px := pixels_of(job.images, b.image); px != nil {
-			if info, ok := vg.image_store_info(job.images, b.image); ok {
+		if px := pixels_of(images, b.image); px != nil {
+			if info, ok := vg.image_store_info(images, b.image); ok {
 				o3d.software_set_external(sw, b.texture, px, int(info.width), int(info.height))
 			}
 		}
@@ -150,9 +150,9 @@ view3d_job_run_software :: proc(job: ^View3d_Job) {
 	}
 	w, h := int(job.width), int(job.height)
 	pixels := o3d.software_render(sw, &job.scene, &v.geometries, &v.shaders, w, h, job.pool, &v.textures)
-	copy(pixels_of(job.images, job.image), pixels)
+	copy(pixels_of(images, job.image), pixels)
 	if vg.image_id_valid(job.depth_image) {
-		if out := pixels_of(job.images, job.depth_image); len(out) >= w * h * 8 {
+		if out := pixels_of(images, job.depth_image); len(out) >= w * h * 8 {
 			o3d.depth_image(job.scene.camera, o3d.software_depth(sw), w, h, job.far, slice.reinterpret([]f16, out)[:w * h * 4])
 		}
 	}

@@ -322,7 +322,7 @@ flush_frame :: proc(r: ^Renderer, output: vg.Render_Output) {
 		jobs.count = 0
 		return
 	}
-	err, locked := view3d_gpu_prepare(r.gpu3d, &r.media.view3d, list, &r.canvas.images)
+	err, locked := view3d_gpu_prepare(r.gpu3d, &r.media.view3d, list)
 	if err != nil {
 		report(&r.ctx, .Error, {code = .View3d_Render, o3d = err})
 	}

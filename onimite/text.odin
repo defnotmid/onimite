@@ -127,11 +127,7 @@ font_found :: proc(m: ^Media, q: Font_Query) -> bool {
 @(private)
 measure :: proc(m: ^Media, q: Font_Query, s: string) -> f32 {
 	layout: vg.Text_Layout
-	layout.glyphs.allocator = context.temp_allocator
-	layout.clusters.allocator = context.temp_allocator
-	layout.runs.allocator = context.temp_allocator
-	layout.lines.allocator = context.temp_allocator
-	layout.missing.allocator = context.temp_allocator
+	vg.text_layout_init(&layout, context.temp_allocator)
 	piece := vg.Text_Piece{text = s, style = {q.family, q.size, q.weight, q.italic, q.letter_spacing, 0}}
 	vg.text_layout(&m.fonts, {piece}, {}, &layout)
 	return vg.text_layout_width(&layout)

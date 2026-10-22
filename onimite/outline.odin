@@ -14,23 +14,13 @@ outline_flatten :: proc(a: ^Path_Asset, out: ^vg.Flat_Path, segment: f32 = 0) {
 		lo, hi = {min(lo.x, v.x), min(lo.y, v.y)}, {max(hi.x, v.x), max(hi.y, v.y)}
 	}
 	span := max(hi.x - lo.x, hi.y - lo.y)
-	k: f32 = 1
+	seg: f32 = 1.5
 	if segment > 0 {
-		k = 1.5 / segment
+		seg = segment
 	} else if span > 0 && len(a.coords) > 0 {
-		k = 2000 / span
+		seg = span * 1.5 / 2000
 	}
-	p: vg.Path
-	p.verbs.allocator = context.temp_allocator
-	p.coords.allocator = context.temp_allocator
-	append(&p.verbs, ..a.verbs)
-	for v in a.coords {
-		append(&p.coords, v * k)
-	}
-	vg.path_flatten(&p, out)
-	for &v in out.points {
-		v /= k
-	}
+	vg.path_flatten_verbs(a.verbs, a.coords, out, seg)
 }
 
 // The outline's curves as an o3d path, temp allocated; `flip_y` for 3D (y
@@ -65,8 +55,7 @@ outline_path :: proc(a: ^Path_Asset, flip_y: bool) -> o3d.Path {
 // neighbours (Douglas-Peucker): physics wants corners with a real turn.
 outline_shapes :: proc(a: ^Path_Asset, flip_y: bool, segment: f32 = 0, simplify: f32 = 0) -> []o3d.Shape {
 	flat: vg.Flat_Path
-	flat.points.allocator = context.temp_allocator
-	flat.contours.allocator = context.temp_allocator
+	vg.flat_path_init(&flat, context.temp_allocator)
 	outline_flatten(a, &flat, segment)
 	pts := make([]o3d.Vec2, len(flat.points), context.temp_allocator)
 	for v, i in flat.points {

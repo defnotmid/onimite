@@ -109,7 +109,6 @@ Diagnostic_Code :: enum u8 {
 	Missing_Model_Part,
 	Attach_Target,
 	View3d_Zero_Size,
-	View3d_Video_Software,
 	Geometry_Growth,
 	View3d_Render,
 	// Nodes.
@@ -230,7 +229,6 @@ DIAGNOSTIC_TEXT := [Diagnostic_Code]string {
 	.Missing_Model_Part        = "model {q:name} has no {what} {q:ref}",
 	.Attach_Target             = "{name}: attach.model {index} is not a model drawn before it",
 	.View3d_Zero_Size          = "view3d with zero size at ({x}, {y}) is skipped",
-	.View3d_Video_Software     = "video {q:name} as a 3D texture plays on the GPU only: drawn in the material's colour on the CPU (--software)",
 	.Geometry_Growth           = "{kind} made again with other parameters frame after frame: each new set of geometry parameters makes and keeps a mesh, so change a size through the mesh's `scale`, not its geometry's parameters",
 	.View3d_Render             = "view3d could not be drawn: {o3d}",
 	.Rect_Zero_Size            = "rect with zero size at ({x}, {y}) is skipped",
@@ -318,7 +316,6 @@ DIAGNOSTIC_KEY := [Diagnostic_Code]string {
 	.Missing_Model_Part        = "model_part:{name}:{what}:{ref}",
 	.Attach_Target             = "attach:{name}:{index}",
 	.View3d_Zero_Size          = "",
-	.View3d_Video_Software     = "view3d_video_software:{name}",
 	.Geometry_Growth           = "geometry_growth:{kind}",
 	.View3d_Render             = "",
 	.Rect_Zero_Size            = "",

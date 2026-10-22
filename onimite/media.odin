@@ -331,18 +331,14 @@ straight_alpha :: proc(pixels: []u8, allocator := context.temp_allocator) -> []u
 // Adds a font from memory (TTF/OTF; every face of a TTC). The data must stay
 // alive as long as the media. Family and weight come from the font's tables.
 media_add_font :: proc(m: ^Media, data: []u8) -> bool {
-	n := vg.font_collection_add(&m.fonts, data)
 	// Before the built-in faces, so its first face is the default; a family
 	// the media has replaces the built-in one of that name.
-	first := len(m.fonts.faces) - n - m.builtin_faces
-	slice.rotate_right(m.fonts.faces[first:], n)
+	first := len(m.fonts.faces) - m.builtin_faces
+	n := vg.font_collection_add(&m.fonts, data, before = first)
 	for i := len(m.fonts.faces) - 1; i >= len(m.fonts.faces) - m.builtin_faces; i -= 1 {
-		face := &m.fonts.faces[i]
 		for added in m.fonts.faces[first:][:n] {
-			if strings.equal_fold(face.family, added.family) {
-				delete(face.family)
-				vg.font_destroy(&face.font)
-				ordered_remove(&m.fonts.faces, i)
+			if strings.equal_fold(m.fonts.faces[i].family, added.family) {
+				vg.font_collection_remove(&m.fonts, i)
 				m.builtin_faces -= 1
 				break
 			}

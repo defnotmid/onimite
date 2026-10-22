@@ -1111,7 +1111,7 @@ shader_bands :: proc(b: ^Shader_Band, scratch: ^oksl.Scratch) {
 			return
 		}
 		h := min(BAND_ROWS, b.height - y)
-		opts := oksl.Run_Options{sampler = b.sampler.sample, user = b.sampler.data, y = y, w = b.width, h = h}
+		opts := oksl.Run_Options{sampler = b.sampler.sample, user = b.sampler.data, y = y, w = b.width, h = h, channel_sizes = b.sampler.sizes[:]}
 		if b.format != .RGBA16F {
 			oksl.run(&b.module.program, b.uniforms, b.width, b.height, b.out, b.stride, scratch, opts)
 			continue

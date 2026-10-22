@@ -157,7 +157,7 @@ play_frame_images :: proc(p: ^Frame_Player, f: ^Frame_Record) {
 	if jobs := &f.view3d; jobs.count > 0 && p.gpu3d != nil {
 		// recorded by their canvas rows as the frame is drawn
 		err: o3d.Error
-		err, f.view3d_locked = view3d_gpu_prepare(p.gpu3d, &p.media.view3d, jobs.list[:jobs.count], &p.player.images)
+		err, f.view3d_locked = view3d_gpu_prepare(p.gpu3d, &p.media.view3d, jobs.list[:jobs.count])
 		if err != nil {
 			append(&f.diagnostics, Diagnostic{severity = .Error, code = .View3d_Render, frame = f.frame, o3d = err})
 		}

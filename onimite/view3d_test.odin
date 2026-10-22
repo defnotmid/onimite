@@ -912,6 +912,52 @@ test_view3d_attach_model_node :: proc(t: ^testing.T) {
 	testing.expect(t, !red(px, {-1, -0.2, 0})) // where it would be unattached
 }
 
+// A whole-model material is the base each part's own goes over: with the
+// model green and its material "Red" replaced by blue, the triangle draws
+// blue (the override was once written over every draw after the model's,
+// wiping part replacements, part flags and the outline).
+@(test)
+test_view3d_model_override_under_parts :: proc(t: ^testing.T) {
+	dir, derr := os.make_directory_temp("", "onimite_override_parts_test_*", context.temp_allocator)
+	testing.expect(t, derr == nil)
+	defer os.remove_all(dir)
+	path, _ := filepath.join({dir, "tri.gltf"}, context.temp_allocator)
+	testing.expect(t, os.write_entire_file(path, transmute([]u8)test_gltf()) == nil)
+	media: Media
+	media_init(&media)
+	defer media_destroy(&media)
+	testing.expect_value(t, media_load_dir(&media, dir), Error.None)
+	@(static) scenes: [1]Scene
+	scenes = [1]Scene{{name = "Only", duration = Frames(1), render = proc(f: Frame, ctx: ^Context) {
+		at := o3d.CAMERA_DEFAULT
+		at.position = {0, 0, 3}
+		blue := MATERIAL_GREEN_BASIC
+		blue.color = {0, 0, 1}
+		parts := make([]Model_Part, 1, context.temp_allocator)
+		parts[0] = {of = .Material, name = "Red", material = Model_Material{material = blue}}
+		view3d(ctx, f, {
+			w = 40, h = 40,
+			camera = at,
+			models = {{src = "tri.gltf", scale = {1, 1, 1}, animation_index = -1, material = Model_Material{material = MATERIAL_GREEN_BASIC}, parts = parts}},
+		})
+	}}}
+	v := Video{width = 40, height = 40, fps = 30, background = BLACK, scenes = scenes[:]}
+	r: Renderer
+	testing.expect_value(t, renderer_init(&r, &v, &media), Error.None)
+	defer renderer_destroy(&r)
+	px := render_frame(&r, 0)
+	testing.expectf(t, len(r.ctx.diagnostics) == 0, "diagnostics: %v", r.ctx.diagnostics[:])
+	blue, green := 0, 0
+	for y in 0 ..< 40 {
+		for x in 0 ..< 40 {
+			p := pixel(px, 40, x, y)
+			blue += 1 if p.b > 200 && p.g < 50 else 0
+			green += 1 if p.g > 200 else 0
+		}
+	}
+	testing.expectf(t, blue > 20 && green == 0, "blue %d, green %d", blue, green)
+}
+
 // An emitter's births: steady ones at i / rate from `start` until `stop`,
 // bursts at once, each alive for its lifetime. On a body with `world_space`,
 // a particle is placed by the body as it was when born and keeps the body's

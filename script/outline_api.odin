@@ -78,8 +78,7 @@ l_outline :: proc "c" (L: ^lua.State) -> c.int {
 	lua.L_checktype(L, 1, i32(lua.Type.TABLE))
 	fields_begin(L, 1)
 	p: vg.Path
-	p.verbs.allocator = context.temp_allocator
-	p.coords.allocator = context.temp_allocator
+	vg.path_init(&p, context.temp_allocator)
 	rule := vg.Fill_Rule.Non_Zero
 	switch {
 	case has_field(L, 1, "svg"):
@@ -97,8 +96,7 @@ l_outline :: proc "c" (L: ^lua.State) -> c.int {
 		}
 		id := get_str(L, 1, "id", "")
 		raw: vg.Path
-		raw.verbs.allocator = context.temp_allocator
-		raw.coords.allocator = context.temp_allocator
+		vg.path_init(&raw, context.temp_allocator)
 		found: bool
 		rule, _, found = vg.svg_element_path(doc, &raw, id, &a.text)
 		if !found {
@@ -135,11 +133,7 @@ l_outline :: proc "c" (L: ^lua.State) -> c.int {
 			align = .Right
 		}
 		l: vg.Text_Layout
-		l.glyphs.allocator = context.temp_allocator
-		l.clusters.allocator = context.temp_allocator
-		l.runs.allocator = context.temp_allocator
-		l.lines.allocator = context.temp_allocator
-		l.missing.allocator = context.temp_allocator
+		vg.text_layout_init(&l, context.temp_allocator)
 		piece := vg.Text_Piece{text = str, style = {q.family, q.size, q.weight, q.italic, q.letter_spacing, 0}}
 		opts := vg.Text_Options{get_num(L, 1, "x", 0), get_num(L, 1, "y", 0), vg.Text_Align(align), vg.Text_Baseline(read_baseline(L, 1)), get_num(L, 1, "line_height", 0)}
 		vg.text_layout(&m.fonts, {piece}, opts, &l)
@@ -158,8 +152,7 @@ l_outline_bounds :: proc "c" (L: ^lua.State) -> c.int {
 	context = s.odin_context
 	a := check_outline(L, 1, "outline_bounds")
 	flat: vg.Flat_Path
-	flat.points.allocator = context.temp_allocator
-	flat.contours.allocator = context.temp_allocator
+	vg.flat_path_init(&flat, context.temp_allocator)
 	om.outline_flatten(a, &flat)
 	lo, hi := [2]f32{max(f32), max(f32)}, [2]f32{-max(f32), -max(f32)}
 	for v in flat.points {
@@ -190,8 +183,8 @@ l_morph :: proc "c" (L: ^lua.State) -> c.int {
 		return 1
 	}
 	pa, pb: vg.Path
-	pa.verbs.allocator, pa.coords.allocator = context.temp_allocator, context.temp_allocator
-	pb.verbs.allocator, pb.coords.allocator = context.temp_allocator, context.temp_allocator
+	vg.path_init(&pa, context.temp_allocator)
+	vg.path_init(&pb, context.temp_allocator)
 	append(&pa.verbs, ..a.verbs)
 	append(&pa.coords, ..a.coords)
 	append(&pb.verbs, ..b.verbs)
@@ -232,8 +225,7 @@ l_morph_at :: proc "c" (L: ^lua.State) -> c.int {
 	}
 	t := f32(lua.L_checknumber(L, 2))
 	p: vg.Path
-	p.verbs.allocator = context.temp_allocator
-	p.coords.allocator = context.temp_allocator
+	vg.path_init(&p, context.temp_allocator)
 	vg.path_morph_eval(&m.m, t, &p)
 	// Drawn this frame: the frame's nodes hold it; at load, the render.
 	if s.ctx != nil {

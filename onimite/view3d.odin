@@ -843,20 +843,14 @@ view3d_make_shaders :: proc(m: ^Media, n: View3d) {
 @(private = "file")
 view3d_shader_make :: proc(m: ^Media, sh: Shader_Material) {
 	v := &m.view3d
-	key := o3d_shader_key(sh)
 	sync.shared_lock(&v.lock)
-	_, known := v.shaders.keys[key]
+	_, _, known := o3d.shader_find(&v.shaders, sh.vertex_shader, sh.fragment_shader, sh.glsl3)
 	sync.shared_unlock(&v.lock)
 	if known {
 		return
 	}
 	sync.guard(&v.lock)
 	o3d.shader(&v.shaders, sh.vertex_shader, sh.fragment_shader, sh.glsl3)
-}
-
-@(private = "file")
-o3d_shader_key :: proc(sh: Shader_Material) -> string {
-	return strings.concatenate({sh.vertex_shader, "\x00", sh.fragment_shader, "\x01" if sh.glsl3 else "\x00"}, context.temp_allocator)
 }
 
 // ---- drawing ------------------------------------------------------------------------------
@@ -870,12 +864,11 @@ View3d_Job :: struct {
 	// The video maps' frames, each bound to its texture for this render.
 	videos:        [dynamic]Video_Binding,
 	// Set by `view3d_gpu_prepare` for the canvas row that records it
-	// (`view3d_job_run`): the GPU and its o3d job, the tables, the image
-	// store its images are in; what the record said.
+	// (`view3d_job_run`): the GPU and its o3d job, the tables; what the
+	// record said.
 	gpu:           ^View3d_Gpu,
 	slot:          int,
 	media:         ^View3d_Media,
-	images:        ^vg.Image_Store,
 	prepared:      bool,
 	err:           o3d.Error,
 	// The image its depth goes to (a shader's depth input reads it; invalid:
@@ -1016,7 +1009,7 @@ draw_view3d :: proc(r: ^Renderer, n: View3d) {
 	sync.shared_unlock(&v.lock)
 	if r.gpu3d == nil {
 		// the CPU draws it at its row too, reading the images made before it
-		job.software, job.pool, job.images, job.media = &s.software, r.pool, &c.images, v
+		job.software, job.pool, job.media = &s.software, r.pool, v
 	}
 	// rendered at this point of the canvas's rows: after the images it
 	// samples (clips' frames, labels) were made, before the layer shows it
@@ -1025,8 +1018,8 @@ draw_view3d :: proc(r: ^Renderer, n: View3d) {
 }
 
 // The frames the video maps of node `n` show on its clock (from its start,
-// looping), each an image of the renderer's bound to its texture when the
-// job renders on the GPU; on the CPU they stay the material's colour.
+// looping), each an image of the renderer's bound to its texture for the
+// job's render (the GPU's or the CPU's).
 @(private = "file")
 view3d_videos :: proc(r: ^Renderer, n: View3d, job: ^View3d_Job) {
 	clear(&job.videos)
@@ -1034,10 +1027,6 @@ view3d_videos :: proc(r: ^Renderer, n: View3d, job: ^View3d_Job) {
 		v := r.ctx.videos
 		clip, is_video := v.by_name[name]
 		if name == "" || !is_video || v.handles[clip] < 0 {
-			return
-		}
-		if r.gpu3d == nil {
-			report(&r.ctx, .Warning, {code = .View3d_Video_Software, name = name})
 			return
 		}
 		texture := r.media.view3d.textures_of[name]
@@ -1161,8 +1150,14 @@ view3d_scene :: proc(r: ^Renderer, n: View3d, scene: ^o3d.Scene, size: [2]int, l
 				}
 			}
 		}
-		first := len(scene.draws)
-		o3d.gltf_draw(scene, model, attach_frame(model_on[mi], pose.attach, pose.group, now) * o3d.compose(pose.position, pose.rotation, pose.scale), anim, pose.time, pose.loop, pose.flags, &r.view3d.pose, morphs = pose.morphs, outline_width = pose.outline_width, outline_color = pose.outline_color, parts = parts)
+		// a whole-model material: under each part's own and the outline
+		whole: o3d.Material
+		override: ^o3d.Material
+		if over, ok := pose.material.?; ok {
+			whole = view3d_material(r, scene, over.material, over.maps, over.shader)
+			override = &whole
+		}
+		o3d.gltf_draw(scene, model, attach_frame(model_on[mi], pose.attach, pose.group, now) * o3d.compose(pose.position, pose.rotation, pose.scale), anim, pose.time, pose.loop, pose.flags, &r.view3d.pose, override, morphs = pose.morphs, outline_width = pose.outline_width, outline_color = pose.outline_color, parts = parts)
 		for mesh, k in n.meshes {
 			if mesh.attach.model == mi + 1 {
 				mesh_on[k] = view3d_attach_world(r, model, pose.src, mesh.attach.node)
@@ -1181,13 +1176,6 @@ view3d_scene :: proc(r: ^Renderer, n: View3d, scene: ^o3d.Scene, size: [2]int, l
 		for l, k in n.labels {
 			if l.attach.model == mi + 1 {
 				label_on[k] = view3d_attach_world(r, model, pose.src, l.attach.node)
-			}
-		}
-		if over, ok := pose.material.?; ok {
-			mat := view3d_material(r, scene, over.material, over.maps, over.shader)
-			mat.flags += pose.flags
-			for i in first ..< len(scene.draws) {
-				scene.draws[i].material = mat
 			}
 		}
 	}
@@ -1431,14 +1419,14 @@ view3d_material :: proc(r: ^Renderer, scene: ^o3d.Scene, base: o3d.Material, map
 		return material
 	}
 	v := &r.media.view3d
-	id := v.shaders.keys[o3d_shader_key(sh)]
+	id, errors, found := o3d.shader_find(&v.shaders, sh.vertex_shader, sh.fragment_shader, sh.glsl3)
 	material.shader = id
-	if id == 0 || int(id) > len(v.shaders.list) {
+	if !found {
 		return material
 	}
-	entry := &v.shaders.list[id - 1]
-	if entry.pipeline == nil {
-		view3d_report_shader_errors(r, entry.errors)
+	entry := o3d.shader_get(&v.shaders, id)
+	if entry == nil {
+		view3d_report_shader_errors(r, errors)
 		return material
 	}
 	material.uniforms = view3d_shader_uniforms(r, scene, entry, sh.uniforms)
@@ -1453,16 +1441,14 @@ view3d_material :: proc(r: ^Renderer, scene: ^o3d.Scene, base: o3d.Material, map
 }
 
 @(private = "file")
-view3d_report_shader_errors :: proc(r: ^Renderer, errors: string) {
-	rest := errors
-	for line in strings.split_lines_iterator(&rest) {
-		if line == "" {
-			continue
-		}
-		if sep := strings.index(line, ": "); sep >= 0 {
-			report(&r.ctx, .Error, {code = .Shader_Compile, name = line[:sep], a = line[sep + 2:]})
+view3d_report_shader_errors :: proc(r: ^Renderer, errors: []o3d.Shader_Error) {
+	for e in errors {
+		stage := "Vertex" if e.stage == .Vertex else "Fragment"
+		if e.code == .Compile {
+			// oksl's own: its position, code and operands
+			report(&r.ctx, .Error, {code = .Shader_Compile, name = stage, shader = e.compile})
 		} else {
-			report(&r.ctx, .Error, {code = .Shader_Compile, name = "ShaderMaterial", a = line})
+			report(&r.ctx, .Error, {code = .Shader_Compile, name = stage, a = o3d.shader_error_message(e, context.temp_allocator)})
 		}
 	}
 }
