@@ -65,6 +65,11 @@ roles instead of imitating them.
   for pads and leads. A high-pass on a return keeps its low end clean.
 - **Pumping.** `sidechain` from `drums/kick` ducks pads, basses and stabs in
   dance music; a song that isn't dance music usually shouldn't pump.
+- **One reference level.** Every voice in `synths.json` reaches −18 LUFS
+  max momentary (its loudest 400 ms) for one note at velocity 0.8, played
+  alone (C4; the basses C2). Swapping one voice for another keeps the
+  part's level. A voice of your own set to the same reference drops in the
+  same way. A chord of four notes comes out about 6 dB louder.
 - **Levels by measurement.** `onimite audio parts video.lua` reports each
   part's loudness and peak (`--track score/bass` hears one in the mix). The drums and bass anchor the mix, the melody sits clearly
   above the comping, and a part more than about 15 LU under the mix is
@@ -90,6 +95,11 @@ up and dropped. Choose each of these on purpose:
 - **Form.** Let sections be long enough for an idea to develop. Change
   something at each one: a part drops out, the bass pattern changes, the
   drums go half-time.
+- **Development.** A motif repeated unchanged is a loop. `vary` changes
+  each repeat (up a step, mirrored, thinned out, filled in), and `pickup`
+  leads a phrase in. `automation` moves what a loop can't: a filter opening
+  over a build, a send thrown on a phrase's last word, a fade (audio.md,
+  "Movement").
 
 The reference songs in the skill's `library/songs/` each show one of these
 (JSON song files: read one with `song(json_decode(...))` as `examples/disco` does,

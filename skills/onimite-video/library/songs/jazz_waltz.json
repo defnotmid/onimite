@@ -234,7 +234,7 @@
     },
     "melody": {
       "instrument": "keys",
-      "gain_db": -4,
+      "gain_db": -1.6,
       "sends": {
         "room": -8
       },

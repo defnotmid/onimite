@@ -21,7 +21,7 @@ load_source :: proc(t: ^testing.T, src: string, s: ^Script, media: ^om.Media) ->
 // onimite's time forms resolved: a section as long as a clip plus a
 // second, the start a time table), what odawg finds is a warning at the
 // script line, sections and markers are cues on the video, the song
-// object answers on the video clock, sound{} is a one-note song named by
+// object answers on the video clock (its automation lanes too), sound{} is a one-note song named by
 // its content, and a song's track starts where the song does.
 @(test)
 test_song_binding :: proc(t: ^testing.T) {
@@ -34,6 +34,10 @@ local score = song { "score", start = { seconds = 0.5 }, bpm = 120,
   },
   parts = { drums = { instrument = { pads = { kick = { "MembraneSynth" } } }, play = { { "drop", steps = { kick = "x...x...x...x..." } } } } },
   markers = { { "logo", at = "drop@1m" } },
+  automation = {
+    ["parts/drums/gain_db"] = { { "intro", -6 }, { "drop", 0 } },   -- song positions
+    ["parts/drums/pan"] = { { 2.5, -1 }, { 4.5, 1 } },              -- bare numbers: the video's seconds
+  },
 }
 local function near(a, b, what) assert(math.abs(a - b) < 1e-6, what .. ": " .. tostring(a) .. ", not " .. tostring(b)) end
 near(score.start, 0.5, "start")
@@ -58,6 +62,11 @@ assert(score.pulse(4.5, { part = "drums", note = "kick" }) == 1, "pulse on a kic
 assert(score.sections[2].name == "drop" and score.sections[2].bars == 2, "sections")
 assert(type(score.note("5", "drop")) == "string", "note")
 assert(not pcall(score.time, "chorus"), "no such position")
+near(score.automation("parts/drums/gain_db", 0.5), -6, "a lane at its first point")
+near(score.automation("parts/drums/gain_db", 2.5), -3, "halfway")
+near(score.automation("parts/drums/gain_db", 8), 0, "after the last point")
+near(score.automation("parts/drums/pan", 3.5), 0, "a lane on the video clock")
+assert(not pcall(score.automation, "parts/drums/cutoff", 1), "no such lane")
 local blip = sound { "Synth", note = "E6", duration = "16n" }
 assert(blip:match("^Synth~%x+$"), blip)
 assert(sound { "Synth", note = "E6", duration = "16n" } == blip, "the same sound, the same name")

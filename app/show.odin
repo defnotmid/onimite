@@ -13,6 +13,7 @@ import "core:strings"
 import om "../onimite"
 import script "../script"
 import "../speech"
+import obase "deps:odawg/base"
 import odevice "deps:odawg/device"
 import ospec "deps:odawg/spec"
 import osong "deps:odawg/song"
@@ -30,7 +31,8 @@ import osong "deps:odawg/song"
 //   bus/sfx                 a bus and its tracks
 //   track/12                a placed sound (in time order)
 //   clip/tick_1900          a sound clip
-//   song/score              a song; song/score/sections/drop, song/score/parts/bass
+//   song/score              a song; song/score/sections/drop, song/score/parts/bass,
+//                           song/score/automation/parts/pad/cutoff (a lane's points)
 //   node/scenes/race.lua:19[2]   what that script line drew (the third), at --at
 
 SHOW_PAGE :: 20
@@ -140,6 +142,7 @@ Show_Kind :: enum u8 {
 	Song,
 	Section,
 	Part,
+	Lane,
 	Instrument,
 	Node,
 	Media,
@@ -178,7 +181,7 @@ SHOW_PATHS := [?]Show_Path {
 	{"says", "says", show_says},
 	{"say", "say/NAME", show_say},
 	{"songs", "songs", show_songs},
-	{"song", "song/NAME[/sections/NAME|/parts/NAME]", show_song},
+	{"song", "song/NAME[/sections/NAME|/parts/NAME|/automation/PATH]", show_song},
 	{"instruments", "instruments", show_instruments},
 	{"instrument", "instrument/NAME", show_instrument},
 	{"media", "media, media/FILE", show_media},
@@ -690,6 +693,12 @@ show_song :: proc(sh: ^Show, rest: string) -> Error {
 			}
 			child(sh, fmt.tprintf("song/%s/parts/%s", name, part), .Part, fmt.tprintf("%d notes", n))
 		}
+		for a, i in g.automation {
+			if i > 0 && g.automation[i - 1].path == a.path {
+				continue // a part's lane: a row per track, one path
+			}
+			child(sh, fmt.tprintf("song/%s/automation/%s", name, a.path), .Lane, lane_summary(g, a))
+		}
 		pa := om.placed_audio(&sh.r.ctx)
 		placed, order := pa.tracks[:], pa.order[:]
 		for k, idx in order {
@@ -730,10 +739,35 @@ show_song :: proc(sh: ^Show, rest: string) -> Error {
 		}
 		sh.res.kind = show_kind(.Part)
 		sh.res.summary = fmt.tprintf("%s/%s: its tracks and notes on the video (`--track %s/%s` hears it alone)", name, item, name, item)
+	case "automation":
+		for a in g.automation {
+			if a.path != item {
+				continue
+			}
+			sh.res.kind = show_kind(.Lane)
+			sh.res.summary = fmt.tprintf("%s/%s: %s (score.automation(\"%s\", t) reads it)", name, item, lane_summary(g, a), item)
+			for p in g.automation_points[a.points.first:a.points.first + a.points.count] {
+				t := g.start + f64(p.at) / f64(obase.RATE)
+				append(&sh.children, Show_Child{fmt.tprintf("%.3fs", t), "point", fmt.tprintf("%g  %s", p.value, osong.AUTOMATION_CURVE_NAMES[p.curve])})
+			}
+			return nil
+		}
+		return fail(sh.app, {code = .No_Path, name = fmt.tprintf("song/%s/automation/%s", name, item), names = {fmt.tprintf("song/%s", name)}})
 	case:
-		return fail(sh.app, {code = .No_Path, name = fmt.tprintf("song/%s", rest), names = {fmt.tprintf("song/%s/sections/NAME", name), fmt.tprintf("song/%s/parts/NAME", name)}})
+		return fail(sh.app, {code = .No_Path, name = fmt.tprintf("song/%s", rest), names = {fmt.tprintf("song/%s/sections/NAME", name), fmt.tprintf("song/%s/parts/NAME", name), fmt.tprintf("song/%s/automation/PATH", name)}})
 	}
 	return nil
+}
+
+// A lane in a line: its points and where it goes, on the video clock.
+@(private = "file")
+lane_summary :: proc(g: ^osong.Song, a: osong.Automation) -> string {
+	pts := g.automation_points[a.points.first:a.points.first + a.points.count]
+	if len(pts) == 0 {
+		return "no points"
+	}
+	first, last := pts[0], pts[len(pts) - 1]
+	return fmt.tprintf("%d points  %g at %.3fs .. %g at %.3fs", len(pts), first.value, g.start + f64(first.at) / f64(obase.RATE), last.value, g.start + f64(last.at) / f64(obase.RATE))
 }
 
 // ---- media, fonts, physics bodies --------------------------------------------------------

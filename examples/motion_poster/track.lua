@@ -35,7 +35,7 @@ return song { "score", instruments = INSTRUMENTS, key = "A minor", bpm = 120, se
       gain_db = 0, sidechain = "drums/kick",
       play = { { "groove", degrees = ". 1 . 1 . 1 . 1", subdivision = "8n", octave = 2, duration = "16n." },
                { "finale", degrees = ". 1 . 1 . 1 . 1", subdivision = "8n", octave = 2, duration = "16n." } } },
-    arp = { instrument = "pluck", gain_db = 6, sends = { hall = -10 },
+    arp = { instrument = "pluck", gain_db = 2.8, sends = { hall = -10 },
       effects = { { "PingPongDelay", delay_time = "8n.", feedback = 0.45, wet = 0.45 } },
       play = { { "intro..finale", arpeggio = { pattern = "up", interval = "8n.", octaves = 1 }, octave = 4, velocity = 0.8 } } },
     riser = { instrument = "riser", gain_db = 2, play = { { "break@1m", events = { { time = 0, duration = "1m" } } } } },

@@ -30,7 +30,7 @@ return song { "score", instruments = INSTRUMENTS, key = "C major", bpm = 120, se
     drums = { instrument = MACHINE, gain_db = 2, play = { { "tail", steps = { kick = "X...x..........." } } } },
     piano = { instrument = { "Sampler", set = "vcsl/upright_piano" }, gain_db = -6.3,
       play = { { "tail@2n..", chords = { voicing = "open" }, duration = "2n", velocity = 0.7 } } },
-    arp = { instrument = "pluck", gain_db = 4, sends = { hall = -14 },
+    arp = { instrument = "pluck", gain_db = 0.8, sends = { hall = -14 },
       play = { { "hook..features", arpeggio = { pattern = "upDown", interval = "8n", octaves = 2 }, velocity = 0.75 } } },
     -- a clap and a low kick under each headline line
     hits = { instrument = MACHINE, gain_db = -2,

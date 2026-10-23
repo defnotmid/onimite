@@ -440,6 +440,7 @@ SONG_FUNCTIONS := [?]struct {
 	{"events", l_song_events},
 	{"note", l_song_note},
 	{"snap", l_song_snap},
+	{"automation", l_song_automation},
 }
 
 @(private = "file")
@@ -552,6 +553,32 @@ l_song_time :: proc "c" (L: ^lua.State) -> c.int {
 	context = s.odin_context
 	sc := song_of(L)
 	lua.pushnumber(L, lua.Number(sc.song.start + position_arg(L, sc, 1, "time")))
+	return 1
+}
+
+// score.automation(path, f or t) -> a lane's value at that moment on the
+// video: odawg's automation_at, the function the engine samples, so a
+// picture following a sweep agrees with the mix on any thread or seek
+@(private = "file")
+l_song_automation :: proc "c" (L: ^lua.State) -> c.int {
+	s := host(L)
+	context = s.odin_context
+	sc := song_of(L)
+	path := string(lua.L_checkstring(L, 1))
+	t := video_seconds_arg(L, 2, "automation") - sc.song.start
+	v, ok := osong.automation_at(&sc.song, path, t)
+	if !ok {
+		b := strings.builder_make(context.temp_allocator)
+		for a, i in sc.song.automation {
+			if i > 0 && sc.song.automation[i - 1].path == a.path {
+				continue // a part's lane: a row per track, one path
+			}
+			fmt.sbprintf(&b, "%s%s", strings.builder_len(b) == 0 ? "" : ", ", a.path)
+		}
+		lanes := strings.to_string(b) if strings.builder_len(b) > 0 else "it has none"
+		lua.L_error(L, "automation: song %s has no lane %s (%s)", strings.clone_to_cstring(sc.name, context.temp_allocator), strings.clone_to_cstring(path, context.temp_allocator), strings.clone_to_cstring(lanes, context.temp_allocator))
+	}
+	lua.pushnumber(L, lua.Number(v))
 	return 1
 }
 

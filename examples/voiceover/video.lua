@@ -60,7 +60,7 @@ local STEP = sound { "tick", instruments = INSTRUMENTS, note = "A5" }           
 local SCRAPE = sound { { "NoiseSynth", noise = { type = "pink" },          -- the match struck
   envelope = { attack = 0.004, decay = 0.45, sustain = 0, release = 0.1 } }, duration = 0.5 }
 local EMBER = sound { "crackle", instruments = INSTRUMENTS }
-local BELL = sound { "bell", instruments = INSTRUMENTS, note = score.note("1", "beam"), duration = "1m" }   -- the lamp catching
+local BELL = sound { "bell", instruments = INSTRUMENTS, note = score.note("1", "beam"), duration = "1m", gain_db = -4.6 }   -- the lamp catching (sound{}'s -10, +5.4 for synths.json's bell level)
 local WHOOSH = sound { "whoosh", instruments = INSTRUMENTS, duration = 0.7 }                            -- the beam passing
 
 -- The keeper's steps: one per stair, from "climbed" to "stairs" (a roll, not beat-checked).

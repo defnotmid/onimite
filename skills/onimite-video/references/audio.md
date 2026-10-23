@@ -90,6 +90,7 @@ score.beat(f), score.bar(f)               -- from a frame or video seconds
 score.seconds("2m", "drop")               -- a length, measured where (default: the start): a bar is shorter where it's faster
 score.frame("drop", fps)                  -- its frame (fps: the video's)
 score.snap(t, "8n")                       -- the nearest grid point
+score.automation("parts/pad/cutoff", f)   -- a lane's value then (f or video seconds): the engine's own curve
 score.pulse(f, 9)                         -- 1 on every beat, decaying (beat_clock's)
 score.pulse(f, { part = "drums", note = "kick", decay = 8 })   -- from the notes really there
 score.section(f)                          -- { name, progress, bar, beat, index }, bars and beats from 0
@@ -102,12 +103,66 @@ Resolve bar offsets through the song (`T("chorus@2m")`), never `T("chorus") + 2 
 score.seconds("1m")`: under a tempo change the sum is wrong. `pulse`/`hits` reading a part
 or note with nothing there warn (`no_events`: a style without that part).
 
+### Movement: automation lanes, motif variation and pickups
+
+A song's `automation` moves a value over song time: a lane per path, each a list of
+`{ at, value, curve }` points.
+
+```lua
+automation = {
+  ["parts/pad/cutoff"]         = { { "build", 400 }, { "drop", 6000 }, { "break", 900, "step" } },   -- a filter sweep
+  ["parts/lead/sends/echo"]    = { { "drop", -30 }, { "drop@7m", -8 }, { "drop@8m", -30, "step" } }, -- a delay throw
+  ["parts/drums/gain_db"]      = { { "outro", 0 }, { "end", -40 } },                                 -- a fade
+  ["returns/hall/Reverb/wet"]  = { { "break", 0.2 }, { "drop", 0.5 } },
+  ["master/gain_db"]           = { { "outro@2m", 0 }, { "end", -60 } },
+}
+```
+
+- Paths: `parts/<part>/gain_db`, `/pan`, `/sends/<return or bus>` (dB), an instrument option
+  (`cutoff`, `resonance`, ...) or `node/field` (`lp/frequency`), `/effects/<Name or
+  index>/<param>`; `returns/<name>/<Effect>/<param>`, `buses/<name>/<Effect>/<param>`,
+  `master/gain_db`, `master/<Effect>/<param>`. A style's part (the lofi style's `keys`) takes
+  lanes like the song's own. A path that names nothing is a finding (`unknown_key`); so is a
+  value that can't move (a filter's type or rolloff: `fixed_value`) and a bad point
+  (`bad_value` at `automation/<path>/<n>`: a bad position, out of order, `exp` through 0).
+- `at` is a song position (`"drop@2m"`, `"1:2:0"`, `"end"`) or a bare number: seconds on the
+  video, as `say_cue` returns them. Values are in the field's own unit (dB, Hz, 0..1).
+- `curve`, how the value travels from the point before: `"linear"` (the default), `"exp"`
+  (geometric: the default for Hz and seconds), `"step"` (a jump at this point). Before the
+  first point the lane holds its value; after the last, the last.
+- Filters, oscillators, gains, pans and sends move inside held notes; a value a note reads as
+  it starts (an envelope's time) takes the lane's value then.
+- The picture reads a lane with `score.automation(path, f)`, the function the engine plays,
+  so light that follows a sweep stays on it. `show video.lua song/score` lists the lanes;
+  `song/score/automation/parts/pad/cutoff` shows one's points on the video clock.
+
+A `notes` or `degrees` play entry's `vary` changes each repeat of its pattern in turn
+(`vary[k % #vary]`; `{}` plays it as written), so a motif develops instead of looping:
+
+```lua
+{ "drop", notes = "D5 - F5 A5 G5 - F5 E5", subdivision = "8n",
+  vary = { {}, { transpose = 2 }, { thin = 0.3 }, { invert = true, fill = true } },
+  pickup = "A4 C5" }                               -- played in the slots just before "drop"
+```
+
+The transforms, in this order: `reverse` (pitches backwards, rhythm kept), `invert`
+(mirrored around the cycle's first note, in the key), `transpose = n` (scale steps in the key,
+not the chord), `octave = n`, `thin = 0..1` (that share of notes rest, seeded by the song's
+`seed`, the part and the repeat; never the first), `fill = true` (each rest becomes a step
+from the note before toward the next), `velocity = x` (scaled). `pickup` is an anacrusis in
+the entry's subdivision; one before the song's start is an error and one over the part's own
+notes a warning (`pickup_overlaps`). `score.events`, `score.hits` and `audio parts` see the
+varied notes, so the picture syncs to what plays. Drum fills stay a list of bar strings with
+the fill in the phrase's last bar.
+
 `sound{ instrument, note, duration = "8n", velocity = 1, effects, sends, pan, sidechain,
 gain_db, instruments }` is a one-note song, named by its content (`"impact~3f2a9c01"`): place
 it like a clip, as often as needed. Its instrument is a row as a part's is: `sound { "impact",
 instruments = "instruments/sfx.json" }`, `sound { { "Synth", oscillator = { type = "sine" } } }`.
 With no `note` it plays the row's own pitch (a `done` chime is high, a `thump` low); its other
-keys are a part's (`effects = { { "FeedbackDelay", delay_time = "8n", wet = 0.3 } }`).
+keys are a part's (`effects = { { "FeedbackDelay", delay_time = "8n", wet = 0.3 } }`). Its
+`gain_db` replaces the default -10, as a song's does: `gain_db = -4` is 6 dB louder than none,
+and a level change of +3 dB is `gain_db = -7` (or a placing track's `gain_db = 3`).
 
 ```lua
 local SFX = "instruments/sfx.json"                      -- the library's sound effects, in media/

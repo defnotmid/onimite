@@ -55,7 +55,7 @@
     },
     "bass": {
       "instrument": "bass",
-      "gain_db": -1,
+      "gain_db": 4.8,
       "play": [
         { "name": "intro..head", "notes": "D2 . D3 . C3 . A2 B2 G2 . G3 . F3 . D3 B2", "subdivision": "8n", "velocity": 0.8, "humanize": 0.004 },
         { "name": "bridge", "notes": "Eb2 . Eb3 . Db3 . Bb2 C3 Ab2 . Ab3 . Gb3 . Eb3 C3", "subdivision": "8n", "velocity": 0.85, "humanize": 0.004 },
@@ -64,7 +64,7 @@
     },
     "organ": {
       "instrument": "organ",
-      "gain_db": -6,
+      "gain_db": -1.9,
       "effects": [ { "name": "Chorus", "frequency": 5.8, "delay_time": 0.003, "depth": 0.35, "wet": 0.5 } ],
       "sends": { "room": -10 },
       "play": [
@@ -75,7 +75,7 @@
     },
     "lead": {
       "instrument": { "name": "lead", "cutoff": 1600 },
-      "gain_db": 3,
+      "gain_db": 6.3,
       "sends": { "hall": -12 },
       "play": [
         { "name": "head", "notes": "A4 - B4 - D5 . C5 B4 - - A4 . F4 G4 - . A4 B4 D5 E5 F5 - E5 D5 B4 - - - A4 . . .", "subdivision": "8n", "velocity": 0.75, "humanize": 0.003 },

@@ -21,27 +21,27 @@ local DUCK = { "drums/kick", depth = 0.55, release = 0.18 }
 M.PARTS = {
   drums = { instrument = MACHINE, gain_db = -0.5, sends = { room = -20 } },
   -- the offbeat bass, and the matrix's dread pulse
-  bass = { instrument = "bass", gain_db = -1, octave = 1, sidechain = DUCK },
-  stabs = { instrument = "stab", gain_db = 7, octave = 4, sidechain = DUCK, sends = { hall = -14 } },
-  arp = { instrument = "pluck", gain_db = -3, octave = 4, sidechain = DUCK,
+  bass = { instrument = "bass", gain_db = 4.8, octave = 1, sidechain = DUCK },
+  stabs = { instrument = "stab", gain_db = -3.7, octave = 4, sidechain = DUCK, sends = { hall = -14 } },
+  arp = { instrument = "pluck", gain_db = -6.2, octave = 4, sidechain = DUCK,
     effects = { { "PingPongDelay", delay_time = "8n.", feedback = 0.3, wet = 0.22 } }, sends = { hall = -16 } },
-  lead = { instrument = "lead", gain_db = -2, sidechain = DUCK,
+  lead = { instrument = "lead", gain_db = 1.3, sidechain = DUCK,
     effects = { { "FeedbackDelay", delay_time = "8n.", feedback = 0.25, wet = 0.18 } }, sends = { hall = -10 } },
   -- the void: a dark pad, and string sections over it
-  drone = { instrument = { "pad", cutoff = 520, attack = 3 }, gain_db = -2 },
+  drone = { instrument = { "pad", cutoff = 520, attack = 3 }, gain_db = 0.7 },
   strings = { instrument = { "Sampler", set = "vsco2/strings", attack = 1.2, release = 2.5 }, gain_db = -19.4,
     sends = { hall = -8 } },
   -- the pad that opens: the build into the drop, the countdown
-  swell = { instrument = { "pad", cutoff = 3500, attack = 2 }, gain_db = -7 },
-  bells = { instrument = "bell", gain_db = -8, sends = { hall = -6 } },
+  swell = { instrument = { "pad", cutoff = 3500, attack = 2 }, gain_db = -4.3 },
+  bells = { instrument = "bell", gain_db = -2.6, sends = { hall = -6 } },
   -- the hush: a quiet grand over a soft pad
   piano = { instrument = { "Sampler", set = "osiris/soft_piano", release = 1.2 }, gain_db = -8.4, sends = { hall = -10 } },
-  pad = { instrument = { "pad", cutoff = 1100, attack = 0.6 }, gain_db = -12 },
+  pad = { instrument = { "pad", cutoff = 1100, attack = 0.6 }, gain_db = -9.3 },
   -- the tape: a chord whose pitch falls to nothing, a sine gliding down
   tape = { instrument = "tape_chord", gain_db = -15.5 },
   fall = { instrument = "fall", gain_db = -12 },
   -- the logo's drone: a boom closing over seven beats
-  slam = { instrument = { "pad", cutoff = 300, attack = 0.05 }, gain_db = 3.5 },
+  slam = { instrument = { "pad", cutoff = 300, attack = 0.05 }, gain_db = 6.2 },
   sweep = { instrument = "riser", gain_db = 4.5 },
   boom = { instrument = "impact", gain_db = -1.5 },
   heart = { instrument = "thump", gain_db = 0.5 },

@@ -30,7 +30,7 @@
         ]
       },
       "env": { "class": "Env", "attack": 0.6, "decay": 0, "sustain": 1, "release": 1.8 },
-      "out": { "class": "Mix", "inputs": [ "lp" ], "amp": "env", "gain_db": -10 }
+      "out": { "class": "Mix", "inputs": [ "lp" ], "amp": "env", "gain_db": -12.7 }
     }
   },
   "pluck": {
@@ -61,7 +61,7 @@
         ]
       },
       "env": { "class": "Env", "attack": 0.002, "decay": 0.9, "sustain": 0, "release": 0.3 },
-      "out": { "class": "Mix", "inputs": [ "lp" ], "amp": "env", "gain_db": -8 }
+      "out": { "class": "Mix", "inputs": [ "lp" ], "amp": "env", "gain_db": -4.8 }
     }
   },
   "lead": {
@@ -95,7 +95,7 @@
       },
       "drive": { "class": "Drive", "input": "lp", "amount": 1.6 },
       "env": { "class": "Env", "attack": 0.004, "decay": 0, "sustain": 1, "release": 0.12 },
-      "out": { "class": "Mix", "inputs": [ "drive" ], "amp": "env", "gain_db": -12 }
+      "out": { "class": "Mix", "inputs": [ "drive" ], "amp": "env", "gain_db": -15.3 }
     }
   },
   "bass": {
@@ -126,7 +126,7 @@
       },
       "both": { "class": "Mix", "inputs": [ "ladder", "sine" ] },
       "env": { "class": "Env", "attack": 0.002, "decay": 0.4, "sustain": 0.75, "release": 0.05 },
-      "out": { "class": "Mix", "inputs": [ "both" ], "amp": "env", "gain_db": -6 }
+      "out": { "class": "Mix", "inputs": [ "both" ], "amp": "env", "gain_db": -11.8 }
     }
   },
   "reese": {
@@ -153,7 +153,7 @@
       "drive": { "class": "Drive", "input": "lp", "amount": 2 },
       "both": { "class": "Mix", "inputs": [ "drive", "sub" ] },
       "env": { "class": "Env", "attack": 0.005, "decay": 0, "sustain": 1, "release": 0.08 },
-      "out": { "class": "Mix", "inputs": [ "both" ], "amp": "env", "gain_db": -9 }
+      "out": { "class": "Mix", "inputs": [ "both" ], "amp": "env", "gain_db": -13.3 }
     }
   },
   "stab": {
@@ -175,7 +175,7 @@
         "frequency": [ { "base": 550, "by": "penv", "octaves": 3 }, { "by": "velocity", "octaves": 1 } ]
       },
       "env": { "class": "Env", "attack": 0.001, "decay": 0.22, "sustain": 0.12, "release": 0.12 },
-      "out": { "class": "Mix", "inputs": [ "lp" ], "amp": "env", "gain_db": -10 }
+      "out": { "class": "Mix", "inputs": [ "lp" ], "amp": "env", "gain_db": 0.7 }
     }
   },
   "brass": {
@@ -202,7 +202,7 @@
         ]
       },
       "env": { "class": "Env", "attack": 0.03, "decay": 0.3, "sustain": 0.85, "release": 0.25 },
-      "out": { "class": "Mix", "inputs": [ "lp" ], "amp": "env", "gain_db": -11 }
+      "out": { "class": "Mix", "inputs": [ "lp" ], "amp": "env", "gain_db": -11.4 }
     }
   },
   "keys": {
@@ -219,7 +219,7 @@
       "tine": { "class": "Osc", "wave": "sine", "ratio": 14, "amp": [ "tenv", "velocity" ] },
       "carrier": { "class": "Osc", "wave": "sine", "frequency": [ { "by": "mod", "index": 1.8 }, { "by": "tine", "index": 0.35 } ] },
       "env": { "class": "Env", "attack": 0.002, "decay": 2.2, "sustain": 0.2, "release": 0.45 },
-      "out": { "class": "Mix", "inputs": [ "carrier" ], "amp": "env", "gain_db": -6 }
+      "out": { "class": "Mix", "inputs": [ "carrier" ], "amp": "env", "gain_db": -8.4 }
     }
   },
   "bell": {
@@ -233,7 +233,7 @@
       "mod": { "class": "Osc", "wave": "sine", "ratio": 3.5, "amp": [ "menv", "velocity" ] },
       "carrier": { "class": "Osc", "wave": "sine", "frequency": { "by": "mod", "index": 2.5 } },
       "env": { "class": "Decay", "attack": 0.001, "time": 1.8, "release": 0.3 },
-      "out": { "class": "Mix", "inputs": [ "carrier" ], "amp": "env", "gain_db": -9 }
+      "out": { "class": "Mix", "inputs": [ "carrier" ], "amp": "env", "gain_db": -14.4 }
     }
   },
   "clav": {
@@ -257,7 +257,7 @@
       },
       "hp": { "class": "Filter", "type": "highpass", "frequency": 180, "input": "bp" },
       "env": { "class": "Env", "attack": 0.001, "decay": 0.5, "sustain": 0.3, "release": 0.03 },
-      "out": { "class": "Mix", "inputs": [ "hp" ], "amp": "env", "gain_db": -2 }
+      "out": { "class": "Mix", "inputs": [ "hp" ], "amp": "env", "gain_db": -1.4 }
     }
   },
   "organ": {
@@ -278,7 +278,7 @@
       "click": { "class": "Noise", "amp": "cenv", "gain_db": -30 },
       "drawbars": { "class": "Mix", "inputs": [ "d16", "d8", "d5", "d4", "d2", "click" ] },
       "env": { "class": "Env", "attack": 0.004, "decay": 0, "sustain": 1, "release": 0.03 },
-      "out": { "class": "Mix", "inputs": [ "drawbars" ], "amp": "env", "gain_db": -14 }
+      "out": { "class": "Mix", "inputs": [ "drawbars" ], "amp": "env", "gain_db": -18.1 }
     }
   }
 }
