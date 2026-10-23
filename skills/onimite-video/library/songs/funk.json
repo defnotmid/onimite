@@ -1,0 +1,440 @@
+{
+  "name": "funk",
+  "description": "Major-key funk at 104 bpm, the groove on the sixteenths with a light swing (0.12): an E9 vamp with an A9 move and a B7 turnaround, a chorus walking up through C#m7 and F#m7. Techniques to copy: ghost-note snares (o) around a backbeat accent (X), a kick that pushes off the beat instead of four on the floor, a sixteenth bassline written as notes (the root, its push, an octave pop, the flat seventh, a pickup) that changes shape every other bar, a clavinet comping only the off-sixteenths, brass stabs on the chorus hits, a drum fill and a crash at each phrase end, and a breakdown where the clav and brass drop out and the bass carries the groove alone.",
+  "instruments": "instruments/synths.json",
+  "key": "E major",
+  "seed": 52,
+  "swing": 0.12,
+  "swing_subdivision": "16n",
+  "sections": [
+    {
+      "name": "intro",
+      "duration": "2m",
+      "bpm": 104,
+      "energy": 0.4,
+      "chords": "E9"
+    },
+    {
+      "name": "vamp",
+      "duration": "8m",
+      "energy": 0.7,
+      "chords": "E9 E9 E9 E9 A9 A9 E9 B7"
+    },
+    {
+      "name": "chorus",
+      "duration": "8m",
+      "energy": 1,
+      "chords": "A9 A9 E9 C#m7 F#m7 B7 E9 B7"
+    },
+    {
+      "name": "breakdown",
+      "duration": "4m",
+      "energy": 0.5,
+      "chords": "E9"
+    },
+    {
+      "name": "vamp2",
+      "duration": "8m",
+      "energy": 0.8,
+      "chords": "E9 E9 E9 E9 A9 A9 E9 B7"
+    },
+    {
+      "name": "chorus2",
+      "duration": "8m",
+      "energy": 1,
+      "chords": "A9 A9 E9 C#m7 F#m7 B7 E9 B7"
+    },
+    {
+      "name": "tag",
+      "duration": "2m",
+      "energy": 0.6,
+      "chords": "E9 E9"
+    }
+  ],
+  "returns": {
+    "room": [
+      {
+        "name": "Reverb",
+        "decay": 0.7,
+        "pre_delay": 0.006
+      }
+    ],
+    "plate": [
+      {
+        "name": "Reverb",
+        "decay": 1.6,
+        "pre_delay": 0.02
+      },
+      {
+        "name": "Filter",
+        "type": "highpass",
+        "frequency": 300
+      }
+    ]
+  },
+  "buses": {
+    "drumbus": {
+      "effects": [
+        {
+          "name": "Compressor",
+          "threshold": -18,
+          "ratio": 3,
+          "attack": 0.008,
+          "release": 0.1
+        }
+      ]
+    }
+  },
+  "parts": {
+    "drums": {
+      "instrument": {
+        "name": "Sampler",
+        "set": "virtuosity/drums"
+      },
+      "gain_db": -10,
+      "to": "drumbus",
+      "sends": {
+        "room": -14
+      },
+      "play": [
+        {
+          "name": "intro",
+          "velocity": 0.75,
+          "humanize": 0.004,
+          "steps": {
+            "hat": "xoxoxoxoxoxoxoxo",
+            "kick": [
+              "x.x...x...x.....",
+              "x.x...x...x..x.."
+            ],
+            "snare": [
+              "....X..o.o..X..o",
+              "....X..o.oXoXXXX"
+            ]
+          }
+        },
+        {
+          "name": [
+            "vamp",
+            "vamp2"
+          ],
+          "velocity": 0.8,
+          "humanize": 0.004,
+          "steps": {
+            "kick": [
+              "x.x...x...x..x..",
+              "x.x....x..x....."
+            ],
+            "snare": [
+              "....X..o.o..X..o",
+              ".o..X..o.o..X.o.",
+              "....X..o.o..X..o",
+              ".o..X..o.o..X.o.",
+              "....X..o.o..X..o",
+              ".o..X..o.o..X.o.",
+              "....X..o.o..X..o",
+              "....X..o.oXoXXXX"
+            ],
+            "hat": "xoxoxoxoxoxo.oxo",
+            "open_hat": "............x...",
+            "crash": [
+              "x...............",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              ""
+            ]
+          }
+        },
+        {
+          "name": [
+            "chorus",
+            "chorus2"
+          ],
+          "velocity": 0.85,
+          "humanize": 0.003,
+          "steps": {
+            "kick": [
+              "x.x...x...x..x..",
+              "x.x....x.xx....."
+            ],
+            "snare": [
+              "....X..o.o..X..o",
+              ".o..X..o.o..X.o.",
+              "....X..o.o..X..o",
+              ".o..X..o.o..X.o.",
+              "....X..o.o..X..o",
+              ".o..X..o.o..X.o.",
+              "....X..o.o..X..o",
+              "....X..o.oXo...."
+            ],
+            "tom_high": [
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "............X..."
+            ],
+            "tom_mid": [
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              ".............X.."
+            ],
+            "tom_low": [
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "..............XX"
+            ],
+            "ride": "x.x.x.x.x.x.x.x.",
+            "hat": "..o...o...o...o.",
+            "crash": [
+              "x...............",
+              "",
+              "",
+              "",
+              "x...............",
+              "",
+              "",
+              ""
+            ]
+          }
+        },
+        {
+          "name": "breakdown",
+          "velocity": 0.7,
+          "humanize": 0.005,
+          "steps": {
+            "kick": [
+              "x.....x...x.....",
+              "x.....x...x..x.."
+            ],
+            "rim": "....x.......x...",
+            "hat": "x.o.x.o.x.o.x.o."
+          }
+        },
+        {
+          "name": "tag",
+          "velocity": 0.85,
+          "steps": {
+            "kick": [
+              "x.x...x...x..x..",
+              "x.....x...X....."
+            ],
+            "snare": [
+              "....X..o.o..X..o",
+              "....X..o.oX....."
+            ],
+            "crash": [
+              "",
+              "..........X....."
+            ],
+            "hat": [
+              "xoxoxoxoxoxoxoxo",
+              "xoxoxoxoxo......"
+            ]
+          }
+        }
+      ]
+    },
+    "bass": {
+      "instrument": {
+        "name": "Sampler",
+        "set": "karoryfer/growlybass",
+        "release": 0.08
+      },
+      "gain_db": -14,
+      "play": [
+        {
+          "name": "intro@1m..intro",
+          "notes": ". . . . . . . . . . . . E2 G2 G#2 B2",
+          "subdivision": "16n",
+          "velocity": 0.75
+        },
+        {
+          "name": [
+            "vamp",
+            "vamp2"
+          ],
+          "notes": "E1 . . E1 . . E2 . D2 . E1 . . B1 D2 . E1 . E1 . . E2 . E1 . . D2 E2 . E1 . G1 E1 . . E1 . . E2 . D2 . E1 . . B1 D2 . E1 . E1 . . E2 . E1 . . D2 E2 . E1 . G1 A1 . . A1 . . A2 . G2 . A1 . . E1 G2 . A1 . A1 . . A2 . A1 . . G2 A2 . A1 . C2 E1 . . E1 . . E2 . D2 . E1 . . B1 D2 . B1 . B1 . . B2 . B1 . . A2 B2 . B1 . D2",
+          "subdivision": "16n",
+          "velocity": 0.8,
+          "humanize": 0.003
+        },
+        {
+          "name": [
+            "chorus",
+            "chorus2"
+          ],
+          "notes": "A1 . . A1 . . A2 . G2 . A1 . . E1 G2 . A1 . A1 . . A2 . A1 . . G2 A2 . A1 . C2 E1 . . E1 . . E2 . D2 . E1 . . B1 D2 . C#2 . C#2 . . C#3 . C#2 . . B2 C#3 . C#2 . E2 F#1 . . F#1 . . F#2 . E2 . F#1 . . C#2 E2 . B1 . B1 . . B2 . B1 . . A2 B2 . B1 . D2 E1 . . E1 . . E2 . D2 . E1 . . B1 D2 . B1 . B1 . . B2 . B1 . . A2 B2 . B1 . D2",
+          "subdivision": "16n",
+          "velocity": 0.85,
+          "humanize": 0.003
+        },
+        {
+          "name": "breakdown",
+          "notes": "E2 . . E2 . . E3 . D3 . E2 . . B1 D2 . E2 . E2 . . E3 . E2 . . D3 E3 . E2 . G#2",
+          "subdivision": "16n",
+          "velocity": 0.9
+        },
+        {
+          "name": "tag",
+          "notes": "E2 . . E2 . . E3 . D3 . E2 . . B1 D2 . E2 . . . . . . . . . E2 . . . . .",
+          "subdivision": "16n",
+          "velocity": 0.9
+        }
+      ]
+    },
+    "clav": {
+      "instrument": "clav",
+      "gain_db": -9,
+      "pan": -0.25,
+      "sends": {
+        "room": -16
+      },
+      "play": [
+        {
+          "name": "intro",
+          "chords": {
+            "voicing": "close",
+            "rhythm": ".x.x..x..x.x..x."
+          },
+          "duration": "32n",
+          "octave": 4,
+          "velocity": 0.6,
+          "humanize": 0.003
+        },
+        {
+          "name": [
+            "vamp",
+            "chorus",
+            "vamp2",
+            "chorus2"
+          ],
+          "chords": {
+            "voicing": "close",
+            "rhythm": ".x.x..x..x.x..x."
+          },
+          "duration": "32n",
+          "octave": 4,
+          "velocity": 0.7,
+          "humanize": 0.003
+        },
+        {
+          "name": "breakdown@2m..breakdown",
+          "chords": {
+            "voicing": "close",
+            "rhythm": "......x.......x."
+          },
+          "duration": "16n",
+          "octave": 4,
+          "velocity": 0.65
+        }
+      ]
+    },
+    "brass": {
+      "instrument": "brass",
+      "gain_db": -7,
+      "pan": 0.2,
+      "sends": {
+        "plate": -10
+      },
+      "play": [
+        {
+          "name": [
+            "chorus",
+            "chorus2"
+          ],
+          "chords": {
+            "voicing": "close",
+            "rhythm": "x.....x...x..x.."
+          },
+          "duration": "16n.",
+          "octave": 4,
+          "velocity": 0.85
+        },
+        {
+          "name": "vamp2",
+          "chords": {
+            "voicing": "close",
+            "rhythm": "..........x..x.."
+          },
+          "duration": "16n",
+          "octave": 4,
+          "velocity": 0.7
+        },
+        {
+          "name": "tag",
+          "events": [
+            {
+              "time": "1:2:2",
+              "note": "E4",
+              "duration": "4n",
+              "velocity": 1
+            },
+            {
+              "time": "1:2:2",
+              "note": "G#4",
+              "duration": "4n",
+              "velocity": 1
+            },
+            {
+              "time": "1:2:2",
+              "note": "D5",
+              "duration": "4n",
+              "velocity": 1
+            },
+            {
+              "time": "1:2:2",
+              "note": "F#5",
+              "duration": "4n",
+              "velocity": 1
+            }
+          ]
+        }
+      ]
+    },
+    "organ": {
+      "instrument": "organ",
+      "gain_db": -14,
+      "pan": 0.15,
+      "effects": [
+        {
+          "name": "Chorus",
+          "frequency": 5.5,
+          "delay_time": 0.003,
+          "depth": 0.6,
+          "wet": 0.5
+        }
+      ],
+      "play": [
+        {
+          "name": [
+            "chorus",
+            "chorus2"
+          ],
+          "chords": {
+            "voicing": "open"
+          },
+          "octave": 3,
+          "velocity": 0.6
+        }
+      ]
+    }
+  }
+}

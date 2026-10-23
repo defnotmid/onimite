@@ -4,5 +4,5 @@
 local LIB = "../../../skills/onimite-video/library/"
 return {
   LIB = LIB,
-  INSTRUMENTS = { LIB .. "instruments/classic.json", LIB .. "instruments/sfx.json" },
+  INSTRUMENTS = { LIB .. "instruments/synths.json", LIB .. "instruments/classic.json", LIB .. "instruments/sfx.json" },
 }

@@ -36,7 +36,7 @@ return song { "score", instruments = INSTRUMENTS, key = "A minor", bpm = 140, se
     keys = { mute = { "bill" } },                                 -- the bill grooves without the stabs
     arp = { play = { { "tricks", arpeggio = { pattern = "upDown", interval = "16n", octaves = 2 }, velocity = 0.8 } } },
     -- the last drop's hook, up each chord, through a dotted-eighth echo
-    lead = { instrument = "lead", gain_db = -9, sidechain = { "drums/kick", depth = 0.4 },
+    lead = { instrument = "lead", gain_db = 4, sidechain = { "drums/kick", depth = 0.4 },
       effects = { { "FeedbackDelay", delay_time = "8n.", feedback = 0.3, wet = 0.22 } }, sends = { hall = -12 },
       play = { { "outro", notes = "A5 - C6 A5 E6 - C6 - | F5 - A5 F5 C6 - A5 - | G5 - C6 G5 E6 - C6 - | G5 - B5 D6 B5 - G5 -",
         subdivision = "8n" } } },

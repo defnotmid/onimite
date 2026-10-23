@@ -8,7 +8,7 @@
 -- The skill's library (skills/onimite-video/library: rows and styles to
 -- copy into your media folder), from this example's media folder.
 local LIB = "../../../skills/onimite-video/library/"
-local INSTRUMENTS = { LIB .. "instruments/classic.json", LIB .. "instruments/sfx.json" }
+local INSTRUMENTS = { LIB .. "instruments/synths.json", LIB .. "instruments/classic.json", LIB .. "instruments/sfx.json" }
 
 local W, H = 1080, 1920
 

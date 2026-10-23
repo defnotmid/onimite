@@ -22,9 +22,10 @@ symlink counts as its target, so a large model need not be copied) that calls `v
 places sound; `captions{}` draws word-timed (Whisper JSON, VTT, SRT) TikTok-style captions. One prebuilt `onimite` binary renders, previews and inspects every script:
 there is no project to generate and no build step per video.
 
-Read `references/design.md` before designing, `references/api.md` while writing the script
-and `references/audio.md` for sound; `api.md` lists the topic files (media, shaders, filters,
-3D in three.js's terms, problem codes) to read when the video needs them. When matching a supplied reference video, follow the
+Read `references/design.md` before designing, `references/api.md` while writing the script,
+`references/audio.md` for sound and `references/sound_design.md` before composing music;
+`api.md` lists the topic files (media, shaders, filters, 3D in three.js's terms, problem
+codes) to read when the video needs them. When matching a supplied reference video, follow the
 reference-analysis section of `references/design.md` first: its cuts and pacing win over the
 defaults below.
 
@@ -506,12 +507,21 @@ video { width = 1920, height = 1080, fps = 30, duration = 10,   -- or scenes
 ```
 
 Without assets, compose the music with `song{}` (odawg: sections with `bpm`, `style`,
-`energy`, `chords`; parts, each on an instrument row: Tone.js's synths built in, and in this
-skill's `library/` folder (copy it into `media/`) drums, basses, pads, sound effects, a
-TB-303, the TR-808/909 from their circuits and seven styles, all data to change; sampled
-pianos, strings, bass and a drum kit (CC0, downloaded on first use); any `.sfz` file as
-an instrument (`instrument = "lib/piano.sfz"`); `references/audio.md`,
-"Songs and sounds" and "Instruments") and place it
+`energy`, `chords`; parts, each on an instrument row: Tone.js's synths built in; any `.sfz`
+file as an instrument (`instrument = "lib/piano.sfz"`); sampled pianos, strings, bass and a
+drum kit (CC0, downloaded on first use); `references/audio.md`, "Songs and sounds" and
+"Instruments"). This skill's `library/` folder (copy what you use into `media/`) shows how
+voices and songs are built: programmed synth voices (`instruments/synths.json`), drums,
+sound effects, a TB-303, the TR-808/909 from their circuits, seven styles and reference
+songs in eight genres (`songs/`). It is techniques to learn from, not sounds to reuse: write
+the song's own voices and patterns for its video, at least the lead and the pad (or whatever
+carries its identity), starting from `references/sound_design.md`. Before writing a score,
+choose a genre, key (or mode), tempo, meter and feel that fit the video, name a real
+reference track and follow its decisions (tempo, swing, which instruments, where the kick
+and snare fall), and say why in a comment at the top of the score. Avoid the defaults unless
+chosen on purpose: A minor, i–VI–III–VII loops, 120–128 bpm four-on-the-floor, 2-bar
+sections; let sections run long enough for a musical phrase instead of cutting one at every
+scene. Place the song
 like a clip (`{ "score", bus = "music", ducked = true }`); its sections are cues, and its
 notes drive the picture (`score.time("drop@1m")`, `score.pulse(f, { part = "drums", note =
 "kick" })`, `score.hits { ... }`). Sound effects: `sound { "impact", instruments = "instruments/sfx.json" }`. Lines first, then the
@@ -521,7 +531,7 @@ Time SFX from the same constants that drive the animation. Check with `audio ana
 (about -14 LUFS integrated for web video, true peak at or below -1 dBTP, no unintended
 silence) and `audio at`; adjust track `gain_db`, or `master_gain_db` on `video{}` for the
 whole mix (a track normalised to -1 dBFS typically needs about -3 to -5 dB). Then let the
-user listen in the preview.
+user listen in the preview. When you deliver, tell the user the score was composed from the library's techniques for this video, and that custom instruments, patterns or a whole score in a chosen genre or after a reference track can be made on request (or a real track swapped in).
 
 ### Voiceover: spoken lines
 

@@ -10,7 +10,7 @@
 -- The skill's library (skills/onimite-video/library: rows and styles to
 -- copy into your media folder), from this example's media folder.
 local LIB = "../../../skills/onimite-video/library/"
-local INSTRUMENTS = { LIB .. "instruments/classic.json", LIB .. "instruments/sfx.json" }
+local INSTRUMENTS = { LIB .. "instruments/synths.json", LIB .. "instruments/classic.json", LIB .. "instruments/sfx.json" }
 
 -- C major pentatonic, two octaves: a month's value picks its blip's note.
 local PENTA = { "C5", "D5", "E5", "G5", "A5", "C6", "D6", "E6", "G6", "A6" }

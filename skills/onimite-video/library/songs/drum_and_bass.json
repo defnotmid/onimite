@@ -1,0 +1,90 @@
+{
+  "name": "drum_and_bass",
+  "description": "Liquid drum & bass in F minor at 172 bpm: no four on the floor, the groove is the two-step break. The kick lands on the 1 and the 'and' of 3, the snare on 2 and 4 (a half-time feel at double tempo), and busy hats with ghost notes fill the sixteenths between, on a sampled jazz kit. The harmony moves around the circle of fourths in jazz chords (Fm9 Bbm9 Eb9 Abmaj7 Dbmaj7 Gm7b5 C7), so the eight-bar phrase keeps moving instead of looping two chords. A reese bass (two detuned saws, a slowly moving filter) holds the roots; a wide pad and FM keys carry the chords, the pad ducking under the kick. The form: an intro without drums, a build on the hats alone, the drop, a breakdown where the drums and bass leave, a second drop whose break changes (a ghosted snare, a pushed kick, the ride) and adds a plucked arpeggio, an outro thinning back to the pad.",
+  "instruments": "instruments/synths.json",
+  "key": "F minor",
+  "seed": 88,
+  "chords": "Fm9 Bbm9 Eb9 Abmaj7 Dbmaj7 Gm7b5 C7 C7",
+  "sections": [
+    { "name": "intro", "duration": "8m", "bpm": 172, "energy": 0.3 },
+    { "name": "build", "duration": "8m", "energy": 0.55 },
+    { "name": "drop", "duration": "16m", "energy": 1 },
+    { "name": "breakdown", "duration": "8m", "energy": 0.35 },
+    { "name": "drop2", "duration": "16m", "energy": 1 },
+    { "name": "outro", "duration": "8m", "energy": 0.25 }
+  ],
+  "returns": {
+    "hall": [ { "name": "Reverb", "decay": 3.8, "pre_delay": 0.03 }, { "name": "Filter", "type": "highpass", "frequency": 300 } ],
+    "room": [ { "name": "Reverb", "decay": 0.6, "pre_delay": 0.005 } ],
+    "echo": [ { "name": "PingPongDelay", "delay_time": "8n.", "feedback": 0.4 }, { "name": "Filter", "type": "highpass", "frequency": 500 } ]
+  },
+  "buses": {
+    "drumbus": { "effects": [ { "name": "Compressor", "threshold": -16, "ratio": 4, "attack": 0.005, "release": 0.08 } ] }
+  },
+  "parts": {
+    "drums": {
+      "instrument": { "name": "Sampler", "set": "virtuosity/drums" },
+      "gain_db": -1,
+      "to": "drumbus",
+      "sends": { "room": -12 },
+      "play": [
+        { "name": "build", "velocity": 0.9, "humanize": 0.002,
+          "steps": {
+            "hat": [ "x.x.x.x.x.x.x.x.", "x.x.x.x.x.x.x.x.", "xoxoxoxoxoxoxoxo", "xoxoxoxoxoxoxoxo", "xoxoxoxoxoxoxoxo", "xoxoxoxoxoxoxoxo", "xxxxxxxxxxxxxxxx", "xxxxxxxxXXXXXXXX" ],
+            "snare": [ "", "", "", "", "", "", "", "x.x.x.x.xxxxXXXX" ]
+          } },
+        { "name": "drop", "velocity": 0.85, "humanize": 0.002,
+          "steps": {
+            "kick": [ "x.........x.....", "x.........x.....", "x.........x.....", "x.x.......x....." ],
+            "snare": [ "....X.......X...", "....X.......X...", "....X.......X...", "....X.......X.oX" ],
+            "hat": [ "x.xox.xox.xox.xo", "x.xox.xox.xox.xo", "x.xox.xox.xox.xo", "x.xox.xox.xo...." ],
+            "crash": [ "x...............", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "" ],
+            "open_hat": [ "", "", "", "", "", "", "", "..............x." ]
+          } },
+        { "name": "drop2", "velocity": 0.9, "humanize": 0.002,
+          "steps": {
+            "kick": [ "x.........x..x..", "x.........x.....", "x.........x..x..", "x.x.......x....." ],
+            "snare": [ "....X..o.o..X..o", "....X..o....X...", "....X..o.o..X..o", "....X..o....XoXX" ],
+            "ride": [ "x.x.x.x.x.x.x.x.", "x.x.x.x.x.x.x.x.", "x.x.x.x.x.x.x.x.", "x.x.x.x.x.x....." ],
+            "hat": [ "..o...o...o...o.", "..o...o...o...o.", "..o...o...o...o.", "..o...o...o....." ],
+            "crash": [ "x...............", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "" ]
+          } }
+      ]
+    },
+    "reese": {
+      "instrument": { "name": "reese", "cutoff": 360 },
+      "gain_db": 3,
+      "play": [
+        { "name": "drop", "degrees": "1 - - - - - - . . . 1 - - - - .", "subdivision": "16n", "octave": 1, "velocity": 0.8 },
+        { "name": "drop2", "degrees": "1 - - - - - - . . . 1 - - 8 - .", "subdivision": "16n", "octave": 1, "velocity": 0.85 }
+      ]
+    },
+    "pad": {
+      "instrument": { "name": "pad", "attack": 1.2 },
+      "gain_db": 2,
+      "sends": { "hall": -8 },
+      "sidechain": { "name": "drums/kick", "depth": 0.45, "release": 0.18 },
+      "play": [
+        { "name": "intro..outro", "chords": { "voicing": "spread" }, "octave": 3, "velocity": 0.6 }
+      ]
+    },
+    "keys": {
+      "instrument": "keys",
+      "gain_db": -5,
+      "effects": [ { "name": "Chorus", "frequency": 0.7, "delay_time": 0.004, "depth": 0.5, "wet": 0.35 } ],
+      "sends": { "hall": -10, "echo": -16 },
+      "play": [
+        { "name": "intro", "chords": { "voicing": "close", "rhythm": "x..............." }, "duration": "2n", "octave": 4, "velocity": 0.55, "humanize": 0.008 },
+        { "name": "build..drop", "chords": { "voicing": "close", "rhythm": "x.....x.....x..." }, "duration": "8n.", "octave": 4, "velocity": 0.6, "humanize": 0.006 },
+        { "name": "breakdown", "chords": { "voicing": "close", "rhythm": "x..x..x...x..x.." }, "duration": "8n", "octave": 4, "velocity": 0.55, "humanize": 0.008 },
+        { "name": "drop2", "chords": { "voicing": "close", "rhythm": "x.....x.....x..." }, "duration": "8n.", "octave": 4, "velocity": 0.65, "humanize": 0.006 }
+      ]
+    },
+    "arp": {
+      "instrument": "pluck",
+      "gain_db": -2,
+      "sends": { "echo": -10, "hall": -16 },
+      "play": [ { "name": "drop2", "arpeggio": { "pattern": "upDown", "interval": "16n", "octaves": 1 }, "octave": 5, "velocity": 0.5 } ]
+    }
+  }
+}

@@ -1,0 +1,284 @@
+{
+  "pad": {
+    "description": "Seven detuned saws spread across the sides and a sine an octave down, through a 24 dB low-pass that opens slowly with its own envelope and drifts with a slow LFO; played harder it opens further, higher notes brighter (half key tracking). Slow in, a long release.",
+    "options": {
+      "cutoff": "lp/frequency",
+      "resonance": "lp/q",
+      "attack": "env/attack",
+      "release": [ "env/release", "fenv/release" ],
+      "detune": "saws/spread",
+      "width": "saws/width"
+    },
+    "nodes": {
+      "saws": { "class": "Osc", "wave": "fatsawtooth", "count": 7, "spread": 22, "width": 0.9, "phase": "random" },
+      "sub": { "class": "Osc", "wave": "sine", "ratio": 0.5, "gain_db": -12 },
+      "both": { "class": "Mix", "inputs": [ "saws", "sub" ] },
+      "track": { "class": "Map", "input": "key", "offset": -60 },
+      "fenv": { "class": "Env", "attack": 1.5, "decay": 2.5, "sustain": 0.55, "release": 2 },
+      "drift": { "class": "Lfo", "rate": 0.13, "phase": 0.25 },
+      "lp": {
+        "class": "Filter",
+        "type": "lowpass",
+        "rolloff": -24,
+        "q": 0.9,
+        "input": "both",
+        "frequency": [
+          { "base": 500, "by": "fenv", "octaves": 1.8 },
+          { "by": "velocity", "octaves": 1 },
+          { "by": "track", "octaves": 0.04167 },
+          { "by": "drift", "octaves": 0.3 }
+        ]
+      },
+      "env": { "class": "Env", "attack": 0.6, "decay": 0, "sustain": 1, "release": 1.8 },
+      "out": { "class": "Mix", "inputs": [ "lp" ], "amp": "env", "gain_db": -10 }
+    }
+  },
+  "pluck": {
+    "description": "Three detuned saws and a square through a resonant 24 dB low-pass that a fast envelope snaps shut: the harder the note, the brighter its attack. Dies away in about a second; give it a delay.",
+    "options": {
+      "cutoff": "lp/frequency",
+      "resonance": "lp/q",
+      "decay": "env/decay",
+      "snap": "penv/time",
+      "brightness": "lp/frequency/octaves"
+    },
+    "nodes": {
+      "saws": { "class": "Osc", "wave": "fatsawtooth", "count": 3, "spread": 12, "width": 0.6, "phase": "random" },
+      "square": { "class": "Osc", "wave": "square", "gain_db": -9 },
+      "both": { "class": "Mix", "inputs": [ "saws", "square" ] },
+      "track": { "class": "Map", "input": "key", "offset": -60 },
+      "penv": { "class": "Decay", "time": 0.16 },
+      "lp": {
+        "class": "Filter",
+        "type": "lowpass",
+        "rolloff": -24,
+        "q": 2.2,
+        "input": "both",
+        "frequency": [
+          { "base": 320, "by": "penv", "octaves": 4.5 },
+          { "by": "velocity", "octaves": 1.5 },
+          { "by": "track", "octaves": 0.04167 }
+        ]
+      },
+      "env": { "class": "Env", "attack": 0.002, "decay": 0.9, "sustain": 0, "release": 0.3 },
+      "out": { "class": "Mix", "inputs": [ "lp" ], "amp": "env", "gain_db": -8 }
+    }
+  },
+  "lead": {
+    "description": "One voice: five detuned saws and a square an octave down through a 12 dB low-pass with a filter envelope (a bite on each note that settles), slightly driven; vibrato fades in once a note is held, and a note tied into the next (~) glides there.",
+    "mono": true,
+    "portamento": 0.045,
+    "options": {
+      "cutoff": "lp/frequency",
+      "resonance": "lp/q",
+      "bite": "lp/frequency/octaves",
+      "vibrato": [ "saws/frequency/octaves", "sub/frequency/octaves" ]
+    },
+    "nodes": {
+      "vib": { "class": "Lfo", "rate": 5.4, "delay": 0.25, "fade": 0.35 },
+      "saws": { "class": "Osc", "wave": "fatsawtooth", "count": 5, "spread": 14, "width": 0.5, "phase": "random", "frequency": { "by": "vib", "octaves": 0.006 } },
+      "sub": { "class": "Osc", "wave": "square", "ratio": 0.5, "gain_db": -10, "frequency": { "by": "vib", "octaves": 0.006 } },
+      "both": { "class": "Mix", "inputs": [ "saws", "sub" ] },
+      "track": { "class": "Map", "input": "key", "offset": -72 },
+      "fenv": { "class": "Env", "attack": 0.004, "decay": 0.35, "sustain": 0.35, "release": 0.3 },
+      "lp": {
+        "class": "Filter",
+        "type": "lowpass",
+        "rolloff": -12,
+        "q": 1.4,
+        "input": "both",
+        "frequency": [
+          { "base": 1300, "by": "fenv", "octaves": 1.6 },
+          { "by": "velocity", "octaves": 0.8 },
+          { "by": "track", "octaves": 0.04167 }
+        ]
+      },
+      "drive": { "class": "Drive", "input": "lp", "amount": 1.6 },
+      "env": { "class": "Env", "attack": 0.004, "decay": 0, "sustain": 1, "release": 0.12 },
+      "out": { "class": "Mix", "inputs": [ "drive" ], "amp": "env", "gain_db": -12 }
+    }
+  },
+  "bass": {
+    "description": "One voice: a saw and a sine under it through a ladder low-pass that a short envelope plucks open (by velocity: soft notes round, hard ones bark), tracking the key from C2.",
+    "mono": true,
+    "portamento": 0.03,
+    "note": "C2",
+    "options": {
+      "cutoff": "ladder/frequency",
+      "resonance": "ladder/q",
+      "pluck": "ladder/frequency/octaves",
+      "decay": "fenv/time"
+    },
+    "nodes": {
+      "saw": { "class": "Osc", "wave": "sawtooth" },
+      "sine": { "class": "Osc", "wave": "sine", "gain_db": -3 },
+      "track": { "class": "Map", "input": "key", "offset": -36 },
+      "fenv": { "class": "Decay", "time": 0.14 },
+      "ladder": {
+        "class": "Ladder",
+        "input": "saw",
+        "q": 2.2,
+        "frequency": [
+          { "base": 160, "by": "fenv", "octaves": 3 },
+          { "by": "velocity", "octaves": 1.2 },
+          { "by": "track", "octaves": 0.0625 }
+        ]
+      },
+      "both": { "class": "Mix", "inputs": [ "ladder", "sine" ] },
+      "env": { "class": "Env", "attack": 0.002, "decay": 0.4, "sustain": 0.75, "release": 0.05 },
+      "out": { "class": "Mix", "inputs": [ "both" ], "amp": "env", "gain_db": -6 }
+    }
+  },
+  "reese": {
+    "description": "A reese bass: two saws detuned against each other (their beating is the sound) and a sine an octave down, through a 24 dB low-pass a slow LFO moves, driven.",
+    "mono": true,
+    "note": "C2",
+    "options": {
+      "cutoff": "lp/frequency",
+      "detune": "saws/spread",
+      "movement": "lp/frequency/octaves"
+    },
+    "nodes": {
+      "saws": { "class": "Osc", "wave": "fatsawtooth", "count": 2, "spread": 16, "width": 0.25, "phase": "random" },
+      "sub": { "class": "Osc", "wave": "sine", "ratio": 0.5, "gain_db": -4 },
+      "move": { "class": "Lfo", "rate": 0.22, "wave": "triangle" },
+      "lp": {
+        "class": "Filter",
+        "type": "lowpass",
+        "rolloff": -24,
+        "q": 1.3,
+        "input": "saws",
+        "frequency": [ { "base": 420, "by": "move", "octaves": 0.9 }, { "by": "velocity", "octaves": 0.6 } ]
+      },
+      "drive": { "class": "Drive", "input": "lp", "amount": 2 },
+      "both": { "class": "Mix", "inputs": [ "drive", "sub" ] },
+      "env": { "class": "Env", "attack": 0.005, "decay": 0, "sustain": 1, "release": 0.08 },
+      "out": { "class": "Mix", "inputs": [ "both" ], "amp": "env", "gain_db": -9 }
+    }
+  },
+  "stab": {
+    "description": "A house chord stab: detuned saws through a resonant low-pass a very short envelope flicks open, falling to a little sustain. Play chords.",
+    "options": {
+      "cutoff": "lp/frequency",
+      "resonance": "lp/q",
+      "decay": "env/decay"
+    },
+    "nodes": {
+      "saws": { "class": "Osc", "wave": "fatsawtooth", "count": 3, "spread": 10, "width": 0.7, "phase": "random" },
+      "penv": { "class": "Decay", "time": 0.09 },
+      "lp": {
+        "class": "Filter",
+        "type": "lowpass",
+        "rolloff": -12,
+        "q": 3,
+        "input": "saws",
+        "frequency": [ { "base": 550, "by": "penv", "octaves": 3 }, { "by": "velocity", "octaves": 1 } ]
+      },
+      "env": { "class": "Env", "attack": 0.001, "decay": 0.22, "sustain": 0.12, "release": 0.12 },
+      "out": { "class": "Mix", "inputs": [ "lp" ], "amp": "env", "gain_db": -10 }
+    }
+  },
+  "brass": {
+    "description": "Synth brass: three saws through a 12 dB low-pass whose envelope swells open after the note starts (the 'bwah') and settles; velocity sets how far it opens.",
+    "options": {
+      "cutoff": "lp/frequency",
+      "swell": "fenv/attack",
+      "release": [ "env/release", "fenv/release" ]
+    },
+    "nodes": {
+      "saws": { "class": "Osc", "wave": "fatsawtooth", "count": 3, "spread": 8, "width": 0.6, "phase": "random" },
+      "track": { "class": "Map", "input": "key", "offset": -60 },
+      "fenv": { "class": "Env", "attack": 0.08, "decay": 0.5, "sustain": 0.55, "release": 0.25 },
+      "lp": {
+        "class": "Filter",
+        "type": "lowpass",
+        "rolloff": -12,
+        "q": 0.8,
+        "input": "saws",
+        "frequency": [
+          { "base": 450, "by": "fenv", "octaves": 2.4 },
+          { "by": "velocity", "octaves": 1.2 },
+          { "by": "track", "octaves": 0.04167 }
+        ]
+      },
+      "env": { "class": "Env", "attack": 0.03, "decay": 0.3, "sustain": 0.85, "release": 0.25 },
+      "out": { "class": "Mix", "inputs": [ "lp" ], "amp": "env", "gain_db": -11 }
+    }
+  },
+  "keys": {
+    "description": "An FM electric piano: a sine carrier, a sine modulator at its pitch whose depth falls with the note (bright to mellow; harder notes brighter) and a high one for the tine's knock, a slow decay to a soft sustain.",
+    "options": {
+      "brightness": "carrier/frequency/index",
+      "decay": "env/decay",
+      "release": "env/release"
+    },
+    "nodes": {
+      "menv": { "class": "Decay", "time": 0.9 },
+      "mod": { "class": "Osc", "wave": "sine", "ratio": 1, "amp": [ "menv", "velocity" ] },
+      "tenv": { "class": "Decay", "time": 0.025 },
+      "tine": { "class": "Osc", "wave": "sine", "ratio": 14, "amp": [ "tenv", "velocity" ] },
+      "carrier": { "class": "Osc", "wave": "sine", "frequency": [ { "by": "mod", "index": 1.8 }, { "by": "tine", "index": 0.35 } ] },
+      "env": { "class": "Env", "attack": 0.002, "decay": 2.2, "sustain": 0.2, "release": 0.45 },
+      "out": { "class": "Mix", "inputs": [ "carrier" ], "amp": "env", "gain_db": -6 }
+    }
+  },
+  "bell": {
+    "description": "An FM bell: a sine modulated at 3.5 times its pitch (inharmonic, metallic), the modulation dying faster than the tone, a long ring.",
+    "options": {
+      "brightness": "carrier/frequency/index",
+      "decay": "env/time"
+    },
+    "nodes": {
+      "menv": { "class": "Decay", "time": 0.7 },
+      "mod": { "class": "Osc", "wave": "sine", "ratio": 3.5, "amp": [ "menv", "velocity" ] },
+      "carrier": { "class": "Osc", "wave": "sine", "frequency": { "by": "mod", "index": 2.5 } },
+      "env": { "class": "Decay", "attack": 0.001, "time": 1.8, "release": 0.3 },
+      "out": { "class": "Mix", "inputs": [ "carrier" ], "amp": "env", "gain_db": -9 }
+    }
+  },
+  "clav": {
+    "description": "A clavinet: a narrow pulse (a plucked string struck near its end) through a band-pass that a very fast envelope sweeps down, damped as soon as the key lifts; harder notes snap brighter. Funk's rhythm chords: play short.",
+    "options": {
+      "tone": "bp/frequency",
+      "width": "pulse/width",
+      "decay": "env/decay"
+    },
+    "nodes": {
+      "pulse": { "class": "Osc", "wave": "pulse", "width": 0.18 },
+      "upper": { "class": "Osc", "wave": "sawtooth", "ratio": 2, "gain_db": -14 },
+      "both": { "class": "Mix", "inputs": [ "pulse", "upper" ] },
+      "penv": { "class": "Decay", "time": 0.05 },
+      "bp": {
+        "class": "Filter",
+        "type": "bandpass",
+        "q": 1.2,
+        "input": "both",
+        "frequency": [ { "base": 900, "by": "penv", "octaves": 2 }, { "by": "velocity", "octaves": 1.2 } ]
+      },
+      "hp": { "class": "Filter", "type": "highpass", "frequency": 180, "input": "bp" },
+      "env": { "class": "Env", "attack": 0.001, "decay": 0.5, "sustain": 0.3, "release": 0.03 },
+      "out": { "class": "Mix", "inputs": [ "hp" ], "amp": "env", "gain_db": -2 }
+    }
+  },
+  "organ": {
+    "description": "A drawbar organ: sines at the sub-octave, the fundamental, the fifth above the octave, the octave and two octaves (16', 8', 5 1/3', 4', 2'), a key click, no envelope but an organ's on and off. Give it a Chorus (or an AutoFilter) for the rotating speaker.",
+    "options": {
+      "sub": "d16/gain_db",
+      "fifth": "d5/gain_db",
+      "octave": "d4/gain_db",
+      "bright": "d2/gain_db"
+    },
+    "nodes": {
+      "d16": { "class": "Osc", "wave": "sine", "ratio": 0.5, "gain_db": -4 },
+      "d8": { "class": "Osc", "wave": "sine" },
+      "d5": { "class": "Osc", "wave": "sine", "ratio": 3, "gain_db": -8 },
+      "d4": { "class": "Osc", "wave": "sine", "ratio": 2, "gain_db": -5 },
+      "d2": { "class": "Osc", "wave": "sine", "ratio": 4, "gain_db": -12 },
+      "cenv": { "class": "Decay", "time": 0.004 },
+      "click": { "class": "Noise", "amp": "cenv", "gain_db": -30 },
+      "drawbars": { "class": "Mix", "inputs": [ "d16", "d8", "d5", "d4", "d2", "click" ] },
+      "env": { "class": "Env", "attack": 0.004, "decay": 0, "sustain": 1, "release": 0.03 },
+      "out": { "class": "Mix", "inputs": [ "drawbars" ], "amp": "env", "gain_db": -14 }
+    }
+  }
+}

@@ -1,0 +1,87 @@
+{
+  "name": "modal",
+  "description": "A modal jazz-funk groove in D Dorian at 116 bpm: the mode, not a minor key, is the colour. The vamp is Dm9 to G13, the major IV that only Dorian has (its B natural, the raised 6th), and the bridge moves the whole vamp a half step up (Ebm9 Ab13, Eb Dorian), the move of modal jazz. A drawbar organ comps in short off-beat stabs through a chorus for the rotary speaker, held chords in the intro. The bass is a two-bar ostinato written as notes that walks through the 6th (B over Dm9, C over Ebm9). The sampled kit plays a jazz-funk groove with a light sixteenth swing: a kick that avoids the beats after the 1, a snare on 2 and 4 with ghost notes between, sixteenth hats, the ride in the bridge, a fill at every eighth bar. The lead melody leans on the 6th (B natural, then C in the bridge) and changes its last phrase on the return; the outro drops to the ride and the organ.",
+  "instruments": "instruments/synths.json",
+  "key": "D dorian",
+  "seed": 52,
+  "swing": 0.2,
+  "swing_subdivision": "16n",
+  "chords": "Dm9 G13",
+  "sections": [
+    { "name": "intro", "duration": "4m", "bpm": 116, "energy": 0.3 },
+    { "name": "groove", "duration": "8m", "energy": 0.6 },
+    { "name": "head", "duration": "8m", "energy": 0.75 },
+    { "name": "bridge", "duration": "8m", "energy": 0.8, "chords": "Ebm9 Ab13" },
+    { "name": "head2", "duration": "8m", "energy": 0.9, "chords": "Dm9 G13" },
+    { "name": "outro", "duration": "4m", "energy": 0.3 }
+  ],
+  "returns": {
+    "room": [ { "name": "Reverb", "decay": 1.0, "pre_delay": 0.008 } ],
+    "hall": [ { "name": "Reverb", "decay": 2.2, "pre_delay": 0.025 }, { "name": "Filter", "type": "highpass", "frequency": 300 } ]
+  },
+  "parts": {
+    "drums": {
+      "instrument": { "name": "Sampler", "set": "virtuosity/drums" },
+      "gain_db": -1,
+      "sends": { "room": -12 },
+      "play": [
+        { "name": "groove..head", "velocity": 0.8, "humanize": 0.004,
+          "steps": {
+            "kick": [ "x.....x...x.....", "x.....x...x..x..", "x.....x...x.....", "x.....x.x...x..." ],
+            "snare": [ "....X..o.o..X..o", "....X..o.o..X...", "....X..o.o..X..o", "....X..o.o..X.oX" ],
+            "hat": [ "x.xox.xox.xox.xo", "x.xox.xox.xox.xo", "x.xox.xox.xox.xo", "x.xox.xox.xo...." ],
+            "open_hat": [ "", "", "", "..............x." ]
+          } },
+        { "name": "bridge", "velocity": 0.85, "humanize": 0.004,
+          "steps": {
+            "kick": [ "x.....x...x.....", "x.....x...x..x..", "x.....x...x.....", "x.....x.x...x..." ],
+            "snare": [ "....X..o.o..X..o", "....X..o.o..X...", "....X..o.o..X..o", "....X..o.o..XoXX" ],
+            "ride": [ "x.xxx.xxx.xxx.xx", "x.xxx.xxx.xxx.xx", "x.xxx.xxx.xxx.xx", "x.xxx.xxx.xx...." ],
+            "crash": [ "x...............", "", "", "", "", "", "", "" ],
+            "tom_mid": [ "", "", "", "", "", "", "", "............x..." ],
+            "tom_low": [ "", "", "", "", "", "", "", ".............xx." ]
+          } },
+        { "name": "head2", "velocity": 0.9, "humanize": 0.004,
+          "steps": {
+            "kick": [ "x.....x...x.....", "x.....x...x..x..", "x.....x...x.....", "x.....x.x...x..." ],
+            "snare": [ "....X..o.o..X..o", "....X..o.o..X...", "....X..o.o..X..o", "....X..o.o..X.oX" ],
+            "hat": [ "xoxoxoxoxoxoxoxo", "xoxoxoxoxoxoxoxo", "xoxoxoxoxoxoxoxo", "xoxoxoxoxoxo...." ],
+            "open_hat": [ "", "", "", "..............x." ],
+            "crash": [ "x...............", "", "", "", "", "", "", "" ]
+          } },
+        { "name": "outro", "velocity": 0.6, "humanize": 0.005,
+          "steps": { "ride": "x.xxx.xxx.xxx.xx", "kick": [ "x...............", "", "", "" ] } }
+      ]
+    },
+    "bass": {
+      "instrument": "bass",
+      "gain_db": -1,
+      "play": [
+        { "name": "intro..head", "notes": "D2 . D3 . C3 . A2 B2 G2 . G3 . F3 . D3 B2", "subdivision": "8n", "velocity": 0.8, "humanize": 0.004 },
+        { "name": "bridge", "notes": "Eb2 . Eb3 . Db3 . Bb2 C3 Ab2 . Ab3 . Gb3 . Eb3 C3", "subdivision": "8n", "velocity": 0.85, "humanize": 0.004 },
+        { "name": "head2..outro", "notes": "D2 . D3 . C3 . A2 B2 G2 . G3 . F3 . D3 B2", "subdivision": "8n", "velocity": 0.85, "humanize": 0.004 }
+      ]
+    },
+    "organ": {
+      "instrument": "organ",
+      "gain_db": -6,
+      "effects": [ { "name": "Chorus", "frequency": 5.8, "delay_time": 0.003, "depth": 0.35, "wet": 0.5 } ],
+      "sends": { "room": -10 },
+      "play": [
+        { "name": "intro", "chords": { "voicing": "close" }, "octave": 4, "velocity": 0.6 },
+        { "name": "groove..head2", "chords": { "voicing": "close", "rhythm": "..x..x....x..x.." }, "duration": "8n", "octave": 4, "velocity": 0.7, "humanize": 0.004 },
+        { "name": "outro", "chords": { "voicing": "close" }, "octave": 4, "velocity": 0.55 }
+      ]
+    },
+    "lead": {
+      "instrument": { "name": "lead", "cutoff": 1600 },
+      "gain_db": 3,
+      "sends": { "hall": -12 },
+      "play": [
+        { "name": "head", "notes": "A4 - B4 - D5 . C5 B4 - - A4 . F4 G4 - . A4 B4 D5 E5 F5 - E5 D5 B4 - - - A4 . . .", "subdivision": "8n", "velocity": 0.75, "humanize": 0.003 },
+        { "name": "bridge", "notes": "Bb4 - C5 - Eb5 . Db5 C5 - - Bb4 . Gb4 Ab4 - . Bb4 C5 Eb5 F5 Gb5 - F5 Eb5 C5 - - - Bb4 . . .", "subdivision": "8n", "velocity": 0.8, "humanize": 0.003 },
+        { "name": "head2", "notes": "A4 - B4 - D5 . C5 B4 - - A4 . F4 G4 - . A4 B4 D5 E5 F5 - E5 D5 B4 - - - A4 . . . A4 - B4 - D5 . C5 B4 - - A4 . F4 G4 - . A4 B4 D5 E5 F5 G5 A5 B5 A5 - - - - - . .", "subdivision": "8n", "velocity": 0.85, "humanize": 0.003 }
+      ]
+    }
+  }
+}

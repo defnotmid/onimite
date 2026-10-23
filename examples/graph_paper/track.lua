@@ -8,7 +8,7 @@
 -- notes.
 
 local LIB = "../../../skills/onimite-video/library/"
-local INSTRUMENTS = { LIB .. "instruments/classic.json", LIB .. "instruments/sfx.json" }
+local INSTRUMENTS = { LIB .. "instruments/synths.json", LIB .. "instruments/classic.json", LIB .. "instruments/sfx.json" }
 
 -- The pen: letter i starts on eighth i + 1 of the sheet, its mark an
 -- eighth later (two notes on one eighth: a letter and the last mark).
@@ -30,13 +30,13 @@ return song { "score", instruments = INSTRUMENTS, key = "D minor", bpm = 96, see
   },
   parts = {
     pad = { gain_db = -17 },
-    pen = { instrument = "bell", gain_db = -8, sends = { hall = -6 }, play = { { "plot", events = letters } } },
-    ink = { instrument = "pluck", gain_db = -10, pan = 0.2, sends = { hall = -8 }, play = { { "plot", events = marks } } },
+    pen = { instrument = "bell", gain_db = -3.5, sends = { hall = -6 }, play = { { "plot", events = letters } } },
+    ink = { instrument = "pluck", gain_db = 1, pan = 0.2, sends = { hall = -8 }, play = { { "plot", events = marks } } },
     riser = { instrument = "riser", gain_db = -1, play = { { "lift@1m", events = { { time = 0, duration = "1m" } } } } },
     impact = { instrument = "impact", gain_db = 3, play = { { "lift@2m", events = { { time = 0, note = "D1" } } } } },
     whoosh = { instrument = "whoosh", gain_db = -1, play = { { "lift@2m", events = { { time = 0, duration = "2n" } } } } },
     crash = { instrument = "crash", gain_db = -7, sends = { hall = -8 }, play = { { "lift@2m", events = { { time = 0 } } } } },
-    title = { instrument = "bell", gain_db = -9, sends = { hall = -3 }, play = { { "fill@3m", events = {
+    title = { instrument = "bell", gain_db = -2.5, sends = { hall = -3 }, play = { { "fill@3m", events = {
       { time = 0, note = "D5", duration = "1m" }, { time = 0, note = "F5", duration = "1m" },
       { time = 0, note = "A5", duration = "1m" }, { time = "8n", note = "E6", duration = "1m", velocity = 0.6 } } } } },
   },

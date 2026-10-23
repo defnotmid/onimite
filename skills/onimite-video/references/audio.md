@@ -9,8 +9,11 @@ with the commands below, and ask the user to listen in `onimite preview`.
   (`mono = true` on a track folds it to `0.707 * (L + R)` on both sides, like fframes'
   embedded media). The mix is 48 kHz stereo, encoded as AAC in renders.
 - A video clip's own sound: put the clip's file name in an `audio` list.
-- No music file: compose one with `song{}` (odawg, below), sound effects with `sound{}`.
-  Tell the user the music is generated and offer to swap in a real track.
+- No music file: compose one with `song{}` (odawg, below; how to make it sound like its own
+  piece: [sound_design.md](sound_design.md)), sound effects with `sound{}`. Tell the user
+  the score was composed for the video, and that custom instruments, patterns or a whole
+  score in a chosen genre or after a reference track can be made on request (or a real
+  track swapped in).
 - Narration without a recording: `say()` speaks a line with the time of every word
   ("Spoken lines", below).
 
@@ -22,17 +25,24 @@ like a clip; its sections and markers are cues. Deterministic: the same table an
 the same samples. The spec's fields are odawg's; the ones a video uses are below:
 
 ```lua
+-- Why: a calm walkthrough that lifts at the reveal. Lo-fi hip hop into a brighter house
+-- section, after a chosen reference track: 88 bpm with swung 16ths, Eb major ii–V–I–vi, an
+-- electric piano and a round bass; at the reveal the drums go four-on-the-floor.
 local VO = require("vo")                          -- say → song → placement: the lines first
-local score = song { "score", key = "A minor", seed = 7,          -- start = 0: where it sits on the video
-  instruments = { "instruments/classic.json", "instruments/sfx.json" },  -- files of rows (the library's, copied into media/)
+local score = song { "score", key = "Eb major", seed = 7,          -- start = 0: where it sits on the video
+  -- files of rows (the library's, copied into media/); a name in two files: the first file's
+  instruments = { "instruments/synths.json", "instruments/classic.json", "instruments/sfx.json" },
   sections = {
     { "intro", duration = { audio = "intro", plus = { seconds = 1 } },   -- as long as a line: any duration form
-      bpm = 84, style = "styles/lofi.json", energy = 0.3, chords = "Am7 Fmaj7 C G" },
-    { "build", duration = "2m", bpm = { 84, 124 } },                     -- a ramp
-    { "drop",  duration = "8m", flex = { "4m", "8m" }, bpm = 124, style = "styles/house.json", energy = 1 },
+      bpm = 88, style = "styles/lofi.json", energy = 0.3, chords = "Fm9 Bb13 Ebmaj9 Cm9" },
+    { "build", duration = "4m", bpm = { 88, 112 } },                     -- a ramp
+    { "drop",  duration = "8m", flex = { "4m", "8m" }, bpm = 112, style = "styles/house.json", energy = 1,
+      chords = "Abmaj9 Bb13 Gm9 Cm9" },
   },
-  parts = { lead = { instrument = "pluck",
-    play = { { "drop@4m..", notes = "E5 G5 A5 - G5 E5 D5 -", subdivision = "8n" } } } },
+  parts = {
+    keys = { instrument = { "keys", brightness = 0.7 } },               -- the style's part on our own voice
+    lead = { instrument = "lead", play = { { "drop@4m..", notes = "G5 Bb5 C6 - Bb5 G5 F5 -", subdivision = "8n", humanize = 0.006 } } },
+  },
   markers = { { "logo", at = "drop@2m" } },
 }
 ```
@@ -43,7 +53,7 @@ local score = song { "score", key = "A minor", seed = 7,          -- start = 0: 
   song's `start` take onimite's time forms too (`{ frame = n }` after `video{}`).
 - Styles are data: a style file (`style = "styles/house.json"`, from the media folder; the
   skill's `library/styles/` has `acid_house`, `ambient`, `booty_house`, `chicago_house`,
-  `house`, `lofi` and `synthwave` to copy and change) or the song's own: `styles = { footwork =
+  `house`, `lofi` and `synthwave`: read how each builds its parts, then write your own) or the song's own: `styles = { footwork =
   { swing = 0.1, parts = { drums = { ... }, bass = { ... } } } }` (a partial spec, used as
   `style = "footwork"`). Parts not given come from the section's style. A song's part of the
   same name is changes over the style's (what it doesn't set, the style's part gives:
@@ -132,26 +142,34 @@ video { width = 1920, height = 1080, fps = 60, duration = score.duration,
 ### Instruments
 
 An instrument is a row of data: nodes wired by name, and options (the settings it takes,
-each a name for one or more of its nodes' fields). Nothing is built in but Tone.js's classes;
-everything else is a file of rows you copy and change. A part's `instrument` is:
+each a name for one or more of its nodes' fields). Nothing is built in but Tone.js's classes.
+The library's rows and songs show how voices and styles are built; write the song's own voices
+and patterns for its video ([sound_design.md](sound_design.md): what makes a voice sound
+expensive, voices by role, mixing, choosing a genre). A part's `instrument` is:
 
 - a built-in row: `"Synth"`, `"MonoSynth"`, `"FMSynth"`, `"AMSynth"`, `"MembraneSynth"`,
   `"MetalSynth"`, `"NoiseSynth"`, `"PluckSynth"`, `"Sampler"`, `"Player"`, with Tone's
   settings as changes: `{ "MonoSynth", oscillator = { type = "fatsawtooth" }, filter = { q = 4 } }`.
   `onimite show video.lua instruments` lists them; `show video.lua instrument/MonoSynth` prints
   one as data, its options and nodes;
-- a name from the files the song (or its style) names: `instruments = { "instruments/classic.json",
-  "instruments/sfx.json" }`, then `instrument = "pluck"` or `{ "pad", cutoff = 300, cutoff2 = 1200,
-  envelope = { attack = 2 } }`;
+- a name from the files the song (or its style) names: `instruments = { "instruments/synths.json",
+  "instruments/classic.json", "instruments/sfx.json" }`, then `instrument = "pluck"` or
+  `{ "pad", cutoff = 900, attack = 2 }` (a name two files have is the first file's; a style's
+  part looks in the style's own files first);
 - a file of one row: `instrument = "machines/909.json"`, `{ "instruments/tb303.json", cutoff = 500 }`;
 - a row of your own, in the song's `instruments = { name = row }` or a file (below).
 
-The skill's `library/` folder is a set of such files: copy it (or the files you use) into the
-media folder, `media/instruments/...`, and change anything. A style file names its rows the
-same way (`../instruments/classic.json`), so `library/styles/` works where it lands beside them.
+The skill's `library/` folder is a set of such files: copy what you use into the media
+folder, `media/instruments/...`, and change anything. A style file names its rows the same
+way (`../instruments/classic.json`), so `library/styles/` works where it lands beside them.
+`library/songs/` has reference songs (funk, a jazz waltz in 3/4, a 6/8 ballad, boom bap,
+D Dorian, drum & bass, synthwave, lo-fi on the sample sets) as JSON song files, each showing
+a genre's decisions ([sound_design.md](sound_design.md) has the table); read one with
+`song(json_decode(text))`, as `examples/disco` reads its `song.json`.
 
 | file | rows | options |
 | --- | --- | --- |
+| `instruments/synths.json` | programmed voices: `pad`, `pluck`, `lead` (mono, glides on ties), `bass` (ladder, mono), `reese`, `stab`, `brass`, `keys` (FM electric piano), `bell` (FM), `clav`, `organ` (add a Chorus); unison saws, resonant filters on their own envelopes, velocity and key tracking | `show video.lua instrument/pad` lists each one's (`cutoff`, `resonance`, `decay`, ...) |
 | `instruments/classic.json` | drums `kick`, `snare`, `clap`, `hat`, `open_hat`, `crash`, `tom`; `bass`, `sub_bass`, `pad`, `stab`, `pluck`, `lead`, `bell`; `synth_kit` (a machine of the drums) | `cutoff`, `cutoff2` (Hz: where a filter starts and ends), `decay` (seconds: the fall's time constant), `envelope = { attack }` |
 | `instruments/sfx.json` | `riser`, `whoosh`, `impact`, `thump`, `fall`, `tape_chord`, `tick`, `beep`, `crackle`, `glitch`, `blip`, `done` | `cutoff`, `cutoff2`, `tone` (riser, whoosh: the rising tone's level) |
 | `instruments/tb303.json` | a TB-303: one voice, accents and slides (`portamento`) | `oscillator = { type }`, `tune`, `cutoff`, `resonance`, `filter_envelope = { octaves }`, `decay`, `accent` |
@@ -585,8 +603,9 @@ name's extension.
 Prefer `song{}` and `sound{}`: `audio_add` is for sound the script computes itself. Patterns:
 `examples/why_onimite/track.lua` (one song on a fixed tempo), `examples/onimite_saga/music/`
 (a song whose sections follow the scenes, tempo ramps, its parts in their own files),
-`examples/onimite_saga/sfx.lua` (`sound{}` effects on a bus). Tell the user the music is
-composed and offer to swap in a real track.
+`examples/onimite_saga/sfx.lua` (`sound{}` effects on a bus). When you deliver, tell the user the score was composed from the library's techniques for this
+video, and that custom instruments, patterns or a whole score in a chosen genre or after a
+reference track can be made on request (or a real track swapped in).
 
 ## Spoken lines
 

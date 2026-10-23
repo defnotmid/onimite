@@ -1,0 +1,104 @@
+{
+  "name": "boom_bap",
+  "description": "Swung boom-bap hip-hop in Eb major (I-vi-ii-V: Ebmaj7 Cm9 Fm9 Bb13, jazz chords, not a minor loop) at 90 bpm. The sixteenths swing hard (0.56) and every part is humanized, so the kit sits behind the beat. A sampled jazz kit: the kick skips around a snare fixed on 2 and 4 (one on the 1, two pushed late in the bar), hats with ghosted in-betweens and accents, an open hat closing each four-bar phrase, a snare-and-kick fill in the last bar. A round sub bass written as notes (it leaves space for the kick and anticipates the next chord). FM electric piano chords through a chorus, voiced close and pushed off the beat. A bell motif answers in the hook only; the second verse drops the hook's motif and thins the kit; a four-bar drum break before the last hook; the outro takes the drums away.",
+  "instruments": "instruments/synths.json",
+  "key": "Eb major",
+  "seed": 31,
+  "swing": 0.56,
+  "swing_subdivision": "16n",
+  "chords": "Ebmaj7 Cm9 Fm9 Bb13",
+  "sections": [
+    { "name": "intro", "duration": "4m", "bpm": 90, "energy": 0.3 },
+    { "name": "verse", "duration": "8m", "energy": 0.6 },
+    { "name": "hook", "duration": "8m", "energy": 0.85 },
+    { "name": "verse2", "duration": "8m", "energy": 0.6 },
+    { "name": "break", "duration": "4m", "energy": 0.5 },
+    { "name": "hook2", "duration": "8m", "energy": 0.9 },
+    { "name": "outro", "duration": "4m", "energy": 0.25 }
+  ],
+  "returns": {
+    "room": [ { "name": "Reverb", "decay": 0.7, "pre_delay": 0.006 } ],
+    "plate": [ { "name": "Reverb", "decay": 1.8, "pre_delay": 0.02 }, { "name": "Filter", "type": "highpass", "frequency": 300 } ]
+  },
+  "buses": {
+    "drumbus": { "effects": [ { "name": "Compressor", "threshold": -18, "ratio": 4, "attack": 0.015, "release": 0.1 }, { "name": "Filter", "type": "lowpass", "frequency": 9000 } ] }
+  },
+  "parts": {
+    "drums": {
+      "instrument": { "name": "Sampler", "set": "virtuosity/drums" },
+      "gain_db": -1,
+      "to": "drumbus",
+      "sends": { "room": -14 },
+      "play": [
+        { "name": "verse", "velocity": 0.8, "humanize": 0.006,
+          "steps": {
+            "kick": [ "x......x.x......", "x......x..x.....", "x......x.x......", "x.....x...x..x.." ],
+            "snare": [ "....X.......X...", "....X.......X...", "....X.......X...", "....X.......X.oX" ],
+            "hat": [ "x.o.x.oox.o.x.o.", "x.o.x.o.x.o.x.oo", "x.o.x.oox.o.x.o.", "x.o.x.o.x.o.x..." ],
+            "open_hat": [ "", "", "", "..............x." ]
+          } },
+        { "name": "hook", "velocity": 0.85, "humanize": 0.005,
+          "steps": {
+            "kick": [ "x......x.x....x.", "x......x..x.....", "x......x.x....x.", "x.....x...x..x.." ],
+            "snare": [ "....X.......X...", "....X.......X..o", "....X.......X...", "....X..o....X.oX" ],
+            "hat": [ "xoxoxoxoxoxoxoxo", "xoxoxoxoxoxoxoxo", "xoxoxoxoxoxoxoxo", "xoxoxoxoxoxox..." ],
+            "open_hat": [ "", "", "", "..............x." ],
+            "crash": [ "x...............", "", "", "", "", "", "", "" ]
+          } },
+        { "name": "verse2", "velocity": 0.75, "humanize": 0.006,
+          "steps": {
+            "kick": [ "x......x.x......", "x.........x.....", "x......x.x......", "x.....x...x..x.." ],
+            "rim": [ "....x.......x...", "....x.......x...", "....x.......x...", "....x.......x.ox" ],
+            "hat": [ "x...x...x...x...", "x...x...x...x.o.", "x...x...x...x...", "x...x...x...x..." ],
+            "open_hat": [ "", "", "", "..............x." ]
+          } },
+        { "name": "break", "velocity": 0.85, "humanize": 0.004,
+          "steps": {
+            "kick": [ "x......x.x......", "x.x....x..x.....", "x......x.x..x...", "x.x.x.x.x.x.xxxx" ],
+            "snare": [ "....X.......X...", "....X..o....X...", "....X.......X..o", "....X...X.X.XXXX" ],
+            "hat": [ "xoxoxoxoxoxoxoxo", "xoxoxoxoxoxoxoxo", "xoxoxoxoxoxoxoxo", "xoxo............" ],
+            "tom_low": [ "", "", "", "........x.x....." ]
+          } },
+        { "name": "hook2", "velocity": 0.9, "humanize": 0.005,
+          "steps": {
+            "kick": [ "x......x.x....x.", "x......x..x.....", "x......x.x....x.", "x.....x...x..x.." ],
+            "snare": [ "....X.......X...", "....X.......X..o", "....X.......X...", "....X..o....X.oX" ],
+            "hat": [ "xoxoxoxoxoxoxoxo", "xoxoxoxoxoxoxoxo", "xoxoxoxoxoxoxoxo", "xoxoxoxoxoxox..." ],
+            "open_hat": [ "", "", "", "..............x." ],
+            "crash": [ "x...............", "", "", "", "", "", "", "" ]
+          } }
+      ]
+    },
+    "bass": {
+      "instrument": { "name": "bass", "cutoff": 110 },
+      "gain_db": -1,
+      "sidechain": { "name": "drums/kick", "depth": 0.3, "release": 0.08 },
+      "play": [
+        { "name": "verse..hook2", "notes": "Eb2 - - - . . . Eb2 C2 - - - . . . G1 F1 - - - . . F2 . Bb1 - - - . Bb1 C2 D2", "subdivision": "8n", "velocity": 0.8, "humanize": 0.004 }
+      ]
+    },
+    "keys": {
+      "instrument": "keys",
+      "gain_db": -5,
+      "effects": [ { "name": "Chorus", "frequency": 0.6, "delay_time": 0.005, "depth": 0.6, "wet": 0.4 }, { "name": "Filter", "type": "lowpass", "frequency": 3200, "q": 0.7 } ],
+      "sends": { "plate": -14 },
+      "play": [
+        { "name": "intro", "chords": { "voicing": "close", "rhythm": "x...........x..." }, "duration": "2n", "octave": 4, "velocity": 0.5, "humanize": 0.01 },
+        { "name": "verse", "chords": { "voicing": "close", "rhythm": "..x.......x....." }, "duration": "4n.", "octave": 4, "velocity": 0.55, "humanize": 0.01 },
+        { "name": "hook", "chords": { "voicing": "close", "rhythm": "x.....x...x....." }, "duration": "4n", "octave": 4, "velocity": 0.65, "humanize": 0.01 },
+        { "name": "verse2", "chords": { "voicing": "close", "rhythm": "..x............." }, "duration": "2n.", "octave": 4, "velocity": 0.5, "humanize": 0.01 },
+        { "name": "hook2", "chords": { "voicing": "close", "rhythm": "x.....x...x....." }, "duration": "4n", "octave": 4, "velocity": 0.7, "humanize": 0.01 },
+        { "name": "outro", "chords": { "voicing": "close", "rhythm": "x..............." }, "duration": "1m", "octave": 4, "velocity": 0.45, "humanize": 0.01 }
+      ]
+    },
+    "bell": {
+      "instrument": "bell",
+      "gain_db": 1,
+      "sends": { "plate": -8 },
+      "play": [
+        { "name": "hook", "notes": ". . G5 Bb5 . . . . . . G5 F5 . Eb5 . . . . C6 Bb5 . . . . . . Ab5 G5 . F5 . .", "subdivision": "8n", "velocity": 0.6, "humanize": 0.006 },
+        { "name": "hook2", "notes": ". . G5 Bb5 . . . . . . G5 F5 . Eb5 . . . . C6 Bb5 . . . . . . D6 C6 . Bb5 . .", "subdivision": "8n", "velocity": 0.65, "humanize": 0.006 }
+      ]
+    }
+  }
+}

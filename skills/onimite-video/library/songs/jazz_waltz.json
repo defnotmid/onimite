@@ -1,0 +1,277 @@
+{
+  "name": "jazz_waltz",
+  "description": "A jazz waltz in Bb major: 3/4 at 152 bpm on swung eighths (0.6), a 16-bar head of ii-V-I moves with secondary dominants (G7 to Cm7, Bb7 to Ebmaj7, Ab7 as a backdoor), a solo chorus over a new eight-bar cycle, the head again and a held ending. Techniques to copy: a time signature other than 4 (every pattern is a bar of 3 beats, six eighths), a ride cymbal in three (1, 2, the and of 2, 3) with the hi-hat foot on 2 and 3, a feathered kick, the snare comping in different places bar to bar (a list of bars); a walking bass written as quarter notes, chord tones on the way and the last beat a half step into the next root; the piano comping short chords on 2 and the and of 3; a melody that is written per chord (each bar lands on a chord tone) and a busier solo line in the B section.",
+  "instruments": "instruments/synths.json",
+  "key": "Bb major",
+  "seed": 34,
+  "time_signature": 3,
+  "swing": 0.6,
+  "swing_subdivision": "8n",
+  "sections": [
+    {
+      "name": "intro",
+      "duration": "4m",
+      "bpm": 152,
+      "energy": 0.4,
+      "chords": "Cm7 F7 Cm7 F7"
+    },
+    {
+      "name": "head",
+      "duration": "16m",
+      "energy": 0.7,
+      "chords": "Bbmaj7 G7 Cm7 F7 Dm7 G7 Cm7 F7 Fm7 Bb7 Ebmaj7 Ab7 Dm7 G7 Cm7 F7"
+    },
+    {
+      "name": "solo",
+      "duration": "16m",
+      "energy": 0.9,
+      "chords": "Ebmaj7 Ab7 Bbmaj7 G7 Cm7 F7 Dm7 G7"
+    },
+    {
+      "name": "head2",
+      "duration": "16m",
+      "energy": 0.7,
+      "chords": "Bbmaj7 G7 Cm7 F7 Dm7 G7 Cm7 F7 Fm7 Bb7 Ebmaj7 Ab7 Dm7 G7 Cm7 F7"
+    },
+    {
+      "name": "ending",
+      "duration": "4m",
+      "energy": 0.3,
+      "chords": "Cm7 F7 Bbmaj7 Bbmaj7"
+    }
+  ],
+  "returns": {
+    "room": [
+      {
+        "name": "Reverb",
+        "decay": 1.1,
+        "pre_delay": 0.012
+      }
+    ]
+  },
+  "parts": {
+    "drums": {
+      "instrument": {
+        "name": "Sampler",
+        "set": "virtuosity/drums"
+      },
+      "gain_db": -5,
+      "sends": {
+        "room": -12
+      },
+      "play": [
+        {
+          "name": "head..head2",
+          "velocity": 0.55,
+          "humanize": 0.006,
+          "steps": {
+            "ride": "x.xxx.",
+            "hat": "..x.x."
+          }
+        },
+        {
+          "name": "head..head2",
+          "velocity": 0.25,
+          "humanize": 0.006,
+          "steps": {
+            "kick": "x.x.x."
+          }
+        },
+        {
+          "name": [
+            "head",
+            "head2"
+          ],
+          "velocity": 0.5,
+          "humanize": 0.008,
+          "steps": {
+            "snare": [
+              "",
+              "...o..",
+              "",
+              ".....o",
+              "",
+              ".o....",
+              "",
+              "...o.o"
+            ]
+          }
+        },
+        {
+          "name": "solo",
+          "velocity": 0.6,
+          "humanize": 0.008,
+          "steps": {
+            "snare": [
+              "...o..",
+              ".....o",
+              ".o..o.",
+              "",
+              "...o.o",
+              ".o....",
+              "....o.",
+              "..o.X."
+            ],
+            "kick": [
+              "",
+              "",
+              "",
+              ".....x",
+              "",
+              "",
+              "",
+              "....x."
+            ]
+          }
+        },
+        {
+          "name": "intro",
+          "velocity": 0.45,
+          "humanize": 0.006,
+          "steps": {
+            "hat": "..x.x."
+          }
+        },
+        {
+          "name": "ending",
+          "velocity": 0.45,
+          "steps": {
+            "ride": [
+              "x.xxx.",
+              "x.xxx.",
+              "x.....",
+              ""
+            ],
+            "hat": [
+              "..x.x.",
+              "..x.x.",
+              "",
+              ""
+            ],
+            "crash": [
+              "",
+              "",
+              "x.....",
+              ""
+            ]
+          }
+        }
+      ]
+    },
+    "bass": {
+      "instrument": {
+        "name": "Sampler",
+        "set": "karoryfer/growlybass",
+        "release": 0.12
+      },
+      "gain_db": -15,
+      "play": [
+        {
+          "name": "intro",
+          "notes": "C2 Eb2 E2 F2 Eb2 Db2 C2 Eb2 E2 F2 Eb2 Db2",
+          "subdivision": "4n",
+          "velocity": 0.7,
+          "humanize": 0.004
+        },
+        {
+          "name": [
+            "head",
+            "head2"
+          ],
+          "notes": "Bb1 A1 Ab1 G1 B1 Db2 C2 Eb2 E2 F2 Eb2 Db2 D2 F2 Gb2 G2 B2 Db3 C3 G2 Gb2 F2 Eb2 E2 F2 Ab2 A2 Bb2 F2 E2 Eb2 G2 A2 Ab2 Gb2 Eb2 D2 F2 Gb2 G2 B2 Db3 C3 G2 Gb2 F2 A2 B2",
+          "subdivision": "4n",
+          "velocity": 0.75,
+          "humanize": 0.004
+        },
+        {
+          "name": "solo",
+          "notes": "Eb2 G2 A2 Ab2 C3 B2 Bb2 A2 Ab2 G2 B2 Db3 C3 G2 Gb2 F2 Eb2 Db2 D2 F2 Gb2 G2 F2 E2",
+          "subdivision": "4n",
+          "velocity": 0.8,
+          "humanize": 0.004
+        },
+        {
+          "name": "ending",
+          "notes": "C2 Eb2 E2 F2 Eb2 Db2 Bb1 - - - - -",
+          "subdivision": "4n",
+          "velocity": 0.7
+        }
+      ]
+    },
+    "piano": {
+      "instrument": {
+        "name": "Sampler",
+        "set": "vcsl/upright_piano",
+        "release": 0.3
+      },
+      "gain_db": -12,
+      "sends": {
+        "room": -10
+      },
+      "play": [
+        {
+          "name": "intro..head2",
+          "chords": {
+            "voicing": "close",
+            "rhythm": "..x..x"
+          },
+          "duration": "8n",
+          "octave": 3,
+          "velocity": 0.5,
+          "humanize": 0.01
+        },
+        {
+          "name": "ending",
+          "chords": {
+            "voicing": "spread",
+            "rhythm": "x....."
+          },
+          "duration": "2n.",
+          "octave": 3,
+          "velocity": 0.5
+        }
+      ]
+    },
+    "melody": {
+      "instrument": "keys",
+      "gain_db": -4,
+      "sends": {
+        "room": -8
+      },
+      "effects": [
+        {
+          "name": "Chorus",
+          "frequency": 0.6,
+          "delay_time": 0.004,
+          "depth": 0.4,
+          "wet": 0.3
+        }
+      ],
+      "play": [
+        {
+          "name": [
+            "head",
+            "head2"
+          ],
+          "notes": "D5 - - - - . B4 - - D5 F5 - Eb5 - - - - . C5 D5 Eb5 - A4 - F5 - - - - . D5 - - B4 - - G5 - - Eb5 - - F5 - Eb5 - C5 - Ab5 - - - - . F5 - - D5 Ab4 - G5 - - - - . Gb5 - - Eb5 C5 - F5 - - - A5 - G5 - F5 - D5 - Eb5 - - D5 C5 - A4 - - - - .",
+          "subdivision": "8n",
+          "velocity": 0.7,
+          "humanize": 0.008
+        },
+        {
+          "name": "solo",
+          "notes": "G5 F5 Eb5 D5 Bb4 G4 Ab4 C5 Eb5 Gb5 F5 Eb5 D5 - F5 A5 G5 F5 B4 D5 F5 Ab5 G5 F5 Eb5 G5 Bb5 - G5 Eb5 A4 C5 Eb5 - D5 C5 F5 - A5 C6 A5 F5 B5 - G5 F5 D5 B4",
+          "subdivision": "8n",
+          "velocity": 0.65,
+          "humanize": 0.01
+        },
+        {
+          "name": "ending@2m",
+          "notes": "D5 - - - - - - - - - - -",
+          "subdivision": "8n",
+          "velocity": 0.6
+        }
+      ]
+    }
+  }
+}

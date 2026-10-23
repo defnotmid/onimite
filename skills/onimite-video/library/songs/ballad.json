@@ -1,0 +1,304 @@
+{
+  "name": "ballad",
+  "description": "A ballad in D major in 6/8 (two dotted-quarter pulses a bar at 54, a quarter at 81): piano arpeggios in eighths under a written melody, a suspension (Asus4 resolving to A) at each phrase end, a chorus with a borrowed minor iv (Gm after G) and a bridge on the borrowed bVII (C), strings swelling in from the second verse, and the last bars slowing down. Techniques to copy: a compound meter ({6, 8}: patterns are six eighths), an arpeggio that rises and falls inside one bar (degrees 1 5 8 10 8 5) instead of block chords, chords borrowed from the parallel minor for colour, the band entering in layers (piano alone, then the bass, then a gentle kit: kick on 1, a rim on 4, a soft ride; then strings), a melody held over the bar line (-) with rests to breathe, and a tempo ramp for the ritardando.",
+  "key": "D major",
+  "seed": 68,
+  "time_signature": [
+    6,
+    8
+  ],
+  "sections": [
+    {
+      "name": "intro",
+      "duration": "2m",
+      "bpm": 81,
+      "energy": 0.2,
+      "chords": "D Asus4"
+    },
+    {
+      "name": "verse",
+      "duration": "8m",
+      "energy": 0.4,
+      "chords": "D Bm Em7 A7 D F#m Asus4 A"
+    },
+    {
+      "name": "verse2",
+      "duration": "8m",
+      "energy": 0.55,
+      "chords": "D Bm Em7 A7 D F#m Asus4 A"
+    },
+    {
+      "name": "chorus",
+      "duration": "8m",
+      "energy": 0.8,
+      "chords": "G A F#m Bm G Gm D A"
+    },
+    {
+      "name": "bridge",
+      "duration": "4m",
+      "energy": 0.6,
+      "chords": "C G Em7 Asus4"
+    },
+    {
+      "name": "chorus2",
+      "duration": "8m",
+      "energy": 0.9,
+      "chords": "G A F#m Bm G Gm D A"
+    },
+    {
+      "name": "outro",
+      "duration": "4m",
+      "bpm": [
+        81,
+        60
+      ],
+      "energy": 0.3,
+      "chords": "G Gm D D"
+    }
+  ],
+  "returns": {
+    "hall": [
+      {
+        "name": "Reverb",
+        "decay": 2.8,
+        "pre_delay": 0.025
+      },
+      {
+        "name": "Filter",
+        "type": "highpass",
+        "frequency": 200
+      }
+    ]
+  },
+  "parts": {
+    "piano": {
+      "instrument": {
+        "name": "Sampler",
+        "set": "osiris/soft_piano",
+        "release": 1
+      },
+      "gain_db": -16,
+      "sends": {
+        "hall": -12
+      },
+      "play": [
+        {
+          "name": "intro..chorus2",
+          "degrees": "1 5 8 10 8 5",
+          "subdivision": "8n",
+          "octave": 3,
+          "velocity": 0.42,
+          "humanize": 0.008
+        },
+        {
+          "name": "intro..chorus2",
+          "degrees": "1 . . . . .",
+          "subdivision": "8n",
+          "octave": 2,
+          "velocity": 0.45,
+          "humanize": 0.008
+        },
+        {
+          "name": "outro",
+          "degrees": "1 5 8 10 8 5 1 5 8 10 12 15",
+          "subdivision": "8n",
+          "octave": 3,
+          "velocity": 0.38
+        }
+      ]
+    },
+    "melody": {
+      "instrument": {
+        "name": "Sampler",
+        "set": "osiris/soft_piano",
+        "release": 1.2
+      },
+      "gain_db": -8,
+      "sends": {
+        "hall": -9
+      },
+      "play": [
+        {
+          "name": [
+            "verse",
+            "verse2"
+          ],
+          "notes": "F#5 - - E5 - D5 D5 - - B4 - - E5 - F#5 G5 - E5 C#5 - - - - . A5 - - F#5 - D5 C#5 - E5 F#5 - - D5 - - - - - C#5 - - - - .",
+          "subdivision": "8n",
+          "velocity": 0.6,
+          "humanize": 0.01
+        },
+        {
+          "name": [
+            "chorus",
+            "chorus2"
+          ],
+          "notes": "B5 - - A5 - G5 A5 - - E5 - - F#5 - E5 F#5 - A5 F#5 - - - - . G5 - - B5 - - Bb5 - - A5 - G5 F#5 - - - E5 D5 E5 - - - - .",
+          "subdivision": "8n",
+          "velocity": 0.7,
+          "humanize": 0.01
+        },
+        {
+          "name": "bridge",
+          "notes": "E5 - G5 C6 - - B5 - - D5 - - E5 - - G5 - B5 D5 - - - - -",
+          "subdivision": "8n",
+          "velocity": 0.62,
+          "humanize": 0.01
+        },
+        {
+          "name": "outro",
+          "notes": "B5 - - A5 - G5 Bb5 - - - - - A5 - - F#5 - - D5 - - - - - - - - - - -",
+          "subdivision": "8n",
+          "velocity": 0.55,
+          "humanize": 0.012
+        }
+      ]
+    },
+    "bass": {
+      "instrument": {
+        "name": "Sampler",
+        "set": "karoryfer/growlybass",
+        "release": 0.4
+      },
+      "gain_db": -14,
+      "play": [
+        {
+          "name": "verse2..chorus2",
+          "degrees": "1 - - 5 - -",
+          "subdivision": "8n",
+          "octave": 2,
+          "velocity": 0.6
+        },
+        {
+          "name": "outro",
+          "degrees": "1 - - - - -",
+          "subdivision": "8n",
+          "octave": 2,
+          "velocity": 0.5
+        }
+      ]
+    },
+    "strings": {
+      "instrument": {
+        "name": "Sampler",
+        "set": "vsco2/strings",
+        "attack": 1.2,
+        "release": 2.5
+      },
+      "gain_db": -16,
+      "sends": {
+        "hall": -8
+      },
+      "play": [
+        {
+          "name": "verse2",
+          "chords": {
+            "voicing": "spread"
+          },
+          "octave": 3,
+          "velocity": 0.4
+        },
+        {
+          "name": "chorus..outro",
+          "chords": {
+            "voicing": "spread"
+          },
+          "octave": 3,
+          "velocity": 0.6
+        }
+      ]
+    },
+    "drums": {
+      "instrument": {
+        "name": "Sampler",
+        "set": "virtuosity/drums"
+      },
+      "gain_db": -9,
+      "sends": {
+        "hall": -16
+      },
+      "play": [
+        {
+          "name": "verse2",
+          "velocity": 0.4,
+          "humanize": 0.008,
+          "steps": {
+            "kick": "x.....",
+            "rim": "...x..",
+            "ride": "x.x.x."
+          }
+        },
+        {
+          "name": [
+            "chorus",
+            "chorus2"
+          ],
+          "velocity": 0.55,
+          "humanize": 0.006,
+          "steps": {
+            "kick": [
+              "x.....",
+              "x....x",
+              "x.....",
+              "x..x..",
+              "x.....",
+              "x....x",
+              "x.....",
+              "x....."
+            ],
+            "snare": "...x..",
+            "ride": "x.xx.x",
+            "crash": [
+              "x.....",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              ""
+            ],
+            "tom_low": [
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "",
+              "...ooX"
+            ]
+          }
+        },
+        {
+          "name": "bridge",
+          "velocity": 0.4,
+          "humanize": 0.008,
+          "steps": {
+            "kick": "x.....",
+            "rim": "...x..",
+            "ride": "x....."
+          }
+        },
+        {
+          "name": "outro",
+          "velocity": 0.35,
+          "steps": {
+            "ride": [
+              "x.....",
+              "x.....",
+              "x.....",
+              ""
+            ],
+            "crash": [
+              "",
+              "",
+              "",
+              "x....."
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

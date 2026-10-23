@@ -211,7 +211,11 @@ end)
 ### An original soundtrack composed with song{}
 
 When no music is supplied (or licensing matters), compose it with `song{}` (audio.md, "Songs and
-sounds"), and let the picture follow the song, so every hit is on the music by construction:
+sounds"), and let the picture follow the song, so every hit is on the music by construction.
+First choose, on purpose, the genre, key (or mode), tempo, meter and feel that fit the video,
+after a real reference track, and say why in a comment at the top of `track.lua`; write the
+voices that carry its identity yourself (sound_design.md). The defaults (A minor, i–VI–III–VII,
+120–128 bpm four-on-the-floor, 2-bar sections) are what every generated song sounds like.
 
 1. `track.lua` returns the song: sections named after the scenes (`duration = "4m"`, `style`,
    `energy`, `chords`, a `transition` for risers and impacts), and parts for what the picture
@@ -224,10 +228,12 @@ sounds"), and let the picture follow the song, so every hit is on the music by c
    read it like any track. Sound effects are `sound{}` tracks on their own bus.
 4. Set `seed` so every render makes the same music.
 
-`examples/why_onimite/track.lua` (140 BPM, A minor, house into acid) is a complete song to copy
-from; `examples/suite/track.lua` is synthwave in D minor; `examples/onimite_saga/music/` is a
-long one with tempo ramps, a section per scene. Tell the user the music is composed and offer
-to swap in a real track.
+`examples/why_onimite/track.lua` (140 BPM, house into acid) shows a song whose notes drive
+the cuts; `examples/suite/track.lua` is synthwave; `examples/onimite_saga/music/` is a long
+one with tempo ramps, a section per scene; the skill's `library/songs/` has a reference song
+per genre. Read them for technique, then write the video's own. When you deliver, tell the user the score was composed from the library's techniques for this
+video, and that custom instruments, patterns or a whole score in a chosen genre or after a
+reference track can be made on request (or a real track swapped in).
 
 ## Review checklist
 
