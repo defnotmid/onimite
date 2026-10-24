@@ -128,7 +128,7 @@ font_found :: proc(m: ^Media, q: Font_Query) -> bool {
 measure :: proc(m: ^Media, q: Font_Query, s: string) -> f32 {
 	layout: vg.Text_Layout
 	vg.text_layout_init(&layout, context.temp_allocator)
-	piece := vg.Text_Piece{text = s, style = {q.family, q.size, q.weight, q.italic, q.letter_spacing, 0}}
+	piece := vg.Text_Piece{text = s, style = {family = q.family, size = q.size, weight = q.weight, italic = q.italic, letter_spacing = q.letter_spacing}}
 	vg.text_layout(&m.fonts, {piece}, {}, &layout)
 	return vg.text_layout_width(&layout)
 }

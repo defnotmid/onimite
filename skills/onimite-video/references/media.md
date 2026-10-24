@@ -30,8 +30,8 @@ svg { markup = [[<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><ci
   closed, two frames of a spark) for a script to swap (`examples/common/pip.lua`).
 - Supported: shapes, paths, groups, `use`/`symbol`/nested `svg`, CSS, gradients, patterns,
   clip paths, masks, every SVG 1.1 filter primitive (feImage of images, not elements), blend
-  modes, dashes, text and tspans, embedded or media-relative images. Unsupported (markers,
-  textPath, ...) and override
+  modes, dashes, text, tspans and textPath (not nested; no vertical text), embedded or
+  media-relative images. Unsupported (markers, ...) and override
   ids the document lacks are warnings naming the file.
 
 ## Lottie animations
