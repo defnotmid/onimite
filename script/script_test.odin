@@ -1232,6 +1232,8 @@ local function near(a, b) return math.abs(a - b) < 0.5 end
 local SQ = outline { d = "M0 0H100V100H0Z" }
 local x, y, w, h = outline_bounds(SQ)
 assert(near(x, 0) and near(y, 0) and near(w, 100) and near(h, 100))
+-- kept by all of its content: the same commands from the same first point are another outline
+assert(outline { d = "M0 0H300V50H0Z" } ~= SQ)
 -- an SVG element by id (hidden, as silhouettes are), placed as svg{} would place the file
 local S = outline { svg = "mark.svg", id = "s", x = 10, y = 20, w = 200 }
 x, y, w, h = outline_bounds(S)

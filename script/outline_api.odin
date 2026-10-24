@@ -4,6 +4,7 @@ import "core:c"
 import "core:fmt"
 import "core:hash"
 import "core:mem/virtual"
+import "core:slice"
 import "core:sync"
 import vg "deps:ovg"
 import lua "vendor:lua/5.4"
@@ -44,7 +45,7 @@ shared_path_asset :: proc(sh: ^Shared, p: ^vg.Path, rule: vg.Fill_Rule) -> ^om.P
 // A path's content hash, by its geometry and fill rule.
 @(private)
 path_key :: proc(p: ^vg.Path, rule: vg.Fill_Rule) -> u64 {
-	return hash.fnv64a(transmute([]u8)p.verbs[:]) ~ hash.fnv64a(transmute([]u8)p.coords[:]) * 31 ~ u64(rule)
+	return hash.fnv64a(slice.to_bytes(p.verbs[:])) ~ hash.fnv64a(slice.to_bytes(p.coords[:])) * 31 ~ u64(rule)
 }
 
 @(private)
