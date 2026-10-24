@@ -281,17 +281,32 @@ Texture_Map :: enum u8 {
 	Emissive,
 	AO,
 	Alpha,
+	// MeshPhysicalMaterial's layers
+	Clearcoat,
+	Clearcoat_Roughness,
+	Clearcoat_Normal,
+	Sheen_Color,
+	Sheen_Roughness,
+	Transmission,
+	Thickness,
 }
 
 @(rodata)
 TEXTURE_MAPS := [Texture_Map]cstring {
-	.Color     = "map",
-	.Normal    = "normal_map",
-	.Roughness = "roughness_map",
-	.Metalness = "metalness_map",
-	.Emissive  = "emissive_map",
-	.AO        = "ao_map",
-	.Alpha     = "alpha_map",
+	.Color               = "map",
+	.Normal              = "normal_map",
+	.Roughness           = "roughness_map",
+	.Metalness           = "metalness_map",
+	.Emissive            = "emissive_map",
+	.AO                  = "ao_map",
+	.Alpha               = "alpha_map",
+	.Clearcoat           = "clearcoat_map",
+	.Clearcoat_Roughness = "clearcoat_roughness_map",
+	.Clearcoat_Normal    = "clearcoat_normal_map",
+	.Sheen_Color         = "sheen_color_map",
+	.Sheen_Roughness     = "sheen_roughness_map",
+	.Transmission        = "transmission_map",
+	.Thickness           = "thickness_map",
 }
 
 // The material's texture of map `k`.
@@ -311,6 +326,20 @@ material_map :: proc "contextless" (m: ^o3d.Material, k: Texture_Map) -> ^o3d.Te
 		return &m.ao_map
 	case .Alpha:
 		return &m.alpha_map
+	case .Clearcoat:
+		return &m.clearcoat_map
+	case .Clearcoat_Roughness:
+		return &m.clearcoat_roughness_map
+	case .Clearcoat_Normal:
+		return &m.clearcoat_normal_map
+	case .Sheen_Color:
+		return &m.sheen_color_map
+	case .Sheen_Roughness:
+		return &m.sheen_roughness_map
+	case .Transmission:
+		return &m.transmission_map
+	case .Thickness:
+		return &m.thickness_map
 	}
 	return &m.color_map
 }

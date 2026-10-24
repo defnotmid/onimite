@@ -86,7 +86,8 @@ onimite is built from sibling Odin projects and Odin's vendor packages:
   directional and spot lights with up to 4 PCF shadow maps; tone mapping
   and fog; box, sphere, plane, cylinder and torus meshes plus per-frame 3D
   lines, point clouds, wireframe and `instances`; MeshStandardMaterial,
-  MeshBasicMaterial, MeshToonMaterial with cartoon outlines,
+  MeshPhysicalMaterial (clear coat, sheen, glass), MeshBasicMaterial,
+  MeshToonMaterial with cartoon outlines,
   LineBasicMaterial and PointsMaterial with texture
   maps, and GLSL ES ShaderMaterial; an equirectangular environment and
   background; glTF 2.0, 3MF and OBJ models, including skinned characters, morph

@@ -1037,6 +1037,79 @@ end }
 	testing.expectf(t, mid[0] > 150 && mid[0] > mid[1], "the box: %v", mid)
 }
 
+// MeshPhysicalMaterial: the standard fields plus its layers, in three.js's
+// defaults (white sheen and attenuation colours) and its sheen scaled in
+// linear light; the layers are not used on a MeshStandardMaterial.
+@(test)
+test_view3d_physical_material :: proc(t: ^testing.T) {
+	dir, derr := os.make_directory_temp("", "onimite_script_physical_test_*", context.temp_allocator)
+	testing.expect(t, derr == nil)
+	defer os.remove_all(dir)
+	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
+	src := `
+video { width = 64, height = 48, fps = 10 }
+scene { "A", duration = 1, render = function(f)
+  view3d {
+    camera = { position = { 0, 0, 4 } },
+    meshes = {
+      { geometry = { type = "SphereGeometry" },
+        material = { type = "MeshPhysicalMaterial", color = "#ffffff", roughness = 0.2, ior = 1.33, clearcoat = 1,
+          clearcoat_roughness = 0.1, sheen = 0.5, sheen_roughness = 0.3, transmission = 1, thickness = 0.5,
+          attenuation_distance = 2, clearcoat_map = "coat.png" } },
+      { geometry = { type = "SphereGeometry" }, material = { type = "MeshPhysicalMaterial" } },
+      { geometry = { type = "BoxGeometry" }, material = { transmission = 1 } },
+    },
+  }
+end }
+`
+	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
+	media: om.Media
+	om.media_init(&media)
+	defer om.media_destroy(&media)
+	s: Script
+	defer unload(&s)
+	testing.expectf(t, load(&s, path, nil, &media) == nil, "load failed: %s", error_message(s.failure, context.temp_allocator))
+	r: om.Renderer
+	testing.expect_value(t, om.renderer_init(&r, &s.video, &media), om.Error.None)
+	defer om.renderer_destroy(&r)
+	om.render_frame(&r, 0)
+
+	v: om.View3d
+	for n in r.ctx.tree.nodes {
+		if node, ok := n.kind.(om.View3d); ok {
+			v = node
+		}
+	}
+	testing.expect_value(t, len(v.meshes), 3)
+	if len(v.meshes) == 3 {
+		m := v.meshes[0].material
+		testing.expect_value(t, m.flags, o3d.Material_Flags{})
+		testing.expect_value(t, m.roughness, 0.2)
+		testing.expect_value(t, m.ior, 1.33)
+		testing.expect_value(t, m.clearcoat, 1)
+		testing.expect_value(t, m.clearcoat_roughness, 0.1)
+		half := o3d.linear_to_srgb(0.5)
+		testing.expect_value(t, m.sheen_color, o3d.Vec3{half, half, half})
+		testing.expect_value(t, m.sheen_roughness, 0.3)
+		testing.expect_value(t, m.transmission, 1)
+		testing.expect_value(t, m.thickness, 0.5)
+		testing.expect_value(t, m.attenuation_color, o3d.Vec3{1, 1, 1})
+		testing.expect_value(t, m.attenuation_distance, 2)
+		testing.expect_value(t, v.meshes[0].maps[.Clearcoat], "coat.png")
+		d := v.meshes[1].material
+		testing.expect_value(t, d.ior, 1.5)
+		testing.expect_value(t, d.sheen_color, o3d.Vec3{})
+		testing.expect_value(t, d.sheen_roughness, 1)
+		testing.expect_value(t, d.transmission, 0)
+		testing.expect_value(t, v.meshes[2].material.transmission, 0)
+	}
+	got := make([dynamic]string, context.temp_allocator)
+	for d in r.ctx.diagnostics {
+		append(&got, om.diagnostic_message(d, context.temp_allocator))
+	}
+	testing.expectf(t, slice.contains(got[:], "video.lua:4: `material.transmission` is not used"), "diagnostics: %v", got[:])
+}
+
 @(test)
 test_view3d_shader_material :: proc(t: ^testing.T) {
 	dir, derr := os.make_directory_temp("", "onimite_script_shader_test_*", context.temp_allocator)

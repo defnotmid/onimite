@@ -514,7 +514,8 @@ read_point_colors :: proc(L: ^lua.State, t: c.int, count: int) -> []o3d.Vec4 {
 	return colors
 }
 
-// MeshStandardMaterial, MeshBasicMaterial (unlit: its colour, opacity and
+// MeshStandardMaterial, MeshPhysicalMaterial (the standard one with a clear
+// coat, sheen and transmission), MeshBasicMaterial (unlit: its colour, opacity and
 // `map`), MeshToonMaterial (banded light), LineBasicMaterial (`linewidth`, `size_attenuation`),
 // PointsMaterial (`size`, `size_attenuation`, `map`) or ShaderMaterial
 // (custom GLSL ES vertex and fragment shaders and per-frame uniforms).
@@ -525,7 +526,7 @@ read_material :: proc(L: ^lua.State, s: ^Script, t: c.int, default_type: string,
 	defer fields_pop(L, s, t, "material", outer)
 	kind := get_str(L, t, "type", default_type)
 	switch kind {
-	case "MeshStandardMaterial":
+	case "MeshStandardMaterial", "MeshPhysicalMaterial":
 	case "MeshBasicMaterial":
 		m.flags += {.Basic}
 	case "MeshToonMaterial":
@@ -542,7 +543,7 @@ read_material :: proc(L: ^lua.State, s: ^Script, t: c.int, default_type: string,
 		m.flags += {.Shadow_Only}
 		m.color = {}
 	case:
-		bad_string(L, "material type", kind, "MeshStandardMaterial, MeshBasicMaterial, MeshToonMaterial, ShadowMaterial, LineBasicMaterial, PointsMaterial or ShaderMaterial")
+		bad_string(L, "material type", kind, "MeshStandardMaterial, MeshPhysicalMaterial, MeshBasicMaterial, MeshToonMaterial, ShadowMaterial, LineBasicMaterial, PointsMaterial or ShaderMaterial")
 	}
 	if get_bool(L, t, "transparent", false) {
 		m.flags += {.Transparent}
@@ -661,10 +662,28 @@ read_material :: proc(L: ^lua.State, s: ^Script, t: c.int, default_type: string,
 	if get_bool(L, t, "flat_shading", false) {
 		m.flags += {.Flat_Shading}
 	}
-	for k in om.Texture_Map {
-		if k != .Color && k != .Alpha {
-			maps[k] = get_str(L, t, om.TEXTURE_MAPS[k], "")
-		}
+	for k in om.Texture_Map.Normal ..= om.Texture_Map.AO {
+		maps[k] = get_str(L, t, om.TEXTURE_MAPS[k], "")
+	}
+	if kind != "MeshPhysicalMaterial" {
+		return
+	}
+	// three.js's defaults; o3d's zero values are its own (ior 0: 1.5,
+	// black sheen: none, attenuation_distance 0: no absorption)
+	m.ior = get_num(L, t, "ior", 1.5)
+	m.clearcoat = get_num(L, t, "clearcoat", 0)
+	m.clearcoat_roughness = get_num(L, t, "clearcoat_roughness", 0)
+	// three.js scales the linear sheen colour by `sheen`; o3d keeps it sRGB
+	sheen := get_num(L, t, "sheen", 0)
+	sc := read_color3(L, t, "sheen_color", {1, 1, 1})
+	m.sheen_color = o3d.linear_to_srgb_vec3(sheen * o3d.Vec3{o3d.srgb_to_linear(sc.x), o3d.srgb_to_linear(sc.y), o3d.srgb_to_linear(sc.z)})
+	m.sheen_roughness = get_num(L, t, "sheen_roughness", 1)
+	m.transmission = get_num(L, t, "transmission", 0)
+	m.thickness = get_num(L, t, "thickness", 0)
+	m.attenuation_color = read_color3(L, t, "attenuation_color", {1, 1, 1})
+	m.attenuation_distance = get_num(L, t, "attenuation_distance", 0)
+	for k in om.Texture_Map.Clearcoat ..= om.Texture_Map.Thickness {
+		maps[k] = get_str(L, t, om.TEXTURE_MAPS[k], "")
 	}
 }
 

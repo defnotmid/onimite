@@ -690,7 +690,7 @@ A 3D scene in three.js's names (`type` is the three.js class; properties in snak
 drawn into the box and composited like an image: transparent where nothing is drawn, with
 `opacity`, under the groups' transforms, masks and blends. Ambient, hemisphere, point,
 directional and spot lights (up to 4 directional/spot PCF shadows), tone mapping and fog,
-`MeshStandardMaterial`, `MeshBasicMaterial`, `MeshToonMaterial`, `LineBasicMaterial` and `PointsMaterial` with
+`MeshStandardMaterial`, `MeshPhysicalMaterial` (clear coat, sheen, glass), `MeshBasicMaterial`, `MeshToonMaterial`, `LineBasicMaterial` and `PointsMaterial` with
 texture maps from `media/`, custom GLSL ES `ShaderMaterial`s, per-frame `LineGeometry`,
 `LineSegmentsGeometry` and `PointsGeometry` plus `wireframe` and `instances` (`InstancedMesh`),
 glTF, 3MF, OBJ and USD models (in `media/`, including skinned characters, morph targets and
