@@ -447,7 +447,7 @@ Each folder in `examples/` is a `video.lua` with its `media/`.
 | `transitions` | every standard-library transition between scenes |
 | `physics3d_demo` | 3D rigid bodies (`physics3d{}`): a wrecking ball on a rod knocks down a block tower, instanced with shadows; its contacts place the sound (an impact, thumps, pitched ticks) |
 | `physics_demo` | rigid bodies (`physics{}`) simulated at load: tiles dropped into a word, a pop per impact |
-| `otfx` | [otfx](https://github.com/defnotmid/otfx)'s terminal text effects full screen (`preview --bare --fullscreen`): each effect a timeline built at load on a shared cell grid (`term.lua`), any text with `--set text=...` |
+| `otfx` | [otfx](https://github.com/defnotmid/otfx)'s terminal text effects full screen (`preview --bare --fullscreen`): each effect a timeline built at load on a shared cell grid (`term.lua`), any text with `--set text=...`; `burn` with an SkSL fire fed by a heat map of the burning cells, `thunderstorm` with flickering return strokes, glyphs lit by their distance to the bolt, cooling struck letters and bloom |
 | `audio_demo` | tracks on the video and scenes, voice ducking, effects on animation constants |
 | `voiceover` | spoken lines made with `say()`, their captions, keys and effects on spoken words (`say_cue`) |
 | `media_demo` | a synced clip, WebVTT subtitles, an audio spectrum, durations from media |

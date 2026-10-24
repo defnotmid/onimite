@@ -25,7 +25,21 @@ onimite render examples/otfx/video.lua -o otfx.mp4
   tick off those columns, so any frame renders on its own.
 - `video.lua`: one scene per effect (`effect_scene(name, fx)`).
 
-Effects so far: `decrypt`. Its cipher alphabet stops at Latin Extended-A
+Effects so far: `decrypt`, `burn` and `thunderstorm`. The last two keep otfx's
+timeline and add what a terminal can't draw:
+
+- `burn`: otfx's ignition order (a random growth through the text block) and
+  palette, with real fire. Each frame the burning cells are drawn as a heat map
+  (red: flame, green: smoke, softened by a blur) that an SkSL shader reads: the
+  heat below a point rises to it through turbulent noise, takes a blackbody
+  ramp, carves into tongues, and smoke curls above. The fire lights the wall
+  behind it, and the scene blooms.
+- `thunderstorm`: otfx's storm (rain, branching bolts of `\ / |`, sparks,
+  struck letters, the fades), lit as a real one. Each flash flickers as a
+  bolt's return strokes do and lights the clouds over it; every glyph is lit by
+  its distance to the bolt's channel (half at 170 px), struck letters glow
+  white-hot and cool through orange to red, the channel has its own soft glow,
+  rain and sparks move between cells, and what is bright blooms. Its cipher alphabet stops at Latin Extended-A
 (otfx's goes on into Latin Extended-B, which JetBrains Mono does not draw).
 To add one, write `effects/NAME.lua` with the same `build` and add
 `effect_scene("NAME", require("effects.NAME").build(cells, 1))` to `video.lua`.

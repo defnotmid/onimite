@@ -45,3 +45,5 @@ local function effect_scene(name, fx)
 end
 
 effect_scene("decrypt", require("effects.decrypt").build(cells, 1))
+effect_scene("burn", require("effects.burn").build(cells, 2))
+effect_scene("thunderstorm", require("effects.thunderstorm").build(cells, 3))
