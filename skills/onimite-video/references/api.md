@@ -603,11 +603,11 @@ text { "ID 0042", x = 1100, y = 500, font = "JetBrains Mono", size = 64, fill = 
 - `features` turns a font's OpenType features on or off over its defaults, as CSS
   `font-feature-settings`: `{ "zero", "ss02", liga = 0, kern = false, salt = 2 }` (a listed tag
   is on; a keyed one takes `true`/`false` or a number, n > 1 the nth alternate). A tag the
-  font lacks does nothing. Built-in fonts: DM Sans `ss02` `ss03` `ss05` `ss07` (alternate
-  letters), `sups`; JetBrains Mono `zero`, `sups`; Instrument Serif `ss01`; Bebas Neue `pnum`;
-  all `liga`/`kern` off. Letter spacing turns ligatures off unless `features` sets `liga`.
-  `text_width`, `text_fit`, `text_lines`, `text_size`, `text_chars`, `outline{}` and
-  `captions{}` take `features` too.
+  font lacks does nothing. Built-in fonts: DM Sans `frac` ("1/2" as ½), `numr`, `dnom`,
+  `ss02` `ss03` `ss05` `ss07` (alternate letters), `sups`; JetBrains Mono `zero`, `frac`,
+  `sups`; Instrument Serif `ss01`; Bebas Neue `pnum`, `frac`; all `liga`/`kern` off. Letter
+  spacing turns ligatures off unless `features` sets `liga`. `text_width`, `text_fit`,
+  `text_lines`, `text_size`, `text_chars`, `outline{}` and `captions{}` take `features` too.
 - Spans: `{ "text", font, size, weight, italic, fill, fill_opacity, letter_spacing, features, dx, dy }`
   (a span's `features` replace the text's).
 - Shaped with kb_text_shape: ligatures, kerning, marks, Arabic joining, Indic scripts,
