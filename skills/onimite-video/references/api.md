@@ -591,14 +591,25 @@ text { x = 160, y = 850, font = "DM Sans", size = 64, fill = "#fff", spans = {
 } }
 text { "OUTLINE", x = 1100, y = 300, font = "Bebas Neue", size = 160, fill = "none",
   stroke = "#f472b6", stroke_width = 3 }
+text { "ID 0042", x = 1100, y = 500, font = "JetBrains Mono", size = 64, fill = "#fff",
+  features = { "zero" } }                                   -- OpenType features: slashed zero
 ```
 
 - Fields: `x`, `y`, `font` (a built-in family or a media font's; default DM Sans), `size`
   (16), `weight` (400, nearest available), `italic = true` or `style = "italic"`, `align`,
-  `baseline = alphabetic|middle|central|hanging|top|bottom`, `letter_spacing`,
+  `baseline = alphabetic|middle|central|hanging|top|bottom`, `letter_spacing`, `features`,
   `line_height` (a factor of size), `fill` (default black), `fill_opacity`, `stroke`,
   `opacity`, `spans`.
-- Spans: `{ "text", font, size, weight, italic, fill, fill_opacity, letter_spacing, dx, dy }`.
+- `features` turns a font's OpenType features on or off over its defaults, as CSS
+  `font-feature-settings`: `{ "zero", "ss02", liga = 0, kern = false, salt = 2 }` (a listed tag
+  is on; a keyed one takes `true`/`false` or a number, n > 1 the nth alternate). A tag the
+  font lacks does nothing. Built-in fonts: DM Sans `ss02` `ss03` `ss05` `ss07` (alternate
+  letters), `sups`; JetBrains Mono `zero`, `sups`; Instrument Serif `ss01`; Bebas Neue `pnum`;
+  all `liga`/`kern` off. Letter spacing turns ligatures off unless `features` sets `liga`.
+  `text_width`, `text_fit`, `text_lines`, `text_size`, `text_chars`, `outline{}` and
+  `captions{}` take `features` too.
+- Spans: `{ "text", font, size, weight, italic, fill, fill_opacity, letter_spacing, features, dx, dy }`
+  (a span's `features` replace the text's).
 - Shaped with kb_text_shape: ligatures, kerning, marks, Arabic joining, Indic scripts,
   right-to-left runs. Glyphs missing from a font fall back to other media fonts, then to the
   bundled Noto Color Emoji; glyphs no font has are reported by `inspect`. Drawn as vector
@@ -629,7 +640,7 @@ video { width = 1920, height = 1080, fps = 30, duration = 2, render = function(f
 end }
 ```
 
-Measure with the same family, size, weight, `italic` and `letter_spacing` you draw with; results are
+Measure with the same family, size, weight, `italic`, `letter_spacing` and `features` you draw with; results are
 kept by text and font, so measuring every frame is cheap.
 
 ```lua

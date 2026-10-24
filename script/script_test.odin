@@ -27,6 +27,12 @@ local lines = text_lines { "one two three four five six", size = 20, max_width =
 assert(w > 30 and w < 80, w)
 assert(#fitted < 30 and text_width { fitted, size = 20 } <= 100, fitted)
 assert(#lines >= 3, #lines)
+-- OpenType features: kerning off widens "AV" (measured, not the kerned width kept for "AV")
+local kerned = text_width { "AV", size = 20 }
+assert(text_width { "AV", size = 20, features = { kern = 0 } } > kerned + 0.5)
+assert(text_width { "AV", size = 20, features = { kern = true } } == kerned)
+assert(not pcall(text_width, { "AV", features = { "kerning" } }))
+assert(not pcall(text_width, { "AV", features = { liga = "off" } }))
 video { width = math.floor(w), height = 90, fps = 30, duration = 1 }
 `
 	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)

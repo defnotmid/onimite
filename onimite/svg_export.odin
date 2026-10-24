@@ -918,7 +918,7 @@ export_text :: proc(e: ^Svg_Export, i: i32, t: Text, m: vg.Transform2D) {
 	num_attr(b, "x", t.x)
 	num_attr(b, "y", t.y)
 	family := text_family(e, t.font, t.weight, t.italic)
-	font_attrs(b, family, t.size, t.weight, t.italic, t.letter_spacing)
+	font_attrs(b, family, t.size, t.weight, t.italic, t.letter_spacing, t.features)
 	switch t.align {
 	case .Left:
 	case .Center:
@@ -958,7 +958,7 @@ export_text :: proc(e: ^Svg_Export, i: i32, t: Text, m: vg.Transform2D) {
 				span_family = ""
 			}
 		}
-		font_attrs(b, span_family, s.size, s.weight, italic, s.letter_spacing.? or_else t.letter_spacing)
+		font_attrs(b, span_family, s.size, s.weight, italic, s.letter_spacing.? or_else t.letter_spacing, s.features)
 		if s.fill != nil {
 			paint_attr(b, "fill", s.fill, s.fill_opacity.? or_else (t.fill_opacity.? or_else 1), i, 't', k)
 		} else if o, ok := s.fill_opacity.?; ok {
@@ -996,7 +996,7 @@ text_family :: proc(e: ^Svg_Export, family: string, weight: int, italic: bool) -
 }
 
 @(private = "file")
-font_attrs :: proc(b: ^strings.Builder, family: string, size: f32, weight: int, italic: bool, letter_spacing: f32) {
+font_attrs :: proc(b: ^strings.Builder, family: string, size: f32, weight: int, italic: bool, letter_spacing: f32, features: []Font_Feature) {
 	if family != "" {
 		str_attr(b, "font-family", family)
 	}
@@ -1011,6 +1011,16 @@ font_attrs :: proc(b: ^strings.Builder, family: string, size: f32, weight: int, 
 	}
 	if letter_spacing != 0 {
 		num_attr(b, "letter-spacing", letter_spacing)
+	}
+	for f, i in features {
+		strings.write_string(b, ` font-feature-settings="` if i == 0 else ", ")
+		strings.write_byte(b, '\'')
+		strings.write_string(b, f.tag)
+		strings.write_string(b, "' ")
+		strings.write_uint(b, uint(f.value))
+	}
+	if len(features) > 0 {
+		strings.write_byte(b, '"')
 	}
 }
 

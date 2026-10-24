@@ -15,7 +15,12 @@ Font_Query :: struct {
 	weight:         int,
 	italic:         bool,
 	letter_spacing: f32,
+	features:       []Font_Feature,
 }
+
+// An OpenType feature's tag ("smcp", "ss01") and value: 0 off, 1 on, n > 1
+// the nth alternate (salt, cv01); set over the font's defaults.
+Font_Feature :: vg.Font_Feature
 
 // Width of `s` in pixels.
 text_width :: proc(m: ^Media, q: Font_Query, s: string) -> (width: f32, ok: bool) {
@@ -128,7 +133,7 @@ font_found :: proc(m: ^Media, q: Font_Query) -> bool {
 measure :: proc(m: ^Media, q: Font_Query, s: string) -> f32 {
 	layout: vg.Text_Layout
 	vg.text_layout_init(&layout, context.temp_allocator)
-	piece := vg.Text_Piece{text = s, style = {family = q.family, size = q.size, weight = q.weight, italic = q.italic, letter_spacing = q.letter_spacing}}
+	piece := vg.Text_Piece{text = s, style = {family = q.family, size = q.size, weight = q.weight, italic = q.italic, letter_spacing = q.letter_spacing, features = q.features}}
 	vg.text_layout(&m.fonts, {piece}, {}, &layout)
 	return vg.text_layout_width(&layout)
 }

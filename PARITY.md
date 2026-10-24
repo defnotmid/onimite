@@ -59,7 +59,7 @@ Every fframes feature and where onimite stands. ✅ done · 🔨 in progress ·
 | text-anchor (start/middle/end) | `align` | ✅ |
 | font-style italic | `italic = true` (or `style = "italic"`) | ✅ |
 | dominant-baseline / alignment-baseline | `baseline = "alphabetic"\|"middle"\|"central"\|"hanging"\|"top"\|"bottom"` | ✅ |
-| `<tspan>` (mixed styles in a line, multi-line) | `spans = { {"text", font, size, weight, italic, fill, letter_spacing, dx, dy}, ... }`, `"\n"` line breaks with `line_height` | ✅ |
+| `<tspan>` (mixed styles in a line, multi-line) | `spans = { {"text", font, size, weight, italic, fill, letter_spacing, features, dx, dy}, ... }`, `"\n"` line breaks with `line_height` | ✅ |
 | Shaping (ligatures, GPOS kerning, complex scripts) via rustybuzz | kb_text_shape (ovg `text_layout`): GSUB / GPOS per font, script and direction segment, bidi visual order, legacy `kern` for fonts without GPOS, shaped segments cached across frames | ✅ gaps: explicit bidi controls, RTL paragraph direction |
 | Font fallback per glyph | through every loaded face, then the bundled emoji and text faces (ovg `font_collection`); glyphs no font has are reported | ✅ |
 | Colour emoji (usvg / resvg ≥ 0.42 draw COLRv0, COLRv1, sbix, CBDT and SVG glyphs) | COLR v0 / v1 drawn as vector fills at output resolution (ovg `colr.odin`: layers, solid, linear / radial / sweep gradients, transforms, ColrGlyph, ClipBox); Noto Color Emoji COLRv1 embedded as the emoji fallback (+5 MB binary); ZWJ sequences, skin tones, flags, keycaps and U+FE0F kept in one face | ✅ gaps: sbix / CBDT bitmap and SVG glyphs, PaintComposite blend modes (backdrop only), group opacity of layered glyphs |

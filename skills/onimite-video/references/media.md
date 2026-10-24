@@ -207,7 +207,7 @@ end }
   `captions(f.global_seconds, { src = "intro", start = INTRO_AT, ... })`.
 - `captions{}` options: `src`, `x`, `y`, `w` (wrap width; default the video's width minus 2x),
   `align` (`center`), `valign` (`top`|`middle`|`bottom` for `y`), `baseline` (`middle`),
-  `font`, `size` (64), `weight`, `letter_spacing`, `italic`, `line_height` (1.2),
+  `font`, `size` (64), `weight`, `letter_spacing`, `features`, `italic`, `line_height` (1.2),
   `uppercase`, `fill` (white), `active_fill`, `spoken_fill`, `upcoming_fill`, `stroke`,
   `stroke_width` (outline under the fill), `highlight = "fill"|"box"|"underline"`,
   `highlight_fill` (`#facc15`), `box_padding`, `box_radius`, `active_scale` (1.12; the line

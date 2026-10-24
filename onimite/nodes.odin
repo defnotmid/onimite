@@ -277,6 +277,7 @@ Text :: struct {
 	align:          Text_Align,
 	baseline:       Text_Baseline,
 	letter_spacing: f32,
+	features:       []Font_Feature,
 	line_height:    f32,
 	fill:           Paint,
 	fill_opacity:   Maybe(f32),
@@ -292,6 +293,8 @@ Text_Span :: struct {
 	weight:         int,
 	italic:         Maybe(bool),
 	letter_spacing: Maybe(f32),
+	// nil inherits the text's.
+	features:       []Font_Feature,
 	fill:           Paint,
 	fill_opacity:   Maybe(f32),
 	// Offset from where the span would start (SVG dx / dy).
@@ -567,6 +570,7 @@ text :: proc(ctx: ^Context, t: Text) {
 	t := t
 	t.text = strings.clone(t.text, ctx.tree.arena)
 	t.font = strings.clone(t.font, ctx.tree.arena)
+	t.features = copy_features(ctx, t.features)
 	t.fill = copy_paint(ctx, t.fill)
 	t.stroke = copy_stroke(ctx, t.stroke)
 	if len(t.spans) > 0 {
@@ -575,11 +579,24 @@ text :: proc(ctx: ^Context, t: Text) {
 			spans[i] = s
 			spans[i].text = strings.clone(s.text, ctx.tree.arena)
 			spans[i].font = strings.clone(s.font, ctx.tree.arena)
+			spans[i].features = copy_features(ctx, s.features)
 			spans[i].fill = copy_paint(ctx, s.fill)
 		}
 		t.spans = spans
 	}
 	tree_add(&ctx.tree, t)
+}
+
+@(private = "file")
+copy_features :: proc(ctx: ^Context, features: []Font_Feature) -> []Font_Feature {
+	if features == nil {
+		return nil
+	}
+	out := make([]Font_Feature, len(features), ctx.tree.arena)
+	for f, i in features {
+		out[i] = {strings.clone(f.tag, ctx.tree.arena), f.value}
+	}
+	return out
 }
 
 image :: proc(ctx: ^Context, i: Image) {

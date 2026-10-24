@@ -166,6 +166,7 @@ read_spans :: proc(L: ^lua.State, t: c.int, ctx: ^om.Context) -> []om.Text_Span 
 		if v, ok := get_opt_num(L, e, "letter_spacing"); ok {
 			sp.letter_spacing = v
 		}
+		sp.features = read_features(L, e)
 		sp.fill = get_paint(L, e, "fill", ctx)
 		sp.fill_opacity = get_maybe(L, e, "fill_opacity")
 		sp.dx = get_num(L, e, "dx", 0)
@@ -174,6 +175,75 @@ read_spans :: proc(L: ^lua.State, t: c.int, ctx: ^om.Context) -> []om.Text_Span 
 		lua.pop(L, 1)
 	}
 	return spans
+}
+
+// `features = { "smcp", liga = 0, ss01 = true, salt = 2 }`: OpenType
+// features over the font's defaults; a listed tag is on, a keyed one takes
+// its value (false 0, true 1, n the nth alternate). nil when absent.
+@(private)
+read_features :: proc(L: ^lua.State, t: c.int) -> []om.Font_Feature {
+	field(L, t, "features")
+	defer lua.pop(L, 1)
+	if lua.isnil(L, -1) {
+		return nil
+	}
+	if !lua.istable(L, -1) {
+		lua.L_error(L, "features: a table of OpenType tags, as { \"smcp\", liga = 0 }")
+	}
+	f := lua.absindex(L, -1)
+	n := 0
+	lua.pushnil(L)
+	for lua.next(L, f) != 0 {
+		n += 1
+		lua.pop(L, 1)
+	}
+	out := make([]om.Font_Feature, n, context.temp_allocator)
+	i := 0
+	lua.pushnil(L)
+	for lua.next(L, f) != 0 {
+		ft := &out[i]
+		i += 1
+		if lua.type(L, -2) == .STRING {
+			ft.tag = feature_tag(L, -2)
+			#partial switch lua.type(L, -1) {
+			case .BOOLEAN:
+				ft.value = u32(lua.toboolean(L, -1))
+			case .NUMBER:
+				v := lua.tonumber(L, -1)
+				if v < 0 || v != lua.Number(u32(v)) {
+					lua.L_error(L, "features: %s = %f: a value is 0 (off), 1 (on) or the nth alternate", strings.clone_to_cstring(ft.tag, context.temp_allocator), v)
+				}
+				ft.value = u32(v)
+			case:
+				lua.L_error(L, "features: %s takes true, false or a number", strings.clone_to_cstring(ft.tag, context.temp_allocator))
+			}
+		} else {
+			if lua.type(L, -1) != .STRING {
+				lua.L_error(L, "features: list a tag as a string (\"smcp\") or key it (liga = 0)")
+			}
+			ft.tag = feature_tag(L, -1)
+			ft.value = 1
+		}
+		lua.pop(L, 1)
+	}
+	return out
+}
+
+// The string at `i` if it is an OpenType tag: one to four letters, digits
+// or spaces.
+@(private = "file")
+feature_tag :: proc(L: ^lua.State, i: c.int) -> string {
+	n: c.size_t
+	p := lua.tolstring(L, i, &n)
+	tag := string((cast([^]u8)p)[:n])
+	ok := len(tag) >= 1 && len(tag) <= 4
+	for ch in transmute([]u8)tag {
+		ok &&= (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == ' '
+	}
+	if !ok {
+		lua.L_error(L, "features: \"%s\" is not an OpenType tag (four characters, as \"smcp\" or \"ss01\")", p)
+	}
+	return tag
 }
 
 // `italic = true` or `style = "italic"|"oblique"`.

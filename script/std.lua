@@ -564,15 +564,24 @@ end
 -- (x from the box's left, y from the block's top, both unscaled).
 local caption_layouts = {}
 
+-- A features table as text, the same for the same settings.
+local function features_key(features)
+  if not features then return "" end
+  local parts = {}
+  for k, v in pairs(features) do parts[#parts + 1] = type(k) == "number" and tostring(v) or k .. "=" .. tostring(v) end
+  table.sort(parts)
+  return table.concat(parts, ",")
+end
+
 local function caption_layout(words, o, size)
   local texts = {}
   for i = 1, #words do texts[i] = o.uppercase and words[i].text:upper() or words[i].text end
   local style = table.concat({ o.font or "", size, o.weight or 400, o.letter_spacing or 0, o.w, o.align or "center",
-    o.line_height or 1.2 }, "|")
+    o.line_height or 1.2, features_key(o.features) }, "|")
   local key = style .. "|" .. table.concat(texts, " ")
   local cached = caption_layouts[key]
   if cached then return cached, texts end
-  local q = { font = o.font, size = size, weight = o.weight, letter_spacing = o.letter_spacing }
+  local q = { font = o.font, size = size, weight = o.weight, letter_spacing = o.letter_spacing, features = o.features }
   local function width(a, b)
     q[1] = table.concat(texts, " ", a, b)
     return text_width(q)
@@ -602,7 +611,7 @@ local caption_spring, caption_slide
 -- captions(f, { src, x, y, w, ... }) or captions{ ... } (the render call's clock): the caption
 -- page showing now, wrapped within w, its active word highlighted. See the README.
 local CAPTIONS_KEYS = { "src", "x", "y", "w", "align", "valign", "baseline", "font", "size", "weight",
-  "letter_spacing", "italic", "line_height", "uppercase", "fill", "active_fill", "spoken_fill", "upcoming_fill",
+  "letter_spacing", "features", "italic", "line_height", "uppercase", "fill", "active_fill", "spoken_fill", "upcoming_fill",
   "stroke", "stroke_width", "highlight", "highlight_fill", "box_padding", "box_radius", "active_scale", "spring",
   "slide_spring", "max_words", "max_duration", "combine_ms", "hold", "start" }
 function captions(f, o)
@@ -644,7 +653,8 @@ function captions(f, o)
   local function draw_word(i, paint)
     local r = rects[i]
     local node = { texts[i], x = r.x + (r.w - r.w / r.s) / 2, y = r.y, baseline = o.baseline or "middle",
-      font = o.font, size = size, weight = o.weight, letter_spacing = o.letter_spacing, italic = o.italic }
+      font = o.font, size = size, weight = o.weight, letter_spacing = o.letter_spacing, features = o.features,
+      italic = o.italic }
     local function draw()
       if o.stroke then -- an outline under the fill
         node.fill, node.stroke, node.stroke_width, node.line_join = "none", o.stroke, o.stroke_width or size * 0.12, "round"
@@ -698,14 +708,14 @@ end
 
 -- ---- text ---------------------------------------------------------------------
 
--- text_size{ "TEXT", font, weight, letter_spacing, max_width, size }: the
+-- text_size{ "TEXT", font, weight, letter_spacing, features, max_width, size }: the
 -- largest font size (at most `size`) at which the text fits `max_width` on one
 -- line: titles that fill a width without leaving the canvas.
-local TEXT_SIZE_KEYS = { "font", "weight", "letter_spacing", "max_width", "size", "italic", "text" }
+local TEXT_SIZE_KEYS = { "font", "weight", "letter_spacing", "features", "max_width", "size", "italic", "text" }
 function text_size(t)
   check_fields(t, "text_size", TEXT_SIZE_KEYS)
   local q = { t[1] or t.text, font = t.font, weight = t.weight, letter_spacing = t.letter_spacing,
-    italic = t.italic, size = t.size or 1000 }
+    features = t.features, italic = t.italic, size = t.size or 1000 }
   local size = q.size
   for _ = 1, 3 do -- widths scale with the size, letter spacing does not: settle in a few steps
     q.size = size
@@ -716,15 +726,16 @@ function text_size(t)
   return math.min(size, t.size or size)
 end
 
--- text_chars{ "TEXT", font, size, weight, letter_spacing } -> { { text, x, w }, ... }:
+-- text_chars{ "TEXT", font, size, weight, letter_spacing, features } -> { { text, x, w }, ... }:
 -- every character with its x from the start of the text (kerning included)
 -- and its width, for animating letters one by one; draw each with text{} at
 -- x0 + c.x (left aligned).
-local TEXT_CHARS_KEYS = { "font", "size", "weight", "letter_spacing", "italic", "text" }
+local TEXT_CHARS_KEYS = { "font", "size", "weight", "letter_spacing", "features", "italic", "text" }
 function text_chars(t)
   check_fields(t, "text_chars", TEXT_CHARS_KEYS)
   local str = t[1] or t.text
-  local q = { "", font = t.font, size = t.size, weight = t.weight, letter_spacing = t.letter_spacing, italic = t.italic }
+  local q = { "", font = t.font, size = t.size, weight = t.weight, letter_spacing = t.letter_spacing,
+    features = t.features, italic = t.italic }
   local out = {}
   for p, c in utf8.codes(str) do
     local ch = utf8.char(c)

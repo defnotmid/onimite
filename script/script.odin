@@ -1337,7 +1337,7 @@ l_path :: proc "c" (L: ^lua.State) -> c.int {
 	return 0
 }
 
-// text{ "Hello", x, y, font, size, weight, align = "left"|"center"|"right", letter_spacing, fill, stroke, opacity }
+// text{ "Hello", x, y, font, size, weight, align = "left"|"center"|"right", letter_spacing, features, fill, stroke, opacity }
 @(private)
 l_text :: proc "c" (L: ^lua.State) -> c.int {
 	s := host(L)
@@ -1369,6 +1369,7 @@ l_text :: proc "c" (L: ^lua.State) -> c.int {
 			align = align,
 			baseline = read_baseline(L, 1),
 			letter_spacing = get_num(L, 1, "letter_spacing", 0),
+			features = read_features(L, 1),
 			line_height = get_num(L, 1, "line_height", 0),
 			fill = fill,
 			fill_opacity = get_maybe(L, 1, "fill_opacity"),
@@ -1871,6 +1872,7 @@ font_query :: proc(L: ^lua.State, t: c.int) -> om.Font_Query {
 		weight = int(get_num(L, t, "weight", 400)),
 		italic = read_italic(L, t),
 		letter_spacing = get_num(L, t, "letter_spacing", 0),
+		features = read_features(L, t),
 	}
 }
 
@@ -1940,6 +1942,9 @@ l_text_width :: proc "c" (L: ^lua.State) -> c.int {
 	// every frame without keeping their own memo.
 	key := hash.fnv64a(transmute([]u8)str) ~ hash.fnv64a(transmute([]u8)q.family) * 31 ~
 		u64(transmute(u32)q.size) << 20 ~ u64(q.weight) << 7 ~ u64(q.italic) ~ u64(transmute(u32)q.letter_spacing) * 1099511628211
+	for f in q.features {
+		key = key * 1099511628211 ~ hash.fnv64a(transmute([]u8)f.tag) ~ u64(f.value) << 40
+	}
 	w, cached := s.widths[key]
 	if !cached {
 		ok: bool

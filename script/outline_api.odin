@@ -68,7 +68,7 @@ check_outline :: proc(L: ^lua.State, idx: c.int, what: cstring) -> ^om.Path_Asse
 	return (^om.Path_Asset)(lua.touserdata(L, idx))
 }
 
-// outline{ "TEXT", font, size, weight, italic, letter_spacing, align,
+// outline{ "TEXT", font, size, weight, italic, letter_spacing, features, align,
 // baseline, line_height, x, y } | outline{ svg = "file.svg", id, x, y, w, h,
 // fit, align } | outline{ d = "M0 0 ..." } -> path handle
 @(private)
@@ -134,7 +134,7 @@ l_outline :: proc "c" (L: ^lua.State) -> c.int {
 		}
 		l: vg.Text_Layout
 		vg.text_layout_init(&l, context.temp_allocator)
-		piece := vg.Text_Piece{text = str, style = {family = q.family, size = q.size, weight = q.weight, italic = q.italic, letter_spacing = q.letter_spacing}}
+		piece := vg.Text_Piece{text = str, style = {family = q.family, size = q.size, weight = q.weight, italic = q.italic, letter_spacing = q.letter_spacing, features = q.features}}
 		opts := vg.Text_Options{get_num(L, 1, "x", 0), get_num(L, 1, "y", 0), vg.Text_Align(align), vg.Text_Baseline(read_baseline(L, 1)), get_num(L, 1, "line_height", 0)}
 		vg.text_layout(&m.fonts, {piece}, opts, &l)
 		measured(s, q, len(l.missing) == 0)
