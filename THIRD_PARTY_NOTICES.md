@@ -22,7 +22,9 @@ separate file in [LICENSES/](LICENSES); binary releases ship `LICENSE`,
 | Apple ALAC | odecs' Apple Lossless decoder is a restructured port of Apple's reference decoder | `LICENSES/ALAC-Apache-2.0.txt` |
 | Lua 5.4 | script runtime | `LICENSES/Lua-MIT.txt` |
 | SDL 3 | window, input, audio, GPU (bundled shared library) | `LICENSES/SDL3-Zlib.txt` |
-| kb_text_shape | text shaping | `LICENSES/kb_text_shape-Zlib.txt` |
+| oglyph | fonts and OpenType text shaping (ovg draws text through it) | `LICENSES/oglyph-MIT.txt` |
+| HarfBuzz 14.6 | oglyph's shaper (`oglyph/shape`) follows its shapers, lookup application and fallbacks, and is generated in part from its tables | `LICENSES/HarfBuzz-MIT.txt` |
+| Unicode Character Database 17.0.0 | the character properties oglyph's shaper reads, generated from its data files | `LICENSES/Unicode-3.0.txt` |
 | Box2D 3.1 | rigid-body physics (`physics{}`) | `LICENSES/Box2D-MIT.txt` |
 | Box3D | 3D rigid-body physics (`physics3d{}`) | `LICENSES/Box3D-MIT.txt` |
 | o3d | 3D layers (`view3d{}`): the scene, its software and SDL_GPU renderers, glTF import | `LICENSES/o3d-MIT.txt` |

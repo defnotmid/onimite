@@ -12,15 +12,15 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-# The build reads ovg, oksl, odecs, ottis, o3d and odawg through
-# `-collection:deps=..`, so every job checks the seven repositories out side by side:
-#   $GITHUB_WORKSPACE/{onimite,ovg,oksl,odecs,ottis,o3d,odawg}
-# The siblings come from their default branches. The build, test and smoke
+# The build reads ovg, oglyph, oksl, odecs, ottis, o3d and odawg through
+# `-collection:deps=..`, so every job checks the eight repositories out side by side:
+#   $GITHUB_WORKSPACE/{onimite,ovg,oglyph,oksl,odecs,ottis,o3d,odawg}
+# oksl comes from its default branch; the others at their pinned tags. The build, test and smoke
 # steps are .github/ci.sh, the same on every OS.
 #
 # third_party/fetch.sh is not run: it fetches only the fframes reference
 # checkout for tools/bench.sh. Nothing in the build or the tests reads
-# third_party/; Lua, kb_text_shape and SDL3 come from Odin's
+# third_party/; Lua, Box2D and SDL3 come from Odin's
 # vendor packages (set up by .github/actions/setup-toolchain).
 
 jobs:
@@ -43,7 +43,13 @@ jobs:
         with:
           repository: defnotmid/ovg
           path: ovg
-          ref: v0.0.22
+          ref: v0.0.23
+      - uses: actions/checkout@v4
+        with:
+          repository: defnotmid/oglyph
+          # Pinned like ovg: fonts and text shaping, which ovg draws through (v0.0.1).
+          ref: v0.0.1
+          path: oglyph
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/oksl
@@ -51,7 +57,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/odecs
-          # Pinned like ottis: onimite, ovg v0.0.22, o3d v0.0.35, odawg v0.0.25 and ottis v0.0.7 decode through odecs v0.0.12.
+          # Pinned like ottis: onimite, ovg v0.0.23, o3d v0.0.35, odawg v0.0.25 and ottis v0.0.7 decode through odecs v0.0.12.
           ref: v0.0.12
           path: odecs
       - uses: actions/checkout@v4
@@ -105,7 +111,13 @@ jobs:
         with:
           repository: defnotmid/ovg
           path: ovg
-          ref: v0.0.22
+          ref: v0.0.23
+      - uses: actions/checkout@v4
+        with:
+          repository: defnotmid/oglyph
+          # Pinned like ovg: fonts and text shaping, which ovg draws through (v0.0.1).
+          ref: v0.0.1
+          path: oglyph
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/oksl
@@ -113,7 +125,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/odecs
-          # Pinned like ottis: onimite, ovg v0.0.22, o3d v0.0.35, odawg v0.0.25 and ottis v0.0.7 decode through odecs v0.0.12.
+          # Pinned like ottis: onimite, ovg v0.0.23, o3d v0.0.35, odawg v0.0.25 and ottis v0.0.7 decode through odecs v0.0.12.
           ref: v0.0.12
           path: odecs
       - uses: actions/checkout@v4

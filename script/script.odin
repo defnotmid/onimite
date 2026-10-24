@@ -82,6 +82,8 @@ Script :: struct {
 	node_text:       [dynamic]u8,
 	// text_width's results by text and font (hashed).
 	widths:        map[u64]f32,
+	// Warm scratch of the outline booleans (outline_api.odin).
+	bools:         vg.Bool_Scratch,
 	// Load-time data shared with the other states of a render (shared.odin):
 	// the render's, or `own_shared`.
 	shared:        ^Shared,
@@ -289,6 +291,7 @@ unload :: proc(s: ^Script) {
 	songs_unload(s)
 	physics_unload(s)
 	delete(s.widths)
+	vg.bool_scratch_destroy(&s.bools)
 	delete(s.node_sources)
 	delete(s.node_text)
 	delete(s.scenes)
@@ -760,6 +763,11 @@ API := [?]Api_Function {
 	{"outline_bounds", l_outline_bounds, .Both},
 	{"morph", l_morph, .Both},
 	{"morph_at", l_morph_at, .Both},
+	{"outline_union", l_outline_union, .Both},
+	{"outline_subtract", l_outline_subtract, .Both},
+	{"outline_intersect", l_outline_intersect, .Both},
+	{"outline_exclude", l_outline_exclude, .Both},
+	{"outline_divide", l_outline_divide, .Both},
 	{"shared", l_shared, .Both},
 	{"physics_at", l_physics_at, .Both},
 	{"physics3d_at", l_physics3d_at, .Both},

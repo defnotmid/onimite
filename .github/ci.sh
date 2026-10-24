@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # What CI runs (.github/workflows/ci.yml), from an onimite checkout with ovg,
-# oksl, odecs and ottis beside it; runnable locally too:
+# oglyph, oksl, odecs, ottis, o3d and odawg beside it; runnable locally too:
 #
 #   bash .github/ci.sh build   # build/onimite, -o:speed, version v0.0.0-ci (it can update)
 #   bash .github/ci.sh test    # odin test, every package that has tests

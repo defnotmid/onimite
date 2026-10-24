@@ -47,6 +47,7 @@ onimite is built from sibling Odin projects and Odin's vendor packages:
 | piece | what |
 | --- | --- |
 | [`ovg`](https://github.com/defnotmid/ovg) | 2D vector canvas (femtovg lineage): software backend + SDL_GPU (Vulkan / Metal / D3D12) |
+| [`oglyph`](https://github.com/defnotmid/oglyph) | fonts and OpenType text shaping in native Odin (HarfBuzz's rules, checked against it), which ovg draws text through |
 | [`odecs`](https://github.com/defnotmid/odecs) | H.264 / H.265 / AAC codecs (native Odin, Vulkan Video when available), MP4, clip decoding; every image (PNG, JPEG, GIF, WebP, ...) and audio file (WAV, FLAC, MP3, Ogg, M4A) |
 | [`oksl`](https://github.com/defnotmid/oksl) | shader compiler for SkSL, Shadertoy and GLSL: SPIR-V, MSL and a CPU interpreter |
 | [`ottis`](https://github.com/defnotmid/ottis) | text to speech with word timings (Kyutai's Pocket TTS through ONNX Runtime, loaded at run time; models downloaded on first use) |
@@ -54,7 +55,6 @@ onimite is built from sibling Odin projects and Odin's vendor packages:
 | [`o3d`](https://github.com/defnotmid/o3d) | 3D in three.js's vocabulary: an SDL_GPU renderer and a software one drawing the same pixels, glTF 2.0 (skins, morph targets, animations), 3MF and OBJ import |
 | `vendor:lua/5.4` | the script runtime |
 | `vendor:sdl3` | GPU device and the preview window |
-| `vendor:kb_text_shape` | text shaping |
 
 ## Features
 
@@ -136,6 +136,7 @@ that make videos with onimite.
 ```sh
 git clone https://github.com/defnotmid/onimite
 git clone https://github.com/defnotmid/ovg
+git clone https://github.com/defnotmid/oglyph
 git clone https://github.com/defnotmid/oksl
 git clone https://github.com/defnotmid/odecs
 git clone https://github.com/defnotmid/ottis
@@ -146,7 +147,7 @@ mkdir -p build    # a fresh clone has no build/ (gitignored); Odin will not crea
 odin build . -collection:deps=.. -o:speed -out:build/onimite
 ```
 
-`deps` is the parent directory holding `ovg`, `oksl`, `odecs`, `ottis`, `o3d` and `odawg`. Use
+`deps` is the parent directory holding `ovg`, `oglyph`, `oksl`, `odecs`, `ottis`, `o3d` and `odawg`. Use
 `-o:speed`: unoptimized builds are many times slower. On Linux the binary
 links the system SDL3 (`pacman -S sdl3`, `apt install libsdl3-dev` on Ubuntu
 25.04+, otherwise build SDL 3 from source as `.github/actions/setup-toolchain`
@@ -156,7 +157,6 @@ ships SDL3 for Windows. Odin's Linux release ships some vendor C libraries
 as source; build them once:
 
 ```sh
-sh "$(odin root)/vendor/kb_text_shape/src/build_unix.sh"
 bash "$(odin root)/vendor/box2d/build_box2d.sh"   # needs cmake; fetches Box2D 3.1.1 (its WASM step may fail: harmless)
 ```
 
@@ -173,8 +173,6 @@ command line tools and Homebrew:
 
 ```sh
 brew install sdl3 lua@5.4        # lua@5.4 is keg-only; `lua` is 5.5
-# Odin's vendor C libraries that ship as source:
-sh "$(odin root)/vendor/kb_text_shape/src/build_unix.sh"
 # vendor:lua links `lua5.4`; point the linker at the keg:
 odin build . -collection:deps=.. -o:speed -out:build/onimite \
     -extra-linker-flags:"-L$(brew --prefix lua@5.4)/lib"
@@ -239,7 +237,7 @@ does that check once as it starts (off with `--update-check false` or
 Push a tag `vX.Y.Z` (`git tag v0.1.0 && git push origin v0.1.0`; a tag with
 a `-`, like `v0.2.0-rc1`, makes a prerelease, which the installers skip).
 `.github/workflows/release.yml` builds `-o:speed` stripped binaries against the
-default branches of ovg, oksl and odecs, and ottis, o3d and odawg at their pinned
+default branch of oksl and ovg, oglyph, odecs, ottis, o3d and odawg at their pinned
 tags, with the tag as their
 `--version`, and publishes a GitHub release:
 

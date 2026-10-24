@@ -66,17 +66,14 @@ install_odin() {
 	extract_into "$dl/$asset" "$odin_dir"
 	rm -rf "${dl:?}"
 
-	# vendor:kb_text_shape ships as C source on Linux and macOS; the Windows release has it
-	# prebuilt. ODIN_ROOT must point here: the scripts otherwise build into whatever ODIN_ROOT the environment
-	# already has.
-	if [ "$platform" != windows ]; then
+	# vendor:box2d ships as C source on Linux; the macOS and Windows releases
+	# have it prebuilt. ODIN_ROOT must point here: the script otherwise builds
+	# into whatever ODIN_ROOT the environment already has.
+	if [ "$platform" = linux ]; then
 		export ODIN_ROOT="$odin_dir"
-		if [ "$platform" = linux ]; then
-			# Fetches Box2D's source and builds it with cmake; its trailing WASM
-			# build fails without a WASM toolchain, which the script tolerates.
-			bash "$odin_dir/vendor/box2d/build_box2d.sh"
-		fi
-		sh "$odin_dir/vendor/kb_text_shape/src/build_unix.sh"
+		# Fetches Box2D's source and builds it with cmake; its trailing WASM
+		# build fails without a WASM toolchain, which the script tolerates.
+		bash "$odin_dir/vendor/box2d/build_box2d.sh"
 	fi
 	"$odin_dir/odin" version
 }

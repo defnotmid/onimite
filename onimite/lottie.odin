@@ -252,6 +252,14 @@ draw_lottie :: proc(r: ^Renderer, n: Lottie) {
 	for family in lr.missing {
 		report(&r.ctx, .Warning, {code = .Missing_Font, name = family})
 	}
+	// what the draw cut short or drew otherwise (ovg expects neither)
+	info := vg.LIMIT_INFO
+	for l in lr.limited {
+		report(&r.ctx, .Warning, {code = .Lottie_Warning, name = n.src, a = strings.concatenate({"reached the ", info[l].name, " limit: drawn in part"}, context.temp_allocator)})
+	}
+	if lr.merge_fallbacks > 0 {
+		report(&r.ctx, .Warning, {code = .Lottie_Warning, name = n.src, a = "a merge path fell back to joining its shapes"})
+	}
 }
 
 // The renderer's `vg.Lottie_Renderer` for `doc`, bound to its images on

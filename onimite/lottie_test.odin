@@ -162,3 +162,38 @@ test_lottie_text_override :: proc(t: ^testing.T) {
 	}
 	testing.expect(t, warned)
 }
+
+// Two nested repeaters of 300 copies each: 90,000 squares, past ovg's
+// 20,000 repeater copies a draw, so the draw is cut short and says so.
+@(private = "file")
+LOTTIE_REPEATS :: `{"v": "5.7.0", "fr": 10, "ip": 0, "op": 20, "w": 40, "h": 20, "layers": [
+	{"ty": 4, "ind": 1, "ip": 0, "op": 20, "ks": {}, "shapes": [
+		{"ty": "rc", "p": {"a": 0, "k": [1, 1]}, "s": {"a": 0, "k": [1, 1]}, "r": {"a": 0, "k": 0}},
+		{"ty": "fl", "c": {"a": 0, "k": [1, 0, 0, 1]}, "o": {"a": 0, "k": 100}},
+		{"ty": "rp", "c": {"a": 0, "k": 300}, "o": {"a": 0, "k": 0}, "tr": {"p": {"a": 0, "k": [0.1, 0]}}},
+		{"ty": "rp", "c": {"a": 0, "k": 300}, "o": {"a": 0, "k": 0}, "tr": {"p": {"a": 0, "k": [0, 0.05]}}}]}]}`
+
+@(private = "file")
+render_lottie_repeats :: proc(f: Frame, ctx: ^Context) {
+	lottie(ctx, f, {src = "repeats.json", x = 0, y = 0, w = 40})
+}
+
+@(test)
+test_lottie_draw_limit :: proc(t: ^testing.T) {
+	@(static) scenes: [1]Scene
+	scenes = [1]Scene{{name = "Repeats", duration = Frames(10), render = render_lottie_repeats}}
+	v := Video{width = 40, height = 20, fps = 10, background = WHITE, scenes = scenes[:]}
+	media: Media
+	media_init(&media)
+	defer media_destroy(&media)
+	testing.expect_value(t, media_load_test_files(&media, {"repeats.json", LOTTIE_REPEATS}), Error.None)
+	r: Renderer
+	testing.expect_value(t, renderer_init(&r, &v, &media), Error.None)
+	defer renderer_destroy(&r)
+	render_frame(&r, 0)
+	got := make([dynamic]string, context.temp_allocator)
+	for d in r.ctx.diagnostics {
+		append(&got, diagnostic_message(d, context.temp_allocator))
+	}
+	testing.expectf(t, len(got) == 1 && got[0] == `Lottie "repeats.json": reached the repeater copies per draw limit: drawn in part`, "diagnostics: %v", got[:])
+}

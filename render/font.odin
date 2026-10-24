@@ -6,7 +6,7 @@ import "core:slice"
 import vg "deps:ovg"
 import sdl "vendor:sdl3"
 
-// Text is laid out by ovg (kb_text_shape over a Font_Collection: kerning,
+// Text is laid out by ovg (oglyph's OpenType shaper over a Font_Collection: kerning,
 // ligatures, bidi, per-glyph fallback) and rasterized into ovg's CPU glyph
 // atlas; we mirror the atlas rows it wrote into an R8 GPU texture and draw
 // each glyph quad through the shared rect2d (glyph) pipeline.

@@ -74,12 +74,13 @@ it (no system SDL3 needed; on Windows `lua54.dll` too). Keep them together, and 
 
 ### From source
 
-onimite is built with the [Odin](https://odin-lang.org) compiler from seven sibling
+onimite is built with the [Odin](https://odin-lang.org) compiler from eight sibling
 repositories (the build's `deps` collection is their parent directory):
 
 ```bash
 git clone https://github.com/defnotmid/onimite
 git clone https://github.com/defnotmid/ovg     # 2D vector canvas: software + SDL_GPU (Vulkan / Metal / D3D12)
+git clone https://github.com/defnotmid/oglyph  # fonts and OpenType text shaping (ovg draws text through it)
 git clone https://github.com/defnotmid/oksl    # shader compiler: SkSL, Shadertoy and GLSL to SPIR-V, MSL, CPU
 git clone https://github.com/defnotmid/odecs   # every image, sound and clip decoder, and the MP4 encoder
 git clone https://github.com/defnotmid/odawg   # songs and the mix in Tone.js's vocabulary, loudness, onsets, spectra
@@ -92,7 +93,7 @@ odin build . -collection:deps=.. -o:speed -out:build/onimite
 
 Lua 5.4 and SDL3 come through Odin's `vendor:` packages; Odin ships the SDL3 library
 for Windows, Linux and macOS link the system one (`pacman -S sdl3`, `apt install libsdl3-dev`, `brew install sdl3`), and Linux links libcurl (`apt install libcurl4-openssl-dev`). Odin's Linux release ships
-some vendor C libraries (kb_text_shape, Box2D) as source to build once (the
+a vendor C library (Box2D) as source to build once (the
 onimite README, "Build"); macOS needs a few extra steps (the README, "macOS"). Use `-o:speed`: unoptimized builds are many times slower.
 If `build/onimite` already exists and no `.odin` file is newer, skip the build.
 

@@ -236,3 +236,142 @@ l_morph_at :: proc "c" (L: ^lua.State) -> c.int {
 	lua.pushlightuserdata(L, shared_path_asset(s.shared, &p, .Non_Zero))
 	return 1
 }
+
+// outline_union(a, b, ...) | outline_subtract(a, b, ...) |
+// outline_intersect(a, b, ...) | outline_exclude(a, b, ...) -> path handle:
+// one outline of the outlines (or one list of them) by ovg's path booleans,
+// their own curves kept: everything any covers, the first minus the rest,
+// what all cover, what an odd number cover. A union of one resolves its own
+// overlaps. For this frame when rendering (at load: kept for the render).
+@(private)
+l_outline_union :: proc "c" (L: ^lua.State) -> c.int {
+	return outline_boolean(L, .Union, "outline_union")
+}
+
+@(private)
+l_outline_subtract :: proc "c" (L: ^lua.State) -> c.int {
+	return outline_boolean(L, .Difference, "outline_subtract")
+}
+
+@(private)
+l_outline_intersect :: proc "c" (L: ^lua.State) -> c.int {
+	return outline_boolean(L, .Intersection, "outline_intersect")
+}
+
+@(private)
+l_outline_exclude :: proc "c" (L: ^lua.State) -> c.int {
+	return outline_boolean(L, .Xor, "outline_exclude")
+}
+
+@(private = "file")
+outline_boolean :: proc "c" (L: ^lua.State, op: vg.Bool_Op, what: cstring) -> c.int {
+	s := host(L)
+	context = s.odin_context
+	operands := bool_operands(L, what)
+	out: vg.Path
+	vg.path_init(&out, context.temp_allocator)
+	bool_check(L, vg.path_boolean_many(&out, operands, op, &s.bools), what)
+	lua.pushlightuserdata(L, outline_result(s, &out))
+	return 1
+}
+
+// outline_divide(a, b, ...) -> { { outline = h, inside = { 1, 3 } }, ... }:
+// every region the outlines make (Illustrator's divide), each with the
+// numbers of the outlines it lies inside.
+@(private)
+l_outline_divide :: proc "c" (L: ^lua.State) -> c.int {
+	s := host(L)
+	context = s.odin_context
+	operands := bool_operands(L, "outline_divide")
+	out: vg.Path
+	vg.path_init(&out, context.temp_allocator)
+	faces := make([dynamic]vg.Range, context.temp_allocator)
+	bool_check(L, vg.path_divide(&out, &faces, operands, &s.bools), "outline_divide")
+	lua.createtable(L, c.int(len(faces)), 0)
+	piece: vg.Path
+	vg.path_init(&piece, context.temp_allocator)
+	// the faces fill `out` back to back: their coordinates follow in order
+	first := 0
+	for f, i in faces {
+		verbs := out.verbs[f.start:][:f.count]
+		count := 0
+		for v in verbs {
+			count += vg.verb_num_coords(v)
+		}
+		clear(&piece.verbs)
+		clear(&piece.coords)
+		append(&piece.verbs, ..verbs)
+		append(&piece.coords, ..out.coords[first:][:count])
+		first += count
+		lua.createtable(L, 0, 2)
+		lua.pushlightuserdata(L, outline_result(s, &piece))
+		lua.setfield(L, -2, "outline")
+		lua.createtable(L, 2, 0)
+		n := 0
+		for o in 0 ..< len(operands) {
+			if s.bools.core.faces_in[i * len(operands) + o] {
+				n += 1
+				lua.pushinteger(L, lua.Integer(o + 1))
+				lua.rawseti(L, -2, lua.Integer(n))
+			}
+		}
+		lua.setfield(L, -2, "inside")
+		lua.rawseti(L, -2, lua.Integer(i + 1))
+	}
+	return 1
+}
+
+// The outlines in the arguments (or in a list as the only one), as
+// operands under their own fill rules (temp memory).
+@(private = "file")
+bool_operands :: proc(L: ^lua.State, what: cstring) -> []vg.Bool_Operand {
+	assets := make([dynamic]^om.Path_Asset, context.temp_allocator)
+	if lua.gettop(L) == 1 && lua.istable(L, 1) {
+		n := int(lua.rawlen(L, 1))
+		for i in 1 ..= n {
+			lua.rawgeti(L, 1, lua.Integer(i))
+			append(&assets, check_outline(L, -1, what))
+			lua.pop(L, 1)
+		}
+	} else {
+		for i in 1 ..= lua.gettop(L) {
+			append(&assets, check_outline(L, i, what))
+		}
+	}
+	if len(assets) == 0 {
+		lua.L_error(L, "%s: expected outlines (from outline{} or path_data())", what)
+	}
+	operands := make([]vg.Bool_Operand, len(assets), context.temp_allocator)
+	for a, i in assets {
+		p := new(vg.Path, context.temp_allocator)
+		vg.path_init(p, context.temp_allocator)
+		append(&p.verbs, ..a.verbs)
+		append(&p.coords, ..a.coords)
+		operands[i] = {p, a.fill_rule}
+	}
+	return operands
+}
+
+// A boolean's error as the script's.
+@(private = "file")
+bool_check :: proc(L: ^lua.State, err: vg.Bool_Error, what: cstring) {
+	switch err {
+	case .None:
+	case .Non_Finite:
+		lua.L_error(L, "%s: an outline has a coordinate that is not a finite number", what)
+	case .Limit:
+		lua.L_error(L, "%s: reached the boolean work limit (fewer or simpler outlines)", what)
+	case .Inconsistent:
+		lua.L_error(L, "%s: the outlines' crossings did not resolve (nudge one by a little)", what)
+	}
+}
+
+// A path made from outlines as a handle: the frame's when rendering, else
+// kept for the render (Solid-wound: either fill rule fills it alike).
+@(private = "file")
+outline_result :: proc(s: ^Script, p: ^vg.Path) -> ^om.Path_Asset {
+	if s.ctx != nil {
+		return path_asset_copy(p, .Non_Zero, s.ctx.tree.arena)
+	}
+	return shared_path_asset(s.shared, p, .Non_Zero)
+}

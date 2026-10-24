@@ -69,15 +69,19 @@ lottie { src = "spinner.json", x = 0, y = 0, w = 300, overrides = {    -- by lay
   parenting, transforms (separated position, skew), track mattes (alpha, luma, inverted), masks
   (add, subtract, intersect, inverted, opacity, expansion), blend modes, groups, rect, ellipse,
   path, polystar, fill, stroke (caps, joins, dashes), linear / radial gradients (opacity stops,
-  highlight), trim paths, repeater, eased / hold / spatial keyframes; effects (gaussian blur,
+  highlight), trim paths, repeater, merge paths (merge, add, subtract, intersect, exclude
+  intersections, as Skottie draws them), eased / hold / spatial keyframes; effects (gaussian blur,
   drop shadow, fill, tint, tritone; animated); text layers (document keyframes, justification,
   tracking, line height, baseline shift, box text wrapping) laid out with the media's fonts
   (the file's font family: built in, or put its .ttf in `media/`; else DM Sans draws it and
   a missing-font warning names the family) and text animators (range selectors by characters /
   words / lines; per-letter position, scale, rotation, opacity, fill / stroke colour,
-  tracking). Other effects, layer styles, merge paths, text on a path, expressions (keyframed
-  values play), 3D and mask feather are warnings naming the file: check `onimite inspect`
-  after adding a file.
+  tracking). Other effects, layer styles, text on a path, expressions (keyframed
+  values play), 3D and mask feather are warnings naming the file. So is a draw cut short by
+  one of ovg's limits, far above what real files use (`reached the repeater copies per draw
+  limit: drawn in part`: nested repeaters past 20,000 copies; also layers per draw, precomps'
+  included, and a merge path's boolean work), and a merge path that fell back to joining its
+  shapes. Check `onimite inspect` after adding a file.
 
 ## Video clips
 

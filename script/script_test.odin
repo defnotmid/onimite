@@ -1247,6 +1247,28 @@ assert(morph(A, SQ) == M)
 local ax, ay, aw, ah = outline_bounds(morph_at(M, 0))
 local bx, by, bw, bh = outline_bounds(morph_at(M, 1))
 assert(near(aw, w) and near(ah, h) and near(bw, 100) and near(bh, 100))
+-- Booleans of two overlapping squares (0..100 and 50..150 across).
+local SQ2 = outline { d = "M50 0H150V100H50Z" }
+x, y, w, h = outline_bounds(outline_union(SQ, SQ2))
+assert(near(x, 0) and near(w, 150) and near(h, 100))
+assert(outline_union({ SQ, SQ2 }) == outline_union(SQ, SQ2))  -- a list or the arguments
+x, y, w, h = outline_bounds(outline_subtract(SQ, SQ2))
+assert(near(x, 0) and near(w, 50), string.format("%g %g", x, w))
+x, y, w, h = outline_bounds(outline_intersect(SQ, SQ2))
+assert(near(x, 50) and near(w, 50), string.format("%g %g", x, w))
+x, y, w, h = outline_bounds(outline_exclude(SQ, SQ2))
+assert(near(x, 0) and near(w, 150))
+local pieces = outline_divide(SQ, SQ2)
+assert(#pieces == 3)
+local both = 0
+for _, p in ipairs(pieces) do
+  x, y, w, h = outline_bounds(p.outline)
+  assert(near(w, 50) and near(h, 100))
+  if #p.inside == 2 then both = both + 1; assert(near(x, 50)) end
+end
+assert(both == 1)
+local okb, err = pcall(outline_union)
+assert(not okb and err:find("outline_union: expected outlines"), err)
 -- A 100 px ring (a 60 px hole) dropped on a floor: rests on its edge, centre 50 px up.
 local RING = outline { d = "M-50 -50H50V50H-50Z M-30 -30V30H30V-30Z" }
 local sim = physics { duration = 2, gravity = 2000, bodies = {

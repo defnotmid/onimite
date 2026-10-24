@@ -1,6 +1,6 @@
 name: Set up the onimite toolchain
 description: >-
-  Pinned Odin (with vendor:kb_text_shape built),
+  Pinned Odin (with vendor:box2d built on Linux),
   SDL3 built from source on Linux and macOS, and a static Lua 5.4 on macOS.
   Each piece is cached by its version. Exports ODIN_ROOT, PATH,
   ONIMITE_LDFLAGS, ONIMITE_TEST_LDFLAGS and SDL3_LIB_DIR (see install.sh).

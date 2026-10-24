@@ -471,8 +471,8 @@ its own paths parsed once with `shared` + `path_data`.
 
 An outline is a path handle (as `path_data` makes) from text, an SVG or path data, placed
 exactly where `text{}` / `svg{}` with the same fields would draw it. One handle draws
-(`path{ d = h }`, `clip_path = h`, dashes for draw-on), morphs, collides (a physics body's
-`outline`) and extrudes (3D `ExtrudeGeometry`, 3d.md):
+(`path{ d = h }`, `clip_path = h`, dashes for draw-on), morphs, combines (booleans, below),
+collides (a physics body's `outline`) and extrudes (3D `ExtrudeGeometry`, 3d.md):
 
 ```lua
 local A = outline { "A", font = "Bebas Neue", size = 400, align = "center", baseline = "middle" }  -- text{}'s fields
@@ -497,6 +497,24 @@ end }
   filters are not part of an outline; a pixel-art SVG drawn as one `<rect>` per pixel is
   hundreds of contours (trace it into paths first: the onimite libraries' marks are traced,
   each with a hidden `silhouette`).
+- **Booleans** make one outline of several, keeping their curves (ovg's path booleans), as
+  vector editors' pathfinder does: `outline_union(a, b, ...)` (everything any covers; one
+  outline alone resolves its own overlaps), `outline_subtract(a, b, ...)` (`a` minus the rest:
+  text cut out of a card, holes punched), `outline_intersect(a, b, ...)` (what all cover),
+  `outline_exclude(a, b, ...)` (what an odd number cover: xor). Each takes the outlines or one
+  list of them, under their own fill rules. `outline_divide(a, b, ...)` splits them into every
+  region they make: `{ { outline = h, inside = { 1, 3 } }, ... }`, `inside` the numbers of the
+  outlines the piece lies in (colour each piece by them). The result is an outline like any
+  other (draw, clip, morph, collide, extrude). Made while rendering it is that frame's (a
+  card minus "SALE" minus a circle: 0.07 ms a call, measured); make fixed ones at load.
+  Outlines whose crossings don't resolve, or past the boolean work limit, are errors naming
+  the call.
+
+  ```lua
+  local CARD = outline { d = "M40 40H560A30 30 0 0 1 590 70V290A30 30 0 0 1 560 320H40A30 30 0 0 1 10 290V70A30 30 0 0 1 40 40Z" }
+  local WORD = outline { "SALE", font = "Bebas Neue", size = 240, x = 300, y = 180, align = "center", baseline = "middle" }
+  local STENCIL = outline_subtract(CARD, WORD)       -- what is behind shows through the letters
+  ```
 - `morph(a, b)` pairs solid contours with solid ones and holes with holes; a contour with no
   partner grows from a point or shrinks to one, so letters with different counters morph
   ("B" into "O" into a logo). It is matched once per pair; `morph_at(m, t)` is cheap every
@@ -602,16 +620,17 @@ text { "ID 0042", x = 1100, y = 500, font = "JetBrains Mono", size = 64, fill = 
   `opacity`, `spans`.
 - `features` turns a font's OpenType features on or off over its defaults, as CSS
   `font-feature-settings`: `{ "zero", "ss02", liga = 0, kern = false, salt = 2 }` (a listed tag
-  is on; a keyed one takes `true`/`false` or a number, n > 1 the nth alternate). A tag the
-  font lacks does nothing. Built-in fonts: DM Sans `frac` ("1/2" as ½), `numr`, `dnom`,
+  is on; a keyed one takes `true`/`false` or a number, n > 1 the nth alternate; a tag both
+  listed and keyed takes the keyed value). A tag the font lacks does nothing. Built-in fonts: DM Sans `frac` ("1/2" as ½), `numr`, `dnom`,
   `ss02` `ss03` `ss05` `ss07` (alternate letters), `sups`; JetBrains Mono `zero`, `frac`,
   `sups`; Instrument Serif `ss01`; Bebas Neue `pnum`, `frac`; all `liga`/`kern` off. Letter
   spacing turns ligatures off unless `features` sets `liga`. `text_width`, `text_fit`,
   `text_lines`, `text_size`, `text_chars`, `outline{}` and `captions{}` take `features` too.
 - Spans: `{ "text", font, size, weight, italic, fill, fill_opacity, letter_spacing, features, dx, dy }`
   (a span's `features` replace the text's).
-- Shaped with kb_text_shape: ligatures, kerning, marks, Arabic joining, Indic scripts,
-  right-to-left runs. Glyphs missing from a font fall back to other media fonts, then to the
+- Shaped by oglyph, ovg's OpenType shaper (HarfBuzz's rules, checked against it): ligatures, kerning,
+  marks, Arabic joining, Indic scripts, right-to-left runs. Variable fonts draw at their
+  default instance. Glyphs missing from a font fall back to other media fonts, then to the
   bundled Noto Color Emoji; glyphs no font has are reported by `inspect`. Drawn as vector
   outlines (sharp under any transform).
 - Emoji just work: `text { "Launch day 🚀🔥 👩‍💻 🇯🇵", ... }` draws them in colour (vector
