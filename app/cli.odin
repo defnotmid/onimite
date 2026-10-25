@@ -461,10 +461,9 @@ contact_sheet :: proc(app: ^App_State, out: string, pixels: []u8, cw, ch: u32, l
 
 	path: vg.Path
 	defer vg.path_destroy(&path)
-	glyphs: [dynamic]vg.Positioned_Glyph
-	defer delete(glyphs)
-	font := om.media_fallback_font(&app.media)
-	em := vg.font_scale_for_em(font, f32(label_h) * 3 / 5)
+	layout: vg.Text_Layout
+	vg.text_layout_init(&layout)
+	defer vg.text_layout_destroy(&layout)
 	size := int(cw * ch * 4)
 	images := make([]vg.Image_Id, n, context.temp_allocator)
 	for i in 0 ..< n {
@@ -477,9 +476,7 @@ contact_sheet :: proc(app: ^App_State, out: string, pixels: []u8, cw, ch: u32, l
 		p := vg.paint_image(images[i], x, y, f32(cw), f32(ch), 0)
 		p.anti_alias = false
 		vg.fill_path(&sheet, &path, p)
-		clear(&glyphs)
-		vg.layout_simple(font, labels[i], x + 6, y + f32(ch) + f32(label_h) * 3 / 4, em, &glyphs)
-		vg.fill_glyph_outlines(&sheet, font, glyphs[:], em, vg.paint_color(vg.rgb(244, 244, 245)), &path)
+		fill_text(&sheet, &app.media.fonts, &layout, &path, labels[i], x + 6, y + f32(ch) + f32(label_h) * 3 / 4, f32(label_h) * 3 / 5, vg.rgb(244, 244, 245))
 	}
 	vg.flush(&sheet)
 	for img in images {
@@ -490,6 +487,17 @@ contact_sheet :: proc(app: ^App_State, out: string, pixels: []u8, cw, ch: u32, l
 		return fail(app, {code = .Write, path = out})
 	}
 	return nil
+}
+
+// One line of text in the fonts' fallback family (the built-in DM Sans, not
+// the script's first face), `size` px to the em, its baseline starting at
+// (x, y), filled as its glyphs' outlines.
+@(private)
+fill_text :: proc(c: ^vg.Canvas, fonts: ^vg.Font_Collection, l: ^vg.Text_Layout, p: ^vg.Path, text: string, x, y, size: f32, color: vg.Color) {
+	vg.text_layout(fonts, {vg.Text_Piece{text = text, style = {family = fonts.fallback.family, size = size}}}, {x = x, y = y}, l)
+	for run in l.runs {
+		if font := vg.text_layout_font(l, run); font != nil do vg.fill_glyph_outlines(c, font, l.glyphs[run.first:][:run.count], run.em, vg.paint_color(color), p)
+	}
 }
 
 // ---- snapshot --------------------------------------------------------------------

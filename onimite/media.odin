@@ -361,11 +361,6 @@ media_face_builtin :: proc(m: ^Media, i: int) -> bool {
 	return i >= len(m.fonts.faces) - m.builtin_faces
 }
 
-// The face used when a family is missing (built-in DM Sans).
-media_fallback_font :: proc(m: ^Media) -> ^vg.Font {
-	return &m.fonts.fallback.font
-}
-
 // Image `name`, decoded on the first call (by one caller while any others
 // wait) and again after an eviction, used by frame `frame` (-1: no frame).
 // `img` is nil when the media has no such image; `ok` is false when its

@@ -709,15 +709,10 @@ write_waveform :: proc(app: ^App_State, r: ^om.Renderer, path: string, l, right,
 	vg.clear_rect(&c, 0, 0, W, H, vg.rgb(24, 24, 27))
 	p: vg.Path
 	defer vg.path_destroy(&p)
-	glyphs: [dynamic]vg.Positioned_Glyph
-	defer delete(glyphs)
-	font := om.media_fallback_font(&app.media)
-	label :: proc(c: ^vg.Canvas, font: ^vg.Font, glyphs: ^[dynamic]vg.Positioned_Glyph, p: ^vg.Path, text: string, x, y, size: f32, color: vg.Color) {
-		em := vg.font_scale_for_em(font, size)
-		clear(glyphs)
-		vg.layout_simple(font, text, x, y, em, glyphs)
-		vg.fill_glyph_outlines(c, font, glyphs[:], em, vg.paint_color(color), p)
-	}
+	layout: vg.Text_Layout
+	vg.text_layout_init(&layout)
+	defer vg.text_layout_destroy(&layout)
+	fonts := &app.media.fonts
 
 	n := min(len(l), len(right))
 	duration := max(f64(n) / om.MIX_RATE, 1e-6)
@@ -763,7 +758,7 @@ write_waveform :: proc(app: ^App_State, r: ^om.Renderer, path: string, l, right,
 		band: int,
 	}{{"20", 0}, {"100", 7}, {"1k", 17}, {"10k", 27}}
 	for a in axis {
-		label(&c, font, &glyphs, &p, a.text, 4, f32(SPEC_TOP + SPEC_H - a.band * BAND_H - 2), 11, vg.rgb(212, 212, 216))
+		fill_text(&c, fonts, &layout, &p, a.text, 4, f32(SPEC_TOP + SPEC_H - a.band * BAND_H - 2), 11, vg.rgb(212, 212, 216))
 	}
 
 	fps := f64(r.video.fps)
@@ -777,7 +772,7 @@ write_waveform :: proc(app: ^App_State, r: ^om.Renderer, path: string, l, right,
 		vg.path_rect(&p, x, TOP, 1, WAVE_H)
 		vg.path_rect(&p, x, SPEC_TOP, 1, SPEC_H)
 		vg.fill_path(&c, &p, vg.paint_color(vg.rgb(167, 139, 250)))
-		label(&c, font, &glyphs, &p, s.scene.name, x + 3, TOP - 8, 13, vg.rgb(196, 181, 253))
+		fill_text(&c, fonts, &layout, &p, s.scene.name, x + 3, TOP - 8, 13, vg.rgb(196, 181, 253))
 	}
 	for pl in placed {
 		t := f64(pl.start) / om.MIX_RATE - offset
@@ -808,7 +803,7 @@ write_waveform :: proc(app: ^App_State, r: ^om.Renderer, path: string, l, right,
 		vg.path_rect(&p, x - 0.5, TOP, 1, WAVE_H)
 		vg.fill_path(&c, &p, vg.paint_color(vg.rgba(74, 222, 128, 160)))
 		if fam := family_of(cue.name); fam != last_family {
-			label(&c, font, &glyphs, &p, fam, x + 3, TOP + 14, 12, vg.rgb(134, 239, 172))
+			fill_text(&c, fonts, &layout, &p, fam, x + 3, TOP + 14, 12, vg.rgb(134, 239, 172))
 			last_family = fam
 		}
 	}
@@ -820,10 +815,10 @@ write_waveform :: proc(app: ^App_State, r: ^om.Renderer, path: string, l, right,
 		}
 	}
 	for t: f64 = 0; t <= duration; t += tick {
-		label(&c, font, &glyphs, &p, fmt.tprintf("%.0fs", t + offset), x_of(t, duration) + 2, H - 12, 12, vg.rgb(161, 161, 170))
+		fill_text(&c, fonts, &layout, &p, fmt.tprintf("%.0fs", t + offset), x_of(t, duration) + 2, H - 12, 12, vg.rgb(161, 161, 170))
 	}
-	label(&c, font, &glyphs, &p, "waveform (blue), momentary loudness -60..0 LUFS (pink), scenes (purple), track starts (yellow), onsets (white ticks), cues (green)", 8, H - 30, 12, vg.rgb(161, 161, 170))
-	label(&c, font, &glyphs, &p, "spectrogram: third-octave bands 20 Hz..20 kHz, -100 (dark) .. -10 dBFS (bright)", 8, H - 48, 12, vg.rgb(161, 161, 170))
+	fill_text(&c, fonts, &layout, &p, "waveform (blue), momentary loudness -60..0 LUFS (pink), scenes (purple), track starts (yellow), onsets (white ticks), cues (green)", 8, H - 30, 12, vg.rgb(161, 161, 170))
+	fill_text(&c, fonts, &layout, &p, "spectrogram: third-octave bands 20 Hz..20 kHz, -100 (dark) .. -10 dBFS (bright)", 8, H - 48, 12, vg.rgb(161, 161, 170))
 	vg.flush(&c)
 	ensure_parent(path)
 	return write_png(path, sw.pixels, W, H)
