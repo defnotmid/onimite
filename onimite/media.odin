@@ -788,8 +788,8 @@ media_problem :: proc(m: ^Media, d: Diagnostic) {
 }
 
 // The best face for `family` (case-insensitive): matching style first, then
-// the nearest weight. `ok = false` returns the fallback font.
-media_find_font :: proc(m: ^Media, family: string, weight: int, italic := false) -> (font: ^vg.Font, ok: bool) {
+// the nearest weight. `ok = false` returns the fallback face.
+media_find_font :: proc(m: ^Media, family: string, weight: int, italic := false) -> (face: vg.Face_Id, ok: bool) {
 	return vg.font_collection_find(&m.fonts, family, weight, italic)
 }
 

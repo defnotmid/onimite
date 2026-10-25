@@ -787,7 +787,7 @@ draw_text :: proc(r: ^Renderer, t: Text, i: i32) {
 	lo, hi := text_frame_box(r, l.min, l.max)
 	check_text_bounds(r, label, lo, hi)
 	if r.offscreen == 0 && r.read_alpha * (t.opacity.? or_else 1) >= 0.3 {
-		if ilo, ihi, ok := text_ink_box(l); ok {
+		if ilo, ihi, ok := text_ink_box(&r.media.fonts, l); ok {
 			ilo, ihi = text_frame_box(r, ilo, ihi)
 			scene := -1 // the scene that drew it: the last one started at or before node i
 			for start, k in r.ctx.scene_starts {
@@ -805,6 +805,10 @@ draw_text :: proc(r: ^Renderer, t: Text, i: i32) {
 	}
 	defer vg.set_global_alpha(c, alpha)
 	for run in l.runs {
+		font := vg.font_collection_font(&r.media.fonts, run.face)
+		if font == nil {
+			continue
+		}
 		glyphs := l.glyphs[run.first:][:run.count]
 		fill, fill_opacity := t.fill, t.fill_opacity
 		if run.paint > 0 {
@@ -814,13 +818,13 @@ draw_text :: proc(r: ^Renderer, t: Text, i: i32) {
 		}
 		box := vg.Rect{l.min.x, l.min.y, l.max.x - l.min.x, l.max.y - l.min.y}
 		if p, ok := to_vg_paint(r, fill, fill_opacity, box); ok {
-			vg.fill_glyph_outlines(c, run.font, glyphs, run.em, p, &r.path)
+			vg.fill_glyph_outlines(c, font, glyphs, run.em, p, &r.path)
 		}
 		if p, ok := to_vg_paint(r, t.stroke.paint, t.stroke.opacity, box); ok && t.stroke.width > 0 {
 			p.stroke.line_width = t.stroke.width
 			p.stroke.line_join = t.stroke.join
 			p.stroke.miter_limit = t.stroke.miter_limit if t.stroke.miter_limit > 0 else 4
-			vg.stroke_glyph_outlines(c, run.font, glyphs, run.em, p, &r.path)
+			vg.stroke_glyph_outlines(c, font, glyphs, run.em, p, &r.path)
 		}
 	}
 }
@@ -867,11 +871,15 @@ check_text_bounds :: proc(r: ^Renderer, text: string, lo, hi: vg.Vec2) {
 // The box of a layout's inked glyphs (its line boxes leave room for
 // accents and descenders the text may not have).
 @(private = "file")
-text_ink_box :: proc(l: ^vg.Text_Layout) -> (lo, hi: Vec2, ok: bool) {
+text_ink_box :: proc(fonts: ^vg.Font_Collection, l: ^vg.Text_Layout) -> (lo, hi: Vec2, ok: bool) {
 	for run in l.runs {
+		font := vg.font_collection_font(fonts, run.face)
+		if font == nil {
+			continue
+		}
 		for g in l.glyphs[run.first:][:run.count] {
 			x0, y0, x1, y1: i32
-			if !vg.font_glyph_box(run.font, g.glyph, &x0, &y0, &x1, &y1) {
+			if !vg.font_glyph_box(font, g.glyph, &x0, &y0, &x1, &y1) {
 				continue // a space
 			}
 			a := Vec2{g.x + f32(x0) * run.em, g.y - f32(y1) * run.em}

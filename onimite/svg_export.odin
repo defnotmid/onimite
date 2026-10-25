@@ -986,11 +986,9 @@ text_family :: proc(e: ^Svg_Export, family: string, weight: int, italic: bool) -
 		return family
 	}
 	fonts := &e.r.media.fonts
-	font, _ := vg.font_collection_find(fonts, "", weight, italic)
-	for &f in fonts.faces {
-		if &f.font == font {
-			return f.family
-		}
+	id, _ := vg.font_collection_find(fonts, "", weight, italic)
+	if f := vg.font_collection_face(fonts, id); f != nil {
+		return f.family
 	}
 	return fonts.fallback.family
 }

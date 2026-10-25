@@ -142,11 +142,15 @@ _glyph_quads :: proc(r: ^Renderer, f: ^Font, l: ^vg.Text_Layout, color: [4]u8, a
 	cf := color_f32(color)
 	aw, ah := f32(t.glyphs.width), f32(t.glyphs.height)
 	for run in l.runs {
+		font := vg.font_collection_font(&t.fonts, run.face)
+		if font == nil {
+			continue
+		}
 		for g in l.glyphs[run.first:][:run.count] {
-			cg, err := vg.glyph_atlas_get(&t.glyphs, run.font, g.glyph, run.em)
+			cg, err := vg.glyph_atlas_get(&t.glyphs, font, g.glyph, run.em)
 			if err == .Atlas_Full {
 				vg.glyph_atlas_reset(&t.glyphs)
-				cg, err = vg.glyph_atlas_get(&t.glyphs, run.font, g.glyph, run.em)
+				cg, err = vg.glyph_atlas_get(&t.glyphs, font, g.glyph, run.em)
 			}
 			if err != nil || !cg.visible || r == nil {
 				continue

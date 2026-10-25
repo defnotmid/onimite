@@ -78,12 +78,12 @@ finite :: proc(values: ..f32) -> bool {
 @(private = "file")
 check_glyphs :: proc(r: ^Renderer, t: Text, node: i32) {
 	check_str :: proc(r: ^Renderer, text, family: string, weight: int, italic: bool, node: i32) {
-		font, _ := media_find_font(r.media, family, weight, italic)
+		face, _ := media_find_font(r.media, family, weight, italic)
 		for c in text {
 			if c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == 0xA0 || c < 0x20 || vg.rune_is_default_ignorable(c) {
 				continue
 			}
-			if _, g := vg.font_collection_glyph(&r.media.fonts, c, font); g == 0 {
+			if _, g := vg.font_collection_glyph(&r.media.fonts, c, face); g == 0 {
 				report(&r.ctx, .Error, {code = .Missing_Glyph, name = text, a = fmt.tprintf("%c", c), n = i64(c), node = node})
 			}
 		}

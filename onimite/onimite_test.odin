@@ -364,9 +364,9 @@ test_builtin_fonts :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(media_font_faces(&media)), 1)
 	regular, _ := media_find_font(&media, "DM Sans", 400)
 	bold, _ := media_find_font(&media, "DM Sans", 700)
-	testing.expect(t, regular == &media.fonts.faces[0].font && bold == regular && bold != builtin_bold)
+	testing.expect(t, regular == media.fonts.faces[0].id && bold == regular && bold != builtin_bold)
 	first, _ := media_find_font(&media, "", 400)
-	testing.expect(t, first == &media.fonts.faces[0].font)
+	testing.expect(t, first == media.fonts.faces[0].id)
 	_, mono := media_find_font(&media, "JetBrains Mono", 700)
 	testing.expect(t, mono)
 }
