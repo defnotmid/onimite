@@ -2,8 +2,6 @@ package onimite_app
 
 import "core:fmt"
 import "core:strings"
-import "core:unicode"
-import "core:unicode/utf8"
 import ui "../ui"
 
 // The preview's lister, after paf's (data/state.odin Lister, workflow and
@@ -49,95 +47,89 @@ lister_close :: proc(l: ^Lister) {
 	clear(&l.query)
 }
 
-// The options of `mode` for a lister opened for leaf `panel`: its
-// catalogs' in order.
-lister_options :: proc(src: Lister_Source, mode: Lister_Mode, out: ^[dynamic]Lister_Option) {
-	for catalog in LISTER_MODES[mode].catalogs {
-		LISTER_CATALOGS[catalog](src, out)
-	}
+// One option by where it lives: its catalog and its place there.
+Lister_Ref :: struct {
+	catalog: Lister_Catalog,
+	index:   int,
 }
 
-// The options matching `query`, ranked: those whose group and label start
-// with it, then those with a word starting with it, then the rest that
-// have its characters in order, each in the options' order.
-lister_filter :: proc(options: []Lister_Option, query: string, out: ^[dynamic]Lister_Option) {
-	ranks := make([]Match_Rank, len(options), context.temp_allocator)
-	for o, i in options {
-		ranks[i] = match_rank(fmt.tprintf("%s %s", o.group, o.label), query)
+// A mode's options as the list shows them, after onib's rows: unfiltered,
+// every option of its catalogs in order, counted where they live and read
+// by place (lister_ref); filtered, every option's group and label read and
+// the matches ranked best first by the one matcher (fuzzy_score,
+// fuzzy_rank), equal scores in their catalogs' order.
+Lister_Rows :: struct {
+	src:      Lister_Source,
+	catalogs: []Lister_Catalog,
+	counts:   [Lister_Catalog]int,
+	matches:  []Lister_Ref, // with a filter
+	filtered: bool,
+	count:    int, // the rows shown
+	total:    int, // every option
+}
+
+lister_rows :: proc(src: Lister_Source, mode: Lister_Mode, query: string) -> (r: Lister_Rows) {
+	r.src, r.catalogs = src, LISTER_MODES[mode].catalogs
+	for catalog in r.catalogs {
+		r.counts[catalog] = LISTER_CATALOGS[catalog].count(src)
+		r.total += r.counts[catalog]
 	}
-	for rank in Match_Rank.Prefix ..= Match_Rank.Scattered {
-		for o, i in options {
-			if ranks[i] == rank {
-				append(out, o)
+	r.count = r.total
+	if query == "" {
+		return
+	}
+	r.filtered = true
+	found := make([dynamic]Lister_Ref, context.temp_allocator)
+	scores := make([dynamic]f64, context.temp_allocator)
+	for catalog in r.catalogs {
+		for i in 0 ..< r.counts[catalog] {
+			o := LISTER_CATALOGS[catalog].option(src, i)
+			if score, ok := fuzzy_score(fmt.tprintf("%s %s", o.group, o.label), query); ok {
+				append(&found, Lister_Ref{catalog, i})
+				append(&scores, score)
 			}
 		}
 	}
+	order := make([]int, len(found), context.temp_allocator)
+	for &o, i in order do o = i
+	fuzzy_rank(scores[:], order)
+	matches := make([]Lister_Ref, len(found), context.temp_allocator)
+	for o, i in order do matches[i] = found[o]
+	r.matches, r.count = matches, len(matches)
+	return
 }
 
-// How a text matches a filter, best first.
-Match_Rank :: enum u8 {
-	Prefix, // the text starts with it (an empty filter matches every text so)
-	Word, // a word in the text starts with it
-	Scattered, // its characters are in the text in order
-	None,
+// Where row `row` lives.
+lister_ref :: proc(r: ^Lister_Rows, row: int) -> Lister_Ref {
+	if r.filtered {
+		return r.matches[row]
+	}
+	at := row
+	for catalog in r.catalogs {
+		if at < r.counts[catalog] {
+			return {catalog, at}
+		}
+		at -= r.counts[catalog]
+	}
+	return {}
 }
 
-// How `text` matches `query`, ignoring case.
-match_rank :: proc(text, query: string) -> Match_Rank {
-	if starts_with_fold(text, query) {
-		return .Prefix
-	}
-	word :: proc(r: rune) -> bool {return unicode.is_letter(r) || unicode.is_digit(r)}
-	previous: rune = ' '
-	for r, i in text {
-		if word(r) && !word(previous) && starts_with_fold(text[i:], query) {
-			return .Word
-		}
-		previous = r
-	}
-	return .Scattered if in_order_fold(text, query) else .None
-}
-
-// Whether `s` starts with `prefix`, ignoring case.
-@(private = "file")
-starts_with_fold :: proc(s, prefix: string) -> bool {
-	rest := s
-	for p in prefix {
-		r, n := utf8.decode_rune(rest)
-		if n == 0 || unicode.to_lower(r) != unicode.to_lower(p) {
-			return false
-		}
-		rest = rest[n:]
-	}
-	return true
-}
-
-// Whether the characters of `needle` are in `haystack` in order, ignoring
-// case (paf's fuzzy_match, oasic's text_matches).
-@(private = "file")
-in_order_fold :: proc(haystack, needle: string) -> bool {
-	remaining := needle
-	for r in haystack {
-		if len(remaining) == 0 {
-			return true
-		}
-		next, n := utf8.decode_rune(remaining)
-		if unicode.to_lower(r) == unicode.to_lower(next) {
-			remaining = remaining[n:]
-		}
-	}
-	return len(remaining) == 0
+// Row `row`'s option, made now.
+lister_option :: proc(r: ^Lister_Rows, row: int) -> Lister_Option {
+	ref := lister_ref(r, row)
+	return LISTER_CATALOGS[ref.catalog].option(r.src, ref.index)
 }
 
 // ---- the view ---------------------------------------------------------------------------
 
 // What the lister shows that is not state: whether it was shown last
-// frame, the filter being typed and the cursor in it, the selected option
-// (among those matching) and the first row shown.
+// frame, the filter being typed and the cursor in it, the selected row
+// and the list it scrolls in (an overlay's: its own scroll).
 Lister_View :: struct {
-	shown:                   bool,
-	query:                   [dynamic]u8,
-	cursor, selected, first: int,
+	shown:            bool,
+	query:            [dynamic]u8,
+	cursor, selected: int,
+	list:             List,
 }
 
 LISTER_WIDTH :: 560
@@ -146,13 +138,14 @@ LISTER_ROW :: 28
 COLOR_LISTER :: [4]u8{28, 31, 38, 255}
 COLOR_LISTER_SELECTED :: [4]u8{52, 70, 104, 255}
 
-// The open lister as a modal: its title, the filter, the matching options
-// and their count. Typing filters, Up/Down and Page Up/Down select, Enter
-// or a click accepts, Escape (Dismiss) closes.
+// The open lister as a modal, as onib's query: its title, the filter, the
+// rows (only those shown are made) with the filter's letters lit, and
+// their count. Typing filters (Lister_Filter), Up/Down select, Enter or a
+// click pushes the selected option's row and Lister_Close; Escape closes
+// it (preview_keys).
 lister_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32) {
 	pv := &app.preview
-	ws := &pv.workspace
-	l := &ws.lister
+	l := &pv.workspace.lister
 	v := &pv.lister
 	c := &app.commands
 	if l.panel == 0 {
@@ -163,129 +156,95 @@ lister_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32) {
 	if opened || string(v.query[:]) != string(l.query[:]) {
 		clear(&v.query)
 		append(&v.query, ..l.query[:])
-		v.cursor, v.selected, v.first = len(v.query), 0, 0
+		v.cursor, v.selected, v.list = len(v.query), 0, {}
 	}
 	v.shown = true
 	mode := LISTER_MODES[l.mode]
-	options := make([dynamic]Lister_Option, context.temp_allocator)
-	lister_options({&pv.watch, preview_fps(app), l.panel}, l.mode, &options)
+	query := string(l.query[:])
+	rows := lister_rows({&pv.watch, preview_fps(app), l.panel}, l.mode, query)
 
 	pad := 10 * dpi
 	row_h := LISTER_ROW * dpi
 	title_h, field_h, footer_h := 30 * dpi, 32 * dpi, 26 * dpi
-	chrome := title_h + field_h + footer_h + 2 * pad + 8 * dpi
+	width := min(LISTER_WIDTH * dpi, f32(s.p.width) - 24 * dpi)
 	height := min(LISTER_HEIGHT * dpi, f32(s.p.height) - 24 * dpi)
-	ui.modal_surface_begin(s, "###lister", {width = min(LISTER_WIDTH * dpi, f32(s.p.width) - 24 * dpi), height = height, background = COLOR_LISTER, backdrop = {0, 0, 0, 150}, corner_radius = 6 * dpi, vertical_squish = 0.1})
+	surface := ui.modal_surface_begin(s, "###lister", {open = true, width = width, height = height, background = COLOR_LISTER, border = {92, 100, 116, 255}, backdrop = {0, 0, 0, 150}, corner_radius = 6 * dpi, vertical_squish = 0.1})
 	defer ui.modal_surface_end(s)
+	corner := surface.panel.fixed_pos
+	x, w := corner.x + pad, width - 2 * pad
+	y := corner.y
 
-	ui.set_next_pref_width(s, ui.fill())
-	ui.set_next_pref_height(s, ui.px(title_h))
 	ui.set_next_font_size(s, 13 * dpi)
-	ui.set_next_text_padding(s, pad)
-	ui.set_next_text_color(s, COLOR_TEXT_DIM)
-	ui.build_box(s, {.Draw_Text}, fmt.tprintf("%s###lister_title", mode.title))
+	cell(s, {x, y, w, title_h}, fmt.tprintf("%s###lister_title", mode.title), {.Draw_Text}, COLOR_TEXT_DIM)
+	y += title_h
 
-	inset_row(s, "lister_field", field_h, pad)
 	before := strings.clone(string(v.query[:]), context.temp_allocator)
-	ui.set_next_pref_height(s, ui.px(field_h))
+	place(s, {x, y, w, field_h})
 	ui.set_next_font_size(s, 14 * dpi)
-	ui.set_next_text_padding(s, 8 * dpi)
-	field := ui.line_edit(s, "###lister_query", &v.query, &v.cursor, "Type to filter")
+	field := ui.line_edit(s, &v.query, &v.cursor)
 	if opened {
 		s.keyboard_focus = field.box.key
 	}
-	inset_row_end(s, pad)
 	changed := before != string(v.query[:])
 	if changed {
 		command_push(c, .Lister_Filter, {spec = string(v.query[:])})
-		v.selected, v.first = 0, 0
+		v.selected = 0
+		list_show(&v.list, 0)
 	}
+	y += field_h + pad
 
-	matches := make([dynamic]Lister_Option, context.temp_allocator)
-	lister_filter(options[:], string(l.query[:]), &matches)
-	list_h := max(height - chrome + 8 * dpi, row_h)
-	visible := max(1, int((list_h - 6) / row_h))
-	step := ui.action_list_step(s, visible)
-	v.selected = clamp(v.selected + step, 0, max(len(matches) - 1, 0))
 	accept :: proc(c: ^Command_Storage, o: Lister_Option) {
 		command_push(c, o.row.kind, o.row.regs)
 		command_push(c, .Lister_Close)
 	}
+	if nav := ui.action_navigation_delta(s); nav.y != 0 {
+		v.selected = clamp(v.selected + int(nav.y), 0, max(rows.count - 1, 0))
+		list_show(&v.list, v.selected)
+	}
+	v.selected = clamp(v.selected, 0, max(rows.count - 1, 0))
 	// Typing and Enter in one frame: the list is still the last filter's.
-	if !changed && len(matches) > 0 && ui.action_key_take(s, .Enter) {
-		accept(c, matches[v.selected])
+	if !changed && rows.count > 0 && ui.action_pressed(s, .Accept) {
+		accept(c, lister_option(&rows, v.selected))
 	}
 
-	ui.spacer(s, ui.px(pad))
-	inset_row(s, "lister_list", list_h, pad)
-	ui.set_next_pref_height(s, ui.px(list_h))
-	list := ui.scroll_list_begin(s, "###lister_options")
-	if !ui.list_scroll_apply(&v.first, list.scroll, visible, len(matches)) && step != 0 {
-		ui.list_scroll_contain_selection(&v.first, v.selected, visible, len(matches))
-	}
-	first, fraction := ui.scroll_page(s, list.box.key, v.first)
-	ui.set_next_fixed_y(s, -fraction * row_h)
-	ui.set_next_pref_width(s, ui.fill())
-	ui.set_next_pref_height(s, ui.px(row_h * f32(visible + 1)))
-	ui.column(s, "lister_rows")
-	for o, i in matches[min(first, len(matches)):min(first + visible + 1, len(matches))] {
-		if ui.clicked(option_view(s, dpi, o, first + i, first + i == v.selected)) {
+	// The list's room at the surface's full height (it unsquishes as it
+	// opens: the rows a show keeps in view are those it will have).
+	list := Workspace_Rect{x, y, w, max(corner.y + height - footer_h - pad * 0.5 - y, row_h)}
+	visible := max(1, int(list.height / row_h))
+	first, fraction, wheel := list_begin(s, &v.list, list, "###lister_options")
+	list_wheel(&v.list, wheel)
+	for i in first ..< min(rows.count, first + visible + 1) {
+		o := lister_option(&rows, i)
+		r := Workspace_Rect{x, list.y + (f32(i - first) - fraction) * row_h, w, row_h}
+		if ui.clicked(option_view(s, dpi, o, i, i == v.selected, r, query)) {
 			accept(c, o)
 		}
 	}
 	ui.pop_parent(s)
-	ui.scroll_list_end(s)
-	inset_row_end(s, pad)
+	list_limit(&v.list, rows.count, visible)
 
-	ui.set_next_pref_width(s, ui.fill())
-	ui.set_next_pref_height(s, ui.px(footer_h))
 	ui.set_next_font_size(s, 11 * dpi)
-	ui.set_next_text_padding(s, pad)
-	ui.set_next_text_color(s, COLOR_TEXT_DIM)
-	ui.build_box(s, {.Draw_Text}, fmt.tprintf("%d of %d · Enter picks · Esc closes###lister_footer", len(matches), len(options)))
+	cell(s, {x, list.y + list.height, w, footer_h}, fmt.tprintf("%d of %d · Enter picks · Esc closes###lister_footer", rows.count, rows.total), {.Draw_Text}, COLOR_TEXT_DIM)
 }
 
-// One option as a row: its group as a tag, its label, its summary dimmed
-// at the right.
+// One option as a row at `r`: its group as a tag and its label, the
+// filter's letters lit in both, its summary dimmed at the right.
 @(private = "file")
-option_view :: proc(s: ^ui.State, dpi: f32, o: Lister_Option, index: int, selected: bool) -> ui.Signal {
-	ui.set_next_pref_width(s, ui.fill())
-	ui.set_next_pref_height(s, ui.px(LISTER_ROW * dpi))
-	ui.set_next_child_layout_axis(s, .X)
+option_view :: proc(s: ^ui.State, dpi: f32, o: Lister_Option, index: int, selected: bool, r: Workspace_Rect, query: string) -> ui.Signal {
 	ui.set_next_bg_color(s, COLOR_LISTER_SELECTED if selected else COLOR_LISTER)
 	ui.set_next_corner_radius(s, 3 * dpi)
-	item := ui.build_box(s, {.Clickable, .Draw_Background, .Draw_Hot_Effects}, fmt.tprintf("###lister_option_%d", index))
-	sig := ui.signal_from_box(s, item)
-	ui.push_parent(s, item)
-	defer ui.pop_parent(s)
-	cell :: proc(s: ^ui.State, text, key: string, width: ui.Size, px: f32, color: Maybe([4]u8) = nil) {
-		ui.set_next_pref_width(s, width)
-		ui.set_next_pref_height(s, ui.fill())
-		ui.set_next_font_size(s, px)
-		ui.set_next_text_padding(s, px * 0.7)
-		if c, ok := color.?; ok {
-			ui.set_next_text_color(s, c)
-		}
-		ui.build_box(s, {.Draw_Text, .Clip}, fmt.tprintf("%s###%s", text, key))
-	}
-	cell(s, o.group, "group", ui.px(84 * dpi), 11 * dpi, COLOR_TEXT_DIM)
-	cell(s, o.label, "label", ui.fill(), 13 * dpi)
-	cell(s, o.summary, "summary", ui.text_content(), 11 * dpi, COLOR_TEXT_DIM)
+	sig := cell(s, r, fmt.tprintf("###lister_option_%d", index), {.Clickable, .Draw_Background, .Draw_Hot_Effects})
+	group_w, pad := 84 * dpi, 11 * dpi * 0.7
+	summary_w := ui.line_edit_text_width(s, o.summary, 11 * dpi) + 2 * pad
+	label := Workspace_Rect{r.x + group_w, r.y, max(r.width - group_w - summary_w, 0), r.height}
+	// Both columns the filter scored light their matched letters.
+	match_marks(s, {r.x, r.y, group_w, r.height}, o.group, query, 11 * dpi, pad, fmt.tprintf("lister_group_%d", index))
+	ui.set_next_font_size(s, 11 * dpi); ui.set_next_text_padding(s, pad)
+	cell(s, {r.x, r.y, group_w, r.height}, fmt.tprintf("%s###lister_group_%d", o.group, index), {.Draw_Text, .Clip}, COLOR_TEXT_DIM)
+	match_marks(s, label, o.label, query, 13 * dpi, 13 * dpi * 0.7, fmt.tprintf("lister_%d", index))
+	ui.set_next_font_size(s, 13 * dpi); ui.set_next_text_padding(s, 13 * dpi * 0.7)
+	cell(s, label, fmt.tprintf("%s###lister_label_%d", o.label, index), {.Draw_Text, .Clip})
+	ui.set_next_font_size(s, 11 * dpi); ui.set_next_text_padding(s, pad)
+	cell(s, {r.x + r.width - summary_w, r.y, summary_w, r.height}, fmt.tprintf("%s###lister_summary_%d", o.summary, index), {.Draw_Text, .Clip}, COLOR_TEXT_DIM)
 	return sig
-}
-
-// A row `h` high with a `pad` gap at each side, pushed as parent for what
-// goes between (end it with inset_row_end).
-@(private = "file")
-inset_row :: proc(s: ^ui.State, key: string, h, pad: f32) {
-	ui.set_next_pref_width(s, ui.fill())
-	ui.set_next_pref_height(s, ui.px(h))
-	ui.row(s, key)
-	ui.spacer(s, ui.px(pad))
-}
-
-@(private = "file")
-inset_row_end :: proc(s: ^ui.State, pad: f32) {
-	ui.spacer(s, ui.px(pad))
-	ui.pop_parent(s)
 }

@@ -35,7 +35,8 @@ _same_target :: proc(r: ^Renderer, c: ^Draw_Cmd) -> bool {
 		c.use_viewport == r.use_viewport &&
 		c.viewport == r.viewport &&
 		c.use_scissor == r.use_scissor &&
-		c.scissor == r.scissor \
+		c.scissor == r.scissor &&
+		c.scope == r.scope \
 	)
 }
 
@@ -59,6 +60,31 @@ draw_rect :: proc(r: ^Renderer, x, y, w, h: f32, c: [4]u8) {
 
 draw_rect_rounded :: proc(r: ^Renderer, x, y, w, h, radius: f32, c: [4]u8) {
 	rect_inst(r, _solid_inst(x, y, w, h, c, radius, 0, 1), r.white_tex, {1, 1})
+}
+
+draw_rect_gradient_horizontal :: proc(
+	r: ^Renderer,
+	x, y, w, h: f32,
+	left, right: [4]u8,
+	radius: f32 = 0,
+) {
+	left_f := color_f32(left)
+	right_f := color_f32(right)
+	rect_inst(
+		r,
+		{
+			dst = {x, y, x + w, y + h},
+			src = {0, 0, 1, 1},
+			col_tl = left_f,
+			col_tr = right_f,
+			col_bl = left_f,
+			col_br = right_f,
+			radii = {radius, radius, radius, radius},
+			style = {0, radius > 0 ? 1 : 0, SAMPLE_SOLID, 0},
+		},
+		r.white_tex,
+		{1, 1},
+	)
 }
 
 // draw_image_contain fits the image inside the rect (letterboxed),

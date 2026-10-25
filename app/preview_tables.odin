@@ -171,6 +171,15 @@ Timeline_Item :: struct {
 	kind:     Timeline_Kind,
 	parent:   i32, // -1: top level
 	children: i32, // it opens when > 0
+	// Laid out once per load (timeline_tree), for the rows below the scenes
+	// as onib lays out its rows: its children where they live
+	// (Wave_Table.kids, first and count), its place among its parent's,
+	// the points of the rows before it there, and its key (its path's hash:
+	// what keeps it open across reloads).
+	kids:     [2]i32,
+	place:    i32,
+	y:        f32,
+	key:      u64,
 	lane:     i32, // the lane drawn (-1: none)
 	notes:    [2]i32, // Notes, Hits: first, count into notes
 	bands:    [2]i32, // Bands: first, count into band_spans
@@ -198,6 +207,10 @@ Wave_Table :: struct {
 	lanes:   [dynamic]Wave_Lane,
 	peaks:   [dynamic][2]i8, // min, max in 1/127
 	items:   [dynamic]Timeline_Item,
+	// The items' children grouped by parent (an item's `kids` span), the
+	// top level's (all but the scenes) first: `top`.
+	kids:    [dynamic]i32,
+	top:     [2]i32,
 	notes:   [dynamic]Timeline_Note,
 	cues:    [dynamic]Timeline_Cue,
 	// Where each Bands item's source plays: its placements on the video.
@@ -219,6 +232,7 @@ wave_table_destroy :: proc(t: ^Wave_Table) {
 	delete(t.lanes)
 	delete(t.peaks)
 	delete(t.items)
+	delete(t.kids)
 	delete(t.notes)
 	delete(t.cues)
 	delete(t.band_spans)
@@ -231,6 +245,8 @@ wave_table_copy :: proc(dst: ^Wave_Table, src: ^Wave_Table) {
 	table_copy(&dst.lanes, src.lanes[:])
 	table_copy(&dst.peaks, src.peaks[:])
 	table_copy(&dst.items, src.items[:])
+	table_copy(&dst.kids, src.kids[:])
+	dst.top = src.top
 	table_copy(&dst.notes, src.notes[:])
 	table_copy(&dst.cues, src.cues[:])
 	table_copy(&dst.band_spans, src.band_spans[:])
@@ -873,6 +889,7 @@ wave_builder_lanes :: proc(b: ^Wave_Builder, placed: []om.Placed_Track, order: [
 			}
 		}
 	}
+	timeline_tree(t)
 	// pyramids for the sources made from others, after the media's
 	b.media_clips, b.media_peaks = len(t.clips), len(t.peaks)
 	for &src in b.sources[b.media_sources:] {
@@ -1091,6 +1108,10 @@ Watch_Status :: enum u8 {
 Watch_Row :: struct {
 	section:       Watch_Section,
 	status:        Watch_Status,
+	// What it is, whatever its place (its UI state keys on it, as onib's
+	// rows): a scene's name (and how many before it share it), a cue's name,
+	// a finding's key, a media file's name, a mark's number.
+	key:           u64,
 	// The frame a click goes to (-1: none).
 	frame:         int,
 	// Media rows: the media table's row, with its thumbnail (-1: none).
@@ -1145,14 +1166,17 @@ watch_table_build :: proc(t: ^Watch_Table, src: Watch_Sources) {
 	clear(&t.rows)
 	clear(&t.text)
 	t.sections = {}
-	add :: proc(t: ^Watch_Table, section: Watch_Section, status: Watch_Status, frame: int, label, detail: string, media := -1) {
+	add :: proc(t: ^Watch_Table, section: Watch_Section, key: u64, status: Watch_Status, frame: int, label, detail: string, media := -1) {
 		g := &t.sections[section]
 		if g.count == 0 {
 			g.first = len(t.rows)
 		}
 		g.count += 1
 		g.worst = max(g.worst, status)
-		append(&t.rows, Watch_Row{section, status, frame, i32(media), text_push(&t.text, label), text_push(&t.text, detail)})
+		append(&t.rows, Watch_Row{section, status, key, frame, i32(media), text_push(&t.text, label), text_push(&t.text, detail)})
+	}
+	identity :: proc(section: Watch_Section, name: string, n := 0) -> u64 {
+		return hash.fnv64a(transmute([]u8)name, (u64(section) + 1) * 0x100000001b3 ~ u64(n))
 	}
 	status_of :: proc(s: om.Severity) -> Watch_Status {
 		switch s {
@@ -1180,7 +1204,9 @@ watch_table_build :: proc(t: ^Watch_Table, src: Watch_Sources) {
 	}
 	for sc, k in tl.scenes {
 		label, detail := scene_watch(sc, fps, problems[k])
-		add(t, .Scenes, worst[k], sc.start_frame, label, detail)
+		same := 0
+		for earlier in tl.scenes[:k] do same += int(earlier.scene.name == sc.scene.name)
+		add(t, .Scenes, identity(.Scenes, sc.scene.name, same), worst[k], sc.start_frame, label, detail)
 	}
 
 	// Cues: a sync finding names the cue, or its family (`beat[*]`).
@@ -1196,20 +1222,21 @@ watch_table_build :: proc(t: ^Watch_Table, src: Watch_Sources) {
 			}
 		}
 		label, detail := cue_watch(c, fps, finding)
-		add(t, .Cues, status, om.frame_at(c.seconds, fps), label, detail)
+		add(t, .Cues, identity(.Cues, c.name), status, om.frame_at(c.seconds, fps), label, detail)
 	}
 
 	// Problems: a failed reload first (its lines), then the findings as
 	// `inspect` orders them.
 	if src.load_error != "" {
 		for line, i in strings.split_lines(src.load_error, context.temp_allocator) {
-			add(t, .Problems, .Error, -1, line, "the script failed to load; the last good version plays" if i == 0 else "")
+			add(t, .Problems, identity(.Problems, line, i), .Error, -1, line, "the script failed to load; the last good version plays" if i == 0 else "")
 		}
 	}
 	order := findings_order(src.findings)
 	for f, i in findings_report(src.findings, tl, fps) {
 		label, detail := finding_watch(f)
-		add(t, .Problems, status_of(src.findings.rows[order[i]].diagnostic.severity), f.first_frame if f.frames > 0 else -1, label, detail)
+		finding := src.findings.rows[order[i]]
+		add(t, .Problems, finding.key, status_of(finding.diagnostic.severity), f.first_frame if f.frames > 0 else -1, label, detail)
 	}
 
 	// Media, in the media table's order (its row k has item k's thumbnail).
@@ -1223,13 +1250,13 @@ watch_table_build :: proc(t: ^Watch_Table, src: Watch_Sources) {
 				status = .Info
 			}
 			label, detail := media_watch(it, first, fps)
-			add(t, .Media, status, first, label, detail, k)
+			add(t, .Media, identity(.Media, it.name), status, first, label, detail, k)
 		}
 	}
 
 	for m in src.marks {
 		label, detail := mark_watch(m, fps)
-		add(t, .Marks, .Info, m.at, label, detail)
+		add(t, .Marks, identity(.Marks, "mark", m.n), .Info, m.at, label, detail)
 	}
 }
 
@@ -1382,4 +1409,36 @@ bookmark_write :: proc(script_path: string, frame: int) {
 	_ = os.make_directory_all(filepath.dir(path))
 	abs, _ := filepath.abs(script_path, context.temp_allocator)
 	_ = os.write_entire_file(path, transmute([]u8)fmt.tprintf("%d\n%s\n", frame, abs))
+}
+
+// The items' tree for the rows below the scenes: their children grouped by
+// parent (sized, then filled: a counting sort), each child's place among
+// its siblings and the points of those before it, each item's key.
+timeline_tree :: proc(t: ^Wave_Table) {
+	n := len(t.items)
+	counts := make([]i32, n + 1, context.temp_allocator) // by parent + 1 (0: the top)
+	for it in t.items {
+		if it.kind != .Scenes do counts[it.parent + 1] += 1
+	}
+	starts := make([]i32, n + 1, context.temp_allocator)
+	total: i32
+	for c, g in counts {
+		starts[g] = total
+		total += c
+	}
+	resize(&t.kids, int(total))
+	fill := make([]i32, n + 1, context.temp_allocator)
+	copy(fill, starts)
+	y := make([]f32, n + 1, context.temp_allocator)
+	for &it, i in t.items {
+		it.key = hash.fnv64a(transmute([]u8)text_of(t.text[:], it.path))
+		if it.kind == .Scenes do continue
+		g := it.parent + 1
+		it.place, it.y = fill[g] - starts[g], y[g]
+		y[g] += row_height(it.kind)
+		t.kids[fill[g]] = i32(i)
+		fill[g] += 1
+	}
+	for &it, i in t.items do it.kids = {starts[i + 1], counts[i + 1]}
+	t.top = {starts[0], counts[0]}
 }

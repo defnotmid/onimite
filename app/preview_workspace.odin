@@ -75,10 +75,12 @@ View_Record :: struct {
 	kind:           View_Kind,
 	panel:          Panel_Id,
 	previous, next: View_Id,
-	// Watch: the section shown and its first row shown.
+	// Its first row shown (View_Scroll: a Watch's rows, the timeline's
+	// below the scenes); a Watch's section shown and its
+	// filter (View_Filter, owned): the rows whose labels match.
 	section:        Watch_Section,
 	scroll:         int,
-	scroll_reg:     ui.Scroll,
+	filter:         [dynamic]u8,
 }
 
 // Where a panel is this window frame, in pixels: its whole area, below its
@@ -127,6 +129,7 @@ workspace_init :: proc(ws: ^Workspace) {
 }
 
 workspace_destroy :: proc(ws: ^Workspace) {
+	for &v in ws.views do delete(v.filter)
 	delete(ws.panels)
 	delete(ws.views)
 	delete(ws.areas)
@@ -341,6 +344,8 @@ workspace_close_view :: proc(ws: ^Workspace, id: View_Id) {
 	if v == nil {
 		return
 	}
+	delete(v.filter)
+	v.filter = {}
 	panel := v.panel
 	view_detach(ws, id)
 	v^ = {}

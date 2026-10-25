@@ -1,7 +1,6 @@
 package onimite_app
 
 import "core:fmt"
-import "core:math"
 import om "../onimite"
 import render "../render"
 import ui "../ui"
@@ -69,7 +68,7 @@ watch_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32, id: View_Id, area: W
 	t := &pv.watch
 	ui.set_next_bg_color(s, s.theme.background)
 	ui.set_next_corner_radius(s, 0)
-	place_box(s, area, {.Draw_Background}, fmt.tprintf("###watch_%d", id))
+	cell(s, area, fmt.tprintf("###watch_%d", id), {.Draw_Background})
 
 	// The sections as tabs, each with its rows' count in its worst status's
 	// colour.
@@ -82,89 +81,102 @@ watch_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32, id: View_Id, area: W
 		if g.count > 0 && g.worst >= .Warning {
 			ui.set_next_text_color(s, STATUS_COLORS[g.worst])
 		}
-		r := Workspace_Rect{area.x + f32(int(section)) * section_w, area.y, section_w, header}
-		if ui.clicked(place_button(s, r, fmt.tprintf("%s %d###watch_section_%d_%v", WATCH_SECTIONS[section].name, g.count, id, section))) {
+		place(s, {area.x + f32(int(section)) * section_w, area.y, section_w, header})
+		ui.set_next_corner_radius(s, 0)
+		if ui.clicked(ui.button(s, fmt.tprintf("%s %d###watch_section_%d_%v", WATCH_SECTIONS[section].name, g.count, id, section))) {
 			command_push(c, .Watch_Section_Set, {view = id, section = section})
 		}
 	}
 
-	list := Workspace_Rect{area.x, area.y + header, area.width, max(area.height - header, 0)}
-	box := place_box(s, list, {.Clip}, fmt.tprintf("###watch_rows_%d", id))
-	if sig := ui.signal_from_box(s, box); sig.scroll != 0 {
-		command_push(c, .Watch_Scroll, {view = id, count = -int(math.sign(sig.scroll)) * 2})
-	}
-	ui.push_parent(s, box)
-	defer ui.pop_parent(s)
+	// The filter row (Ctrl+F), then the rows: the section's, read in place;
+	// a filter reads every label and keeps the matches in the Watch's order.
+	body := view_header(app, s, {area.x, area.y + header, area.width, max(area.height - header, 0)}, id, dpi)
 	g := t.sections[v.section]
-	row_h := WATCH_ROW * dpi
-	if g.count == 0 {
-		ui.set_next_text_color(s, COLOR_TEXT_DIM)
+	filter := string(v.filter[:])
+	matched := make([dynamic]int, context.temp_allocator)
+	if filter != "" {
+		for k in g.first ..< g.first + g.count {
+			if _, ok := fuzzy_score(text_of(t.text[:], t.rows[k].label), filter); ok do append(&matched, k)
+		}
+	}
+	count := len(matched) if filter != "" else g.count
+	row_of :: proc(g: Watch_Group, matched: []int, filtered: bool, i: int) -> int {return matched[i] if filtered else g.first + i}
+	if count == 0 {
 		ui.set_next_font_size(s, 13 * dpi)
 		ui.set_next_text_padding(s, 10 * dpi)
-		place_box(s, {0, 0, list.width, 24 * dpi}, {.Draw_Text}, fmt.tprintf("%s###watch_none_%d", WATCH_SECTIONS[v.section].empty, id))
+		empty := "No rows match." if filter != "" else WATCH_SECTIONS[v.section].empty
+		cell(s, {body.x, body.y, body.width, 24 * dpi}, fmt.tprintf("%s###watch_none_%d", empty, id), {.Draw_Text}, COLOR_TEXT_DIM)
 		return
 	}
-	// The row the playhead is in (the last one starting at or before it).
+	// The row the playhead is in (the last shown starting at or before it).
 	current := -1
-	for row, i in t.rows[g.first:][:g.count] {
-		if row.frame >= 0 && row.frame <= pv.frame && (current < 0 || row.frame >= t.rows[g.first + current].frame) {
+	for i in 0 ..< count {
+		row := t.rows[row_of(g, matched[:], filter != "", i)]
+		if row.frame >= 0 && row.frame <= pv.frame && (current < 0 || row.frame >= t.rows[row_of(g, matched[:], filter != "", current)].frame) {
 			current = i
 		}
 	}
-	ui.scroll_limit(&v.scroll_reg, f64(max(g.count - 1, 0)))
-	first, fraction := ui.scroll_page_reg(s, &v.scroll_reg)
-	first = clamp(first, 0, max(g.count - 1, 0))
-	for i in first ..< min(g.count, first + int(list.height / row_h) + 2) {
-		watch_row_view(app, s, dpi, id, g.first + i, {0, (f32(i - first) - fraction) * row_h, list.width, row_h}, i == current)
+	row_h := WATCH_ROW * dpi
+	first, fraction := view_list_begin(app, s, body, id, fmt.tprintf("###watch_rows_%d", id), 3)
+	limit := max(1, int(body.height / row_h))
+	for i in first ..< min(count, first + limit + 1) {
+		watch_row_view(app, s, dpi, id, row_of(g, matched[:], filter != "", i), {body.x, body.y + (f32(i - first) - fraction) * row_h, body.width, row_h}, i == current, filter)
 	}
+	ui.pop_parent(s)
+	list_limit(view_list(pv, id), count, limit)
 }
 
-// One row at `r` (inside the list): its status strip, its thumbnail or
-// kind for media, its label over its detail.
+// One row at `r`: its status strip, its thumbnail or kind for media, its
+// label (the filter's letters lit) over its detail. It fades in as it
+// appears (RAD Debugger's alive_t, as onib's rows), keyed by what it is.
 @(private = "file")
-watch_row_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32, id: View_Id, index: int, r: Workspace_Rect, current: bool) {
+watch_row_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32, id: View_Id, index: int, r: Workspace_Rect, current: bool, filter: string) {
 	pv := &app.preview
 	row := pv.watch.rows[index]
 	text := pv.watch.text[:]
+	label := text_of(text, row.label)
+	alive := ui.anim_f32(s, ui.key_from_string(0, fmt.tprintf("watch_%d_%x_alive", id, row.key)), 1, {initial = 0, duration = 0.14, easing = .Cubic_Out})
+	ui.push_opacity(s, alive)
+	defer ui.pop_opacity(s)
 	ui.set_next_bg_color(s, {40, 46, 58, 255} if current else {0, 0, 0, 0})
 	ui.set_next_corner_radius(s, 0)
-	item := place_box(s, r, {.Clickable, .Draw_Background, .Draw_Hot_Effects}, fmt.tprintf("###watch_row_%d_%d", id, index))
-	if ui.clicked(ui.signal_from_box(s, item)) {
+	if ui.clicked(cell(s, r, fmt.tprintf("###watch_row_%d_%x", id, row.key), {.Clickable, .Draw_Background, .Draw_Hot_Effects})) {
 		watch_row_click(app, row)
 	}
-	ui.push_parent(s, item)
-	defer ui.pop_parent(s)
 	ui.set_next_bg_color(s, STATUS_COLORS[row.status])
 	ui.set_next_corner_radius(s, 0)
-	place_box(s, {0, 4 * dpi, 3 * dpi, r.height - 8 * dpi}, {.Draw_Background}, fmt.tprintf("###watch_status_%d", index))
-	x := 10 * dpi
+	cell(s, {r.x, r.y + 4 * dpi, 3 * dpi, r.height - 8 * dpi}, fmt.tprintf("###watch_status_%x", row.key), {.Draw_Background})
+	x := r.x + 10 * dpi
 	if row.section == .Media && row.media >= 0 && int(row.media) < len(pv.media.rows) {
 		// The media table's row, while it is the same item (the tables are
 		// published separately).
 		m := pv.media.rows[row.media]
-		icon := Workspace_Rect{x, 3 * dpi, r.height - 6 * dpi, r.height - 6 * dpi}
+		icon := Workspace_Rect{x, r.y + 3 * dpi, r.height - 6 * dpi, r.height - 6 * dpi}
 		image := &pv.media_images[row.media] if int(row.media) < len(pv.media_images) else nil
-		if text_of(pv.media.text[:], m.name) != text_of(text, row.label) {
+		if text_of(pv.media.text[:], m.name) != label {
 			image = nil
 		}
 		if image != nil && render.image_loaded(image) {
-			b := place_box(s, icon, {.Draw_Image}, fmt.tprintf("###watch_icon_%d", index))
+			place(s, icon)
+			b := ui.build_box(s, {.Draw_Image}, fmt.tprintf("###watch_icon_%x", row.key))
 			b.image = image
 		} else {
 			ui.set_next_bg_color(s, KIND_COLORS[m.kind])
 			ui.set_next_text_align(s, .Center)
 			ui.set_next_font_size(s, 10 * dpi)
 			ui.set_next_corner_radius(s, 4 * dpi)
-			place_box(s, icon, {.Draw_Background, .Draw_Text}, fmt.tprintf("%s###watch_icon_%d", om.MEDIA_KINDS[m.kind].tag, index))
+			place(s, icon)
+			ui.build_box(s, {.Draw_Background, .Draw_Text}, fmt.tprintf("%s###watch_icon_%x", om.MEDIA_KINDS[m.kind].tag, row.key))
 		}
 		x += icon.width + 6 * dpi
 	}
-	width := max(r.width - x - 4 * dpi, 0)
+	width := max(r.x + r.width - x - 4 * dpi, 0)
+	top := Workspace_Rect{x, r.y + 2 * dpi, width, r.height * 0.5}
+	match_marks(s, top, label, filter, 13 * dpi, 0, fmt.tprintf("watch_%d_%x", id, row.key))
 	ui.set_next_font_size(s, 13 * dpi)
 	ui.set_next_text_padding(s, 0)
-	place_box(s, {x, 2 * dpi, width, r.height * 0.5}, {.Draw_Text, .Clip}, fmt.tprintf("%s###watch_label_%d", text_of(text, row.label), index))
+	cell(s, top, fmt.tprintf("%s###watch_label_%x", label, row.key), {.Draw_Text, .Clip})
 	ui.set_next_font_size(s, 11 * dpi)
 	ui.set_next_text_padding(s, 0)
-	ui.set_next_text_color(s, COLOR_TEXT_DIM)
-	place_box(s, {x, r.height * 0.5, width, r.height * 0.45}, {.Draw_Text, .Clip}, fmt.tprintf("%s###watch_detail_%d", text_of(text, row.detail), index))
+	cell(s, {x, r.y + r.height * 0.5, width, r.height * 0.45}, fmt.tprintf("%s###watch_detail_%x", text_of(text, row.detail), row.key), {.Draw_Text, .Clip}, COLOR_TEXT_DIM)
 }

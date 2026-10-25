@@ -7,6 +7,7 @@ import "core:slice"
 import om "../onimite"
 import platform "../platform"
 import render "../render"
+import "../animation"
 import ui "../ui"
 
 // The preview's timeline: a time ruler over rows, one per item the worker
@@ -60,7 +61,8 @@ TIMELINE_ROW_HEIGHT := [Timeline_Kind]f32 {
 	.Bands  = 2 * LANE_HEIGHT,
 }
 
-@(private = "file")
+// A row's height in points, by its kind (the table's tree lays its rows
+// out by it too: timeline_tree).
 row_height :: proc(kind: Timeline_Kind) -> f32 {
 	return TIMELINE_ROW_HEIGHT[kind]
 }
@@ -101,7 +103,7 @@ timeline_axis :: proc(app: ^App_State, area: Workspace_Rect, dpi: f32, vertical:
 	if !vertical {
 		return TIME_ALONG
 	}
-	total, _ := rows_points(app, timeline_rows(app))
+	total := timeline_rows(app).points
 	room := area.width / dpi - 2 * TRACK_PAD - RULER_WIDTH
 	return {vertical = true, ruler = RULER_WIDTH, across = clamp(room / (SCENE_HEIGHT + total), 1, ACROSS_MAX)}
 }
@@ -177,57 +179,170 @@ label :: proc(s: ^ui.State, a: Time_Axis, str: string, at, size, text_at: [2]f32
 }
 
 timeline_row_open :: proc(app: ^App_State, item: Timeline_Item) -> bool {
-	pv := &app.preview
-	h := hash.fnv64a(transmute([]u8)text_of(pv.waves.text[:], item.path))
-	return slice.contains(pv.rows_open[:], h)
+	return slice.contains(app.preview.rows_open[:], item.key)
 }
 
-// The items shown below the scenes, in order: the top-level ones and the
-// children of open items (a group's tracks, a song's parts), each listed
-// right after its parent.
-timeline_rows :: proc(app: ^App_State) -> []int {
-	pv := &app.preview
-	items := pv.waves.items[:]
-	rows := make([dynamic]int, 0, len(items), context.temp_allocator)
-	for it, i in items {
-		if it.kind == .Scenes {
-			continue
-		}
-		shown := true
-		for p := it.parent; p >= 0 && shown; p = items[p].parent {
-			shown = timeline_row_open(app, items[p])
-		}
-		if shown {
-			append(&rows, i)
-		}
+// The rows below the scenes, laid out as onib lays out a view's rows
+// (after RAD Debugger's): a block per open row, the top level's first, its
+// children counted where they live (the table's `kids`) and its open ones
+// found from their keys; then spans of row numbers over the blocks in
+// order. Consumers ask the spans: the total rows and points, a window of
+// rows (only those are read: rows_window), or the last first row that
+// still fills the area (rows_last_first).
+Row_Block :: struct {
+	kids:  []i32, // its children (items), in order
+	opens: []Block_Open, // by place, ascending
+}
+
+Block_Open :: struct {
+	at, block: int, // a child's place among its siblings, and its block
+}
+
+// Rows [lo, hi) of block `block`'s children; with `opens`, its last row's
+// block follows.
+Row_Span :: struct {
+	block, lo, hi: int,
+	opens:         bool,
+}
+
+Timeline_Rows :: struct {
+	blocks: [dynamic]Row_Block,
+	spans:  [dynamic]Row_Span,
+	total:  int,
+	points: f32,
+}
+
+timeline_rows :: proc(app: ^App_State) -> (r: Timeline_Rows) {
+	w := &app.preview.waves
+	r.blocks = make([dynamic]Row_Block, context.temp_allocator)
+	r.spans = make([dynamic]Row_Span, context.temp_allocator)
+	if w.top[1] == 0 {
+		return
 	}
-	return rows[:]
+	rows_block(app, &r, w.kids[w.top[0]:][:w.top[1]])
+	rows_spans(&r, 0)
+	for sp in r.spans {
+		r.total += sp.hi - sp.lo
+		r.points += span_points(w, r.blocks[sp.block].kids, sp.lo, sp.hi)
+	}
+	return
 }
 
-// Points of the rows below the scenes: all of them, and what shows in the
-// timeline's panel.
+// The block of `kids`, and of its open children after it.
 @(private = "file")
-rows_points :: proc(app: ^App_State, rows: []int) -> (total, shown: f32) {
-	for i in rows {
-		total += row_height(app.preview.waves.items[i].kind)
+rows_block :: proc(app: ^App_State, r: ^Timeline_Rows, kids: []i32) -> int {
+	pv := &app.preview
+	w := &pv.waves
+	block := len(r.blocks)
+	append(&r.blocks, Row_Block{kids = kids})
+	opens := make([dynamic]Block_Open, context.temp_allocator)
+	for key in pv.rows_open {
+		for k, at in kids {
+			if it := w.items[k]; it.key == key && it.children > 0 {
+				append(&opens, Block_Open{at, rows_block(app, r, w.kids[it.kids[0]:][:it.kids[1]])})
+				break
+			}
+		}
 	}
-	return total, min(total, app.preview.rows_room)
+	slice.sort_by(opens[:], proc(x, y: Block_Open) -> bool {return x.at < y.at})
+	r.blocks[block].opens = opens[:]
+	return block
 }
 
-// Keeps the scroll inside the rows (after a group opens or closes).
+// A block's spans, its open children's between: a span ends at each open row.
+@(private = "file")
+rows_spans :: proc(r: ^Timeline_Rows, block: int) {
+	from := 0
+	for o in r.blocks[block].opens {
+		append(&r.spans, Row_Span{block, from, o.at + 1, true})
+		rows_spans(r, o.block)
+		from = o.at + 1
+	}
+	if count := len(r.blocks[block].kids); from < count {
+		append(&r.spans, Row_Span{block, from, count, false})
+	}
+}
+
+// Points of children [lo, hi): their offsets among their siblings.
+@(private = "file")
+span_points :: proc(w: ^Wave_Table, kids: []i32, lo, hi: int) -> f32 {
+	if hi <= lo {
+		return 0
+	}
+	last := w.items[kids[hi - 1]]
+	return last.y + row_height(last.kind) - w.items[kids[lo]].y
+}
+
+// The rows (items) from `first`, at most `limit`: only these are read.
+rows_window :: proc(r: ^Timeline_Rows, first, limit: int) -> []int {
+	out := make([dynamic]int, context.temp_allocator)
+	end := limit > max(int) - first ? max(int) : first + limit
+	at := 0
+	for sp in r.spans {
+		n := sp.hi - sp.lo
+		kids := r.blocks[sp.block].kids
+		for i in sp.lo + clamp(first - at, 0, n) ..< sp.lo + clamp(end - at, 0, n) {
+			append(&out, int(kids[i]))
+		}
+		at += n
+	}
+	return out[:]
+}
+
+// The last first row that still fills `room` points (0 when every row fits).
+rows_last_first :: proc(w: ^Wave_Table, r: ^Timeline_Rows, room: f32) -> int {
+	if r.points <= room {
+		return 0
+	}
+	acc: f32
+	n := r.total
+	#reverse for sp in r.spans {
+		kids := r.blocks[sp.block].kids
+		for i := sp.hi - 1; i >= sp.lo; i -= 1 {
+			h := row_height(w.items[kids[i]].kind)
+			if acc + h > room {
+				return n
+			}
+			acc += h
+			n -= 1
+		}
+	}
+	return 0
+}
+
+// The most rows `room` points can show (the shortest row's count, and one
+// partly shown at each edge).
+rows_fit :: proc(room: f32) -> int {
+	shortest := max(f32)
+	for h in TIMELINE_ROW_HEIGHT do shortest = min(shortest, h)
+	return int(room / shortest) + 2
+}
+
+// The timeline's view, and its rows' list (which follows its scroll).
+@(private = "file")
+timeline_list :: proc(app: ^App_State) -> (^View_Record, ^List) {
+	pv := &app.preview
+	id := workspace_find(&pv.workspace, .Timeline)
+	v := workspace_view(&pv.workspace, id)
+	if v == nil {
+		return nil, nil
+	}
+	return v, view_list(pv, id)
+}
+
+// Keeps the timeline's scroll inside its rows (after a group opens or
+// closes), and its list with it.
 timeline_rows_clamp :: proc(app: ^App_State) {
 	pv := &app.preview
-	rows := timeline_rows(app)
-	total, shown := rows_points(app, rows)
-	// The last first row that still fills the area.
-	last := len(rows)
-	for acc: f32 = 0; last > 0 && acc + row_height(pv.waves.items[rows[last - 1]].kind) <= shown; last -= 1 {
-		acc += row_height(pv.waves.items[rows[last - 1]].kind)
+	v, l := timeline_list(app)
+	if v == nil {
+		return
 	}
-	limit := last if total > shown else 0
-	pv.rows_scroll = clamp(pv.rows_scroll, 0, limit)
-	ui.scroll_limit(&pv.rows_scroll_reg, f64(limit))
-	ui.scroll_to(&pv.rows_scroll_reg, f64(pv.rows_scroll))
+	r := timeline_rows(app)
+	limit := rows_last_first(&pv.waves, &r, min(r.points, pv.rows_room))
+	v.scroll = clamp(v.scroll, 0, limit)
+	animation.scroll_limit(&l.scroll, f32(limit))
+	animation.scroll_to(&l.scroll, f32(v.scroll))
 }
 
 // Points the rows below the scenes get in the timeline's `area` (pixels)
@@ -244,7 +359,7 @@ timeline_height :: proc(app: ^App_State) -> f32 {
 	if app.preview.timeline_collapsed {
 		return 0
 	}
-	total, _ := rows_points(app, timeline_rows(app))
+	total := timeline_rows(app).points
 	return TIMELINE_GAP * 2 + RULER_HEIGHT + SCENE_HEIGHT + min(total, ROWS_AREA_MAX)
 }
 
@@ -389,10 +504,12 @@ timeline_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32, area: Workspace_R
 		if motion := axis_motion(a, sig.drag_motion); (ui.middle_dragging(sig) || ui.right_dragging(sig)) && motion.x != 0 {
 			command_push(c, .Timeline_Pan, {scalar = -f64(motion.x) / ppf, flag = true})
 		}
-		total, shown := rows_points(app, timeline_rows(app))
+		rows := timeline_rows(app)
 		shift := platform.shift_down(s.p)
-		if sig.scroll != 0 && !shift && hit >= 0 && total > shown {
-			command_push(c, .Timeline_Rows_Scroll, {count = -1 if sig.scroll > 0 else 1})
+		if v, l := timeline_list(app); v != nil && sig.scroll != 0 && !shift && hit >= 0 && rows.points > pv.rows_room {
+			// the rows' list scrolls a row a tick (View_Scroll, as any view's)
+			step: f32 = -1 if sig.scroll > 0 else 1
+			command_push(c, .View_Scroll, {view = workspace_find(&pv.workspace, .Timeline), count = int(clamp(l.scroll.track.target + step, 0, l.scroll.maximum) + 0.5)})
 		} else if sig.scroll != 0 || sig.scroll_x != 0 {
 			command_push(c, .Timeline_Pan, {scalar = f64(sig.scroll_x - sig.scroll) * visible * 0.1})
 		}
@@ -415,17 +532,18 @@ timeline_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32, area: Workspace_R
 row_at :: proc(app: ^App_State, a: Time_Axis, track: ^ui.Box, mouse: [2]f32, dpi: f32) -> (item: int, in_name: bool) {
 	pv := &app.preview
 	y := track.rect.min.y + (a.ruler + SCENE_HEIGHT * a.across) * dpi
-	rows := timeline_rows(app)
-	_, shown := rows_points(app, rows)
-	if mouse.y < y || mouse.y >= y + shown * dpi * a.across {
+	r := timeline_rows(app)
+	shown := min(r.points, pv.rows_room)
+	_, l := timeline_list(app)
+	if l == nil || mouse.y < y || mouse.y >= y + shown * dpi * a.across {
 		return -1, false
 	}
-	first_row := clamp(int(math.floor(pv.rows_scroll_reg.current)), 0, len(rows))
-	fraction := f32(pv.rows_scroll_reg.current) - f32(first_row)
-	if first_row < len(rows) && fraction > 0 {
-		y -= fraction * row_height(pv.waves.items[rows[first_row]].kind) * dpi * a.across
+	first_row, fraction := animation.scroll_page(&l.scroll)
+	rows := rows_window(&r, first_row, rows_fit(shown))
+	if len(rows) > 0 && fraction > 0 {
+		y -= fraction * row_height(pv.waves.items[rows[0]].kind) * dpi * a.across
 	}
-	for i in rows[first_row:] {
+	for i in rows {
 		h := row_height(pv.waves.items[i].kind) * dpi * a.across
 		if mouse.y < y + h {
 			return i, mouse.x - track.rect.min.x < axis_label_along(a, ROW_NAME_WIDTH, LANE_HEIGHT) * dpi
@@ -539,20 +657,27 @@ timeline_draw :: proc(s: ^ui.State, box: ^ui.Box, data: rawptr) {
 	// row shown asks for its source's rows: bands_shown).
 	clear(&pv.bands_shown)
 	rows := timeline_rows(app)
-	_, shown := rows_points(app, rows)
+	shown := min(rows.points, pv.rows_room)
 	rows_y := y0 + ruler_h + SCENE_HEIGHT * dpi * a.across
 	clip(r, a, x0, rows_y, w, shown * dpi * a.across)
 	view := Row_View{s, d, a, x0, w, first, ppf, f64(om.MIX_RATE) / f64(fps), line_w, font_px}
 	window_mouse := platform.mouse_pos(s.p)
 	mouse := axis_point(a, window_mouse)
 	hovered := -1
-	first_row, fraction := ui.scroll_page_reg(s, &pv.rows_scroll_reg)
-	first_row = clamp(first_row, 0, len(rows))
-	y := rows_y
-	if first_row < len(rows) && fraction > 0 {
-		y -= fraction * row_height(pv.waves.items[rows[first_row]].kind) * dpi * a.across
+	// The rows' list eases to the timeline view's scroll; only the rows it
+	// shows are read.
+	first_row, fraction := 0, f32(0)
+	if v, l := timeline_list(app); v != nil {
+		animation.scroll_limit(&l.scroll, f32(rows_last_first(&pv.waves, &rows, shown)))
+		animation.scroll_to(&l.scroll, f32(v.scroll))
+		first_row, fraction = ui.scroll_page(s, &l.scroll)
 	}
-	for i, n in rows[first_row:] {
+	window := rows_window(&rows, first_row, rows_fit(shown))
+	y := rows_y
+	if len(window) > 0 && fraction > 0 {
+		y -= fraction * row_height(pv.waves.items[window[0]].kind) * dpi * a.across
+	}
+	for i, n in window {
 		it := &pv.waves.items[i]
 		rh := row_height(it.kind) * dpi * a.across
 		if y >= rows_y + shown * dpi * a.across {

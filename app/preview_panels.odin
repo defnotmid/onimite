@@ -50,6 +50,7 @@ place_button :: proc(s: ^ui.State, r: Workspace_Rect, label: string) -> ui.Signa
 panels_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32) {
 	pv := &app.preview
 	ws := &pv.workspace
+	panel_areas_ease(app, s, dpi)
 	if pv.drag_view != 0 && !pv.drag_active {
 		d := platform.mouse_pos(s.p) - pv.drag_start
 		pv.drag_active = d.x * d.x + d.y * d.y > DRAG_START * DRAG_START * dpi * dpi
@@ -84,6 +85,59 @@ panels_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32) {
 	}
 	if !platform.mouse_down(s.p, .Left) {
 		pv.drag_view, pv.drag_active = 0, false
+	}
+}
+
+// Panels slide to new places when the tree changes shape (a split, a dock,
+// a close), as onib's panel_areas_ease (after RAD Debugger's): each rect
+// eases there in fractions of the window, so resizing the window moves
+// nothing slowly, and a new panel starts in place. When only ratios change
+// (a divider dragged) they follow at once. A splitter sits between its
+// sides as they are drawn.
+@(private = "file")
+panel_areas_ease :: proc(app: ^App_State, s: ^ui.State, dpi: f32) {
+	pv := &app.preview
+	ws := &pv.workspace
+	mix :: proc(h: u64, v: u64) -> u64 {return (h ~ v) * 0x100000001b3}
+	shape, ratios := u64(0xcbf29ce484222325), u64(0xcbf29ce484222325)
+	for p in ws.panels {
+		shape = mix(mix(mix(mix(shape, u64(p.parent)), u64(p.children[0])), u64(p.children[1])), u64(p.live) | u64(p.axis) << 1)
+		ratios = mix(ratios, u64(transmute(u32)p.ratio))
+	}
+	snap := shape == pv.panel_shape && ratios != pv.panel_ratios
+	pv.panel_shape, pv.panel_ratios = shape, ratios
+	if workspace_panel(ws, ws.root) == nil {
+		return
+	}
+	window := ws.areas[ws.root - 1].rect
+	if window.width <= 0 || window.height <= 0 {
+		return
+	}
+	tab := PANEL_TABS * dpi
+	for &a, i in ws.areas {
+		if !a.visible || a.rect.width <= 0 {
+			continue
+		}
+		target := [4]f32{(a.rect.x - window.x) / window.width, (a.rect.y - window.y) / window.height, (a.rect.x + a.rect.width - window.x) / window.width, (a.rect.y + a.rect.height - window.y) / window.height}
+		eased: [4]f32
+		for k in 0 ..< 4 do eased[k] = ui.anim_f32(s, ui.key_from_string(0, fmt.tprintf("panel_%d_%d", i, k)), target[k], {initial = target[k], duration = 0.18, easing = .Cubic_Out, reset = snap})
+		a.rect = {window.x + eased[0] * window.width, window.y + eased[1] * window.height, (eased[2] - eased[0]) * window.width, (eased[3] - eased[1]) * window.height}
+		if ws.panels[i].children[0] == 0 {
+			header := min(tab, a.rect.height)
+			a.content = {a.rect.x, a.rect.y + header, a.rect.width, max(a.rect.height - header, 0)}
+		}
+	}
+	for p, i in ws.panels {
+		if !p.live || p.children[0] == 0 || !ws.areas[i].visible {
+			continue
+		}
+		one, two := ws.areas[p.children[0] - 1].rect, ws.areas[p.children[1] - 1].rect
+		a := &ws.areas[i]
+		if p.axis == .X {
+			a.splitter = {one.x + one.width, a.rect.y, max(two.x - one.x - one.width, 0), a.rect.height}
+		} else {
+			a.splitter = {a.rect.x, one.y + one.height, a.rect.width, max(two.y - one.y - one.height, 0)}
+		}
 	}
 }
 
@@ -326,7 +380,9 @@ drop_site :: proc(app: ^App_State, s: ^ui.State, target: Drop_Target, rect, prev
 	}
 	flags: ui.Box_Flags = {.Drop_Site}
 	if visible {
+		// a shown site fades in (onib's drop_zone)
 		flags += {.Draw_Background, .Draw_Border, .Draw_Text}
+		ui.set_next_opacity(s, ui.anim_f32(s, ui.key_from_string(0, fmt.tprintf("%s_open", key)), 1, {initial = 0, duration = 0.14, easing = .Cubic_Out}))
 	}
 	ui.set_next_bg_color(s, COLOR_DROP)
 	ui.set_next_text_align(s, .Center)
@@ -339,8 +395,15 @@ drop_site :: proc(app: ^App_State, s: ^ui.State, target: Drop_Target, rect, prev
 	}
 	b.bg_color = COLOR_DROP_HOT
 	if preview.width > 0 && preview.height > 0 {
+		// the preview grows from its centre to the area the drop gives
+		grow :: proc(s: ^ui.State, key, edge: string, to, from: f32) -> f32 {
+			return ui.anim_f32(s, ui.key_from_string(0, fmt.tprintf("%s_%s", key, edge)), to, {initial = from, duration = 0.14, easing = .Cubic_Out})
+		}
+		cx, cy := preview.x + preview.width / 2, preview.y + preview.height / 2
+		x0, y0 := grow(s, key, "x0", preview.x, cx), grow(s, key, "y0", preview.y, cy)
+		x1, y1 := grow(s, key, "x1", preview.x + preview.width, cx), grow(s, key, "y1", preview.y + preview.height, cy)
 		ui.set_next_bg_color(s, COLOR_DROP_PREVIEW)
-		place_box(s, preview, {.Draw_Background, .Draw_Border}, "###drop_preview")
+		place_box(s, {x0, y0, max(1, x1 - x0), max(1, y1 - y0)}, {.Draw_Background, .Draw_Border}, fmt.tprintf("%s_preview", key))
 	}
 	if platform.mouse_released(s.p, .Left) {
 		command_push(&app.commands, row.kind, row.regs)

@@ -17,9 +17,9 @@ watch_add :: proc(w: ^Watch_Table, section: Watch_Section, frame: int, label: st
 
 // A mode lists its catalogs in order: the view descriptors (a Watch once
 // per section) and the panel's actions, or the rows of the sections
-// that are places to go. A filter keeps the options with its characters in
-// order, those whose group and label start with it first, then those with
-// a word starting with it.
+// that are places to go. A filter keeps the options whose group and label
+// have its letters in order, ranked by the one matcher (fuzzy_score):
+// runs and word starts first, equal scores in the catalogs' order.
 @(test)
 test_lister_options :: proc(t: ^testing.T) {
 	defer free_all(context.temp_allocator)
@@ -35,11 +35,10 @@ test_lister_options :: proc(t: ^testing.T) {
 	watch_add(&w, .Media, 12, "logo.png")
 	video := workspace_view(&ws, workspace_find(&ws, .Video)).panel
 	list :: proc(ws: ^Workspace, w: ^Watch_Table, panel: Panel_Id, mode: Lister_Mode, query: string) -> (matches: [dynamic]Lister_Option, total: int) {
-		options := make([dynamic]Lister_Option, context.temp_allocator)
-		lister_options({w, 30, panel}, mode, &options)
+		rows := lister_rows({w, 30, panel}, mode, query)
 		matches = make([dynamic]Lister_Option, context.temp_allocator)
-		lister_filter(options[:], query, &matches)
-		return matches, len(options)
+		for i in 0 ..< rows.count do append(&matches, lister_option(&rows, i))
+		return matches, rows.total
 	}
 
 	add, total := list(&ws, &w, video, .Panel, "")
@@ -66,7 +65,7 @@ test_lister_options :: proc(t: ^testing.T) {
 	testing.expect_value(t, go_to[3].row.regs.section, Watch_Section.Problems)
 	testing.expect_value(t, go_to[4].group, "View")
 
-	// Prefix, then word start, then in order; case ignored.
+	// Ranked by the matcher; case ignored.
 	sc, _ := list(&ws, &w, video, .Go_To, "SC")
 	testing.expect_value(t, len(sc), 3)
 	testing.expect_value(t, sc[0].label, "Intro")
@@ -80,16 +79,18 @@ test_lister_options :: proc(t: ^testing.T) {
 	none, _ := list(&ws, &w, video, .Go_To, "zzz")
 	testing.expect_value(t, len(none), 0)
 
-	testing.expect_value(t, match_rank("View Watch: Problems", "prob"), Match_Rank.Word)
-	testing.expect_value(t, match_rank("Panel Split right", "spl"), Match_Rank.Word)
-	testing.expect_value(t, match_rank("Split right", "sr"), Match_Rank.Scattered)
-	testing.expect_value(t, match_rank("Timeline", "time"), Match_Rank.Prefix)
-	testing.expect_value(t, match_rank("Timeline", "x"), Match_Rank.None)
+	// The letters the filter lit, and parts in any order.
+	marks := fuzzy_positions("Split right", "sr")
+	testing.expect(t, len(marks) == 2 && marks[0] == 0 && marks[1] == 6, "Split right: s and r")
+	_, both := fuzzy_score("Split right", "right spl")
+	testing.expect(t, both, "parts match in any order")
+	_, none_ok := fuzzy_score("Timeline", "x")
+	testing.expect(t, !none_ok, "no x in Timeline")
 }
 
-// The lister through its key rows: Down moves the selection, Enter pushes
-// the selected option's row and closes; typing pushes the filter, and the
-// list follows it.
+// The lister through its action rows: Down moves the selection, Enter
+// (Accept) pushes the selected option's row and closes; typing pushes the
+// filter, and the list follows it.
 @(test)
 test_lister_keys :: proc(t: ^testing.T) {
 	app: App_State
@@ -132,8 +133,8 @@ test_lister_keys :: proc(t: ^testing.T) {
 	workspace_apply(&pv.workspace, .Lister_Open, {lister = .Go_To})
 	testing.expect(t, pv.workspace.lister.panel != 0)
 	testing.expect_value(t, len(frame(&app, &s)), 0)
-	testing.expect_value(t, len(frame(&app, &s, {kind = .Key, key = .Down})), 0)
-	accepted := frame(&app, &s, {kind = .Key, key = .Enter})
+	testing.expect_value(t, len(frame(&app, &s, {kind = .Navigate, delta = {0, 1}})), 0)
+	accepted := frame(&app, &s, {kind = .Press, slot = .Accept})
 	testing.expect_value(t, len(accepted), 2)
 	testing.expect_value(t, accepted[0].kind, Command_Kind.Frame_Set)
 	testing.expect_value(t, accepted[0].regs.count, 90)
@@ -148,7 +149,7 @@ test_lister_keys :: proc(t: ^testing.T) {
 	testing.expect_value(t, typed[0].kind, Command_Kind.Lister_Filter)
 	testing.expect_value(t, typed[0].regs.spec, "dr")
 	testing.expect_value(t, string(pv.workspace.lister.query[:]), "dr")
-	accepted = frame(&app, &s, {kind = .Key, key = .Enter})
+	accepted = frame(&app, &s, {kind = .Press, slot = .Accept})
 	testing.expect_value(t, accepted[0].regs.count, 48)
 
 	// The + opens it for its own panel; a branch has no +.

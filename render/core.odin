@@ -54,6 +54,8 @@ Renderer :: struct {
 	viewport:        sdl.GPUViewport,
 	use_scissor:     bool,
 	scissor:         sdl.Rect,
+	// The owner stamped on the commands recorded now (set_scope).
+	scope:           u32,
 
 	// per-frame GPU handles (valid between begin_frame/end_frame)
 	cmd_buf:         ^sdl.GPUCommandBuffer,
@@ -290,6 +292,7 @@ begin_frame :: proc(r: ^Renderer, clear_col: [4]f32) -> bool {
 	clear(&r.cmds)
 	r.use_viewport = false
 	r.use_scissor = false
+	r.scope = 0
 	clear(&r.clip_stack)
 	r.clear_color = clear_col
 	r.frame_active = true
@@ -502,4 +505,7 @@ _fill_target :: proc(r: ^Renderer, cmd: ^Draw_Cmd) {
 	cmd.viewport = r.viewport
 	cmd.use_scissor = r.use_scissor
 	cmd.scissor = r.scissor
+	cmd.scope = r.scope
 }
+
+set_scope :: proc(r: ^Renderer, scope: u32) {r.scope = scope}

@@ -1,5 +1,6 @@
 package ui
 
+import "../animation"
 import "core:math"
 
 import render "../render"
@@ -24,21 +25,16 @@ lerp_u8 :: proc(a, b: [4]u8, t: f32) -> [4]u8 {
 	return out
 }
 
-// `c` at the box's opacity.
-faded :: proc(box: ^Box, c: [4]u8) -> [4]u8 {
-	if box.opacity >= 1 {
-		return c
-	}
-	return {c.r, c.g, c.b, u8(f32(c.a) * max(box.opacity, 0))}
-}
-
-approach :: proc(current, target, rate, dt: f32) -> f32 {
-	// exponential approach, framerate-independent
-	t := 1 - math.pow(f32(2), -rate * dt)
-	return current + (target - current) * t
+color_with_opacity :: proc(color: [4]u8, opacity: f32) -> [4]u8 {
+	result := color
+	result.a = u8(f32(result.a) * clamp(opacity, 0, 1))
+	return result
 }
 
 draw_box :: proc(s: ^State, box: ^Box, dt: f32) {
+	previous_scope := s.r.scope
+	render.set_scope(s.r,box.draw_scope)
+	defer render.set_scope(s.r,previous_scope)
 	x := box.rect.min.x
 	y := box.rect.min.y
 	w := box.rect.max.x - box.rect.min.x
@@ -48,10 +44,15 @@ draw_box :: proc(s: ^State, box: ^Box, dt: f32) {
 	hot_target: f32 = (s.hot == box.key && box.key != Key(0)) ? 1 : 0
 	active_target: f32 = (s.active == box.key && box.key != Key(0)) ? 1 : 0
 	if .Draw_Hot_Effects in box.flags {
-		box.hot_t = approach(box.hot_t, hot_target, s.theme.hot_anim_rate, dt)
+		box.hot_t = animation.approach(box.hot_t, hot_target, s.theme.hot_anim_rate * math.LN2, dt)
 	}
 	if .Draw_Active_Effects in box.flags {
-		box.active_t = approach(box.active_t, active_target, s.theme.active_anim_rate, dt)
+		box.active_t = animation.approach(
+			box.active_t,
+			active_target,
+			s.theme.active_anim_rate * math.LN2,
+			dt,
+		)
 	}
 
 	// clip: push scissor for subtree
@@ -63,7 +64,19 @@ draw_box :: proc(s: ^State, box: ^Box, dt: f32) {
 
 	if w > 0 && h > 0 {
 		if .Draw_Image in box.flags && box.image != nil {
-			render.draw_image_contain(s.r, box.image, x, y, w, h)
+			render.draw_image_contain(s.r, box.image, x, y, w, h) // onimite
+		}
+		if .Draw_Horizontal_Gradient in box.flags {
+			render.draw_rect_gradient_horizontal(
+				s.r,
+				x,
+				y,
+				w,
+				h,
+				color_with_opacity(box.gradient_left, box.opacity),
+				color_with_opacity(box.gradient_right, box.opacity),
+				box.corner_radius,
+			)
 		}
 		// background (+ hot/active tint)
 		if .Draw_Background in box.flags {
@@ -74,7 +87,7 @@ draw_box :: proc(s: ^State, box: ^Box, dt: f32) {
 			if .Draw_Active_Effects in box.flags {
 				col = lerp_u8(col, box.active_color, box.active_t)
 			}
-			col = faded(box, col)
+			col = color_with_opacity(col, box.opacity)
 			if box.corner_radius > 0 {
 				render.draw_rect_rounded(s.r, x, y, w, h, box.corner_radius, col)
 			} else {
@@ -91,23 +104,23 @@ draw_box :: proc(s: ^State, box: ^Box, dt: f32) {
 				w,
 				h,
 				box.border_thickness,
-				faded(box, s.theme.border),
+				color_with_opacity(box.border_color, box.opacity),
 				box.corner_radius,
 			)
 		}
 
 		// text
 		if .Draw_Text in box.flags && len(box.str) > 0 {
-			lh := render.line_height(s.font, box.font_size)
+			box_text_metrics_ensure(s, box)
+			tw := box.text_width
+			lh := box.text_height
 			tx: f32
 			switch box.text_align {
 			case .Left:
 				tx = x + box.text_padding
 			case .Center:
-				tw := box.text_width if box.has_text_width else render.measure_text(s.font, box.str, box.font_size)
 				tx = x + (w - tw) * 0.5
 			case .Right:
-				tw := box.text_width if box.has_text_width else render.measure_text(s.font, box.str, box.font_size)
 				tx = x + w - tw - box.text_padding
 			}
 			ty := y + (h - lh) * 0.5
@@ -118,13 +131,13 @@ draw_box :: proc(s: ^State, box: ^Box, dt: f32) {
 				tx,
 				ty,
 				box.font_size,
-				faded(box, box.text_color),
+				color_with_opacity(box.text_color, box.opacity),
 			)
 		}
 	}
 
 	if box.custom_draw != nil && w > 0 && h > 0 {
-		box.custom_draw(s, box, box.custom_draw_data)
+		box.custom_draw(s, box, box.custom_draw_data) // onimite
 	}
 
 	// children

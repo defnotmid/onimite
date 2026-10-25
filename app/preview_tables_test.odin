@@ -2,6 +2,7 @@ package onimite_app
 
 import "core:os"
 import "core:path/filepath"
+import "core:slice"
 import "core:strings"
 import "core:testing"
 import om "../onimite"
@@ -166,3 +167,65 @@ test_marks_file :: proc(t: ^testing.T) {
 	testing.expect(t, !os.exists(marks_file(clip)))
 }
 
+
+// The rows below the scenes from blocks and spans are the rows a walk of
+// every item gives (an item shown when every item above it is open), in
+// order, for any rows open: the whole list, any window of it, its points,
+// and the last first row that still fills an area.
+@(test)
+test_timeline_rows_blocks :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	app: App_State
+	pv := &app.preview
+	defer preview_state_destroy(pv)
+	workspace_init(&pv.workspace)
+	w := &pv.waves
+	add :: proc(w: ^Wave_Table, kind: Timeline_Kind, parent: i32, path: string) {
+		append(&w.items, Timeline_Item{kind = kind, parent = parent, path = text_push(&w.text, path)})
+		if parent >= 0 do w.items[parent].children += 1
+	}
+	add(w, .Scenes, -1, "scenes")
+	add(w, .Cues, -1, "cues")
+	add(w, .Group, -1, "bus/a")       // 2
+	add(w, .Track, 2, "track/0")      // 3
+	add(w, .Part, 3, "track/0/part/0")
+	add(w, .Part, 3, "track/0/part/1")
+	add(w, .Track, 2, "track/1")      // 6
+	add(w, .Group, -1, "bus/b")       // 7
+	add(w, .Track, 7, "track/2")      // 8
+	add(w, .Notes, 8, "track/2/notes")
+	add(w, .Track, -1, "track/3")
+	timeline_tree(w)
+	walk :: proc(app: ^App_State) -> [dynamic]int {
+		items := app.preview.waves.items[:]
+		out := make([dynamic]int, context.temp_allocator)
+		for it, i in items {
+			if it.kind == .Scenes do continue
+			shown := true
+			for p := it.parent; p >= 0 && shown; p = items[p].parent do shown = timeline_row_open(app, items[p])
+			if shown do append(&out, i)
+		}
+		return out
+	}
+	opens := [][]int{{}, {2}, {2, 3}, {3}, {2, 3, 7, 8}, {7}, {8, 7, 3, 2}}
+	for open in opens {
+		clear(&pv.rows_open)
+		for i in open do append(&pv.rows_open, w.items[i].key)
+		want := walk(&app)
+		r := timeline_rows(&app)
+		testing.expect_value(t, r.total, len(want))
+		got := rows_window(&r, 0, max(int))
+		testing.expectf(t, slice.equal(got, want[:]), "open %v: %v, want %v", open, got, want[:])
+		points: f32
+		for i in want do points += row_height(w.items[i].kind)
+		testing.expect_value(t, r.points, points)
+		for first in 0 ..< len(want) {
+			testing.expect(t, slice.equal(rows_window(&r, first, 3), want[first:min(first + 3, len(want))]))
+		}
+		for room in ([]f32{10, 40, 60, 100, points, points + 1}) {
+			last := len(want)
+			for acc: f32 = 0; last > 0 && acc + row_height(w.items[want[last - 1]].kind) <= room; last -= 1 do acc += row_height(w.items[want[last - 1]].kind)
+			testing.expect_value(t, rows_last_first(w, &r, room), last if points > room else 0)
+		}
+	}
+}

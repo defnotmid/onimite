@@ -13,6 +13,7 @@ import om "../onimite"
 import platform "../platform"
 import render "../render"
 import script "../script"
+import "../animation"
 import ui "../ui"
 import vg "deps:ovg"
 import odimg "deps:odecs/image"
@@ -56,33 +57,26 @@ Preview_State :: struct {
 	mark_in:            int,
 	marks_unread:       bool,
 	marks_changed:      bool,
-	// The timeline view: 1 = the whole video; the frame at the left edge;
-	// the playhead frame the view last followed; oasic's motion tracks and
-	// cursor anchor for logarithmic zoom and pan smoothing.
+	// The timeline's camera as shown: its zoom (1 = the whole video) and the
+	// frame at its left edge, following `timeline_camera`, which commands
+	// set (camera_follow, as onib's cameras); the playhead frame the view
+	// last followed.
 	zoom:               f64,
 	view_first:         f64,
-	zoom_track:         ui.Track,
-	first_track:        ui.Track,
-	anchor_frame:       f64,
-	anchor_ratio:       f64,
-	anchor_active:      bool,
+	timeline_camera:    Timeline_Camera,
 	detached:           bool,
 	followed_frame:     int,
 	timeline_collapsed: bool,
-	// The timeline groups open (their paths' hashes: they stay open across
-	// reloads) and the smooth scroll register of the rows below the scenes.
+	// The timeline's items open (their keys: their paths' hashes, so they
+	// stay open across reloads).
 	rows_open:          [dynamic]u64,
-	rows_scroll:        int,
-	rows_scroll_reg:    ui.Scroll,
-	// The video's 2D camera (oasic's Space_View): zoom (1 = fit), offset in
-	// video pixels from the centre, and its motion tracks and cursor anchor.
+	// The video's camera as shown: zoom (1 = fit), its centre and the offset
+	// that puts it there (normalized panel units), following `video_camera`,
+	// which commands set.
 	video_zoom:         f64,
+	video_center:       [2]f64,
 	video_pan:          [2]f64,
-	video_zoom_track:   ui.Track,
-	video_pan_tracks:   [2]ui.Track,
-	video_anchor_pt:    [2]f64,
-	video_anchor_at:    [2]f64,
-	video_anchor_active: bool,
+	video_camera:       Video_Camera,
 	video_drag_moved:   bool,
 	// The press on the timeline began on a group's name (no scrubbing).
 	press_on_name:      bool,
@@ -94,12 +88,20 @@ Preview_State :: struct {
 	workspace:          Workspace,
 	// The lister's draft filter, selection and scroll (presentation).
 	lister:             Lister_View,
+	// Per view (by View_Id - 1): the list its rows scroll in, which follows
+	// the view's scroll, and its filter as typed (preview_list.odin).
+	view_lists:         [dynamic]List,
+	view_filters:       [dynamic]Filter_Field,
 	dpi:                f32,
 	// A tab being dragged (gesture state, not a command): its view, where
 	// the press began and whether it has moved far enough to be a drag.
 	drag_view:          View_Id,
 	drag_start:         [2]f32,
 	drag_active:        bool,
+	// The panel tree apart from its ratios, and its ratios, last frame
+	// (panel_areas_ease).
+	panel_shape:        u64,
+	panel_ratios:       u64,
 	fullscreen:         bool,
 	// --bare: the video alone on the whole window (bare_area, the only view
 	// shown), played once; the end of the video or Escape closes the window.
@@ -209,6 +211,71 @@ STATUS_HEIGHT :: 26
 WATCH_WIDTH :: 360
 VOLUME_STEP :: 0.1
 
+// A camera on the timeline (the frame at its left edge, its zoom: 1 = the
+// whole video) and on the video (its centre in normalized panel units, its
+// zoom: 1 = fit). As onib's: commands set the target, and the camera shown
+// follows it each frame (camera_follow).
+Timeline_Camera :: struct {
+	first, zoom: f64,
+}
+
+Video_Camera :: struct {
+	center: [2]f64,
+	zoom:   f64,
+}
+
+// Rate of the exponential approach (onib's, oasic's and odincade's).
+CAMERA_RATE :: 18
+
+// The shown camera (`center`, `zoom`) follows its target, as onib's
+// camera_follow: zoom moves in log space about the one point both cameras
+// put at the same place on screen ((x - center) * zoom), so the point under
+// a zooming pointer stays still the whole way. Settled once every centre is
+// within `settle` of its target in screen units (center * zoom); `snap`
+// follows at once, for drags that must track the pointer exactly.
+camera_follow :: proc(center: []f64, zoom: ^f64, target_center: []f64, target_zoom: f64, dt: f32, snap: bool, settle: f64) -> (moving: bool) {
+	same := zoom^ == target_zoom
+	for c, i in center {
+		same = same && c == target_center[i]
+	}
+	if snap || zoom^ <= 0 || same {
+		copy(center, target_center)
+		zoom^ = target_zoom
+		return false
+	}
+	f := 1 - math.exp(-CAMERA_RATE * f64(max(dt, 0)))
+	z0, z1 := zoom^, target_zoom
+	z := math.exp(math.ln(z0) + (math.ln(z1) - math.ln(z0)) * f)
+	if abs(z1 - z0) > 1e-9 * z1 {
+		// (p - c0) z0 = (p - c1) z1: the fixed point of the move from shown to target.
+		for &c, i in center {
+			p := (c * z0 - target_center[i] * z1) / (z0 - z1)
+			c = p - (p - c) * z0 / z
+		}
+	} else {
+		for &c, i in center {
+			c += (target_center[i] - c) * f
+		}
+		z = z1
+	}
+	zoom^ = z
+	settled := abs(math.ln(z1) - math.ln(z)) < 1e-5
+	for c, i in center {
+		settled = settled && abs(c - target_center[i]) * z1 < settle
+	}
+	if settled {
+		copy(center, target_center)
+		zoom^ = z1
+	}
+	return !settled
+}
+
+// Both cameras at rest, showing everything.
+preview_cameras_reset :: proc(pv: ^Preview_State) {
+	pv.zoom, pv.view_first, pv.timeline_camera = 1, 0, {0, 1}
+	pv.video_zoom, pv.video_center, pv.video_pan, pv.video_camera = 1, {}, {}, {{}, 1}
+}
+
 // Preview: opens the window and runs it until it closes. The start
 // spec resolves against the script the load row loaded (declarations only,
 // no rendering).
@@ -250,10 +317,7 @@ preview_run :: proc(app: ^App_State, capture, drive, start_spec: string) -> Erro
 	pv.bookmark_unread = true
 	pv.mark_in = -1
 	pv.marks_unread = true
-	pv.zoom = 1
-	pv.zoom_track.target = 1
-	pv.video_zoom = 1
-	pv.video_zoom_track.target = 1
+	preview_cameras_reset(pv)
 	pv.rows_room = ROWS_AREA_MAX
 	workspace_init(&pv.workspace)
 	defer preview_state_destroy(pv)
@@ -621,6 +685,12 @@ preview_drive_workspace :: proc(app: ^App_State, drive: string, frames: int) {
 	if frames == 45 && strings.contains(drive, "next") {
 		command_push(c, .Problem_Step, {count = 1})
 	}
+	// "filter=QUERY" types QUERY into the Watch's filter (window frame 30).
+	if frames == 30 && strings.contains(drive, "filter=") {
+		query := drive[strings.index(drive, "filter=") + len("filter="):]
+		if end := strings.index_any(query, " ,"); end >= 0 do query = query[:end]
+		command_push(c, .View_Filter, {view = workspace_find(ws, .Watch), spec = query})
+	}
 	if frames == 50 && strings.contains(drive, "close") {
 		command_push(c, .View_Close, {view = workspace_find(ws, .Watch)})
 	}
@@ -649,8 +719,16 @@ preview_drive_lister :: proc(app: ^App_State, s: ^ui.State, drive: string, frame
 			}
 		}
 	}
+	// A key as the window's input gathers it: the key map's row and the
+	// UI's (Down navigates, Enter accepts).
 	key :: proc(s: ^ui.State, k: platform.Key) {
 		append(&s.actions.rows, ui.Action_Row{kind = .Key, key = k})
+		#partial switch k {
+		case .Down:
+			append(&s.actions.rows, ui.Action_Row{kind = .Navigate, delta = {0, 1}, explicit_directional = true})
+		case .Enter:
+			append(&s.actions.rows, ui.Action_Row{kind = .Press, slot = .Accept})
+		}
 	}
 	switch frames {
 	case 60:
@@ -674,6 +752,9 @@ preview_drive_lister :: proc(app: ^App_State, s: ^ui.State, drive: string, frame
 
 @(private)
 preview_state_destroy :: proc(pv: ^Preview_State) {
+	for &f in pv.view_filters do delete(f.text)
+	delete(pv.view_filters)
+	delete(pv.view_lists)
 	delete(pv.script_path)
 	delete(pv.media_dir)
 	delete(pv.script_props)
@@ -765,46 +846,18 @@ zoom_max :: proc(app: ^App_State) -> f64 {
 	return max(f64(preview_duration(app)) / 4, 1)
 }
 
+// Keeps the timeline's camera, its target and as shown, inside the video:
+// from the whole of it down to four frames across.
 @(private)
 view_clamp :: proc(app: ^App_State) {
 	pv := &app.preview
 	total := f64(preview_duration(app))
-	pv.zoom = clamp(pv.zoom, 1, zoom_max(app))
-	pv.view_first = clamp(pv.view_first, 0, max(total - view_frames(app), 0))
-	if !pv.zoom_track.active {
-		pv.zoom_track.target = pv.zoom
+	clamp_camera :: proc(first, zoom: ^f64, total, most: f64) {
+		zoom^ = clamp(zoom^, 1, most)
+		first^ = clamp(first^, 0, max(total - total / zoom^, 0))
 	}
-	if !pv.first_track.active {
-		pv.first_track.target = pv.view_first
-	}
-}
-
-@(private = "file")
-timeline_cancel_focus :: proc(pv: ^Preview_State) {
-	if pv.zoom_track.active && pv.zoom_track.rate == 0 {
-		pv.zoom_track.active = false
-		pv.zoom_track.target = pv.zoom
-	}
-	if pv.first_track.active {
-		pv.first_track.active = false
-		pv.first_track.target = pv.view_first
-	}
-	pv.anchor_active = false
-}
-
-@(private = "file")
-video_cancel_focus :: proc(pv: ^Preview_State) {
-	if pv.video_zoom_track.active && pv.video_zoom_track.rate == 0 {
-		pv.video_zoom_track.active = false
-		pv.video_zoom_track.target = pv.video_zoom
-	}
-	for &t, i in pv.video_pan_tracks {
-		if t.active {
-			t.active = false
-			t.target = pv.video_pan[i]
-		}
-	}
-	pv.video_anchor_active = false
+	clamp_camera(&pv.timeline_camera.first, &pv.timeline_camera.zoom, total, zoom_max(app))
+	clamp_camera(&pv.view_first, &pv.zoom, total, zoom_max(app))
 }
 
 preview_apply :: proc(app: ^App_State, kind: Command_Kind, regs: Command_Regs) {
@@ -920,54 +973,37 @@ preview_apply :: proc(app: ^App_State, kind: Command_Kind, regs: Command_Regs) {
 			pv.mark_in = -1
 		}
 	case .Timeline_Zoom:
-		// Logarithmic zoom pinned to the cursor's fractional position, after
-		// oasic's space_zoom_2d: rapid wheel ticks accumulate on zoom_track.target
-		// and preview_motion_advance repins view_first every frame.
-		visible := view_frames(app)
-		if !pv.zoom_track.active {
-			pv.zoom_track.target = pv.zoom
-		}
-		timeline_cancel_focus(pv)
-		if regs.flag {
-			at := clamp(regs.ratio, 0, 1)
-			pv.anchor_ratio = at
-			pv.anchor_frame = pv.view_first + at * visible
-		} else {
-			anchor := f64(regs.count if regs.count >= 0 else pv.frame)
-			at := clamp((anchor - pv.view_first) / visible, 0, 1) if visible > 0 else 0
-			pv.anchor_ratio = at
-			pv.anchor_frame = anchor
-		}
-		pv.anchor_active = true
-		pv.detached = true
-		target := clamp(pv.zoom_track.target * regs.scalar, 1, zoom_max(app))
-		ui.track_target(&pv.zoom_track, pv.zoom, target, space = .Logarithmic, rate = 18)
-	case .Timeline_Fit:
-		timeline_cancel_focus(pv)
-		pv.detached = false
-		ui.track_target(&pv.zoom_track, pv.zoom, 1, duration = 0.25, space = .Logarithmic)
-		ui.track_target(&pv.first_track, pv.view_first, 0, duration = 0.25)
-		if pv.video_zoom != 1 || pv.video_pan != {} {
-			video_cancel_focus(pv)
-			ui.track_target(&pv.video_zoom_track, pv.video_zoom, 1, duration = 0.35, space = .Logarithmic)
-			ui.track_target(&pv.video_pan_tracks[0], pv.video_pan.x, 0, duration = 0.35)
-			ui.track_target(&pv.video_pan_tracks[1], pv.video_pan.y, 0, duration = 0.35)
-		}
-	case .Timeline_Pan:
-		// Middle-drag passes flag = true for direct 1:1 pixel panning; wheel
-		// pan eases smoothly across frames (oasic's timeline_display_target).
-		pv.detached = true
+		// Logarithmic zoom about the frame under the cursor (or the playhead):
+		// that frame keeps its place in the target, and the shown camera
+		// follows about the point both put at one place, so it stays still
+		// the whole way; rapid wheel ticks accumulate on the target.
+		cam := &pv.timeline_camera
 		total := f64(preview_duration(app))
-		limit := max(total - view_frames(app), 0)
+		visible := total / cam.zoom
+		at, anchor: f64
 		if regs.flag {
-			timeline_cancel_focus(pv)
-			pv.view_first = clamp(pv.view_first + regs.scalar, 0, limit)
-			pv.first_track.target = pv.view_first
+			at = clamp(regs.ratio, 0, 1)
+			anchor = cam.first + at * visible
 		} else {
-			base := pv.first_track.target if pv.first_track.active else pv.view_first
-			pv.anchor_active = false
-			target := clamp(base + regs.scalar, 0, limit)
-			ui.track_target(&pv.first_track, pv.view_first, target, duration = 0.18)
+			anchor = f64(regs.count if regs.count >= 0 else pv.frame)
+			at = clamp((anchor - cam.first) / visible, 0, 1) if visible > 0 else 0
+		}
+		cam.zoom = clamp(cam.zoom * regs.scalar, 1, zoom_max(app))
+		cam.first = anchor - at * total / cam.zoom
+		pv.detached = true
+		view_clamp(app)
+	case .Timeline_Fit:
+		pv.detached = false
+		pv.timeline_camera = {0, 1}
+		pv.video_camera = {{}, 1}
+	case .Timeline_Pan:
+		// A middle drag pans 1:1 with the pointer (flag: the shown camera
+		// snaps); the wheel's pans accumulate on the target and ease.
+		pv.detached = true
+		pv.timeline_camera.first += regs.scalar
+		view_clamp(app)
+		if regs.flag {
+			pv.view_first, pv.zoom = pv.timeline_camera.first, pv.timeline_camera.zoom
 		}
 	case .Timeline_Follow:
 		pv.detached = !regs.flag
@@ -984,41 +1020,26 @@ preview_apply :: proc(app: ^App_State, kind: Command_Kind, regs: Command_Regs) {
 			append(&pv.rows_open, h)
 		}
 		timeline_rows_clamp(app)
-	case .Timeline_Rows_Scroll:
-		pv.rows_scroll += regs.count
-		timeline_rows_clamp(app)
 	case .Video_Zoom:
-		// 2D canvas wheel zoom around the cursor in the video panel (oasic's
-		// space_zoom_2d). Coordinates are relative to the panel centre in
-		// normalized panel units.
-		if !pv.video_zoom_track.active {
-			pv.video_zoom_track.target = pv.video_zoom
-		}
-		video_cancel_focus(pv)
-		z := max(pv.video_zoom, 1e-4)
+		// 2D zoom about the cursor (normalized panel units from the centre):
+		// the point under it keeps its place in the target; back at 1 the
+		// video is centred again.
+		cam := &pv.video_camera
 		at := [2]f64{f64(regs.at_xy.x) - 0.5, f64(regs.at_xy.y) - 0.5}
-		pv.video_anchor_at = at
-		pv.video_anchor_pt = {(at.x - pv.video_pan.x) / z, (at.y - pv.video_pan.y) / z}
-		pv.video_anchor_active = true
-		target := clamp(pv.video_zoom_track.target * regs.scalar, 0.25, 32)
-		ui.track_target(&pv.video_zoom_track, pv.video_zoom, target, space = .Logarithmic, rate = 18)
-		if target == 1 {
-			pv.video_anchor_active = false
-			ui.track_target(&pv.video_pan_tracks[0], pv.video_pan.x, 0, duration = 0.25)
-			ui.track_target(&pv.video_pan_tracks[1], pv.video_pan.y, 0, duration = 0.25)
-		}
+		point := at / cam.zoom + cam.center
+		cam.zoom = clamp(cam.zoom * regs.scalar, 0.25, 32)
+		cam.center = point - at / cam.zoom if cam.zoom != 1 else {}
 	case .Video_Pan:
-		video_cancel_focus(pv)
-		bound := 0.5 * max(pv.video_zoom, 1)
-		pv.video_pan.x = clamp(pv.video_pan.x + f64(regs.at_xy.x), -bound, bound)
-		pv.video_pan.y = clamp(pv.video_pan.y + f64(regs.at_xy.y), -bound, bound)
-		pv.video_pan_tracks[0].target = pv.video_pan.x
-		pv.video_pan_tracks[1].target = pv.video_pan.y
+		// A drag moves the video 1:1 with the pointer (the shown camera
+		// snaps), within half a panel past fitting.
+		cam := &pv.video_camera
+		bound := 0.5 * max(cam.zoom, 1)
+		pan := -cam.center * cam.zoom + {f64(regs.at_xy.x), f64(regs.at_xy.y)}
+		pan = {clamp(pan.x, -bound, bound), clamp(pan.y, -bound, bound)}
+		cam.center = -pan / cam.zoom
+		pv.video_center, pv.video_zoom, pv.video_pan = cam.center, cam.zoom, pan
 	case .Video_Fit:
-		video_cancel_focus(pv)
-		ui.track_target(&pv.video_zoom_track, pv.video_zoom, 1, duration = 0.35, space = .Logarithmic)
-		ui.track_target(&pv.video_pan_tracks[0], pv.video_pan.x, 0, duration = 0.35)
-		ui.track_target(&pv.video_pan_tracks[1], pv.video_pan.y, 0, duration = 0.35)
+		pv.video_camera = {{}, 1}
 	case .Fullscreen_Toggle:
 		pv.fullscreen = !pv.fullscreen
 	case .Watch_Show:
@@ -1027,12 +1048,24 @@ preview_apply :: proc(app: ^App_State, kind: Command_Kind, regs: Command_Regs) {
 		if v := workspace_view(&pv.workspace, regs.view); v != nil && v.kind == .Watch {
 			v.section = regs.section
 			v.scroll = 0
-			v.scroll_reg = {}
 		}
-	case .Watch_Scroll:
+	case .View_Scroll:
+		// A view's register: its first row shown, within its rows.
+		if v := workspace_view(&pv.workspace, regs.view); v != nil {
+			switch v.kind {
+			case .Watch:
+				v.scroll = clamp(regs.count, 0, max(pv.watch.sections[v.section].count - 1, 0))
+			case .Timeline:
+				v.scroll = max(regs.count, 0)
+				timeline_rows_clamp(app)
+			case .Video:
+			}
+		}
+	case .View_Filter:
 		if v := workspace_view(&pv.workspace, regs.view); v != nil && v.kind == .Watch {
-			v.scroll = clamp(v.scroll + regs.count, 0, max(pv.watch.sections[v.section].count - 1, 0))
-			ui.scroll_to(&v.scroll_reg, f64(v.scroll))
+			clear(&v.filter)
+			append(&v.filter, regs.spec)
+			v.scroll = 0
 		}
 	case .Problem_Step:
 		pv.detached = false
@@ -1119,7 +1152,6 @@ watch_show :: proc(app: ^App_State, section: Watch_Section) {
 		workspace_select(ws, id)
 		v.section = section
 		v.scroll = 0
-		v.scroll_reg = {}
 	}
 }
 
@@ -1203,17 +1235,8 @@ preview_switch_script :: proc(app: ^App_State, path: string) {
 	pv.mark_in = -1
 	pv.marks_unread = true
 	pv.marks_changed = false
-	pv.zoom = 1
-	pv.view_first = 0
-	pv.zoom_track = {target = 1}
-	pv.first_track = {}
-	pv.anchor_active = false
+	preview_cameras_reset(pv)
 	pv.detached = false
-	pv.video_zoom = 1
-	pv.video_pan = {}
-	pv.video_zoom_track = {target = 1}
-	pv.video_pan_tracks = {}
-	pv.video_anchor_active = false
 	if w := pv.worker; w != nil {
 		// The worker reads its paths only between requests; restart it on the
 		// new script (the stop waits for the frame in progress).
@@ -1313,41 +1336,25 @@ preview_playback_advance :: proc(app: ^App_State, dt: f64) {
 	pv.frame = clamp(int(pv.clock * fps), 0, preview_duration(app) - 1)
 }
 
-// Advances the timeline and video camera motion tracks and repins their
-// cursor anchors across eased zoom frames (oasic's space_advance /
-// presentation_advance).
+// The cameras shown follow their targets (camera_follow): the timeline's
+// settles within a ten-thousandth of the video's width, the video's within
+// a hundred-thousandth of its panel.
 @(private)
 preview_motion_advance :: proc(app: ^App_State, dt: f32) {
 	pv := &app.preview
-	ui.track_advance(&pv.zoom, &pv.zoom_track, dt)
-	ui.track_advance(&pv.view_first, &pv.first_track, dt)
-	if pv.anchor_active {
-		pv.view_first = pv.anchor_frame - pv.anchor_ratio * view_frames(app)
-		if !pv.zoom_track.active {
-			pv.anchor_active = false
-		}
-	}
+	first := [1]f64{pv.view_first}
+	camera_follow(first[:], &pv.zoom, {pv.timeline_camera.first}, pv.timeline_camera.zoom, dt, false, 1e-4 * f64(preview_duration(app)))
+	pv.view_first = first[0]
 	view_clamp(app)
-
-	ui.track_advance(&pv.video_zoom, &pv.video_zoom_track, dt)
-	ui.track_advance(&pv.video_pan[0], &pv.video_pan_tracks[0], dt)
-	ui.track_advance(&pv.video_pan[1], &pv.video_pan_tracks[1], dt)
-	if pv.video_anchor_active {
-		pv.video_pan = {
-			pv.video_anchor_at.x - pv.video_anchor_pt.x * pv.video_zoom,
-			pv.video_anchor_at.y - pv.video_anchor_pt.y * pv.video_zoom,
-		}
-		if !pv.video_zoom_track.active {
-			pv.video_anchor_active = false
-		}
-	}
+	camera_follow(pv.video_center[:], &pv.video_zoom, pv.video_camera.center[:], pv.video_camera.zoom, dt, false, 1e-5)
+	pv.video_pan = -pv.video_center * pv.video_zoom
 }
 
 // Keeps the playhead inside the zoomed timeline while following (oasic's
 // timeline_follow / series_follow): zooming or panning detaches the view so
 // playback doesn't yank it away; seeking or re-engaging Follow reattaches it,
-// and when following moves the window, it disarms the pan/zoom tracks so the
-// view doesn't lag behind the playhead.
+// and when following moves the window, the camera moves with it at once so
+// the view doesn't lag behind the playhead.
 @(private)
 preview_view_follow :: proc(app: ^App_State) {
 	pv := &app.preview
@@ -1365,7 +1372,8 @@ preview_view_follow :: proc(app: ^App_State) {
 	}
 	view_clamp(app)
 	if pv.view_first != before {
-		timeline_cancel_focus(pv)
+		// following moves the window at once: the camera doesn't lag the playhead
+		pv.timeline_camera = {pv.view_first, pv.zoom}
 	}
 }
 
@@ -1664,7 +1672,11 @@ view_area :: proc(app: ^App_State, kind: View_Kind) -> (area: Workspace_Rect, sh
 // dropped on the window or picked in the open-file dialog.
 @(private)
 preview_input :: proc(app: ^App_State, s: ^ui.State) {
-	preview_keys(app, s.actions.rows[:], s.modal_input)
+	// A field with the keys (a view's filter) takes them: the key map
+	// stands aside; the lister's modal keeps only its own bindings.
+	if s.keyboard_focus == 0 || s.modal_input_active {
+		preview_keys(app, s.actions.rows[:], s.modal_input_active)
+	}
 	for &a in s.actions.rows {
 		if a.kind == .Drop && !a.consumed && strings.has_suffix(strings.to_lower(a.path, context.temp_allocator), ".lua") {
 			a.consumed = true
@@ -1674,6 +1686,7 @@ preview_input :: proc(app: ^App_State, s: ^ui.State) {
 	}
 }
 
+COLOR_TEXT :: [4]u8{232, 236, 242, 255}
 COLOR_TEXT_DIM :: [4]u8{150, 158, 172, 255}
 COLOR_ERROR :: [4]u8{232, 92, 92, 255}
 COLOR_WARNING :: [4]u8{230, 180, 80, 255}
@@ -1884,9 +1897,12 @@ controls_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32) {
 	ui.set_next_pref_width(s, ui.px(90 * dpi))
 	ui.set_next_pref_height(s, ui.px(slider_h))
 	ui.set_next_corner_radius(s, 0)
-	shown_volume: f32 = 0 if pv.muted else pv.volume
-	if next, changed, _ := ui.slider_value(s, "###volume", shown_volume, 0, 1); changed {
-		command_push(c, .Volume_Set, {scalar = f64(next)})
+	// The volume as shown (0 while muted); a change sends the command.
+	volume: f32 = 0 if pv.muted else pv.volume
+	before := volume
+	ui.slider(s, &volume, 0, 1, "###volume", slider_h)
+	if volume != before {
+		command_push(c, .Volume_Set, {scalar = f64(volume)})
 	}
 	ui.spacer(s, pad)
 	if !narrow {

@@ -68,6 +68,20 @@ key_pressed  :: proc(p: ^Platform, k: Key) -> bool { return p.input.key_hit[k] }
 // key_typed is a press or an auto-repeat: what editing and navigation keys
 // want, so holding Backspace keeps deleting.
 key_typed    :: proc(p: ^Platform, k: Key) -> bool { return key_pressed(p, k) || p.input.key_repeat[k] }
+// A held key auto-repeated this frame (not its first press), so
+// `key_pressed(k) || key_repeat(k)` is the hold-to-repeat idiom.
+key_repeat   :: proc(p: ^Platform, k: Key) -> bool { return p.input.key_repeat[k] }
+
+// Any key or mouse button went down this frame.
+any_input_pressed :: proc(p: ^Platform) -> bool {
+	for hit in p.input.key_hit {
+		if hit { return true }
+	}
+	for b in Mouse_Button {
+		if p.input.mb_down[b] && !p.input.mb_prev[b] { return true }
+	}
+	return false
+}
 
 mouse_down     :: proc(p: ^Platform, b: Mouse_Button) -> bool { return p.input.mb_down[b] }
 mouse_pressed  :: proc(p: ^Platform, b: Mouse_Button) -> bool { return p.input.mb_down[b] && !p.input.mb_prev[b] }

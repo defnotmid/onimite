@@ -103,10 +103,7 @@ test_timeline_and_video_camera :: proc(t: ^testing.T) {
 	pv := &app.preview
 	pv.timeline.frames = 1000
 	pv.timeline.fps = 30
-	pv.zoom = 1
-	pv.zoom_track.target = 1
-	pv.video_zoom = 1
-	pv.video_zoom_track.target = 1
+	preview_cameras_reset(pv)
 
 	// Zoom timeline around cursor ratio 0.25 (frame 250): across every
 	// eased step, the frame at ratio 0.25 stays pinned to 250.

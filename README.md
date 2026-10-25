@@ -417,6 +417,7 @@ callback is the playback clock, and the UI thread only draws.
 | Shift+L | loop |
 | R | reload |
 | Ctrl+P | go to a scene, cue or problem (type to filter, Up/Down, Enter) |
+| Ctrl+F (over a Watch) | filter its rows (type; Esc leaves the field) |
 | Ctrl+O | open a script (or drop a `.lua` file) |
 | Esc / Q | close the list, then the Watch, leave fullscreen, then the window |
 

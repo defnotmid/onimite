@@ -168,6 +168,8 @@ _upload_r8_texture :: proc(r: ^Renderer, tex: ^sdl.GPUTexture, w, h: u32, data: 
 
 // Rows [y, y + h) of an R8 texture `w` wide from `data` (starting at row y).
 _upload_r8_rows :: proc(r: ^Renderer, tex: ^sdl.GPUTexture, w, y, h: u32, data: []u8) {
+	// A texture that could not be made (no device: a headless test) is not written.
+	if tex == nil do return
 	size := int(w * h)
 	tbo := sdl.CreateGPUTransferBuffer(r.device, {usage = .UPLOAD, size = u32(size)})
 	ptr := sdl.MapGPUTransferBuffer(r.device, tbo, false)

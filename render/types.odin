@@ -52,4 +52,7 @@ Draw_Cmd :: struct {
 	scissor:      sdl.Rect,
 	use_viewport: bool,
 	viewport:     sdl.GPUViewport,
+	// The output's owner (ui's box draw scope); draws of different owners
+	// never coalesce.
+	scope:        u32,
 }

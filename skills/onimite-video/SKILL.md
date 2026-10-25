@@ -374,7 +374,7 @@ the mark under the playhead (the marks file beside the script, `show marks`) ·
 Up/L, Down/H volume · Ctrl+Down/Ctrl+H mute · Shift+L loop · =/- zoom the timeline, Ctrl+0
 fit it · Z fit the video in its panel · T hide timeline · F fullscreen · D/I the Watch on problems/media · N/Shift+N
 next/previous row with a warning or error · Ctrl+P go to a scene, cue, problem or mark (type to
-filter, Up/Down, Enter) · R reload · Ctrl+O open a script · Esc closes the list, the
+filter, Up/Down, Enter) · Ctrl+F over a Watch filters its rows · R reload · Ctrl+O open a script · Esc closes the list, the
 Watch, fullscreen, then the window · Q close.
 Click or drag the timeline to scrub; once zoomed, it stops following the playhead when you
 scroll it, and its Follow button brings it back. Over the video, the wheel zooms around the
