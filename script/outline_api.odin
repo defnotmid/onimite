@@ -139,7 +139,7 @@ l_outline :: proc "c" (L: ^lua.State) -> c.int {
 		opts := vg.Text_Options{get_num(L, 1, "x", 0), get_num(L, 1, "y", 0), vg.Text_Align(align), vg.Text_Baseline(read_baseline(L, 1)), get_num(L, 1, "line_height", 0)}
 		vg.text_layout(&m.fonts, {piece}, opts, &l)
 		measured(s, q, len(l.missing) == 0)
-		vg.text_layout_path(&m.fonts, &l, &p)
+		vg.text_layout_path(&l, &p)
 	}
 	fields_end(L, s, 1, "outline")
 	lua.pushlightuserdata(L, shared_path_asset(s.shared, &p, rule))

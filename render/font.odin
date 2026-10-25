@@ -142,7 +142,7 @@ _glyph_quads :: proc(r: ^Renderer, f: ^Font, l: ^vg.Text_Layout, color: [4]u8, a
 	cf := color_f32(color)
 	aw, ah := f32(t.glyphs.width), f32(t.glyphs.height)
 	for run in l.runs {
-		font := vg.font_collection_font(&t.fonts, run.face)
+		font := vg.text_layout_font(l, run)
 		if font == nil {
 			continue
 		}

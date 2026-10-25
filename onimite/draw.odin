@@ -787,7 +787,7 @@ draw_text :: proc(r: ^Renderer, t: Text, i: i32) {
 	lo, hi := text_frame_box(r, l.min, l.max)
 	check_text_bounds(r, label, lo, hi)
 	if r.offscreen == 0 && r.read_alpha * (t.opacity.? or_else 1) >= 0.3 {
-		if ilo, ihi, ok := text_ink_box(&r.media.fonts, l); ok {
+		if ilo, ihi, ok := text_ink_box(l); ok {
 			ilo, ihi = text_frame_box(r, ilo, ihi)
 			scene := -1 // the scene that drew it: the last one started at or before node i
 			for start, k in r.ctx.scene_starts {
@@ -805,7 +805,7 @@ draw_text :: proc(r: ^Renderer, t: Text, i: i32) {
 	}
 	defer vg.set_global_alpha(c, alpha)
 	for run in l.runs {
-		font := vg.font_collection_font(&r.media.fonts, run.face)
+		font := vg.text_layout_font(l, run)
 		if font == nil {
 			continue
 		}
@@ -871,9 +871,9 @@ check_text_bounds :: proc(r: ^Renderer, text: string, lo, hi: vg.Vec2) {
 // The box of a layout's inked glyphs (its line boxes leave room for
 // accents and descenders the text may not have).
 @(private = "file")
-text_ink_box :: proc(fonts: ^vg.Font_Collection, l: ^vg.Text_Layout) -> (lo, hi: Vec2, ok: bool) {
+text_ink_box :: proc(l: ^vg.Text_Layout) -> (lo, hi: Vec2, ok: bool) {
 	for run in l.runs {
-		font := vg.font_collection_font(fonts, run.face)
+		font := vg.text_layout_font(l, run)
 		if font == nil {
 			continue
 		}
