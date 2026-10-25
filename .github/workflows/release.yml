@@ -64,12 +64,12 @@ jobs:
         with:
           repository: defnotmid/ovg
           path: ovg
-          ref: v0.0.25
+          ref: v0.0.26
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/oglyph
-          # Pinned like ovg: fonts and text shaping, which ovg draws through (v0.0.3).
-          ref: v0.0.3
+          # Pinned like ovg: fonts and text shaping, which ovg draws through (v0.0.4).
+          ref: v0.0.4
           path: oglyph
       - uses: actions/checkout@v4
         with:
@@ -78,7 +78,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/odecs
-          # Pinned like ottis: onimite, ovg v0.0.25, o3d v0.0.35, odawg v0.0.25 and ottis v0.0.7 decode through odecs v0.0.12.
+          # Pinned like ottis: onimite, ovg v0.0.26, o3d v0.0.35, odawg v0.0.25 and ottis v0.0.7 decode through odecs v0.0.12.
           ref: v0.0.12
           path: odecs
       - uses: actions/checkout@v4
