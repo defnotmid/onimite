@@ -124,15 +124,7 @@ draw_box :: proc(s: ^State, box: ^Box, dt: f32) {
 				tx = x + w - tw - box.text_padding
 			}
 			ty := y + (h - lh) * 0.5
-			render.draw_text(
-				s.r,
-				s.font,
-				box.str,
-				tx,
-				ty,
-				box.font_size,
-				color_with_opacity(box.text_color, box.opacity),
-			)
+			render.draw_slot(s.r, s.font, box.text_slot, tx, ty, color_with_opacity(box.text_color, box.opacity))
 		}
 	}
 

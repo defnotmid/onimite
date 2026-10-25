@@ -201,6 +201,7 @@ Box :: struct {
 	text_padding:                    f32,
 	text_width:                      f32,
 	text_height:                     f32,
+	text_slot:                       int, // its text laid out this frame (render.text_slot), once measured
 	text_metrics_valid:              bool,
 	opacity:                         f32,
 	// onimite: an image drawn contained in the box (Draw_Image), and a
@@ -509,6 +510,7 @@ stacks_delete :: proc(s: ^State) {
 build_begin :: proc(s: ^State) {
 	s.build_index += 1
 	s.build_box_count = 0
+	if s.font != nil && s.font.text != nil do render.font_frame(s.font)
 	s.is_animating = false
 	s.hint = ""
 	animation_storage_prune(&s.animations, s.build_index)
@@ -799,7 +801,9 @@ top_parent :: proc(s: ^State) -> ^Box {
 
 box_text_metrics_ensure :: #force_inline proc(s: ^State, box: ^Box) {
 	if box.text_metrics_valid do return
-	box.text_width = render.measure_text(s.font, box.str, box.font_size)
+	// Laid out once a frame: measured here, drawn from the same layout.
+	box.text_slot = render.text_slot(s.font, box.str, box.font_size)
+	box.text_width = render.slot_width(s.font, box.text_slot)
 	box.text_height = render.line_height(s.font, box.font_size)
 	box.text_metrics_valid = true
 }

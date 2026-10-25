@@ -28,6 +28,10 @@ Font_Text :: struct {
 	line:      f32,
 	// In the renderer's dirty_fonts this frame.
 	queued:    bool,
+	// Texts laid out once this frame, to measure and then draw (text_slot):
+	// warm layouts, the first `used` taken, all free again at font_frame.
+	slots:     [dynamic]vg.Text_Layout,
+	used:      int,
 }
 
 ATLAS_DIM :: 1024
@@ -55,6 +59,8 @@ font_load :: proc(r: ^Renderer, ttf: []u8, base_px: f32) -> (font: Font, ok: boo
 font_unload :: proc(r: ^Renderer, f: ^Font) {
 	if t := f.text; t != nil {
 		vg.text_layout_destroy(&t.layout)
+		for &l in t.slots do vg.text_layout_destroy(&l)
+		delete(t.slots)
 		vg.glyph_atlas_destroy(&t.glyphs)
 		vg.font_collection_destroy(&t.fonts)
 		free(t)
@@ -94,6 +100,29 @@ font_warm :: proc(r: ^Renderer, f: ^Font, sizes: []f32) {
 	}
 }
 
+// Text measured now and drawn later in the same frame, laid out once: its
+// slot among the font's warm layouts, with its top-left at the origin.
+text_slot :: proc(f: ^Font, s: string, px: f32) -> int {
+	t := f.text
+	if t.used == len(t.slots) do append(&t.slots, vg.Text_Layout{})
+	t.used += 1
+	piece := vg.Text_Piece{text = s, style = {size = px * t.em_per_px}}
+	vg.text_layout(&t.fonts, {piece}, {x = 0, y = px * t.ascent}, &t.slots[t.used - 1])
+	return t.used - 1
+}
+// A slot's advance width (its widest line).
+slot_width :: proc(f: ^Font, slot: int) -> f32 {
+	w: f32
+	for line in f.text.slots[slot].lines do w = max(w, line.width)
+	return w
+}
+// Draw a slot's text with its top-left at (x, y).
+draw_slot :: proc(r: ^Renderer, f: ^Font, slot: int, x, y: f32, color: [4]u8) {
+	_glyph_quads(r, f, &f.text.slots[slot], color, {x, y})
+}
+// A new frame: every slot is free.
+font_frame :: proc(f: ^Font) {f.text.used = 0}
+
 // `s` laid out with its baseline at (x, y) and `px` of pixel height.
 @(private)
 _layout :: proc(f: ^Font, s: string, x, y, px: f32) -> ^vg.Text_Layout {
@@ -108,7 +137,7 @@ _layout :: proc(f: ^Font, s: string, x, y, px: f32) -> ^vg.Text_Layout {
 // if it fills (unusual scripts at many sizes) it starts over, and quads
 // already recorded this frame show the new atlas until the next frame.
 @(private)
-_glyph_quads :: proc(r: ^Renderer, f: ^Font, l: ^vg.Text_Layout, color: [4]u8) {
+_glyph_quads :: proc(r: ^Renderer, f: ^Font, l: ^vg.Text_Layout, color: [4]u8, at: [2]f32 = {}) {
 	t := f.text
 	cf := color_f32(color)
 	aw, ah := f32(t.glyphs.width), f32(t.glyphs.height)
@@ -122,8 +151,8 @@ _glyph_quads :: proc(r: ^Renderer, f: ^Font, l: ^vg.Text_Layout, color: [4]u8) {
 			if err != nil || !cg.visible || r == nil {
 				continue
 			}
-			x0 := math.round(g.x) + f32(cg.bearing_x)
-			y0 := math.round(g.y) + f32(cg.bearing_y)
+			x0 := math.round(at.x + g.x) + f32(cg.bearing_x)
+			y0 := math.round(at.y + g.y) + f32(cg.bearing_y)
 			u0, v0 := f32(cg.atlas_x) / aw, f32(cg.atlas_y) / ah
 			rect_inst(r, Rect_Inst{
 				dst    = {x0, y0, x0 + f32(cg.width), y0 + f32(cg.height)},
