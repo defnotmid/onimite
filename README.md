@@ -288,7 +288,10 @@ onimite update   [--check]                                # replace this release
 ```
 
 - `render`: `--draft` is half resolution (unless `--scale`), QP 32 and a
-  one second GOP; `--h265`, `--qp N`, `--native` (no hardware encoder).
+  one second GOP; `--h265`, `--qp N`, `--native` (no hardware encoder),
+  `--slices N` (the native encoder's H.264 slices, default 4: more encode
+  faster in a slightly larger file; the file depends on it, never on the
+  machine).
 - Common options: `--json`, `--scale S`, `--media DIR` (default `media/`
   beside the script), `--props FILE`, `--set K=V`, `--software` (draw on
   the CPU), `--threads N` (default one per core; `1` runs everything on one

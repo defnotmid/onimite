@@ -18,12 +18,10 @@
 package onimite_encode
 
 import "core:fmt"
-import "core:os"
 import "core:strings"
 import "core:sync"
 import "core:thread"
 import "base:runtime"
-import common "deps:odecs/common"
 import native "deps:odecs/media/native"
 import video "deps:odecs/video"
 import om "../onimite"
@@ -118,14 +116,17 @@ Options :: struct {
 	audio:          bool,
 	// AAC bit rate; 0 is 192 kb/s.
 	audio_bit_rate: int,
-	// H.264 slices the native encoder codes in parallel; 0 picks one per
-	// core but two (more slices, slightly larger files). Fixed by the
-	// machine, not the pool, so the file doesn't depend on --threads.
-	native_slices:  int,
+	// H.264 slices the native encoder codes in parallel; 0 is NATIVE_SLICES.
+	// The bitstream's layout: the file depends on it, so it is never taken
+	// from the machine's cores or --threads.
+	slices:         int,
 	// The application's task pool (borrowed; nil codes slices on the
 	// encoder thread alone).
 	pool:           ^thread.Pool,
 }
+
+// The native encoder's H.264 slices by default (odecs' own default).
+NATIVE_SLICES :: 4
 
 // Frames in flight between the renderer and the encoder thread.
 RING_SLOTS :: 4
@@ -199,7 +200,8 @@ open :: proc(e: ^Encoder, path: string, width, height, fps: int, opts: Options =
 	cfg.ultrafast = opts.ultrafast
 	cfg.alpha = .Premultiplied
 	om.pool_work_init(&e.work, opts.pool)
-	slices := opts.native_slices if opts.native_slices > 0 else clamp(os.get_processor_core_count() - 2, 1, common.MAX_STATIC_POOL_THREADS)
+	// A frame has at most one slice per macroblock row.
+	slices := opts.slices if opts.slices > 0 else NATIVE_SLICES
 	e.native = {pool = &e.work.work_pool, h264_slice_count = min(slices, (height + 15) / 16)}
 	cfg.native_options = &e.native
 	if opts.audio {

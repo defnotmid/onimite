@@ -83,6 +83,7 @@ Render_Args :: struct {
 	h265:                 bool   `reg:"option" about:"H.265 instead of H.264"`,
 	qp:                   int    `reg:"count" arg:"N" about:"quantizer, 0 best .. 51"`,
 	native:               bool   `flag:"Native" about:"no hardware encoder"`,
+	slices:               int    `arg:"N" about:"H.264 slices odecs' native encoder codes in parallel; the file depends on it (more: faster, slightly larger), never on the machine; hardware encoders ignore it" default:"4" check:"Positive" invalid:"needs a count of at least 1"`,
 	batch:                string `reg:"props" arg:"ROWS" about:"a .json array or .csv of rows: one video per row, the row as props; a failing row is reported, the others still render"`,
 	rows:                 string `arg:"A..B" about:"the batch rows to render, 1-based and inclusive: 2, 1..3, 2.., ..2" invalid:"takes rows like 2, 1..3, 2.. or ..2"`,
 	only:                 int    `mcp:"-" reg:"rows" arg:"N" about:"the one batch row to render (1-based)"`,

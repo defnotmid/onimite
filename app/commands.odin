@@ -422,6 +422,8 @@ Command_Regs :: struct {
 	count:      int,
 	option:     int,
 	columns:    int,
+	// render: the native encoder's H.264 slices (0 = encode.NATIVE_SLICES).
+	slices:     int,
 	width:      int,
 	threshold:  int,
 	ratio:      f64,

@@ -278,6 +278,8 @@ onimite render video.lua -o frames/                 # PNGs (any -o not ending in
 times faster for about 1 dB, an H.264 one up to 16% faster in files up to 30% larger. A scaled size rounds to
 even (1080x1350 at half is 540x676). `--h265`, `--qp N`
 (0 best .. 51), `--native` (odecs' own encoder instead of Vulkan Video hardware encoding),
+`--slices N` (that encoder's H.264 slices, default 4: more encode faster in a slightly larger
+file; the file depends on the count, never on the machine),
 `--software` (draw on the CPU; also for machines without a usable GPU), `--scale S`,
 `--threads N` (default one per core: a quarter render songs, audio and `say()` lines, the
 rest frames; 1: everything on one thread; output does not depend on it). There is no WebM or alpha video output.
@@ -322,7 +324,7 @@ with commas.
 | `frame SPECS [-o frames] [--svg]` | full-size PNGs; `--svg` also writes each frame's node tree as SVG to read positions, text and colours |
 | `onion RANGE [-n 6] [-o onion.png]` | a movement's trajectory and easing |
 | `preview [AT] [--paused] [--no-loop] [--mute] [--bare] [--fullscreen] [--exit-after N]` | real-time window with sound and hot reload, for the user (`--bare`: the video alone, no controls, panels or timeline, played once, then the window closes, Escape sooner; `--fullscreen`: open fullscreen; both together play a script full screen like a screensaver; `--exit-after N`: close after N window frames). Playback that misses frames steps down to 75, 50, 35 or 25% of the window's size (a step that doesn't help is undone: the script isn't limited by pixels) and back up once it keeps up; the status line shows the size; a paused frame renders at full size, so judge detail paused. The window opens before the script loads (it loads once, in the window): a script that fails shows its error there until an edit fixes it, and an `AT` that names nothing warns and starts as without it |
-| `render [RANGE] [-o out.mp4 \| dir] [--draft] [--h265] [--qp N] [--native]` | encode the video or a part, or write PNGs |
+| `render [RANGE] [-o out.mp4 \| dir] [--draft] [--h265] [--qp N] [--native] [--slices N]` | encode the video or a part, or write PNGs |
 | `render --batch rows.json\|rows.csv [-o out/{name}.mp4] [--rows a..b \| --only N]` | one video per data row, the row as `props` |
 | `snapshot SPECS [--update] [--dir _frame_snapshots] [--threshold 16] [--max-diff 0.001]` | compare frames with approved PNGs; writes `.actual.png`/`.diff.png`, exit 2 on a difference; a PNG of another size (another `--scale`) is the error `snapshot_size` |
 | `audio analyze [RANGE] [--waveform w.png]` | loudness (LUFS, LRA), true peak, clipping, silence, per scene |
