@@ -54,11 +54,12 @@ return function(months, crops)
       bass = { gain_db = 3, play = { { "title@1m..", degrees = ". . 1 . . . 1 8 . . 1 . . . 1 .", subdivision = "16n" } } },
       pad = { gain_db = -16 },
       arp = { gain_db = -10 },
-      crash = { instrument = MACHINE, gain_db = -8, play = crashes },
+      -- the crash, segments and ticks raised to where inspect's buried_part put them: 12 LU under the mix where each plays loudest
+      crash = { instrument = MACHINE, gain_db = 2, play = crashes },
       impact = { instrument = "impact", gain_db = -12, play = { { "title", events = { { time = "2n", velocity = 0.6 } } } } },
       months = { instrument = "blip", gain_db = -6, play = { { "bars", events = blips } } },
-      segments = { instrument = "blip", gain_db = -6, play = { { "donut", events = segments } } },
-      ticks = { instrument = "blip", gain_db = -12, play = { { "outro", events = ticks } } },
+      segments = { instrument = "blip", gain_db = -3, play = { { "donut", events = segments } } },
+      ticks = { instrument = "blip", gain_db = -3, play = { { "outro", events = ticks } } },
       chimes = { instrument = "done", gain_db = -6, play = {
         { "bars", events = { { time = "2:2:0" } } },     -- the best month
         { "line", events = { { time = "1:3:0" } } },     -- the line lands on the total

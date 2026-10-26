@@ -517,7 +517,8 @@ sample, a layer only on hard notes); `references/audio.md`, "Songs and sounds" a
 "Instruments"). An instrument the sample sets don't have (a harp, a flute, a trumpet) is a
 free library's own SFZ played through the song's `sources` and pinned with `onimite audio
 pin`, never its samples mapped by file name (names lie: VSCO's run an octave low), levelled
-by measurement (`references/sound_design.md`, "An instrument the sets don't have"). This
+by measurement (`references/sound_design.md`, "An instrument the sets don't have"); `inspect`
+names the raise for a part buried under the mix (`buried_part`). This
 skill's `library/` folder (copy what you use into `media/`) shows how voices and songs are
 built: programmed synth voices (`instruments/synths.json`), drums, sound effects, a TB-303,
 the TR-808/909 from their circuits and four variants of them, seven styles and reference

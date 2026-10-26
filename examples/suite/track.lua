@@ -34,6 +34,9 @@ return song { "score", instruments = INSTRUMENTS, key = "D minor", bpm = 120, se
     drums = { instrument = MACHINE, gain_db = 2, play = { { "tail", steps = { kick = "X..............." } } } },
     pad = { gain_db = -12 },
     bass = { gain_db = -3 },
+    -- the tail's bells (ambient.json's, -14) and strings (-16) raised to where inspect's buried_part put it: 12 LU under the mix where the part plays loudest
+    bells = { gain_db = -9 },
+    strings = { gain_db = -13 },
     -- the arp runs from the first bar and through the break, as in the drop
     arp = { play = { { "ignition..liftoff", arpeggio = { pattern = "up", interval = "16n", octaves = 2 }, velocity = 0.7 },
                      { "break", arpeggio = { pattern = "up", interval = "16n", octaves = 2 }, velocity = 0.7 } } },

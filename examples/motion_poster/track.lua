@@ -24,12 +24,15 @@ return song { "score", instruments = INSTRUMENTS, key = "A minor", bpm = 120, se
   },
   parts = {
     pad = { gain_db = -13 },
+    -- ambient.json's bells (-14) and strings (-16), and the crash, raised to where inspect's buried_part put it: 12 LU under the mix where the part plays loudest
+    bells = { gain_db = -8 },
+    strings = { gain_db = -8 },
     drums = { instrument = MACHINE, gain_db = 5, sends = { hall = -20 }, play = {
       { "groove", steps = { kick = FOUR, open_hat = "..x...x...x...x." } },
       { "groove@2m..", steps = { hat = ".x.x.x.x.x.x.x.x" }, velocity = 0.5 },
       { "finale", steps = { kick = FOUR, clap = "....x.......x...", open_hat = "..x...x...x...x.", hat = ".x.x.x.x.x.x.x.x" } },
     } },
-    crash = { instrument = MACHINE, gain_db = -6, sends = { hall = -10 },
+    crash = { instrument = MACHINE, gain_db = 8, sends = { hall = -10 },
       play = { { "groove", events = { { time = 0, note = "crash" } } }, { "finale", events = { { time = 0, note = "crash" } } } } },
     sub = { instrument = { "Synth", oscillator = { type = "sine" }, envelope = { attack = 0.01, decay = 0.1, sustain = 0.9, release = 0.05 } },
       gain_db = 0, sidechain = "drums/kick",

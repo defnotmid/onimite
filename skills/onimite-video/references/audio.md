@@ -546,7 +546,7 @@ onimite audio render video.lua Intro -o intro.wav # the mix of a range, for the 
 
 Every audio command takes `--track FILE`: that track alone, as it sounds in the mix (the others
 still duck it); a bus name hears the bus, `--track score/bass` one part of a song. `inspect`
-renders each song alone through odawg's checks of its mix (`clipping`, `true_peak`) and
+renders each song alone through odawg's checks (`silent_part`, `buried_part` with the raise it needs, `clipping`, `true_peak`) and
 reports what reading and composing it found (`song_finding`).
 
 Targets for the report:

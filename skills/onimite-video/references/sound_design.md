@@ -152,7 +152,9 @@ trumpet and cellos from VS Chamber Orchestra 2.
    differ a lot: one note at the same velocity spans 17.6 dB across
    `sfz_chamber`'s five files. Set each part's `gain_db` from its loudness
    per scene (`onimite audio analyze video.lua --track score/flute`) and
-   `onimite audio parts video.lua` (below).
+   `onimite audio parts video.lua` (below). `onimite inspect` warns about a
+   part buried under the mix (`buried_part`) and names the raise; make it,
+   and run `inspect` again (a raise moves the mix).
 
 ## Mixing as part of the sound
 
@@ -183,7 +185,10 @@ trumpet and cellos from VS Chamber Orchestra 2.
     an intro at −19 LUFS, a verse at −16, a build at −15, a drop at −12).
   - Inside a drop, drums and bass anchor the mix, the lead sits 3–5 LU above
     the comping (`keys`, `pad`, `arp`), and no active part sits more than
-    15 LU below the mix (it is inaudible there).
+    15 LU below the mix (it is inaudible there). `inspect` reports a part
+    that does in every section it has notes in (`buried_part`), naming the
+    `gain_db` raise that puts it 12 LU under where it plays loudest; take
+    the number, don't round it by taste, and check again until none is left.
   - Keep low-end sub energy (`20–120 Hz`) out of low-energy intros and
     breakdowns so the drop hits with physical contrast.
 

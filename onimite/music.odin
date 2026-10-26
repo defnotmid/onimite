@@ -195,6 +195,7 @@ song_clip_free :: proc(sc: ^Song_Clip) {
 	}
 	delete(sc.render.part_meters, a)
 	delete(sc.render.part_peaks, a)
+	delete(sc.render.stems, a)
 	if .Mix in sc.render.measured {
 		ocheck.measuring_destroy(&sc.render.measuring)
 		delete(sc.render.measuring.part_peaks, a)
@@ -403,11 +404,15 @@ Song_Render :: struct {
 	taken:     bool, // the driver is making it, or made it (under the music's lock)
 	// What the render measured as it was made, before it was rounded to 16
 	// bits: each part's loudness meter and peak (`audio parts`), and the mix
-	// as odawg's checks measure it; read once the render is whole.
+	// and its stems as odawg's checks measure them; read once the render is
+	// whole.
 	part_meters: []oanalyze.Meter,
 	part_peaks:  []f32,
 	measuring:   ocheck.Measuring,
 	measured:    bit_set[Song_Measure],
+	// A chunk's stems cut to the samples it keeps (one row a part), as the
+	// checks are handed them.
+	stems:       [][2][]f32,
 }
 
 // A song's band rows (a spectrogram) are a .Bands table of its mix, a row
@@ -501,6 +506,7 @@ song_render_want :: proc(sc: ^Song_Clip) {
 	}
 	if .Mix in rd.measured {
 		ocheck.measuring_init(&rd.measuring, &sc.song, a)
+		rd.stems = make([][2][]f32, len(sc.song.parts), a)
 	}
 }
 
@@ -596,8 +602,12 @@ song_take :: proc(data: rawptr, at: i64, l, r: []f32, stems: [][2][]f32) {
 	parts := stems[:min(len(stems), len(sc.song.parts))]
 	// measured in float, in order (the sink is called one chunk at a time)
 	if .Mix in rd.measured {
-		// the mix alone: the checks look at the song's mix (no per-part rules)
-		ocheck.measuring_push(&rd.measuring, l[:n], r[:n], nil)
+		// the mix and the stems: the checks' per-part rules (a part silent,
+		// one buried under the mix) read the stems
+		for st, p in parts {
+			rd.stems[p] = {st[0][:n], st[1][:n]}
+		}
+		ocheck.measuring_push(&rd.measuring, l[:n], r[:n], rd.stems[:len(parts)])
 	}
 	if .Parts in rd.measured {
 		for st, p in parts {

@@ -41,8 +41,9 @@ return song { "score", instruments = INSTRUMENTS, key = "C major", bpm = 120, se
     blips = { instrument = "blip", gain_db = -4, octave = 5,
       play = { { "formats", degrees = ". . . . 1 . . . 3 . . . 5 . . . | 8 10 . . . . . . . . . . . . . .", subdivision = "16n" },
                { "outro", degrees = ". . . . . . . . 8 . . . . . . .", subdivision = "16n" } } },
-    -- a crash on each section's downbeat and on every feature cut
-    crash = { instrument = MACHINE, gain_db = -3,
+    -- a crash on each section's downbeat and on every feature cut, at the level inspect's buried_part asked
+    -- for: 12 LU under the mix where it plays loudest
+    crash = { instrument = MACHINE, gain_db = 0,
       play = { { "formats", steps = { crash = { "X...............", "" } } },
                { "features", steps = { crash = "X.......X......." } },
                { "outro", steps = { crash = "X..............." } } } },

@@ -34,9 +34,14 @@ local score = song { "score", instruments = INSTRUMENTS, key = "A minor", bpm = 
   },
   parts = {
     -- the bar of riser under the match, the impact and a crash on "Light"
-    rise = { instrument = "riser", gain_db = -4, play = { { "strike", events = { { time = 0, duration = "1m", note = "C4", velocity = 0.35 } } } } },
+    rise = { instrument = "riser", gain_db = 3, play = { { "strike", events = { { time = 0, duration = "1m", note = "C4", velocity = 0.35 } } } } },
     fx = { instrument = "impact", gain_db = -4, play = { { "beam", events = { { time = 0, duration = 2.5, note = "C2", velocity = 0.8 } } } } },
-    fx_crash = { instrument = "crash", gain_db = -4, play = { { "beam", events = { { time = 0, duration = 1.6, note = "C4", velocity = 0.7 } } } } },
+    fx_crash = { instrument = "crash", gain_db = -1, play = { { "beam", events = { { time = 0, duration = 1.6, note = "C4", velocity = 0.7 } } } } },
+    -- the riser, the crash and ambient.json's bells (-14), drums (-8), strings (-16) and sub (-8) raised to where inspect's buried_part put it: 12 LU under the mix where the part plays loudest
+    bells = { gain_db = -4 },
+    drums = { gain_db = 1 },
+    strings = { gain_db = -8 },
+    sub = { gain_db = -5 },
   },
 }
 
