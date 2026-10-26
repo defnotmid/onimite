@@ -235,7 +235,7 @@ COMMAND_KINDS := [Command_Kind]Command_Descriptor {
 	.Audio_Pin = {
 		help = "fetches what the songs play from their sources and writes their pins",
 		domain = .Script, flags = FRONT, args = Audio_Pin_Args,
-		about = "fetches what the songs play from their sources (pinned files, and new ones trusted as they come) and writes each source's pins file",
+		about = "fetches what the songs play from their sources (pinned files, and new ones trusted as they come) and writes each source's pins file; fails when a file couldn't be fetched",
 		mcp_note = "Run it after a song starts playing notes its sources haven't pinned (a not_pinned finding); it downloads them.",
 	},
 	.Audio_Parts = {
@@ -262,7 +262,7 @@ COMMAND_KINDS := [Command_Kind]Command_Descriptor {
 		mcp_note = "The running server keeps the old version: restart the app (Claude Desktop: quit and reopen it) to use the new one.",
 	},
 	.Script_Load = {
-		help = "regs.path the script; regs.media a media directory (\"\" = `media/` beside the script); regs.props a JSON file of props (\"\" = none); regs.args the script arguments, NUL-separated (LIST_SEP); .No_Media in regs.flags: the script only; .No_Script: the media only (a batch loads the script per row)",
+		help = "regs.path the script; regs.media a media directory (\"\" = `media/` beside the script); regs.props a JSON file of props (\"\" = none); regs.args the script arguments, NUL-separated (LIST_SEP); .No_Media in regs.flags: the script only; .No_Script: the media only (a batch loads the script per row); .Pinning: its songs fetch what their sources haven't pinned (audio pin)",
 		domain = .Settings,
 	},
 	.Output_Set = {help = "regs.flag: print one JSON document per command instead of text", domain = .Settings},
@@ -391,8 +391,9 @@ Command_Flag :: enum u8 {
 	No_Script, // script load: the media only (a batch loads the script per row)
 	Timing, // debug: time and log what runs
 	Clip_Log, // debug: log the video clip frames the preview shows
+	Pinning, // script load: songs fetch what their sources haven't pinned and keep it (audio pin)
 }
-Command_Flags :: bit_set[Command_Flag;u16]
+Command_Flags :: bit_set[Command_Flag;u32]
 
 // When `inspect` exits with code 2.
 Fail_On :: enum u8 {

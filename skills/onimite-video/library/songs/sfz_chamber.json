@@ -1,0 +1,85 @@
+{
+  "name": "sfz_chamber",
+  "description": "SFZ libraries played straight from their authors' own mappings: a chamber waltz in D major, 3/4 at 80 bpm, on VS Chamber Orchestra 2's SFZ files (harp, flute, solo violin, trumpet, cello section), read from the library's repository at a pinned commit through the song's `sources` (each file it plays pinned by SHA-256 in pins/vsco.pins, written by `odawg pin`; nothing hand-mapped). An `.sfz` path names the source first (vsco/Harp.sfz), and opcodes override the file's (ampeg_attack, ampeg_release). The libraries' velocity layers carry the dynamics (VSCO splits at MIDI 62, a velocity of 0.49): the flute and violin play their soft layers in the theme, the coda and as countermelody, their loud ones as the answer's melody and in the swell. Levels by measurement: one note of each at velocity 0.8 spans 17.6 dB across these five files (the cellos -21.8 LUFS max momentary, the flute -39.4), and the velocities and registers a part plays move it again, so each part's gain_db was set from `odawg analyze`'s loudness per section: each section's melody on top, its countermelody about 3 LU under, the harp and cellos 4 to 10 under. Form: the harp alone, the flute's theme over a violin line, the violin answering with the flute above it, the trumpet into a swell in thirds, a coda slowing to 70.",
+  "key": "D major",
+  "seed": 23,
+  "time_signature": 3,
+  "sources": {
+    "vsco": {
+      "url": "https://raw.githubusercontent.com/sgossner/VSCO-2-CE/6dd651d55dde97fd4028699be9d4481f26917891/",
+      "page": "https://github.com/sgossner/VSCO-2-CE/tree/SFZ",
+      "licence": "CC0-1.0",
+      "credit": "VS Chamber Orchestra 2: Community Edition by Versilian Studios LLC (Sam Gossner, Simon Dalzell, Elan Hickler), CC0 1.0",
+      "pins": "pins/vsco.pins"
+    }
+  },
+  "sections": [
+    { "name": "intro", "duration": "4m", "bpm": 80, "energy": 0.3, "chords": "Dmaj7 Bm7 Gmaj7 Asus4" },
+    { "name": "theme", "duration": "8m", "energy": 0.5, "chords": "D F#m7 G A Bm7 G Em7 A7" },
+    { "name": "answer", "duration": "8m", "energy": 0.7, "chords": "Bm G D A G D Em7 A7" },
+    { "name": "swell", "duration": "4m", "energy": 1, "chords": "G A F#m7 Bm7" },
+    { "name": "coda", "duration": "4m", "bpm": [ 80, 70 ], "energy": 0.3, "chords": "Gmaj7 Asus4 Dmaj7 Dmaj7" }
+  ],
+  "returns": {
+    "hall": [
+      { "name": "Reverb", "decay": 2.6, "pre_delay": 0.02 },
+      { "name": "Filter", "type": "highpass", "frequency": 250 }
+    ]
+  },
+  "parts": {
+    "harp": {
+      "instrument": { "name": "vsco/Harp.sfz", "ampeg_release": 1.2 },
+      "gain_db": 11.6,
+      "pan": -0.2,
+      "sends": { "hall": -10 },
+      "play": [
+        { "name": [ "intro", "theme", "coda" ], "arpeggio": { "pattern": "upDown", "interval": "8n", "octaves": 2 }, "octave": 3, "velocity": 0.5, "humanize": 0.006 },
+        { "name": [ "answer", "swell" ], "arpeggio": { "pattern": "up", "interval": "8n", "octaves": 2 }, "octave": 3, "velocity": 0.56, "humanize": 0.005 }
+      ]
+    },
+    "cellos": {
+      "instrument": { "name": "vsco/CelloEnsSusVib.sfz", "ampeg_attack": 0.08, "ampeg_release": 0.5 },
+      "gain_db": 2.2,
+      "pan": 0.1,
+      "sends": { "hall": -12 },
+      "play": [
+        { "name": [ "theme", "answer" ], "degrees": "1", "subdivision": "2n.", "octave": 2, "velocity": 0.5, "humanize": 0.004 },
+        { "name": "swell", "degrees": "1", "subdivision": "2n.", "octave": 2, "velocity": 0.64 },
+        { "name": "coda", "degrees": "1", "subdivision": "2n.", "octave": 2, "velocity": 0.5 }
+      ]
+    },
+    "flute": {
+      "instrument": { "name": "vsco/FluteExpVib.sfz", "ampeg_release": 0.4 },
+      "gain_db": 13.8,
+      "pan": 0.15,
+      "sends": { "hall": -11 },
+      "play": [
+        { "name": "theme", "notes": "F#5 - A5 C#6 - B5 B5 A5 G5 A5 - - D6 - C#6 B5 - A5 G5 F#5 E5 E5 - .", "subdivision": "4n", "velocity": 0.48, "humanize": 0.006 },
+        { "name": "answer", "notes": "D6 B5 A5 C#6 B5 A5 G5 A5", "subdivision": "2n.", "velocity": 0.36, "humanize": 0.006 },
+        { "name": "swell", "notes": "D6 E6 C#6 D6", "subdivision": "2n.", "velocity": 0.72 },
+        { "name": "coda", "notes": "B5 - A5 A5 - G5 F#5 - - - - .", "subdivision": "4n", "velocity": 0.48, "humanize": 0.008 }
+      ]
+    },
+    "violin": {
+      "instrument": { "name": "vsco/SViolinVib.sfz", "ampeg_attack": 0.05, "ampeg_release": 0.5 },
+      "gain_db": 6.9,
+      "pan": -0.1,
+      "sends": { "hall": -11 },
+      "play": [
+        { "name": "theme", "notes": "D5 C#5 B4 C#5 D5 D5 B4 C#5", "subdivision": "2n.", "velocity": 0.36, "humanize": 0.005 },
+        { "name": "answer", "notes": "D5 - F#5 G5 - B5 A5 - F#5 E5 - - D5 E5 G5 F#5 - A5 G5 F#5 E5 C#5 - .", "subdivision": "4n", "velocity": 0.72, "humanize": 0.006 },
+        { "name": "swell", "notes": "B5 C#6 A5 B5", "subdivision": "2n.", "velocity": 0.72 }
+      ]
+    },
+    "trumpet": {
+      "instrument": { "name": "vsco/TrumpetSusVib.sfz", "ampeg_release": 0.4 },
+      "gain_db": 11.6,
+      "pan": 0.25,
+      "sends": { "hall": -9 },
+      "play": [
+        { "name": "answer@7m..answer", "notes": "A4 - B4 C#5 - E5", "subdivision": "4n", "velocity": 0.55 },
+        { "name": "swell", "notes": "D5 - B4 C#5 - E5 F#5 - A5 F#5 - -", "subdivision": "4n", "velocity": 0.72 }
+      ]
+    }
+  }
+}

@@ -82,6 +82,10 @@ test_cli_parse :: proc(t: ^testing.T) {
 	testing.expect_value(t, preview[len(preview) - 3].regs.flags, Command_Flags{.No_Media, .No_Script})
 	testing.expect_value(t, last.regs.flags, Command_Flags{.Paused})
 	testing.expect_value(t, last.regs.spec, "3s")
+	// audio pin's songs fetch what isn't pinned from their first read
+	pin := pushed("audio", "pin", "v.lua")
+	testing.expect_value(t, pin[len(pin) - 3].kind, Command_Kind.Script_Load)
+	testing.expect_value(t, pin[len(pin) - 3].regs.flags, Command_Flags{.Pinning})
 	probe := pushed("probe", "a.mp4", "b.mp4")
 	last = probe[len(probe) - 1]
 	testing.expect_value(t, len(probe), 4)

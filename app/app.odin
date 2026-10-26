@@ -295,6 +295,7 @@ script_load :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 	// The media first: scripts measure text with its fonts at load.
 	app.media_dir = strings.clone(regs.media if regs.media != "" else default_media_dir(regs.path))
 	app.media_loaded = .No_Media not_in regs.flags
+	om.music_set_pinning(&app.media, .Pinning in regs.flags)
 	if app.media_loaded {
 		dir := app.media_dir
 		if os.exists(dir) {

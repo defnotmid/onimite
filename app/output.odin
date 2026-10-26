@@ -190,10 +190,11 @@ warn :: proc(format: string, args: ..any) {
 }
 
 // What the script's load found (`load_diagnostics`; `m` nil: the media
-// was not loaded), one warning line each.
+// was not loaded), one line each: "error:" for an error (render refuses
+// it), else "warning:".
 warn_load :: proc(s: ^script.Script, m: ^om.Media) {
 	for d in load_diagnostics(s, m) {
-		warn("%s", om.diagnostic_message(d, context.temp_allocator))
+		fmt.eprintfln("%s: %s", "error" if d.severity == .Error else "warning", om.diagnostic_message(d, context.temp_allocator))
 	}
 }
 

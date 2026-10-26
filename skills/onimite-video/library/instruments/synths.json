@@ -65,9 +65,9 @@
     }
   },
   "lead": {
-    "description": "One voice: five detuned saws and a square an octave down through a 12 dB low-pass with a filter envelope (a bite on each note that settles), slightly driven; vibrato fades in once a note is held, and a note tied into the next (~) glides there.",
+    "description": "One voice: five detuned saws and a pulse an octave down whose width drifts with an LFO, a quick pitch scoop on each attack, through a 24 dB diode ladder with a filter envelope that settles into a warm singing sustain, then 2x-oversampled saturation; vibrato fades in once a note is held, and a note tied into the next (~) glides there.",
     "mono": true,
-    "portamento": 0.045,
+    "portamento": 0.055,
     "options": {
       "cutoff": "lp/frequency",
       "resonance": "lp/q",
@@ -75,27 +75,42 @@
       "vibrato": [ "saws/frequency/octaves", "sub/frequency/octaves" ]
     },
     "nodes": {
-      "vib": { "class": "Lfo", "rate": 5.4, "delay": 0.25, "fade": 0.35 },
-      "saws": { "class": "Osc", "wave": "fatsawtooth", "count": 5, "spread": 14, "width": 0.5, "phase": "random", "frequency": { "by": "vib", "octaves": 0.006 } },
-      "sub": { "class": "Osc", "wave": "square", "ratio": 0.5, "gain_db": -10, "frequency": { "by": "vib", "octaves": 0.006 } },
+      "vib": { "class": "Lfo", "rate": 5.4, "delay": 0.22, "fade": 0.35 },
+      "pwm": { "class": "Lfo", "rate": 0.85, "phase": 0.25 },
+      "scoop": { "class": "Decay", "time": 0.022 },
+      "saws": {
+        "class": "Osc",
+        "wave": "fatsawtooth",
+        "count": 5,
+        "spread": 16,
+        "width": 0.45,
+        "phase": "random",
+        "frequency": [ { "by": "vib", "octaves": 0.007 }, { "by": "scoop", "octaves": -0.03 } ]
+      },
+      "sub": {
+        "class": "Osc",
+        "wave": "pulse",
+        "ratio": 0.5,
+        "width": { "base": 0.48, "by": "pwm", "amount": 0.25 },
+        "gain_db": -8,
+        "frequency": [ { "by": "vib", "octaves": 0.007 }, { "by": "scoop", "octaves": -0.03 } ]
+      },
       "both": { "class": "Mix", "inputs": [ "saws", "sub" ] },
       "track": { "class": "Map", "input": "key", "offset": -72 },
-      "fenv": { "class": "Env", "attack": 0.004, "decay": 0.35, "sustain": 0.35, "release": 0.3 },
+      "fenv": { "class": "Env", "attack": 0.008, "decay": 0.42, "sustain": 0.38, "release": 0.32 },
       "lp": {
-        "class": "Filter",
-        "type": "lowpass",
-        "rolloff": -12,
-        "q": 1.4,
+        "class": "Ladder",
+        "q": 2.1,
         "input": "both",
         "frequency": [
-          { "base": 1300, "by": "fenv", "octaves": 1.6 },
-          { "by": "velocity", "octaves": 0.8 },
+          { "base": 950, "by": "fenv", "octaves": 1.85 },
+          { "by": "velocity", "octaves": 0.9 },
           { "by": "track", "octaves": 0.04167 }
         ]
       },
-      "drive": { "class": "Drive", "input": "lp", "amount": 1.6 },
-      "env": { "class": "Env", "attack": 0.004, "decay": 0, "sustain": 1, "release": 0.12 },
-      "out": { "class": "Mix", "inputs": [ "drive" ], "amp": "env", "gain_db": -15.3 }
+      "drive": { "class": "Drive", "input": "lp", "amount": 1.35, "oversample": 1 },
+      "env": { "class": "Env", "attack": 0.008, "decay": 0.55, "sustain": 0.72, "release": 0.18 },
+      "out": { "class": "Mix", "inputs": [ "drive" ], "amp": "env", "gain_db": -9 }
     }
   },
   "bass": {

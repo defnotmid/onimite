@@ -1,0 +1,564 @@
+{
+  "name": "velvet_horizon",
+  "description": "French-touch / melodic nu-disco in F Dorian at 112 bpm with 16th-note swing (0.16), showcasing layered hybrid sound design: (1) symphonic_pad fuses a real sampled string ensemble (vsco2/strings) and a 7-voice stereo fatsawtooth + sub sine inside one node graph sharing a 24 dB resonant filter and cutoff knob; (2) layered_bass stacks a fingered jazz bass (karoryfer/growlybass with round robins) over a diode-ladder synth sub; (3) layered_keys stacks an intimate grand piano (osiris/soft_piano), an FM Rhodes (keys), and a bell layer chosen by velocity (lo_vel 96: about half the break's chords and a fifth of the intro's and verse's, never the drops); (4) karplus_pluck uses a tuned Comb resonator excited by a noise burst and saw transient; (5) drums pair a 909 kick/clap with a high-passed stereo acoustic jazz kit (virtuosity/drums) playing ghost notes, rides, and 4-bar tom/snare fills through a compressed drumbus; (6) velvet_lead doubles a ladder synth lead with a solo violin played from VS Chamber Orchestra 2's own SFZ through the song's `sources` (pinned in pins/vsco.pins).",
+  "sources": {
+    "vsco": {
+      "url": "https://raw.githubusercontent.com/sgossner/VSCO-2-CE/6dd651d55dde97fd4028699be9d4481f26917891/",
+      "page": "https://github.com/sgossner/VSCO-2-CE/tree/SFZ",
+      "licence": "CC0-1.0",
+      "credit": "VS Chamber Orchestra 2: Community Edition by Versilian Studios LLC (Sam Gossner, Simon Dalzell, Elan Hickler), CC0 1.0",
+      "pins": "pins/vsco.pins"
+    }
+  },
+  "instruments": [
+    "instruments/synths.json",
+    {
+      "symphonic_pad": {
+        "description": "Sampled chamber strings (vsco2/strings) and 7 detuned saws + sub sine summed into one 24 dB resonant filter with envelope, slow LFO drift, velocity, and key tracking.",
+        "options": {
+          "cutoff": "lp/frequency",
+          "resonance": "lp/q",
+          "attack": [ "env/attack", "fenv/attack" ],
+          "release": [ "env/release", "fenv/release", "strings/release" ]
+        },
+        "nodes": {
+          "strings": { "class": "Sampler", "set": "vsco2/strings", "attack": 0.35, "release": 1.4, "gain_db": -16 },
+          "saws": { "class": "Osc", "wave": "fatsawtooth", "count": 7, "spread": 20, "width": 0.9, "phase": "random", "gain_db": -3 },
+          "sub": { "class": "Osc", "wave": "sine", "ratio": 0.5, "gain_db": -14 },
+          "blend": { "class": "Mix", "inputs": [ "strings", "saws", "sub" ] },
+          "track": { "class": "Map", "input": "key", "offset": -60 },
+          "fenv": { "class": "Env", "attack": 1.0, "decay": 2.2, "sustain": 0.65, "release": 1.8 },
+          "drift": { "class": "Lfo", "rate": 0.17, "phase": 0.25 },
+          "lp": {
+            "class": "Filter",
+            "type": "lowpass",
+            "rolloff": -24,
+            "q": 1.1,
+            "input": "blend",
+            "frequency": [
+              { "base": 520, "by": "fenv", "octaves": 1.8 },
+              { "by": "velocity", "octaves": 1.0 },
+              { "by": "track", "octaves": 0.04167 },
+              { "by": "drift", "octaves": 0.25 }
+            ]
+          },
+          "hp": { "class": "Filter", "type": "highpass", "frequency": 160, "input": "lp" },
+          "env": { "class": "Env", "attack": 0.45, "decay": 0, "sustain": 1, "release": 1.6 },
+          "out": { "class": "Mix", "inputs": [ "hp" ], "amp": "env", "gain_db": -10.5 }
+        }
+      },
+      "layered_bass": {
+        "description": "Two layers on every note: Karoryfer Growlybass (sampled fingered Jazz Bass with round robins) for midrange string articulation, plus a monophonic diode-ladder synth bass anchoring the sub.",
+        "layers": [
+          {
+            "instrument": { "name": "Sampler", "set": "karoryfer/growlybass", "release": 0.09 },
+            "gain_db": -22.5
+          },
+          {
+            "instrument": { "name": "bass", "cutoff": 135, "resonance": 1.8, "pluck": 2.4 },
+            "gain_db": 1.5
+          }
+        ]
+      },
+      "layered_keys": {
+        "description": "Three-layer hybrid keys: Osiris soft grand piano for hammer body, FM electric piano for warm sustain, and an FM bell layer that plays only from MIDI velocity 96 (0.76): layers choose by velocity, and an accent (X) doesn't raise it, so here, with humanize's ×0.92–1.08 jitter, the bell rings on about half the break's hits (0.76) and a fifth of the intro's and verse's (0.72), never in the drops (0.68).",
+        "layers": [
+          {
+            "instrument": { "name": "Sampler", "set": "osiris/soft_piano", "release": 0.7 },
+            "gain_db": -17.5
+          },
+          {
+            "instrument": { "name": "keys", "brightness": 1.5 },
+            "gain_db": -3.5
+          },
+          {
+            "instrument": { "name": "bell", "brightness": 1.8, "decay": 1.2 },
+            "lo_vel": 96,
+            "hi_vel": 127,
+            "gain_db": -4.0
+          }
+        ]
+      },
+      "karplus_pluck": {
+        "description": "Physical-modeled plucked string using a tuned Comb resonator (delay 0 tracks the note period) excited by a pink noise burst and a short stereo saw transient.",
+        "options": {
+          "damp": "string/damp",
+          "feedback": "string/feedback"
+        },
+        "nodes": {
+          "burst_env": { "class": "Decay", "attack": 0.001, "time": 0.012 },
+          "noise": { "class": "Noise", "color": "pink", "amp": "burst_env", "gain_db": -6 },
+          "saw_env": { "class": "Decay", "attack": 0.001, "time": 0.035 },
+          "saw": { "class": "Osc", "wave": "fatsawtooth", "count": 3, "spread": 10, "width": 0.65, "amp": "saw_env", "gain_db": -8 },
+          "excite": { "class": "Mix", "inputs": [ "noise", "saw" ] },
+          "string": { "class": "Comb", "input": "excite", "delay": 0, "feedback": 0.93, "damp": 4200, "release": 0.35 },
+          "body": { "class": "Filter", "type": "highpass", "frequency": 220, "input": "string" },
+          "env": { "class": "Env", "attack": 0.001, "decay": 0.8, "sustain": 0, "release": 0.35 },
+          "out": { "class": "Mix", "inputs": [ "body", "saw" ], "amp": "env", "gain_db": -7.5 }
+        }
+      },
+      "analog_hook": {
+        "description": "Expressive mono lead: a micro pitch-scoop on attack (18 ms), 3 warm saws + triangle sub through the saturating diode Ladder filter (warmer than a 12 dB SVF), a dynamic decaying amp contour (not flat organ sustain), and delayed vibrato.",
+        "mono": true,
+        "portamento": 0.055,
+        "nodes": {
+          "scoop": { "class": "Decay", "time": 0.018 },
+          "vib": { "class": "Lfo", "rate": 5.2, "delay": 0.22, "fade": 0.3 },
+          "saws": {
+            "class": "Osc",
+            "wave": "fatsawtooth",
+            "count": 3,
+            "spread": 10,
+            "width": 0.35,
+            "phase": "random",
+            "frequency": [
+              { "by": "vib", "octaves": 0.007 },
+              { "by": "scoop", "octaves": -0.025 }
+            ]
+          },
+          "sub": {
+            "class": "Osc",
+            "wave": "triangle",
+            "ratio": 0.5,
+            "gain_db": -8,
+            "frequency": { "by": "vib", "octaves": 0.007 }
+          },
+          "breath_env": { "class": "Decay", "attack": 0.002, "time": 0.04 },
+          "breath": { "class": "Noise", "color": "pink", "amp": "breath_env", "gain_db": -22 },
+          "raw": { "class": "Mix", "inputs": [ "saws", "sub", "breath" ] },
+          "track": { "class": "Map", "input": "key", "offset": -60 },
+          "fenv": { "class": "Env", "attack": 0.012, "decay": 0.38, "sustain": 0.28, "release": 0.25 },
+          "ladder": {
+            "class": "Ladder",
+            "input": "raw",
+            "q": 2.4,
+            "frequency": [
+              { "base": 680, "by": "fenv", "octaves": 2.1 },
+              { "by": "velocity", "octaves": 0.9 },
+              { "by": "track", "octaves": 0.05 }
+            ]
+          },
+          "hp": { "class": "Filter", "type": "highpass", "frequency": 240, "input": "ladder" },
+          "env": { "class": "Env", "attack": 0.008, "decay": 0.55, "sustain": 0.62, "release": 0.22 },
+          "out": { "class": "Mix", "inputs": [ "hp" ], "amp": "env", "gain_db": -11.5 }
+        }
+      },
+      "velvet_lead": {
+        "description": "Hybrid lead: the diode-ladder analog_hook doubled by a solo violin with vibrato, played from VS Chamber Orchestra 2's own SFZ (vsco/SViolinVib.sfz, its samples fetched through the song's `sources` and pinned in pins/vsco.pins), its attack slowed and its release shortened by opcode overrides, so each note has a bowed body under the synth.",
+        "layers": [
+          {
+            "instrument": "analog_hook",
+            "gain_db": 0.0
+          },
+          {
+            "instrument": { "name": "vsco/SViolinVib.sfz", "ampeg_attack": 0.04, "ampeg_release": 0.35 },
+            "gain_db": -3.3
+          }
+        ]
+      }
+    }
+  ],
+  "key": "F dorian",
+  "seed": 42,
+  "swing": 0.16,
+  "swing_subdivision": "16n",
+  "chords": "Fm9 Bb9 Abmaj7 Eb9",
+  "sections": [
+    { "name": "intro", "duration": "4m", "bpm": 112, "energy": 0.3, "chords": "Fm9 Bb9 Abmaj7 G7" },
+    { "name": "verse", "duration": "8m", "energy": 0.6, "chords": "Fm9 Bb9 Abmaj7 Eb9 Fm9 Bb9 Dbmaj7 C7" },
+    { "name": "build", "duration": "4m", "energy": 0.8, "chords": "Dbmaj7 Eb9 Fm9 C7", "transition": "riser", "transition_part": "pad" },
+    { "name": "drop", "duration": "8m", "energy": 1.0, "chords": "Fm9 Bb9 Abmaj7 Eb9 Fm9 Bb9 Dbmaj7 C7", "transition": "fill", "transition_part": "drums/snare" },
+    { "name": "break", "duration": "4m", "energy": 0.45, "chords": "Dbmaj7 Bbm9 Fm9 C7" },
+    { "name": "drop2", "duration": "8m", "energy": 1.0, "chords": "Fm9 Bb9 Abmaj7 Eb9 Fm9 Bb9 Dbmaj7 C7", "transition": "fill", "transition_part": "drums/snare" },
+    { "name": "outro", "duration": "4m", "bpm": [ 112, 102 ], "energy": 0.25, "chords": "Dbmaj7 Bb9 Fm9 Fm9" }
+  ],
+  "returns": {
+    "hall": [
+      { "name": "Reverb", "decay": 3.2, "pre_delay": 0.028 },
+      { "name": "Filter", "type": "highpass", "frequency": 280 }
+    ],
+    "room": [
+      { "name": "Reverb", "decay": 0.75, "pre_delay": 0.008 },
+      { "name": "Filter", "type": "highpass", "frequency": 180 }
+    ],
+    "echo": [
+      { "name": "PingPongDelay", "delay_time": "8n.", "feedback": 0.36 },
+      { "name": "Filter", "type": "highpass", "frequency": 420 }
+    ]
+  },
+  "buses": {
+    "drumbus": {
+      "effects": [
+        { "name": "Compressor", "threshold": -16, "ratio": 3.5, "attack": 0.01, "release": 0.09 },
+        { "name": "EQ3", "low": 1.2, "mid": -0.8, "high": 1.0, "low_frequency": 110, "high_frequency": 5500 }
+      ]
+    }
+  },
+  "automation": {
+    "parts/pad/cutoff": [
+      [ "intro", 340 ],
+      [ "verse", 580 ],
+      [ "build", 700 ],
+      [ "build@4m", 2800 ],
+      [ "drop", 1900 ],
+      [ "break", 420, "step" ],
+      [ "break@4m", 1400 ],
+      [ "drop2", 2400 ],
+      [ "outro", 380 ]
+    ],
+    "parts/lead/sends/echo": [
+      [ "drop", -14 ],
+      [ "drop@3m", -14, "step" ],
+      [ "drop@3m", -5 ],
+      [ "drop@4m", -14, "step" ],
+      [ "drop@7m", -14, "step" ],
+      [ "drop@7m", -4 ],
+      [ "drop@8m", -14, "step" ],
+      [ "drop2@7m", -14, "step" ],
+      [ "drop2@7m", -4 ],
+      [ "drop2@8m", -14, "step" ]
+    ],
+    "parts/drums/gain_db": [
+      [ "verse", -2.0 ],
+      [ "build", -2.5, "step" ],
+      [ "build@4m", 0.0 ],
+      [ "drop", -1.0 ]
+    ],
+    "returns/hall/Reverb/wet": [
+      [ "intro", 0.85 ],
+      [ "drop", 0.65 ],
+      [ "break", 1.0 ],
+      [ "drop2", 0.7 ],
+      [ "outro", 0.95 ]
+    ],
+    "master/gain_db": [
+      [ "outro@2m", 0 ],
+      [ "end", -22 ]
+    ]
+  },
+  "parts": {
+    "drums": {
+      "instrument": { "name": "machines/909.json", "tone": 0.55, "decay": 0.9 },
+      "gain_db": -1.5,
+      "to": "drumbus",
+      "sends": { "room": -18 },
+      "play": [
+        {
+          "name": "verse",
+          "velocity": 0.82,
+          "humanize": 0.003,
+          "steps": {
+            "kick": [ "x...x...x...x...", "x...x...x...x..x", "x...x...x...x...", "x...x...x.x.x..." ],
+            "clap": [ "....X.......X...", "....X.......X...", "....X.......X...", "....X.......X.oX" ]
+          }
+        },
+        {
+          "name": "build",
+          "velocity": 0.82,
+          "humanize": 0.003,
+          "steps": {
+            "kick": [ "x...x...x...x...", "x...x...x...x...", "x.x.x.x.x.x.x.x.", "xxxxxxxxxxxxxxxx" ],
+            "clap": [ "....x.......x...", "....x...x...x...", "x.x.x.x.x.x.x.x.", "x.x.x.x.xxxxXXXX" ]
+          }
+        },
+        {
+          "name": [ "drop", "drop2" ],
+          "velocity": 0.88,
+          "humanize": 0.002,
+          "steps": {
+            "kick": [ "X...x...X...x...", "X...x...X...x..x", "X...x...X...x...", "X...x..xX...x.x." ],
+            "clap": [ "....X.......X...", "....X.......X...", "....X.......X...", "....X..o....X.oX" ]
+          }
+        }
+      ]
+    },
+    "live_kit": {
+      "instrument": { "name": "Sampler", "set": "virtuosity/drums" },
+      "gain_db": -6.5,
+      "pan": 0.08,
+      "to": "drumbus",
+      "effects": [
+        { "name": "Filter", "type": "highpass", "frequency": 140 }
+      ],
+      "sends": { "room": -12 },
+      "play": [
+        {
+          "name": "intro@2m..intro",
+          "velocity": 0.65,
+          "humanize": 0.005,
+          "steps": {
+            "hat": [ "x.o.x.o.x.o.x.o.", "x.o.x.o.x.o.x.oo" ],
+            "open_hat": [ "", "..............x." ]
+          }
+        },
+        {
+          "name": "verse",
+          "velocity": 0.76,
+          "humanize": 0.005,
+          "steps": {
+            "hat": [ "xoxoxoxoxoxoxoxo", "xoxoxoxoxoxo.oxo", "xoxoxoxoxoxoxoxo", "xoxoxoxoxoxo...." ],
+            "open_hat": [ "..x...x...x...x.", "..x...x...x...x.", "..x...x...x...x.", "..x...x.....x..." ],
+            "snare": [ ".......o.o.....o", ".......o.o....o.", ".......o.o.....o", ".......o.o..o.XX" ],
+            "crash": [ "x...............", "", "", "", "", "", "", "" ]
+          }
+        },
+        {
+          "name": "build",
+          "velocity": 0.8,
+          "humanize": 0.004,
+          "steps": {
+            "hat": [ "x.x.x.x.x.x.x.x.", "xoxoxoxoxoxoxoxo", "xxxxxxxxxxxxxxxx", "xxxxxxxxXXXXXXXX" ],
+            "open_hat": [ "..x...x...x...x.", "..x...x...x...x.", "", "" ],
+            "tom_high": [ "", "", "", "........X.X....." ],
+            "tom_low": [ "", "", "", "............X.XX" ]
+          }
+        },
+        {
+          "name": "drop",
+          "velocity": 0.84,
+          "humanize": 0.004,
+          "steps": {
+            "hat": [ "xoxoxoxoxoxoxoxo", "xoxoxoxoxoxo.oxo", "xoxoxoxoxoxoxoxo", "xoxoxoxoxoxo...." ],
+            "open_hat": [ "..X...X...X...X.", "..X...X...X...X.", "..X...X...X...X.", "..X...X.....X..." ],
+            "snare": [ ".......o.o.....o", ".o.....o.o....o.", ".......o.o.....o", ".o.....o.o.oXoXX" ],
+            "crash": [ "X...............", "", "", "", "x...............", "", "", "" ]
+          }
+        },
+        {
+          "name": "break",
+          "velocity": 0.68,
+          "humanize": 0.006,
+          "steps": {
+            "rim": [ "....x.......x...", "....x.......x..o", "....x.......x...", "....x.....x.x..." ],
+            "hat": [ "x.o.x.o.x.o.x.o.", "x.o.x.o.x.o.x.oo", "x.o.x.o.x.o.x.o.", "x.o.x.o........." ]
+          }
+        },
+        {
+          "name": "drop2",
+          "velocity": 0.88,
+          "humanize": 0.004,
+          "steps": {
+            "ride": [ "x.x.x.x.x.x.x.x.", "x.x.x.x.x.x.x.x.", "x.x.x.x.x.x.x.x.", "x.x.x.x.x.x....." ],
+            "hat": [ "xoxoxoxoxoxoxoxo", "xoxoxoxoxoxo.oxo", "xoxoxoxoxoxoxoxo", "xoxoxoxoxoxo...." ],
+            "open_hat": [ "..X...X...X...X.", "..X...X...X...X.", "..X...X...X...X.", "..X...X.....X..." ],
+            "snare": [ ".......o.o.....o", ".o.....o.o....o.", ".......o.o.....o", ".o.....o.o......" ],
+            "tom_high": [ "", "", "", "............X..." ],
+            "tom_low": [ "", "", "", ".............XXX" ],
+            "crash": [ "X...............", "", "", "", "X...............", "", "", "" ]
+          }
+        }
+      ]
+    },
+    "bass": {
+      "instrument": "layered_bass",
+      "gain_db": 2.5,
+      "sidechain": { "name": "drums/kick", "depth": 0.68, "release": 0.11 },
+      "play": [
+        {
+          "name": "verse",
+          "notes": "F1 . . F1 . Eb2 F2 . Bb1 . . Bb1 . F2 D2 . Ab1 . . Ab1 . Eb2 Ab2 . Eb1 . . Eb1 . Bb1 G1 . F1 . . F1 . Eb2 F2 . Bb1 . . Bb1 . F2 D2 . Db1 . . Db1 . Ab1 Db2 . C1 . . C2 . G1 Bb1 E1",
+          "subdivision": "16n",
+          "velocity": 0.78,
+          "humanize": 0.003
+        },
+        {
+          "name": "build",
+          "degrees": "1 . 1 8 1 . 1 8",
+          "subdivision": "8n",
+          "duration": "16n",
+          "octave": 2,
+          "velocity": 0.8
+        },
+        {
+          "name": "drop",
+          "notes": "F1 . F2 F1 . Eb2 F2 . Bb1 . Bb2 Bb1 . F2 D2 . Ab1 . Ab2 Ab1 . Eb2 G2 . Eb1 . Eb2 Eb1 . Bb1 G1 . F1 . F2 F1 . Eb2 F2 . Bb1 . Bb2 Bb1 . F2 D2 . Db1 . Db2 Db1 . Ab1 F1 . C1 . C2 C1 . G1 Bb1 C2",
+          "subdivision": "16n",
+          "velocity": 0.86,
+          "humanize": 0.002
+        },
+        {
+          "name": "break",
+          "degrees": "1 - - - . . 5 .",
+          "subdivision": "8n",
+          "octave": 1,
+          "velocity": 0.72
+        },
+        {
+          "name": "drop2",
+          "notes": "F1 . F2 F1 . Eb2 F2 . Bb1 . Bb2 Bb1 . F2 D2 . Ab1 . Ab2 Ab1 . Eb2 G2 . Eb1 . Eb2 Eb1 . Bb1 G1 . F1 . F2 F1 . Eb2 F2 . Bb1 . Bb2 Bb1 . F2 D2 . Db1 . Db2 Db1 . Ab1 F1 . C1 . C2 C1 . G1 Bb1 C2",
+          "subdivision": "16n",
+          "velocity": 0.9,
+          "humanize": 0.002,
+          "vary": [ {}, { "fill": true } ]
+        }
+      ]
+    },
+    "pad": {
+      "instrument": "symphonic_pad",
+      "gain_db": -2.5,
+      "effects": [
+        { "name": "EQ3", "low": -4.0, "mid": -2.5, "high": 1.0, "low_frequency": 200, "high_frequency": 3500 }
+      ],
+      "sends": { "hall": -9 },
+      "sidechain": { "name": "drums/kick", "depth": 0.52, "release": 0.16 },
+      "play": [
+        { "name": "intro", "chords": { "voicing": "spread" }, "octave": 3, "velocity": 0.5 },
+        { "name": "verse", "chords": { "voicing": "open" }, "octave": 3, "velocity": 0.55 },
+        { "name": "build", "chords": { "voicing": "open" }, "octave": 3, "velocity": 0.78 },
+        { "name": "drop", "chords": { "voicing": "open" }, "octave": 3, "velocity": 0.85 },
+        { "name": "break", "chords": { "voicing": "spread" }, "octave": 3, "velocity": 0.65 },
+        { "name": "drop2", "chords": { "voicing": "open" }, "octave": 3, "velocity": 0.9 },
+        { "name": "outro", "chords": { "voicing": "spread" }, "octave": 3, "velocity": 0.48 }
+      ]
+    },
+    "keys": {
+      "instrument": "layered_keys",
+      "gain_db": -4.5,
+      "pan": -0.22,
+      "effects": [
+        { "name": "Filter", "type": "highpass", "frequency": 240 },
+        { "name": "EQ3", "low": -3.0, "mid": -2.0, "high": 0.5, "low_frequency": 250, "high_frequency": 3200 },
+        { "name": "Chorus", "frequency": 0.65, "delay_time": 0.004, "depth": 0.45, "wet": 0.3 }
+      ],
+      "sends": { "hall": -13, "room": -14 },
+      "sidechain": { "name": "drums/kick", "depth": 0.45, "release": 0.12 },
+      "play": [
+        {
+          "name": "intro",
+          "chords": { "voicing": "close", "rhythm": "X.....x...X..x.." },
+          "duration": "4n",
+          "octave": 4,
+          "velocity": 0.72,
+          "humanize": 0.007
+        },
+        {
+          "name": "verse",
+          "chords": { "voicing": "close", "rhythm": "..X...x...X..o.x" },
+          "duration": "8n.",
+          "octave": 4,
+          "velocity": 0.72,
+          "humanize": 0.006
+        },
+        {
+          "name": [ "drop", "drop2" ],
+          "chords": { "voicing": "close", "rhythm": "..X...x..xX....x" },
+          "duration": "16n.",
+          "octave": 4,
+          "velocity": 0.68,
+          "humanize": 0.004
+        },
+        {
+          "name": "break",
+          "chords": { "voicing": "close", "rhythm": "X.....x.....X..." },
+          "duration": "2n",
+          "octave": 4,
+          "velocity": 0.76,
+          "humanize": 0.008
+        },
+        {
+          "name": "outro",
+          "chords": { "voicing": "close", "rhythm": "X.......x......." },
+          "duration": "2n.",
+          "octave": 4,
+          "velocity": 0.62,
+          "humanize": 0.009
+        }
+      ]
+    },
+    "arp": {
+      "instrument": "karplus_pluck",
+      "gain_db": 5.5,
+      "pan": 0.25,
+      "sends": { "echo": -10, "hall": -14 },
+      "sidechain": { "name": "drums/kick", "depth": 0.35, "release": 0.1 },
+      "play": [
+        {
+          "name": "verse@4m..verse",
+          "arpeggio": { "pattern": "up", "interval": "16n", "octaves": 2 },
+          "octave": 4,
+          "velocity": 0.65,
+          "humanize": 0.003
+        },
+        {
+          "name": "build",
+          "arpeggio": { "pattern": "upDown", "interval": "16n", "octaves": 2 },
+          "octave": 4,
+          "velocity": 0.78
+        },
+        {
+          "name": "break",
+          "arpeggio": { "pattern": "down", "interval": "8n", "octaves": 2 },
+          "octave": 5,
+          "velocity": 0.62,
+          "humanize": 0.004
+        },
+        {
+          "name": "drop2",
+          "arpeggio": { "pattern": "upDown", "interval": "16n", "octaves": 2 },
+          "octave": 5,
+          "velocity": 0.75,
+          "humanize": 0.002
+        }
+      ]
+    },
+    "brass": {
+      "instrument": "brass",
+      "gain_db": -2.0,
+      "pan": -0.15,
+      "sends": { "hall": -11 },
+      "sidechain": { "name": "drums/kick", "depth": 0.45, "release": 0.12 },
+      "play": [
+        {
+          "name": "build",
+          "chords": { "voicing": "close", "rhythm": "x.......x......." },
+          "duration": "4n.",
+          "octave": 4,
+          "velocity": 0.82
+        },
+        {
+          "name": "drop2",
+          "chords": { "voicing": "close", "rhythm": "X.........x..X.." },
+          "duration": "8n",
+          "octave": 4,
+          "velocity": 0.85
+        }
+      ]
+    },
+    "lead": {
+      "instrument": "velvet_lead",
+      "gain_db": 2.0,
+      "effects": [
+        { "name": "Filter", "type": "highpass", "frequency": 260 },
+        { "name": "EQ3", "low": -2.0, "mid": 1.0, "high": -2.5, "low_frequency": 300, "high_frequency": 3800 },
+        { "name": "Chorus", "frequency": 0.85, "delay_time": 0.0035, "depth": 0.4, "wet": 0.28 }
+      ],
+      "sends": { "echo": -10, "hall": -11 },
+      "play": [
+        {
+          "name": "drop",
+          "pickup": "C5~ Eb5",
+          "notes": "F5~ - Ab5 C6~ Bb5 - Ab5~ G5 F5 - Eb5~ C5 D5 - - . Eb5~ - G5 Bb5~ Ab5 - G5~ F5 G5 - - . C5~ - D5 Eb5",
+          "subdivision": "8n",
+          "velocity": 0.82,
+          "humanize": 0.004,
+          "vary": [
+            {},
+            { "transpose": 2, "velocity": 0.88 }
+          ]
+        },
+        {
+          "name": "drop2",
+          "pickup": "C5~ D5 Eb5~ E5",
+          "notes": "F5~ - Ab5 C6~ D6 - C6~ Bb5 Ab5 - G5~ F5 D5 - C5~ Eb5 F5~ - Ab5 C6~ Eb6 - D6~ C6 G5 - - - . . . .",
+          "subdivision": "8n",
+          "velocity": 0.86,
+          "humanize": 0.004,
+          "vary": [
+            {},
+            { "octave": -1, "fill": true, "velocity": 0.84 }
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -371,6 +371,11 @@ front_rows_make :: proc(kind: Command_Kind) -> (rows: Front_Rows) {
 		// spoken lines a load makes aren't made twice).
 		rows[.Load].regs.flags += {.No_Media, .No_Script}
 	}
+	if kind == .Audio_Pin {
+		// Its songs fetch what isn't pinned from their first read: a
+		// source's SFZ, read as the song is made, says what it plays.
+		rows[.Load].regs.flags += {.Pinning}
+	}
 	return
 }
 

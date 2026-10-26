@@ -1,0 +1,1868 @@
+{
+  "description": "The 909 (909.json) tightened for garage and house on three pads; its hats, cymbals, toms, rim and percussion are the 909's (the open hat 5 ms shorter). The kick: 0.85 semitones down (48 Hz), a deeper and quicker sweep, a 65 ms decay instead of 100, less drive. The snare: 2.8 semitones up, its body 28 ms instead of 42, its low noise band at 2.4 kHz instead of 7 and lasting 42 ms, its high band from 6.2 kHz instead of 2.6 and lasting 32 ms instead of 110, 1.7 dB louder. The clap: its bands up to 1.4 and 1.6 kHz, its tail 45 ms instead of 55. Its knobs are the 909's: `decay` scales every tone's and band's decay (1: as built), `tone` moves the bands' and the high-pass's cutoffs an octave either way and the noise and the click with them (0.5: as built), `tune` shifts every pitch in semitones. An accent (X) is a quarter louder; a closed hat chokes the open one.",
+  "options": {
+    "decay": [
+      {
+        "path": "pads/*/amp*/time",
+        "op": "mul"
+      },
+      {
+        "path": "pads/*/amp*/time/amount",
+        "op": "mul"
+      },
+      {
+        "path": "pads/*/env*/time",
+        "op": "mul"
+      },
+      {
+        "path": "pads/*/env*/time/amount",
+        "op": "mul"
+      }
+    ],
+    "tone": [
+      {
+        "path": "pads/*/band*/frequency",
+        "op": "octaves",
+        "scale": 2,
+        "offset": -1
+      },
+      {
+        "path": "pads/*/highpass/frequency",
+        "op": "octaves",
+        "scale": 2,
+        "offset": -1
+      },
+      {
+        "path": "pads/*/noise/gain_db",
+        "op": "mul",
+        "offset": 0.5
+      },
+      {
+        "path": "pads/*/click/gain_db",
+        "op": "mul",
+        "offset": 0.5
+      }
+    ],
+    "tune": [
+      {
+        "path": "pads/*/tone*/tune",
+        "op": "add"
+      },
+      {
+        "path": "pads/*/tri*/tune",
+        "op": "add"
+      },
+      {
+        "path": "pads/*/metal/tune",
+        "op": "add"
+      }
+    ]
+  },
+  "pads": {
+    "kick": {
+      "key": 36,
+      "note": 30.5,
+      "out": "drive",
+      "nodes": {
+        "pitch": {
+          "class": "Random"
+        },
+        "decays": {
+          "class": "Random"
+        },
+        "level": {
+          "class": "Random"
+        },
+        "bend": {
+          "class": "Decay",
+          "time": 0.0055
+        },
+        "amp1": {
+          "class": "Decay",
+          "time": {
+            "base": 0.065,
+            "by": "decays",
+            "amount": 0.004
+          }
+        },
+        "tone1": {
+          "class": "Osc",
+          "wave": "sine",
+          "ratio": 1.0,
+          "frequency": [
+            {
+              "by": "bend",
+              "index": 3.6
+            },
+            {
+              "by": "pitch",
+              "octaves": 0.00575927
+            }
+          ],
+          "amp": "amp1",
+          "gain_db": -1.41162
+        },
+        "tri1": {
+          "class": "Osc",
+          "wave": "triangle",
+          "ratio": 1.0,
+          "frequency": [
+            {
+              "by": "bend",
+              "index": 3.0
+            },
+            {
+              "by": "pitch",
+              "octaves": 0.00575927
+            }
+          ],
+          "amp": "amp1",
+          "gain_db": -16.4782
+        },
+        "click": {
+          "class": "Decay",
+          "attack": 0.0005,
+          "time": 0.00015,
+          "gain_db": -10.4576
+        },
+        "noise": {
+          "class": "Noise",
+          "gain_db": -7.9588
+        },
+        "env1": {
+          "class": "Decay",
+          "time": {
+            "base": 0.0035,
+            "by": "decays",
+            "amount": 0.00014
+          }
+        },
+        "band1": {
+          "class": "Filter",
+          "input": "noise",
+          "type": "lowpass",
+          "frequency": 5000.0,
+          "q": -3.0,
+          "amp": "env1",
+          "gain_db": 0.0
+        },
+        "sum": {
+          "class": "Mix",
+          "inputs": [
+            "tone1",
+            "tri1",
+            "click",
+            "band1"
+          ]
+        },
+        "drive": {
+          "class": "Drive",
+          "input": "sum",
+          "amount": 1.9,
+          "gain_db": -1.0,
+          "amp": [
+            {
+              "by": "level",
+              "amount": 0.03
+            },
+            {
+              "by": "accent",
+              "amount": 0.25
+            }
+          ]
+        }
+      }
+    },
+    "snare": {
+      "key": 38,
+      "note": 56.5,
+      "out": "drive",
+      "nodes": {
+        "pitch": {
+          "class": "Random"
+        },
+        "decays": {
+          "class": "Random"
+        },
+        "level": {
+          "class": "Random"
+        },
+        "bend": {
+          "class": "Decay",
+          "time": 0.012
+        },
+        "amp1": {
+          "class": "Decay",
+          "time": {
+            "base": 0.028,
+            "by": "decays",
+            "amount": 0.00168
+          }
+        },
+        "tone1": {
+          "class": "Osc",
+          "wave": "sine",
+          "ratio": 1.0,
+          "frequency": [
+            {
+              "by": "bend",
+              "index": 0.25
+            },
+            {
+              "by": "pitch",
+              "octaves": 0.00575927
+            }
+          ],
+          "amp": "amp1",
+          "gain_db": -15.6503
+        },
+        "tri1": {
+          "class": "Osc",
+          "wave": "triangle",
+          "ratio": 1.0,
+          "frequency": [
+            {
+              "by": "bend",
+              "index": 0.25
+            },
+            {
+              "by": "pitch",
+              "octaves": 0.00575927
+            }
+          ],
+          "amp": "amp1",
+          "gain_db": -8.29079
+        },
+        "amp2": {
+          "class": "Decay",
+          "time": {
+            "base": 0.028,
+            "by": "decays",
+            "amount": 0.00112
+          }
+        },
+        "tone2": {
+          "class": "Osc",
+          "wave": "sine",
+          "ratio": 1.83516,
+          "frequency": [
+            {
+              "by": "bend",
+              "index": 0.25
+            },
+            {
+              "by": "pitch",
+              "octaves": 0.00575927
+            }
+          ],
+          "amp": "amp2",
+          "gain_db": -19.5762
+        },
+        "tri2": {
+          "class": "Osc",
+          "wave": "triangle",
+          "ratio": 1.83516,
+          "frequency": [
+            {
+              "by": "bend",
+              "index": 0.25
+            },
+            {
+              "by": "pitch",
+              "octaves": 0.00575927
+            }
+          ],
+          "amp": "amp2",
+          "gain_db": -12.2167
+        },
+        "click": {
+          "class": "Decay",
+          "attack": 0.0005,
+          "time": 0.00015,
+          "gain_db": -18.4164
+        },
+        "noise": {
+          "class": "Noise",
+          "gain_db": -2.49877
+        },
+        "env1": {
+          "class": "Decay",
+          "time": {
+            "base": 0.042,
+            "by": "decays",
+            "amount": 0.0024
+          },
+          "attack": 0.0003
+        },
+        "band1": {
+          "class": "Filter",
+          "input": "noise",
+          "type": "lowpass",
+          "frequency": 2400.0,
+          "q": -3.0,
+          "amp": "env1",
+          "gain_db": -6.93575
+        },
+        "env2": {
+          "class": "Decay",
+          "time": {
+            "base": 0.032,
+            "by": "decays",
+            "amount": 0.0044
+          },
+          "attack": 0.0003
+        },
+        "band2": {
+          "class": "Filter",
+          "input": "noise",
+          "type": "highpass",
+          "frequency": 6200.0,
+          "q": -3.0,
+          "amp": "env2",
+          "gain_db": -2.49877
+        },
+        "sum": {
+          "class": "Mix",
+          "inputs": [
+            "tone1",
+            "tri1",
+            "tone2",
+            "tri2",
+            "click",
+            "band1",
+            "band2"
+          ]
+        },
+        "drive": {
+          "class": "Drive",
+          "input": "sum",
+          "amount": 1.6,
+          "gain_db": -2.5,
+          "amp": [
+            {
+              "by": "level",
+              "amount": 0.03
+            },
+            {
+              "by": "accent",
+              "amount": 0.25
+            }
+          ]
+        }
+      }
+    },
+    "clap": {
+      "key": 39,
+      "out": "highpass",
+      "nodes": {
+        "pitch": {
+          "class": "Random"
+        },
+        "decays": {
+          "class": "Random"
+        },
+        "level": {
+          "class": "Random"
+        },
+        "noise": {
+          "class": "Noise",
+          "gain_db": 0.0
+        },
+        "env1": {
+          "class": "Decay",
+          "time": {
+            "base": 0.0028,
+            "by": "decays",
+            "amount": 0.000112
+          },
+          "attack": 0.0003,
+          "bursts": 4,
+          "spacing": {
+            "base": 0.0085,
+            "by": "decays",
+            "amount": 0.00108
+          }
+        },
+        "band1": {
+          "class": "Filter",
+          "input": "noise",
+          "type": "bandpass",
+          "frequency": 1400.0,
+          "q": 1.1,
+          "amp": "env1",
+          "gain_db": 0.0
+        },
+        "env2": {
+          "class": "Decay",
+          "time": {
+            "base": 0.045,
+            "by": "decays",
+            "amount": 0.0022
+          },
+          "attack": 0.0003,
+          "delay": 0.027
+        },
+        "band2": {
+          "class": "Filter",
+          "input": "noise",
+          "type": "bandpass",
+          "frequency": 1600.0,
+          "q": 0.9,
+          "amp": "env2",
+          "gain_db": -5.19275
+        },
+        "sum": {
+          "class": "Mix",
+          "inputs": [
+            "band1",
+            "band2"
+          ]
+        },
+        "highpass": {
+          "class": "Filter",
+          "input": "sum",
+          "type": "highpass",
+          "frequency": 500.0,
+          "q": -3,
+          "rolloff": -24,
+          "gain_db": 2.27887,
+          "amp": [
+            {
+              "by": "level",
+              "amount": 0.03
+            },
+            {
+              "by": "accent",
+              "amount": 0.25
+            }
+          ]
+        }
+      }
+    },
+    "rim": {
+      "key": 37,
+      "note": 71.2131,
+      "out": "drive",
+      "nodes": {
+        "pitch": {
+          "class": "Random"
+        },
+        "decays": {
+          "class": "Random"
+        },
+        "level": {
+          "class": "Random"
+        },
+        "amp1": {
+          "class": "Decay",
+          "time": {
+            "base": 0.006,
+            "by": "decays",
+            "amount": 0.00024
+          }
+        },
+        "tone1": {
+          "class": "Osc",
+          "wave": "sine",
+          "ratio": 1.0,
+          "frequency": [
+            {
+              "by": "pitch",
+              "octaves": 0.00575927
+            }
+          ],
+          "amp": "amp1",
+          "gain_db": -10.4576
+        },
+        "tri1": {
+          "class": "Osc",
+          "wave": "triangle",
+          "ratio": 1.0,
+          "frequency": [
+            {
+              "by": "pitch",
+              "octaves": 0.00575927
+            }
+          ],
+          "amp": "amp1",
+          "gain_db": -10.4576
+        },
+        "amp2": {
+          "class": "Decay",
+          "time": {
+            "base": 0.0042,
+            "by": "decays",
+            "amount": 0.000168
+          }
+        },
+        "tone2": {
+          "class": "Osc",
+          "wave": "sine",
+          "ratio": 3.4,
+          "frequency": [
+            {
+              "by": "pitch",
+              "octaves": 0.00575927
+            }
+          ],
+          "amp": "amp2",
+          "gain_db": -11.2133
+        },
+        "tri2": {
+          "class": "Osc",
+          "wave": "triangle",
+          "ratio": 3.4,
+          "frequency": [
+            {
+              "by": "pitch",
+              "octaves": 0.00575927
+            }
+          ],
+          "amp": "amp2",
+          "gain_db": -11.2133
+        },
+        "click": {
+          "class": "Decay",
+          "attack": 0.0005,
+          "time": 0.00015,
+          "gain_db": -10.4576
+        },
+        "sum": {
+          "class": "Mix",
+          "inputs": [
+            "tone1",
+            "tri1",
+            "tone2",
+            "tri2",
+            "click"
+          ]
+        },
+        "highpass": {
+          "class": "Filter",
+          "input": "sum",
+          "type": "highpass",
+          "frequency": 400.0,
+          "q": -3,
+          "rolloff": -24
+        },
+        "drive": {
+          "class": "Drive",
+          "input": "highpass",
+          "amount": 3.0,
+          "gain_db": -7.9588,
+          "amp": [
+            {
+              "by": "level",
+              "amount": 0.03
+            },
+            {
+              "by": "accent",
+              "amount": 0.25
+            }
+          ]
+        }
+      }
+    },
+    "hat": {
+      "choke": [
+        "open_hat"
+      ],
+      "key": 42,
+      "out": "highpass",
+      "nodes": {
+        "pitch": {
+          "class": "Random"
+        },
+        "decays": {
+          "class": "Random"
+        },
+        "level": {
+          "class": "Random"
+        },
+        "metal": {
+          "class": "Osc",
+          "wave": "square",
+          "hz": [
+            447.0,
+            657.0,
+            803.0,
+            1131.0,
+            1183.0,
+            1747.0
+          ],
+          "ring": 0.8,
+          "phase": "random",
+          "frequency": {
+            "base": 1,
+            "by": "pitch",
+            "octaves": 0.00575927
+          }
+        },
+        "noise": {
+          "class": "Noise",
+          "gain_db": -6.93575
+        },
+        "source": {
+          "class": "Mix",
+          "inputs": [
+            "metal",
+            "noise"
+          ]
+        },
+        "env1": {
+          "class": "Decay",
+          "time": {
+            "base": 0.011,
+            "by": "decays",
+            "amount": 0.00044
+          }
+        },
+        "band1": {
+          "class": "Filter",
+          "input": "source",
+          "type": "bandpass",
+          "frequency": 9000.0,
+          "q": 0.9,
+          "amp": "env1",
+          "gain_db": 0.0
+        },
+        "env2": {
+          "class": "Decay",
+          "time": {
+            "base": 0.006,
+            "by": "decays",
+            "amount": 0.00024
+          }
+        },
+        "band2": {
+          "class": "Filter",
+          "input": "source",
+          "type": "highpass",
+          "frequency": 12000.0,
+          "q": -3.0,
+          "amp": "env2",
+          "gain_db": -6.0206
+        },
+        "sum": {
+          "class": "Mix",
+          "inputs": [
+            "band1",
+            "band2"
+          ]
+        },
+        "highpass": {
+          "class": "Filter",
+          "input": "sum",
+          "type": "highpass",
+          "frequency": 7200.0,
+          "q": -3,
+          "rolloff": -24,
+          "gain_db": 0.0,
+          "amp": [
+            {
+              "by": "level",
+              "amount": 0.03
+            },
+            {
+              "by": "accent",
+              "amount": 0.25
+            }
+          ]
+        }
+      }
+    },
+    "open_hat": {
+      "key": 46,
+      "out": "highpass",
+      "nodes": {
+        "pitch": {
+          "class": "Random"
+        },
+        "decays": {
+          "class": "Random"
+        },
+        "level": {
+          "class": "Random"
+        },
+        "metal": {
+          "class": "Osc",
+          "wave": "square",
+          "hz": [
+            447.0,
+            657.0,
+            803.0,
+            1131.0,
+            1183.0,
+            1747.0
+          ],
+          "ring": 0.8,
+          "phase": "random",
+          "frequency": {
+            "base": 1,
+            "by": "pitch",
+            "octaves": 0.00575927
+          }
+        },
+        "noise": {
+          "class": "Noise",
+          "gain_db": -6.93575
+        },
+        "source": {
+          "class": "Mix",
+          "inputs": [
+            "metal",
+            "noise"
+          ]
+        },
+        "env1": {
+          "class": "Decay",
+          "time": {
+            "base": 0.065,
+            "by": "decays",
+            "amount": 0.0028
+          }
+        },
+        "band1": {
+          "class": "Filter",
+          "input": "source",
+          "type": "bandpass",
+          "frequency": 9000.0,
+          "q": 0.9,
+          "amp": "env1",
+          "gain_db": 0.0
+        },
+        "env2": {
+          "class": "Decay",
+          "time": {
+            "base": 0.04,
+            "by": "decays",
+            "amount": 0.0016
+          }
+        },
+        "band2": {
+          "class": "Filter",
+          "input": "source",
+          "type": "highpass",
+          "frequency": 12000.0,
+          "q": -3.0,
+          "amp": "env2",
+          "gain_db": -6.0206
+        },
+        "sum": {
+          "class": "Mix",
+          "inputs": [
+            "band1",
+            "band2"
+          ]
+        },
+        "highpass": {
+          "class": "Filter",
+          "input": "sum",
+          "type": "highpass",
+          "frequency": 7200.0,
+          "q": -3,
+          "rolloff": -24,
+          "gain_db": -2.04746,
+          "amp": [
+            {
+              "by": "level",
+              "amount": 0.03
+            },
+            {
+              "by": "accent",
+              "amount": 0.25
+            }
+          ]
+        }
+      }
+    },
+    "crash": {
+      "key": 49,
+      "out": "highpass",
+      "nodes": {
+        "pitch": {
+          "class": "Random"
+        },
+        "decays": {
+          "class": "Random"
+        },
+        "level": {
+          "class": "Random"
+        },
+        "metal": {
+          "class": "Osc",
+          "wave": "square",
+          "hz": [
+            447.0,
+            657.0,
+            803.0,
+            1131.0,
+            1183.0,
+            1747.0
+          ],
+          "ring": 0.7,
+          "phase": "random",
+          "frequency": {
+            "base": 1,
+            "by": "pitch",
+            "octaves": 0.00575927
+          }
+        },
+        "noise": {
+          "class": "Noise",
+          "gain_db": -4.43697
+        },
+        "source": {
+          "class": "Mix",
+          "inputs": [
+            "metal",
+            "noise"
+          ]
+        },
+        "env1": {
+          "class": "Decay",
+          "time": {
+            "base": 0.42,
+            "by": "decays",
+            "amount": 0.0168
+          }
+        },
+        "band1": {
+          "class": "Filter",
+          "input": "source",
+          "type": "bandpass",
+          "frequency": 5000.0,
+          "q": 0.8,
+          "amp": "env1",
+          "gain_db": -4.43697
+        },
+        "env2": {
+          "class": "Decay",
+          "time": {
+            "base": 0.24,
+            "by": "decays",
+            "amount": 0.0096
+          }
+        },
+        "band2": {
+          "class": "Filter",
+          "input": "source",
+          "type": "highpass",
+          "frequency": 8000.0,
+          "q": -3.0,
+          "amp": "env2",
+          "gain_db": -3.09804
+        },
+        "env3": {
+          "class": "Decay",
+          "time": {
+            "base": 0.09,
+            "by": "decays",
+            "amount": 0.0036
+          }
+        },
+        "band3": {
+          "class": "Filter",
+          "input": "source",
+          "type": "bandpass",
+          "frequency": 3000.0,
+          "q": 1.0,
+          "amp": "env3",
+          "gain_db": -10.4576
+        },
+        "sum": {
+          "class": "Mix",
+          "inputs": [
+            "band1",
+            "band2",
+            "band3"
+          ]
+        },
+        "highpass": {
+          "class": "Filter",
+          "input": "sum",
+          "type": "highpass",
+          "frequency": 2500.0,
+          "q": -3,
+          "rolloff": -24,
+          "gain_db": -4.01319,
+          "amp": [
+            {
+              "by": "level",
+              "amount": 0.03
+            },
+            {
+              "by": "accent",
+              "amount": 0.25
+            }
+          ]
+        }
+      }
+    },
+    "ride": {
+      "key": 51,
+      "out": "highpass",
+      "nodes": {
+        "pitch": {
+          "class": "Random"
+        },
+        "decays": {
+          "class": "Random"
+        },
+        "level": {
+          "class": "Random"
+        },
+        "metal": {
+          "class": "Osc",
+          "wave": "square",
+          "hz": [
+            447.0,
+            657.0,
+            803.0,
+            1131.0,
+            1183.0,
+            1747.0
+          ],
+          "ring": 0.5,
+          "phase": "random",
+          "frequency": {
+            "base": 1,
+            "by": "pitch",
+            "octaves": 0.00575927
+          }
+        },
+        "noise": {
+          "class": "Noise",
+          "gain_db": -12.0412
+        },
+        "source": {
+          "class": "Mix",
+          "inputs": [
+            "metal",
+            "noise"
+          ]
+        },
+        "env1": {
+          "class": "Decay",
+          "time": {
+            "base": 0.38,
+            "by": "decays",
+            "amount": 0.0152
+          }
+        },
+        "band1": {
+          "class": "Filter",
+          "input": "source",
+          "type": "bandpass",
+          "frequency": 4200.0,
+          "q": 3.0,
+          "amp": "env1",
+          "gain_db": -1.9382
+        },
+        "env2": {
+          "class": "Decay",
+          "time": {
+            "base": 0.28,
+            "by": "decays",
+            "amount": 0.0112
+          }
+        },
+        "band2": {
+          "class": "Filter",
+          "input": "source",
+          "type": "bandpass",
+          "frequency": 6800.0,
+          "q": 2.0,
+          "amp": "env2",
+          "gain_db": -6.0206
+        },
+        "env3": {
+          "class": "Decay",
+          "time": {
+            "base": 0.11,
+            "by": "decays",
+            "amount": 0.0044
+          }
+        },
+        "band3": {
+          "class": "Filter",
+          "input": "source",
+          "type": "highpass",
+          "frequency": 9000.0,
+          "q": -3.0,
+          "amp": "env3",
+          "gain_db": -7.9588
+        },
+        "sum": {
+          "class": "Mix",
+          "inputs": [
+            "band1",
+            "band2",
+            "band3"
+          ]
+        },
+        "highpass": {
+          "class": "Filter",
+          "input": "sum",
+          "type": "highpass",
+          "frequency": 3000.0,
+          "q": -3,
+          "rolloff": -24,
+          "gain_db": 1.1381,
+          "amp": [
+            {
+              "by": "level",
+              "amount": 0.03
+            },
+            {
+              "by": "accent",
+              "amount": 0.25
+            }
+          ]
+        }
+      }
+    },
+    "tom_low": {
+      "key": 41,
+      "note": 42.462,
+      "out": "drive",
+      "nodes": {
+        "pitch": {
+          "class": "Random"
+        },
+        "decays": {
+          "class": "Random"
+        },
+        "level": {
+          "class": "Random"
+        },
+        "bend": {
+          "class": "Decay",
+          "time": 0.03
+        },
+        "amp1": {
+          "class": "Decay",
+          "time": {
+            "base": 0.1,
+            "by": "decays",
+            "amount": 0.004
+          }
+        },
+        "tone1": {
+          "class": "Osc",
+          "wave": "sine",
+          "ratio": 1.0,
+          "frequency": [
+            {
+              "by": "bend",
+              "index": 0.6
+            },
+            {
+              "by": "pitch",
+              "octaves": 0.00575927
+            }
+          ],
+          "amp": "amp1",
+          "gain_db": -3.09804
+        },
+        "tri1": {
+          "class": "Osc",
+          "wave": "triangle",
+          "ratio": 1.0,
+          "frequency": [
+            {
+              "by": "bend",
+              "index": 0.6
+            },
+            {
+              "by": "pitch",
+              "octaves": 0.00575927
+            }
+          ],
+          "amp": "amp1",
+          "gain_db": -10.4576
+        },
+        "click": {
+          "class": "Decay",
+          "attack": 0.0005,
+          "time": 0.00015,
+          "gain_db": -16.4782
+        },
+        "noise": {
+          "class": "Noise",
+          "gain_db": -14.8945
+        },
+        "env1": {
+          "class": "Decay",
+          "time": {
+            "base": 0.02,
+            "by": "decays",
+            "amount": 0.0008
+          }
+        },
+        "band1": {
+          "class": "Filter",
+          "input": "noise",
+          "type": "lowpass",
+          "frequency": 4000.0,
+          "q": -3.0,
+          "amp": "env1",
+          "gain_db": 0.0
+        },
+        "sum": {
+          "class": "Mix",
+          "inputs": [
+            "tone1",
+            "tri1",
+            "click",
+            "band1"
+          ]
+        },
+        "drive": {
+          "class": "Drive",
+          "input": "sum",
+          "amount": 1.3,
+          "gain_db": -5.67993,
+          "amp": [
+            {
+              "by": "level",
+              "amount": 0.03
+            },
+            {
+              "by": "accent",
+              "amount": 0.25
+            }
+          ]
+        }
+      }
+    },
+    "tom_mid": {
+      "key": 45,
+      "note": 49.1751,
+      "out": "drive",
+      "nodes": {
+        "pitch": {
+          "class": "Random"
+        },
+        "decays": {
+          "class": "Random"
+        },
+        "level": {
+          "class": "Random"
+        },
+        "bend": {
+          "class": "Decay",
+          "time": 0.03
+        },
+        "amp1": {
+          "class": "Decay",
+          "time": {
+            "base": 0.1,
+            "by": "decays",
+            "amount": 0.004
+          }
+        },
+        "tone1": {
+          "class": "Osc",
+          "wave": "sine",
+          "ratio": 1.0,
+          "frequency": [
+            {
+              "by": "bend",
+              "index": 0.6
+            },
+            {
+              "by": "pitch",
+              "octaves": 0.00575927
+            }
+          ],
+          "amp": "amp1",
+          "gain_db": -3.09804
+        },
+        "tri1": {
+          "class": "Osc",
+          "wave": "triangle",
+          "ratio": 1.0,
+          "frequency": [
+            {
+              "by": "bend",
+              "index": 0.6
+            },
+            {
+              "by": "pitch",
+              "octaves": 0.00575927
+            }
+          ],
+          "amp": "amp1",
+          "gain_db": -10.4576
+        },
+        "click": {
+          "class": "Decay",
+          "attack": 0.0005,
+          "time": 0.00015,
+          "gain_db": -16.4782
+        },
+        "noise": {
+          "class": "Noise",
+          "gain_db": -14.8945
+        },
+        "env1": {
+          "class": "Decay",
+          "time": {
+            "base": 0.02,
+            "by": "decays",
+            "amount": 0.0008
+          }
+        },
+        "band1": {
+          "class": "Filter",
+          "input": "noise",
+          "type": "lowpass",
+          "frequency": 4000.0,
+          "q": -3.0,
+          "amp": "env1",
+          "gain_db": 0.0
+        },
+        "sum": {
+          "class": "Mix",
+          "inputs": [
+            "tone1",
+            "tri1",
+            "click",
+            "band1"
+          ]
+        },
+        "drive": {
+          "class": "Drive",
+          "input": "sum",
+          "amount": 1.3,
+          "gain_db": -5.67993,
+          "amp": [
+            {
+              "by": "level",
+              "amount": 0.03
+            },
+            {
+              "by": "accent",
+              "amount": 0.25
+            }
+          ]
+        }
+      }
+    },
+    "tom_high": {
+      "key": 48,
+      "note": 54.462,
+      "out": "drive",
+      "nodes": {
+        "pitch": {
+          "class": "Random"
+        },
+        "decays": {
+          "class": "Random"
+        },
+        "level": {
+          "class": "Random"
+        },
+        "bend": {
+          "class": "Decay",
+          "time": 0.03
+        },
+        "amp1": {
+          "class": "Decay",
+          "time": {
+            "base": 0.1,
+            "by": "decays",
+            "amount": 0.004
+          }
+        },
+        "tone1": {
+          "class": "Osc",
+          "wave": "sine",
+          "ratio": 1.0,
+          "frequency": [
+            {
+              "by": "bend",
+              "index": 0.6
+            },
+            {
+              "by": "pitch",
+              "octaves": 0.00575927
+            }
+          ],
+          "amp": "amp1",
+          "gain_db": -3.09804
+        },
+        "tri1": {
+          "class": "Osc",
+          "wave": "triangle",
+          "ratio": 1.0,
+          "frequency": [
+            {
+              "by": "bend",
+              "index": 0.6
+            },
+            {
+              "by": "pitch",
+              "octaves": 0.00575927
+            }
+          ],
+          "amp": "amp1",
+          "gain_db": -10.4576
+        },
+        "click": {
+          "class": "Decay",
+          "attack": 0.0005,
+          "time": 0.00015,
+          "gain_db": -16.4782
+        },
+        "noise": {
+          "class": "Noise",
+          "gain_db": -14.8945
+        },
+        "env1": {
+          "class": "Decay",
+          "time": {
+            "base": 0.02,
+            "by": "decays",
+            "amount": 0.0008
+          }
+        },
+        "band1": {
+          "class": "Filter",
+          "input": "noise",
+          "type": "lowpass",
+          "frequency": 4000.0,
+          "q": -3.0,
+          "amp": "env1",
+          "gain_db": 0.0
+        },
+        "sum": {
+          "class": "Mix",
+          "inputs": [
+            "tone1",
+            "tri1",
+            "click",
+            "band1"
+          ]
+        },
+        "drive": {
+          "class": "Drive",
+          "input": "sum",
+          "amount": 1.3,
+          "gain_db": -5.67993,
+          "amp": [
+            {
+              "by": "level",
+              "amount": 0.03
+            },
+            {
+              "by": "accent",
+              "amount": 0.25
+            }
+          ]
+        }
+      }
+    },
+    "shaker": {
+      "key": 82,
+      "out": "highpass",
+      "nodes": {
+        "pitch": {
+          "class": "Random"
+        },
+        "decays": {
+          "class": "Random"
+        },
+        "level": {
+          "class": "Random"
+        },
+        "noise": {
+          "class": "Noise",
+          "gain_db": 0.0
+        },
+        "env1": {
+          "class": "Decay",
+          "time": {
+            "base": 0.028,
+            "by": "decays",
+            "amount": 0.00112
+          },
+          "attack": 0.011
+        },
+        "band1": {
+          "class": "Filter",
+          "input": "noise",
+          "type": "bandpass",
+          "frequency": 7000.0,
+          "q": 0.7,
+          "amp": "env1",
+          "gain_db": 0.0
+        },
+        "sum": {
+          "class": "Mix",
+          "inputs": [
+            "band1"
+          ]
+        },
+        "highpass": {
+          "class": "Filter",
+          "input": "sum",
+          "type": "highpass",
+          "frequency": 3000.0,
+          "q": -3,
+          "rolloff": -24,
+          "gain_db": -7.33063,
+          "amp": [
+            {
+              "by": "level",
+              "amount": 0.03
+            },
+            {
+              "by": "accent",
+              "amount": 0.25
+            }
+          ]
+        }
+      }
+    },
+    "cowbell": {
+      "key": 56,
+      "out": "highpass",
+      "nodes": {
+        "pitch": {
+          "class": "Random"
+        },
+        "decays": {
+          "class": "Random"
+        },
+        "level": {
+          "class": "Random"
+        },
+        "metal": {
+          "class": "Osc",
+          "wave": "square",
+          "hz": [
+            540.0,
+            800.0
+          ],
+          "ring": 0.0,
+          "phase": "random",
+          "frequency": {
+            "base": 1,
+            "by": "pitch",
+            "octaves": 0.00575927
+          }
+        },
+        "env1": {
+          "class": "Decay",
+          "time": {
+            "base": 0.011,
+            "by": "decays",
+            "amount": 0.00044
+          }
+        },
+        "band1": {
+          "class": "Filter",
+          "input": "metal",
+          "type": "bandpass",
+          "frequency": 1050.0,
+          "q": 0.9,
+          "amp": "env1",
+          "gain_db": -2.49877
+        },
+        "env2": {
+          "class": "Decay",
+          "time": {
+            "base": 0.085,
+            "by": "decays",
+            "amount": 0.0034
+          }
+        },
+        "band2": {
+          "class": "Filter",
+          "input": "metal",
+          "type": "bandpass",
+          "frequency": 1050.0,
+          "q": 0.9,
+          "amp": "env2",
+          "gain_db": -10.4576
+        },
+        "env3": {
+          "class": "Decay",
+          "time": {
+            "base": 0.007,
+            "by": "decays",
+            "amount": 0.00028
+          }
+        },
+        "band3": {
+          "class": "Filter",
+          "input": "metal",
+          "type": "bandpass",
+          "frequency": 2600.0,
+          "q": 1.5,
+          "amp": "env3",
+          "gain_db": -0.91515
+        },
+        "sum": {
+          "class": "Mix",
+          "inputs": [
+            "band1",
+            "band2",
+            "band3"
+          ]
+        },
+        "highpass": {
+          "class": "Filter",
+          "input": "sum",
+          "type": "highpass",
+          "frequency": 280.0,
+          "q": -3,
+          "rolloff": -24,
+          "gain_db": -7.9588,
+          "amp": [
+            {
+              "by": "level",
+              "amount": 0.03
+            },
+            {
+              "by": "accent",
+              "amount": 0.25
+            }
+          ]
+        }
+      }
+    },
+    "conga_low": {
+      "key": 64,
+      "note": 54.0003,
+      "out": "sum",
+      "nodes": {
+        "pitch": {
+          "class": "Random"
+        },
+        "decays": {
+          "class": "Random"
+        },
+        "level": {
+          "class": "Random"
+        },
+        "bend": {
+          "class": "Decay",
+          "time": 0.012
+        },
+        "amp1": {
+          "class": "Decay",
+          "time": {
+            "base": 0.05,
+            "by": "decays",
+            "amount": 0.002
+          }
+        },
+        "tone1": {
+          "class": "Osc",
+          "wave": "sine",
+          "ratio": 1.0,
+          "frequency": [
+            {
+              "by": "bend",
+              "index": 0.1
+            },
+            {
+              "by": "pitch",
+              "octaves": 0.00575927
+            }
+          ],
+          "amp": "amp1",
+          "gain_db": 0.0
+        },
+        "click": {
+          "class": "Decay",
+          "attack": 0.0005,
+          "time": 0.00015,
+          "gain_db": -18.4164
+        },
+        "sum": {
+          "class": "Mix",
+          "inputs": [
+            "tone1",
+            "click"
+          ],
+          "gain_db": -5.67993,
+          "amp": [
+            {
+              "by": "level",
+              "amount": 0.03
+            },
+            {
+              "by": "accent",
+              "amount": 0.25
+            }
+          ]
+        }
+      }
+    },
+    "conga_mid": {
+      "key": 63,
+      "note": 60.8631,
+      "out": "sum",
+      "nodes": {
+        "pitch": {
+          "class": "Random"
+        },
+        "decays": {
+          "class": "Random"
+        },
+        "level": {
+          "class": "Random"
+        },
+        "bend": {
+          "class": "Decay",
+          "time": 0.012
+        },
+        "amp1": {
+          "class": "Decay",
+          "time": {
+            "base": 0.05,
+            "by": "decays",
+            "amount": 0.002
+          }
+        },
+        "tone1": {
+          "class": "Osc",
+          "wave": "sine",
+          "ratio": 1.0,
+          "frequency": [
+            {
+              "by": "bend",
+              "index": 0.1
+            },
+            {
+              "by": "pitch",
+              "octaves": 0.00575927
+            }
+          ],
+          "amp": "amp1",
+          "gain_db": 0.0
+        },
+        "click": {
+          "class": "Decay",
+          "attack": 0.0005,
+          "time": 0.00015,
+          "gain_db": -18.4164
+        },
+        "sum": {
+          "class": "Mix",
+          "inputs": [
+            "tone1",
+            "click"
+          ],
+          "gain_db": -5.67993,
+          "amp": [
+            {
+              "by": "level",
+              "amount": 0.03
+            },
+            {
+              "by": "accent",
+              "amount": 0.25
+            }
+          ]
+        }
+      }
+    },
+    "conga_high": {
+      "key": 62,
+      "note": 66.0003,
+      "out": "sum",
+      "nodes": {
+        "pitch": {
+          "class": "Random"
+        },
+        "decays": {
+          "class": "Random"
+        },
+        "level": {
+          "class": "Random"
+        },
+        "bend": {
+          "class": "Decay",
+          "time": 0.012
+        },
+        "amp1": {
+          "class": "Decay",
+          "time": {
+            "base": 0.05,
+            "by": "decays",
+            "amount": 0.002
+          }
+        },
+        "tone1": {
+          "class": "Osc",
+          "wave": "sine",
+          "ratio": 1.0,
+          "frequency": [
+            {
+              "by": "bend",
+              "index": 0.1
+            },
+            {
+              "by": "pitch",
+              "octaves": 0.00575927
+            }
+          ],
+          "amp": "amp1",
+          "gain_db": 0.0
+        },
+        "click": {
+          "class": "Decay",
+          "attack": 0.0005,
+          "time": 0.00015,
+          "gain_db": -18.4164
+        },
+        "sum": {
+          "class": "Mix",
+          "inputs": [
+            "tone1",
+            "click"
+          ],
+          "gain_db": -5.67993,
+          "amp": [
+            {
+              "by": "level",
+              "amount": 0.03
+            },
+            {
+              "by": "accent",
+              "amount": 0.25
+            }
+          ]
+        }
+      }
+    },
+    "clave": {
+      "key": 75,
+      "note": 99.0762,
+      "out": "sum",
+      "nodes": {
+        "pitch": {
+          "class": "Random"
+        },
+        "decays": {
+          "class": "Random"
+        },
+        "level": {
+          "class": "Random"
+        },
+        "amp1": {
+          "class": "Decay",
+          "time": {
+            "base": 0.011,
+            "by": "decays",
+            "amount": 0.00044
+          }
+        },
+        "tone1": {
+          "class": "Osc",
+          "wave": "sine",
+          "ratio": 1.0,
+          "frequency": [
+            {
+              "by": "pitch",
+              "octaves": 0.00575927
+            }
+          ],
+          "amp": "amp1",
+          "gain_db": 0.0
+        },
+        "click": {
+          "class": "Decay",
+          "attack": 0.0005,
+          "time": 0.00015,
+          "gain_db": -26.0206
+        },
+        "sum": {
+          "class": "Mix",
+          "inputs": [
+            "tone1",
+            "click"
+          ],
+          "gain_db": -8.17871,
+          "amp": [
+            {
+              "by": "level",
+              "amount": 0.03
+            },
+            {
+              "by": "accent",
+              "amount": 0.25
+            }
+          ]
+        }
+      }
+    },
+    "maracas": {
+      "key": 70,
+      "out": "highpass",
+      "nodes": {
+        "pitch": {
+          "class": "Random"
+        },
+        "decays": {
+          "class": "Random"
+        },
+        "level": {
+          "class": "Random"
+        },
+        "noise": {
+          "class": "Noise",
+          "gain_db": 0.0
+        },
+        "env1": {
+          "class": "Decay",
+          "time": {
+            "base": 0.017,
+            "by": "decays",
+            "amount": 0.00068
+          },
+          "attack": 0.0025
+        },
+        "band1": {
+          "class": "Filter",
+          "input": "noise",
+          "type": "highpass",
+          "frequency": 5500.0,
+          "q": -3.0,
+          "amp": "env1",
+          "gain_db": 0.0
+        },
+        "sum": {
+          "class": "Mix",
+          "inputs": [
+            "band1"
+          ]
+        },
+        "highpass": {
+          "class": "Filter",
+          "input": "sum",
+          "type": "highpass",
+          "frequency": 4000.0,
+          "q": -3,
+          "rolloff": -24,
+          "gain_db": -11.7005,
+          "amp": [
+            {
+              "by": "level",
+              "amount": 0.03
+            },
+            {
+              "by": "accent",
+              "amount": 0.25
+            }
+          ]
+        }
+      }
+    }
+  }
+}

@@ -331,7 +331,7 @@ with commas.
 | `audio at SPECS` | which tracks play at a moment, where in their file, how loud, ducking; a song's section and the notes sounding |
 | `audio render [RANGE] [-o audio.wav] [--float]` | the mix as a stereo WAV |
 | `audio onsets [RANGE] [--min 0.1]` | where sounds start (seconds, strength) and the beat (BPM, first beat) |
-| `audio pin` | fetch what the songs play from their sources and write their pins (after a `not_pinned` finding) |
+| `audio pin` | fetch what the songs play from their sources and write their pins (after a `not_pinned` finding, or a new source); fails when a file couldn't be fetched |
 | `audio parts [--against parts.json]` | each song alone, part by part: notes, the first of them, LUFS, peak; keep a `--json` of a song you like, and `--against` it after a change names each part that moved (exit 1) |
 | `probe FILE...` | the streams of media files (container, video, audio) |
 | `update [--check]` | replace an installed release with the latest (`--check`: only say whether one is out) |
@@ -512,11 +512,17 @@ video { width = 1920, height = 1080, fps = 30, duration = 10,   -- or scenes
 Without assets, compose the music with `song{}` (odawg: sections with `bpm`, `style`,
 `energy`, `chords`; parts, each on an instrument row: Tone.js's synths built in; any `.sfz`
 file as an instrument (`instrument = "lib/piano.sfz"`); sampled pianos, strings, bass and a
-drum kit (CC0, downloaded on first use); `references/audio.md`, "Songs and sounds" and
-"Instruments"). This skill's `library/` folder (copy what you use into `media/`) shows how
-voices and songs are built: programmed synth voices (`instruments/synths.json`), drums,
-sound effects, a TB-303, the TR-808/909 from their circuits, seven styles and reference
-songs in eight genres (`songs/`). It is techniques to learn from, not sounds to reuse: write
+drum kit (CC0, downloaded on first use); rows stacked as `layers` (a synth doubled by a
+sample, a layer only on hard notes); `references/audio.md`, "Songs and sounds" and
+"Instruments"). An instrument the sample sets don't have (a harp, a flute, a trumpet) is a
+free library's own SFZ played through the song's `sources` and pinned with `onimite audio
+pin`, never its samples mapped by file name (names lie: VSCO's run an octave low), levelled
+by measurement (`references/sound_design.md`, "An instrument the sets don't have"). This
+skill's `library/` folder (copy what you use into `media/`) shows how voices and songs are
+built: programmed synth voices (`instruments/synths.json`), drums, sound effects, a TB-303,
+the TR-808/909 from their circuits and four variants of them, seven styles and reference
+songs in ten genres (`songs/`; `sfz_chamber.json` plays VS Chamber Orchestra 2's own SFZ
+files). It is techniques to learn from, not sounds to reuse: write
 the song's own voices and patterns for its video, at least the lead and the pad (or whatever
 carries its identity), starting from `references/sound_design.md`. Before writing a score,
 choose a genre, key (or mode), tempo, meter and feel that fit the video, name a real

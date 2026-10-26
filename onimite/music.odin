@@ -64,8 +64,9 @@ Music :: struct {
 	// The media folder: where songs' own files are (their sets, SFZ and
 	// style files), under bank_lock.
 	host_root: string,
-	// Loading fetches what the songs' sources serve that isn't pinned yet,
-	// and keeps its pin (music_pin; `onimite audio pin`).
+	// Making and loading songs fetches what their sources serve that isn't
+	// pinned yet, and keeps its pin (music_set_pinning before the script
+	// loads; music_pin writes the pins; `onimite audio pin`).
 	pinning:   bool,
 	// Songs whose sample sets loaded since the host looked (atomic): a mix
 	// made before has them silent.
@@ -248,7 +249,7 @@ media_song_put :: proc(m: ^Media, name: string, v: json.Value, key: u64) -> (sc:
 	sc.music = mu
 	sc.tables = make([dynamic]^Song_Table, runtime.heap_allocator())
 	_ = virtual.arena_init_growing(&sc.arena)
-	host := oassets.Bank_Host{root = m.dir}
+	host := oassets.Bank_Host{root = m.dir, pinning = mu.pinning}
 	full := key
 	{
 		context.allocator = virtual.arena_allocator(&sc.arena)
@@ -898,19 +899,18 @@ Source_Pins :: struct {
 	added:   int    `json:"added"`,
 }
 
-// Pins what the media's songs play from their sources: each song's sample
-// sets loaded with pinning on (a file not pinned yet is fetched over https
-// and trusted as it comes), then each source's pins file written beside
-// the song with what was fetched merged in. Odawg refuses a pins file
-// outside the media folder (a finding on the song). Temp memory.
+// Pins what the media's songs play from their sources: the songs, made
+// with pinning on (music_set_pinning before the script loaded: a file not
+// pinned yet is fetched over https and trusted as it comes), load their
+// sample sets, then each source's pins file is written beside the song
+// with what was fetched merged in. Odawg refuses a pins file outside the
+// media folder (a finding on the song). Temp memory.
 music_pin :: proc(m: ^Media) -> []Source_Pins {
 	out := make([dynamic]Source_Pins, context.temp_allocator)
 	if m == nil || m.music == nil {
 		return nil
 	}
 	mu := m.music
-	mu.pinning = true
-	defer mu.pinning = false
 	for sc in media_songs(m) {
 		song_clip_load(sc)
 		host := oassets.Bank_Host{root = m.dir, pinning = true}
@@ -936,6 +936,14 @@ music_pin :: proc(m: ^Media) -> []Source_Pins {
 		}
 	}
 	return out[:]
+}
+
+// Whether songs made from now on fetch what their sources haven't pinned
+// (`onimite audio pin` only: a render plays what is pinned).
+music_set_pinning :: proc(m: ^Media, on: bool) {
+	if m.music != nil {
+		m.music.pinning = on
+	}
 }
 
 // Who the renderers tell when segments land (the preview's worker).

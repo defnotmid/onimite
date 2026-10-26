@@ -218,7 +218,8 @@ The skill's `library/` folder is a set of such files: copy what you use into the
 folder, `media/instruments/...`, and change anything. A style file names its rows the same
 way (`../instruments/classic.json`), so `library/styles/` works where it lands beside them.
 `library/songs/` has reference songs (funk, a jazz waltz in 3/4, a 6/8 ballad, boom bap,
-D Dorian, drum & bass, synthwave, lo-fi on the sample sets) as JSON song files, each showing
+D Dorian, drum & bass, synthwave, lo-fi on the sample sets, French-touch nu-disco on layered
+hybrid voices, a chamber waltz on VS Chamber Orchestra 2's own SFZ files) as JSON song files, each showing
 a genre's decisions ([sound_design.md](sound_design.md) has the table); read one with
 `song(json_decode(text))`, as `examples/disco` reads its `song.json`.
 
@@ -230,6 +231,7 @@ a genre's decisions ([sound_design.md](sound_design.md) has the table); read one
 | `instruments/tb303.json` | a TB-303: one voice, accents and slides (`portamento`) | `oscillator = { type }`, `tune`, `cutoff`, `resonance`, `filter_envelope = { octaves }`, `decay`, `accent` |
 | `instruments/808_bass.json`, `909_bass.json` | a machine's kick as a bass, tuned to the note | `decay` (1), `tone` (0.5), `tune` (semitones) |
 | `machines/808.json`, `machines/909.json` | the TR-808 and TR-909 from their circuits, 18 pads | `decay` (1: as built), `tone` (0.5), `tune` (semitones) |
+| `machines/linn_80s.json`, `tight_modern.json`, `crunch_bap.json`, `cinematic_perc.json` | the 909 toward an 80s drum computer, the 909 tightened for garage and house, the 808 roughened for boom bap, the 808 tuned down and lengthened for trailer hits; each file's `description` says what changed | as the 808's and 909's |
 | `styles/*.json` | seven styles (above) | |
 
 A machine's notes play its pads by name (`steps = { kick = "x...x..." }`), else the pad at
@@ -253,13 +255,33 @@ instruments = { wobble = {
 } }
 ```
 
-- Node kinds: `Osc`, `Noise`, `Random`, `Env`, `Decay`, `Ramp`, `Lfo`, `Filter`, `Drive`, `Slew`,
-  `Map`, `Mix`, `Mul`, `Comb`, `Sampler`, `Clip`; every node also has `gain_db`, `pan` and `amp`.
+- Node kinds: `Osc`, `Noise`, `Random`, `Env`, `Decay`, `Ramp`, `Lfo`, `Filter`, `Ladder` (the
+  303's diode ladder), `OnePole`, `Difference`, `Drive`, `Slew`, `Map`, `Mix`, `Mul`, `Comb`,
+  `Sampler`, `Clip`; every node also has `gain_db`, `pan` and `amp`.
   A field is a number, a choice, a Tone length, or `{ base, by, octaves | ratio | sweep |
   index | amount | depth | at_most }` (or a list of those); `by` is a node or the note's
-  `velocity`, `accent`, `slide`, `gate`. The order of the nodes means nothing.
+  `velocity`, `accent`, `slide`, `gate`. The order of the nodes means nothing. A `pulse`
+  `Osc`'s `width` moves too (`width = { 0.48, by = "pwm", amount = 0.25 }`: pulse-width
+  modulation from an `Lfo`), and `Drive` takes `oversample = 1` (its curve at twice the rate:
+  less aliasing on high, hard-driven notes).
 - A row also takes `length` (a one-shot's seconds), `note` (the pitch with none given), `mono`,
   `portamento`, `velocity`. A machine is `{ pads = { kick = { instrument, key, choke, gain_db } } }`.
+- A row can be a stack of `layers` instead of nodes, each playing an instrument where its
+  conditions hold: `gain_db`, velocity (`lo_vel`, `hi_vel`, 0–127), keys (`lo_key`, `hi_key`),
+  a round robin (`seq_length`, `seq_position`) and `trigger` (`"attack"`, `"release"`, `"first"`,
+  `"legato"`). A layer's instrument can be an SFZ or another layered row: its own layers play
+  where both conditions hold, at the product of their levels. A machine can't be a layer (an
+  error: give it a part). Velocity chooses layers; an accent (`X`) doesn't raise it.
+
+  ```lua
+  instruments = { "instruments/synths.json", {
+    hybrid_lead = { layers = {
+      { instrument = "lead" },
+      { instrument = { "vsco/SViolinVib.sfz", ampeg_attack = 0.04 }, gain_db = -3 },  -- a source's SFZ
+      { instrument = "bell", lo_vel = 96, gain_db = -6 },                             -- hard notes only
+    } },
+  } },
+  ```
 - An option's target is `"node/field"`, `"node/field/octaves"`, or `{ path, op = "mul" | "add" |
   "octaves", scale, offset }` (a list for several). A key the row doesn't read, a target that
   reaches nothing or a field an option shadows is a warning at the script line
@@ -358,7 +380,15 @@ video { ..., audio = { { score, start = 0 } } }                -- a song or its 
   files to each source's pins file (in the media folder). A licence other than CC0 or CC-BY is
   refused (`licence_not_allowed`).
   Pins say what was trusted the first time it was fetched: treat a song's `sources` like code
-  you run. `examples/disco` is a complete style built this way.
+  you run.
+- **An instrument the sets don't have** (a harp, a flute, a trumpet): play a free library's
+  own SFZ file through `sources`, never a mapping of its samples by file name. File names lie
+  (VS Chamber Orchestra 2's flute "C3" sounds C4); the library's SFZ maps them right. An SFZ
+  plays at its author's levels, which differ a lot (one note at one velocity spans 17.6 dB
+  across five VSCO files), so set each part's `gain_db` by measurement. The steps are in
+  [sound_design.md](sound_design.md), "An instrument the sets don't have";
+  `library/songs/sfz_chamber.json` is the worked example, `examples/disco` plays Karoryfer's
+  bass and guitar this way.
 
 ### Routing
 
@@ -516,7 +546,7 @@ onimite audio render video.lua Intro -o intro.wav # the mix of a range, for the 
 
 Every audio command takes `--track FILE`: that track alone, as it sounds in the mix (the others
 still duck it); a bus name hears the bus, `--track score/bass` one part of a song. `inspect`
-renders each song alone through odawg's checks (`silent_part`, `clipping`, `true_peak`) and
+renders each song alone through odawg's checks of its mix (`clipping`, `true_peak`) and
 reports what reading and composing it found (`song_finding`).
 
 Targets for the report:

@@ -833,7 +833,8 @@ Audio_Pin_Result :: struct {
 
 // Fetches what the songs play from their sources and writes each source's
 // pins (om.music_pin); the songs' findings (a refused path, a licence)
-// are the load's.
+// are the load's. An error (a file that couldn't be fetched) fails the
+// command, as odawg pin does: what was fetched is pinned either way.
 @(private)
 audio_pin :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 	build_audio(app) or_return
@@ -849,6 +850,7 @@ audio_pin :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 	for d in load_diagnostics(&app.script, app_media(app)) {
 		if d.severity == .Error {
 			fmt.sbprintf(&b, "\nerror: %s", om.diagnostic_message(d, context.temp_allocator))
+			app.exit_code = 1
 		}
 	}
 	emit(app, res, strings.to_string(b))
