@@ -16,7 +16,13 @@ Font_Query :: struct {
 	italic:         bool,
 	letter_spacing: f32,
 	features:       []Font_Feature,
+	// A variable font's instance: axis tags ("wght", "wdth", "opsz") and
+	// values in the axis's units (`media_text_fonts`).
+	variations:     []Font_Variation,
 }
+
+// A variable font axis's tag ("wght") and value in its own units.
+Font_Variation :: vg.Font_Variation
 
 // An OpenType feature's tag ("smcp", "ss01") and value: 0 off, 1 on, n > 1
 // the nth alternate (salt, cv01); set over the font's defaults.
@@ -133,7 +139,7 @@ font_found :: proc(m: ^Media, q: Font_Query) -> bool {
 measure :: proc(m: ^Media, q: Font_Query, s: string) -> f32 {
 	layout: vg.Text_Layout
 	vg.text_layout_init(&layout, context.temp_allocator)
-	piece := vg.Text_Piece{text = s, style = {family = q.family, size = q.size, weight = q.weight, italic = q.italic, letter_spacing = q.letter_spacing, features = q.features}}
-	vg.text_layout(&m.fonts, {piece}, {}, &layout)
+	piece := vg.Text_Piece{text = s, style = {family = q.family, size = q.size, weight = q.weight, italic = q.italic, letter_spacing = q.letter_spacing, features = q.features, variations = q.variations}}
+	vg.text_layout(media_text_fonts(m, q.family, q.weight, q.italic, q.variations), {piece}, {}, &layout)
 	return vg.text_layout_width(&layout)
 }

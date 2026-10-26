@@ -34,16 +34,19 @@ local function race(f, lb, gb)
     local y = 250 + (i - 1) * 124
     local share = (finish(r) - GO) / (STOP - GO)
     local p = snap(lb - (0.3 + i * 0.12))
-    group({ opacity = clamp01(p * 3), transform = translate((1 - p) * -120, 0) }, function()
-      text { r[1], x = 100, y = y + 58, font = look.MONO, size = 30, fill = look.INK }
-      local wf, wo = math.max(W * q, 2), math.max(W * math.min(q, share), 2)
-      rect { x = X0, y = y, w = wf, h = 42, rx = 6, fill = look.F }
-      rect { x = X0, y = y + 50, w = wo, h = 42, rx = 6, fill = look.O }
-      if q > 0 then
-        text { string.format("%.1f s", r[2] * q), x = X0 + wf + 14, y = y + 31, font = look.MONO, size = 22, fill = look.F }
-        text { string.format("%.2f s", r[3] * math.min(q, share) / share), x = X0 + wo + 14, y = y + 81, font = look.MONO,
-          size = 22, fill = look.O }
-      end
+    -- each row slides in across the left edge: the clip says the cut is meant
+    group({ clip = { x = 0, y = 0, w = look.W, h = look.H } }, function()
+      group({ opacity = clamp01(p * 3), transform = translate((1 - p) * -120, 0) }, function()
+        text { r[1], x = 100, y = y + 58, font = look.MONO, size = 30, fill = look.INK }
+        local wf, wo = math.max(W * q, 2), math.max(W * math.min(q, share), 2)
+        rect { x = X0, y = y, w = wf, h = 42, rx = 6, fill = look.F }
+        rect { x = X0, y = y + 50, w = wo, h = 42, rx = 6, fill = look.O }
+        if q > 0 then
+          text { string.format("%.1f s", r[2] * q), x = X0 + wf + 14, y = y + 31, font = look.MONO, size = 22, fill = look.F }
+          text { string.format("%.2f s", r[3] * math.min(q, share) / share), x = X0 + wo + 14, y = y + 81, font = look.MONO,
+            size = 22, fill = look.O }
+        end
+      end)
     end)
     if q >= share then
       local pp = snap((q - share) * (STOP - GO))

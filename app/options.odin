@@ -143,8 +143,8 @@ Timeline_Args :: struct {
 Inspect_Args :: struct {
 	using script_arg:     Script_Arg,
 	using range_arg:      Range_Arg,
-	every:                string  `arg:"SPEC" about:"the distance between checked frames" default:"0.25s"`,
-	all_frames:           bool    `flag:"All_Frames" about:"check every frame"`,
+	every:                string  `arg:"SPEC" about:"the distance between checked frames (and every scene's first and last frame and the first frames after each cue and scene start, where a slam overshoots)" default:"0.25s"`,
+	all_frames:           bool    `flag:"All_Frames" about:"check every frame (once before delivering: a motion between the checked frames goes unseen otherwise)"`,
 	info:                 bool    `flag:"Info" about:"list informational findings too"`,
 	fail_on:              Fail_On `reg:"option" about:"the findings that fail the check" default:"error"`,
 	using script_options: Script_Options `shared:""`,

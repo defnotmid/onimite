@@ -112,6 +112,7 @@ Mailbox :: struct {
 	latency_ms:       f64, // request (or the end of a load) to publish of the newest frame
 	rendering:        bool, // a frame is being rendered (requested frame not on screen yet)
 	loading:          bool, // the script or media is (re)loading
+	sounds_loading:   bool, // a placed song's sample sets are still loading (playback holds)
 	load_phase:       Load_Phase,
 	load_files:       int, // files in the media directory being loaded
 	load_began:       time.Tick,
@@ -240,6 +241,9 @@ Render_Worker :: struct {
 	watch:          Watch_Table,
 	watch_dirty:    bool,
 	watch_keys:     int,
+	// Whether the songs' load findings joined `findings` (once their sounds
+	// were in) since the load.
+	loads_reported: bool,
 	// Why the last load failed (owned; "" after a good one).
 	load_error:     string,
 	waves:          Wave_Builder,
@@ -519,9 +523,25 @@ worker_clips_free :: proc(w: ^Render_Worker) {
 // first). Returns whether anything changed.
 @(private = "file")
 worker_clips :: proc(w: ^Render_Worker) -> bool {
+	// A placed song still loading its sample sets: the window holds
+	// playback until it is in, so a first listen hears every part.
+	sounds := false
+	for p in w.placed.tracks {
+		sounds ||= om.song_clip_loading(p.song)
+	}
 	sync.mutex_lock(&w.mb.mutex)
 	w.mb.clips_landed = false
+	w.mb.sounds_loading = sounds
 	sync.mutex_unlock(&w.mb.mutex)
+	// once they're in, what loading them found (a file not pinned: its notes
+	// are silent) joins the problems, once a script
+	if !sounds && !w.loads_reported && w.script != nil {
+		w.loads_reported = true
+		for d in song_load_diagnostics(w.script, false) {
+			finding_add(&w.findings, nil, LOAD_FRAME, d)
+			w.watch_dirty = true
+		}
+	}
 	worker_clips_free(w)
 	if w.script == nil {
 		return false
@@ -856,6 +876,7 @@ worker_load :: proc(w: ^Render_Worker, reload_media: bool) {
 	// Everything derived from the last script goes: problems, thumbnails
 	// (their textures retire until the UI takes the new generation).
 	finding_table_clear(&w.findings)
+	w.loads_reported = false
 	steps[1] = time.tick_now()
 	for d in load_diagnostics(next, media) {
 		finding_add(&w.findings, nil, LOAD_FRAME, d)

@@ -639,9 +639,9 @@ Inspect_Result :: struct {
 	findings:       []Finding `json:"findings"`,
 }
 
-// Checks a frame every --every (and every scene's first and last frame and
-// the range's last frame), groups findings across frames by key, and exits
-// with code 2 per --fail-on.
+// Checks a frame every --every (and every scene's first and last frame, the
+// first frames after each cue and scene start, and the range's last frame),
+// groups findings across frames by key, and exits with code 2 per --fail-on.
 @(private)
 inspect :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 	// songs' renders measure their mix for the song check
@@ -665,6 +665,23 @@ inspect :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 	for s in r.timeline.scenes {
 		for f in ([2]int{s.start_frame, s.end_frame - 1}) {
 			if f >= start && f < end {
+				append(&checked, f)
+			}
+		}
+	}
+	// What lands on a cue or a scene's start (a slam, a pop, a punch) is
+	// furthest from rest in the frames just after it, which a step of a
+	// quarter second skips: those are checked too.
+	landings := make([dynamic]int, context.temp_allocator)
+	for c in app.script.cues {
+		append(&landings, int(math.round(c.seconds * f64(fps))))
+	}
+	for s in r.timeline.scenes {
+		append(&landings, s.start_frame)
+	}
+	for at in landings {
+		for k in ([5]int{0, 1, 2, 4, 8}) {
+			if f := at + k; f >= start && f < end {
 				append(&checked, f)
 			}
 		}
@@ -696,6 +713,7 @@ inspect :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 	timed := make([dynamic]om.Diagnostic, context.temp_allocator)
 	append(&timed, ..sync_check(&app.media, om.placed_audio(&r.ctx).tracks[:], r.video.fps, sync_anchors(app, r) or_return))
 	append(&timed, ..off_beat_check(app, r))
+	append(&timed, ..voice_level_check(app, r))
 	for d in timed {
 		if d.frame >= start && d.frame < end {
 			finding_add(&findings, &r.timeline, d.frame, d)
@@ -704,8 +722,12 @@ inspect :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 	for d in load_diagnostics(&app.script, app_media(app)) {
 		finding_add(&findings, nil, LOAD_FRAME, d)
 	}
-	// Each song rendered alone, through odawg's checks.
+	// Each song rendered alone, through odawg's checks, and what loading
+	// its samples found.
 	for d in song_check_diagnostics(&app.script, .Info in regs.flags) {
+		finding_add(&findings, nil, LOAD_FRAME, d)
+	}
+	for d in song_load_diagnostics(&app.script, true) {
 		finding_add(&findings, nil, LOAD_FRAME, d)
 	}
 	failed := false

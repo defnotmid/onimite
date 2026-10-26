@@ -5,6 +5,7 @@
   "instruments": "../instruments/classic.json",
   "parts": {
     "drums": {
+      "role": "drums",
       "instrument": { "name": "../machines/808.json", "decay": 0.9, "tone": 0.6 },
       "octave": 3,
       "gain_db": 0,
@@ -45,6 +46,7 @@
       ]
     },
     "sub": {
+      "role": "bass",
       "instrument": { "name": "../instruments/808_bass.json", "decay": 0.7 },
       "octave": 1,
       "gain_db": -1,
@@ -66,6 +68,7 @@
       ]
     },
     "chant": {
+      "role": "melody",
       "instrument": {
         "name": "FMSynth",
         "harmonicity": 1.5,
@@ -76,7 +79,7 @@
         "modulation_envelope": { "attack": 0.02, "decay": 0.09, "sustain": 0.3, "release": 0.05 }
       },
       "octave": 4,
-      "gain_db": -6,
+      "gain_db": -2.3,
       "room_db": -3,
       "pan": 0.15,
       "effects": [ { "name": "Filter", "type": "bandpass", "frequency": 1100, "q": 1.4 } ],
@@ -99,6 +102,7 @@
       ]
     },
     "keys": {
+      "role": "comp",
       "instrument": "stab",
       "octave": 4,
       "gain_db": -10,

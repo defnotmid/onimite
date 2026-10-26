@@ -135,9 +135,9 @@ l_outline :: proc "c" (L: ^lua.State) -> c.int {
 		}
 		l: vg.Text_Layout
 		vg.text_layout_init(&l, context.temp_allocator)
-		piece := vg.Text_Piece{text = str, style = {family = q.family, size = q.size, weight = q.weight, italic = q.italic, letter_spacing = q.letter_spacing, features = q.features}}
+		piece := vg.Text_Piece{text = str, style = {family = q.family, size = q.size, weight = q.weight, italic = q.italic, letter_spacing = q.letter_spacing, features = q.features, variations = q.variations}}
 		opts := vg.Text_Options{get_num(L, 1, "x", 0), get_num(L, 1, "y", 0), vg.Text_Align(align), vg.Text_Baseline(read_baseline(L, 1)), get_num(L, 1, "line_height", 0)}
-		vg.text_layout(&m.fonts, {piece}, opts, &l)
+		vg.text_layout(om.media_text_fonts(m, q.family, q.weight, q.italic, q.variations), {piece}, opts, &l)
 		measured(s, q, len(l.missing) == 0)
 		vg.text_layout_path(&l, &p)
 	}

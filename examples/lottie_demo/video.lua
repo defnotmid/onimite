@@ -13,7 +13,7 @@ local MUTED = "#94a3b8"
 
 local dalek = nil
 
-video { width = W, height = H, fps = 30, background = "#0f172a", duration = 8,
+video { width = W, height = H, fps = 60, background = "#0f172a", duration = 8,
   render = function(f)
     dalek = dalek or lottie_info("dalek.json")
     local t = f.seconds

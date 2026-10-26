@@ -241,7 +241,7 @@ COMMAND_KINDS := [Command_Kind]Command_Descriptor {
 	.Audio_Parts = {
 		help = "regs.path an earlier --json to compare with (\"\" = none)",
 		domain = .Script, flags = FRONT, args = Audio_Parts_Args,
-		about = "each song rendered alone, part by part: notes, the first of them, loudness and peak; --against an earlier --json says what drifted and fails",
+		about = "each song rendered alone, part by part: notes, the first of them, loudness and peak, and its balance (LU under the song's mix in every section, with its peak); --against an earlier --json says what drifted and fails",
 		mcp_note = "Keep a --json of a song you like; after changing it (or updating onimite), --against that file names every part that moved.",
 	},
 	.Preview = {

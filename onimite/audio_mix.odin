@@ -16,13 +16,20 @@ import common "deps:odecs/common"
 // playing its samples (gain, balance, offset, fades, mono, ducking under
 // the voice tracks), a song or sound its own tracks moved to where it
 // starts, let through its track's window. Then `master_gain_db` and the
-// master limiter (fframes' defaults: -1 dB ceiling). The render is that
+// master limiter (its ceiling -2 dBTP by default: the render's AAC encode
+// overshoots the mix's peak by about half a dB, and -1 dBTP is the bar for
+// the file, not the mix). The render is that
 // stream cut into time segments on every core; the preview plays the same
 // stream.
 
+// The master limiter's ceiling when the script sets none (dBTP): disco's
+// drop limited to -1.0 measured -0.5 dBTP once encoded to AAC at 192 kbps,
+// so the mix stops a dB lower to keep the file under -1.
+LIMITER_CEILING :: -2
+
 Mix_Options :: struct {
 	master_gain_db: f32,
-	// Limiter ceiling; 0 means -1 dBFS.
+	// Limiter ceiling; 0 means LIMITER_CEILING.
 	ceiling_db:     f32,
 	no_limiter:     bool,
 }
@@ -368,7 +375,7 @@ mix_init :: proc(mx: ^Mix, placed: []Placed_Track, opts: Mix_Options, samples :=
 	mx.song.master_gain_db = f64(opts.master_gain_db)
 	if !opts.no_limiter {
 		p := odevice.params_from_kind(.Limiter)
-		p[.Threshold] = opts.ceiling_db if opts.ceiling_db != 0 else -1
+		p[.Threshold] = opts.ceiling_db if opts.ceiling_db != 0 else LIMITER_CEILING
 		p[.Release] = LIMITER_RELEASE
 		append(&mx.song.devices, odevice.Device_Kind.Limiter)
 		append(&mx.song.labels, odevice.DEVICE_TABLE[.Limiter].name)

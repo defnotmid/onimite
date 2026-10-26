@@ -65,7 +65,7 @@ void main() {
 }
 ]]
 
-video { width = W, height = H, fps = 30, background = "#101218", duration = 6,
+video { width = W, height = H, fps = 60, background = "#101218", duration = 6,
   render = function(f)
     local t = f.seconds
     rect { x = 0, y = 0, w = W, h = H,

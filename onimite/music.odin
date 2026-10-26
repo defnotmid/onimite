@@ -9,6 +9,7 @@ import "core:math"
 import "core:mem/virtual"
 import "core:simd"
 import "core:os"
+import "core:path/filepath"
 import "core:slice"
 import "core:strings"
 import "core:sync"
@@ -100,6 +101,10 @@ Song_Clip :: struct {
 	song:     osong.Song,
 	// What reading the spec and composing found (odawg's codes and paths).
 	findings: obase.Findings,
+	// What loading its samples found (files its notes reach that can't be
+	// had: not pinned, offline). The load comes on first use, after the
+	// script's report, so these are read once `loaded` is set (heap).
+	load_findings: obase.Findings,
 	// Seconds of sound past its last section (release tails, reverbs).
 	tail:     f64,
 	ok:       bool,
@@ -161,21 +166,35 @@ music_load :: proc(m: ^Media) {
 	}
 }
 
-// Loads what one song plays that isn't in the bank yet (once).
+// Loads what one song plays that isn't in the bank yet (once), then tells
+// the host (the preview's worker) that it is in.
 song_clip_load :: proc(sc: ^Song_Clip) {
-	if sc == nil || sc.loaded || !sc.ok || sc.music == nil {
+	if sc == nil || sync.atomic_load(&sc.loaded) || !sc.ok || sc.music == nil {
 		return
 	}
 	mu := sc.music
-	sync.guard(&mu.bank_lock)
-	if sc.loaded {
-		return
+	{
+		sync.guard(&mu.bank_lock)
+		if sync.atomic_load(&sc.loaded) {
+			return
+		}
+		context.allocator = runtime.heap_allocator()
+		host := oassets.Bank_Host{root = mu.host_root, pinning = mu.pinning}
+		sc.load_findings = make(obase.Findings)
+		oassets.bank_load(&mu.bank, sc.needs[:], &sc.load_findings, oassets.progress_stderr, &host)
+		sync.atomic_store(&sc.loaded, true)
+		sync.atomic_add(&mu.banks, 1)
 	}
-	context.allocator = runtime.heap_allocator()
-	host := oassets.Bank_Host{root = mu.host_root, pinning = mu.pinning}
-	oassets.bank_load(&mu.bank, sc.needs[:], &sc.findings, oassets.progress_stderr, &host)
-	sc.loaded = true
-	sync.atomic_add(&mu.banks, 1)
+	if mu.wake != nil {
+		mu.wake(mu.wake_data)
+	}
+}
+
+// Whether a song's sample sets are still to load (fetched on first use):
+// until then its notes that reach them are silent. A set that can't be had
+// counts as loaded (its finding says so).
+song_clip_loading :: proc(sc: ^Song_Clip) -> bool {
+	return sc != nil && sc.ok && !sync.atomic_load(&sc.loaded)
 }
 
 @(private = "file")
@@ -187,6 +206,11 @@ song_clip_free :: proc(sc: ^Song_Clip) {
 	}
 	delete(sc.tables)
 	a := runtime.heap_allocator()
+	for f in sc.load_findings {
+		delete(f.path, a)
+		delete(f.message, a)
+	}
+	delete(sc.load_findings)
 	delete(sc.render.samples, a)
 	delete(sc.render.peaks, a)
 	delete(sc.render.state, a)
@@ -197,8 +221,10 @@ song_clip_free :: proc(sc: ^Song_Clip) {
 	delete(sc.render.part_peaks, a)
 	delete(sc.render.stems, a)
 	if .Mix in sc.render.measured {
+		// what measuring_destroy leaves: the per-part slices, made with `a`
 		ocheck.measuring_destroy(&sc.render.measuring)
-		delete(sc.render.measuring.part_peaks, a)
+		delete(sc.render.measuring.peak_steps, a)
+		delete(sc.render.measuring.parts, a)
 	}
 	virtual.arena_destroy(&sc.arena)
 	free(sc)
@@ -907,6 +933,8 @@ Source_Pins :: struct {
 	path:    string `json:"path"`,
 	total:   int    `json:"total"`,
 	added:   int    `json:"added"`,
+	// Why its pins weren't written ("" when they were).
+	error:   string `json:"error,omitempty"`,
 }
 
 // Pins what the media's songs play from their sources: the songs, made
@@ -937,12 +965,15 @@ music_pin :: proc(m: ^Media) -> []Source_Pins {
 			if seen {
 				continue
 			}
+			// the pins file's folder made first (a new source's `pins/x.pins`)
 			path := oassets.host_path(&host, u.pins_path)
-			if err := os.write_entire_file(path, transmute([]u8)u.text); err != nil {
-				obase.report(&sc.findings, "write_failed", .Error, u.source, "can't write %s: %v", path, err)
-				continue
+			failed := ""
+			if err := os.make_directory_all(filepath.dir(path)); err != nil && err != .Exist {
+				failed = fmt.tprintf("can't make the folder for %s: %v", path, err)
+			} else if err := os.write_entire_file(path, transmute([]u8)u.text); err != nil {
+				failed = fmt.tprintf("can't write %s: %v", path, err)
 			}
-			append(&out, Source_Pins{u.source, u.licence, u.pins_path, u.total, u.added})
+			append(&out, Source_Pins{u.source, u.licence, u.pins_path, u.total, u.added, failed})
 		}
 	}
 	return out[:]

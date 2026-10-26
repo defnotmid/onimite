@@ -1,9 +1,11 @@
 -- Rigid-body physics: letter tiles dropped one by one onto a floor, a ball
--- lobbed in to bounce along their tops, a pop per impact. physics{} runs
--- Box2D once at load (inside shared, so a render's frame builders simulate
--- it once); render samples it with physics_at, and the impacts place the
--- sound.
+-- lobbed in to bounce along their tops, a recorded sound per impact (a
+-- wooden thud for a tile, a rubber ball's bounce for the ball: fetch.sh
+-- downloads them). physics{} runs Box2D once at load (inside shared, so a
+-- render's frame builders simulate it once); render samples it with
+-- physics_at, and the impacts place the sound.
 --
+--     examples/physics_demo/fetch.sh
 --     onimite strip examples/physics_demo/video.lua Drop -n 12 -o strip.png
 --     onimite render examples/physics_demo/video.lua -o physics_demo.mp4
 
@@ -14,7 +16,8 @@ local TILE, GAP = 118, 10
 local BALL = 46
 local COLORS = { "#38bdf8", "#f472b6", "#facc15", "#4ade80", "#a78bfa", "#fb923c", "#f87171" }
 
-video { width = W, height = H, fps = 30, background = "#0f172a" }
+video { width = W, height = H, fps = 60, background = "#0f172a",
+  master_gain_db = 7 } -- the impacts at about -14 LUFS
 
 local sim = shared("drop", function()
   local bodies = {
@@ -33,25 +36,36 @@ local sim = shared("drop", function()
   return physics { duration = 6, gravity = 2600, bodies = bodies }
 end)
 
--- A pop per impact worth hearing: louder for harder hits, panned to where it lands.
+-- A sound per impact worth hearing: louder for harder hits, panned to where it
+-- lands. The ball (the last body) bounces: one bounce of the recording (it
+-- starts 0.84 s in), each tile thuds, pitched a little its own way.
+local BALL_ID = #WORD + 2
 local pops = {}
-for _, c in ipairs(sim.contacts) do
+for k, c in ipairs(sim.contacts) do
   if c.speed > 300 then
-    pops[#pops + 1] = { "pop.wav", start = c.t, gain_db = remap(c.speed, 300, 2500, -26, -8),
-      pan = clamp((c.x / W) * 2 - 1, -0.8, 0.8) }
+    local pan = clamp((c.x / W) * 2 - 1, -0.8, 0.8)
+    local gain = remap(c.speed, 300, 2500, -20, -2)
+    if c.a == BALL_ID or c.b == BALL_ID then
+      pops[#pops + 1] = { "bounce.mp3", start = c.t, offset = 0.82, stop = c.t + 0.35, gain_db = gain, pan = pan }
+    else
+      pops[#pops + 1] = { "thud.mp3", start = c.t, gain_db = gain - 4, pan = pan, speed = 0.92 + 0.16 * hash(k, 3) }
+    end
   end
 end
 
 scene { "Drop", duration = 6, audio = pops, render = function(f)
   rect { x = 0, y = FLOOR, w = W, h = H - FLOOR, fill = "#1e293b" }
-  for i = 1, #WORD do
-    local x, y, angle = physics_at(sim, i + 1, f.seconds)
-    group({ transform = { translate = { x, y }, rotate = angle } }, function()
-      rect { x = -TILE / 2, y = -TILE / 2, w = TILE, h = TILE, rx = 18, fill = COLORS[i] }
-      text { WORD:sub(i, i), x = 0, y = 0, align = "center", baseline = "middle",
-        font = "DM Sans", size = 96, fill = "#0f172a" }
-    end)
-  end
+  -- the tiles fall in from above the canvas: a clip says the cut is meant
+  group({ clip = { x = 0, y = 0, w = W, h = H } }, function()
+    for i = 1, #WORD do
+      local x, y, angle = physics_at(sim, i + 1, f.seconds)
+      group({ transform = { translate = { x, y }, rotate = angle } }, function()
+        rect { x = -TILE / 2, y = -TILE / 2, w = TILE, h = TILE, rx = 18, fill = COLORS[i] }
+        text { WORD:sub(i, i), x = 0, y = 0, align = "center", baseline = "middle",
+          font = "DM Sans", size = 96, fill = "#0f172a" }
+      end)
+    end
+  end)
   local x, y, angle = physics_at(sim, #WORD + 2, f.seconds)
   group({ transform = { translate = { x, y }, rotate = angle } }, function()
     circle { cx = 0, cy = 0, r = BALL, fill = "#f8fafc" }

@@ -216,9 +216,17 @@ test_shader_multipass :: proc(t: ^testing.T) {
 			straight[f] = pixels_hash(px)
 			red[f] = px[0]
 		}
+		// The buffers step per frame on purpose (this tests seeks), so the
+		// frame-rate warning is the one diagnostic, and it is reported.
+		frame_rate := 0
 		for d in r.ctx.diagnostics {
+			if d.code == .Shader_Frame_Rate {
+				frame_rate += 1
+				continue
+			}
 			testing.expectf(t, false, "unexpected diagnostic: %s", diagnostic_message(d, context.temp_allocator))
 		}
+		testing.expect(t, frame_rate > 0)
 	}
 	// Frame 0: A = STEP * 1, B = A / 2 (no previous frame), shown * 4.
 	testing.expect_value(t, red[0], u8(5)) // 0.02 * 255, rounded

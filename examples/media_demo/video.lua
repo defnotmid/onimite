@@ -7,10 +7,10 @@
 
 local W, H = 1280, 720
 
-video { width = W, height = H, fps = 30, background = "#0b1020",
+video { width = W, height = H, fps = 60, background = "#0b1020", master_gain_db = 6, -- about -14 LUFS
   audio = {
-    -- The clip's own sound starts with it (frame 15 = start_from 0.5 s)...
-    { "clip.mp4", start = { frame = 15 }, gain_db = -6 },
+    -- The clip's own sound starts with it (0.5 s, its start_from)...
+    { "clip.mp4", start = 0.5, gain_db = -6 },
     -- ...and the music runs until the video clip's length plus 4 s.
     { "music.mp3", start = 0, stop = { video = "clip.mp4", plus = { seconds = 4 } },
       gain_db = -12, fade_out = 1.5, ducked = true },

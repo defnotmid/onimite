@@ -12,7 +12,8 @@ import "deps:oksl"
 // drawing a frame are `Diagnostic`s. Text is made only at the edge (the
 // CLI, the preview, --json) from the tables below. Their placeholders name
 // the operands (`OPERAND_NAMES`); `{q:...}` quotes a string, `{r:...}`
-// rounds a number, `{hex:...}` and `{X4:...}` write hex digits.
+// rounds a number, `{1:...}` and `{1s:...}` write it to one decimal (signed),
+// `{hex:...}` and `{X4:...}` write hex digits.
 
 Error :: enum u8 {
 	None,
@@ -94,6 +95,7 @@ Diagnostic_Code :: enum u8 {
 	Shader_Unbound_Channel,
 	Shader_Pass_Input,
 	Shader_Pass_Unbound,
+	Shader_Frame_Rate,
 	Shader_Depth_Of,
 	Shader_Load,
 	Shader_Run,
@@ -144,6 +146,8 @@ Diagnostic_Code :: enum u8 {
 	Physics3d_Overlap,
 	// Sound against the music's beat.
 	Off_Beat,
+	// A voice line far louder or quieter than the video's others.
+	Voice_Level,
 	// Spoken lines (`say`), found at load.
 	Tts_Unavailable,
 	Tts_Noncommercial,
@@ -215,6 +219,7 @@ DIAGNOSTIC_TEXT := [Diagnostic_Code]string {
 	.Shader_Unbound_Channel    = "shader {name}: `{channel}` has no image bound",
 	.Shader_Pass_Input         = "shader {name}: `{uniform}` binds an input; a program of passes binds inputs in its passes",
 	.Shader_Pass_Unbound       = "shader {name}: {pass}'s `{channel}` has nothing bound",
+	.Shader_Frame_Rate         = "shader {name}: {pass} reads its own last frame but not iTimeDelta, so it looks different at another fps (write each step as a rate a second times iTimeDelta)",
 	.Shader_Depth_Of           = "shader {name}: `{channel}` takes the depth of {q:ref}, which is not a group input of this shader",
 	.Shader_Load               = "shader {name} can not be loaded by the renderer: {gpu}",
 	.Shader_Run                = "shader {name}: {gpu}",
@@ -257,6 +262,7 @@ DIAGNOSTIC_TEXT := [Diagnostic_Code]string {
 	.Physics3d_Offscreen       = "{where}: physics3d body {q:body} leaves the world's bounds at {s:time}s and does not come back (widen the simulation's bounds, or leaves = true on the body)",
 	.Physics3d_Overlap         = "{where}: physics3d body {q:body} starts {r:depth} cm inside {q:with} at {s:time}s, so they fly apart (move it or give it room)",
 	.Off_Beat                  = "{where}: {count} sounds start off the music's beat, the loudest {q:clip} {ds:drift}s off at {s:time}s (the beat: {s:period}s; hits belong on the beat or half-beat)",
+	.Voice_Level               = "{where}: voice line {q:clip} sits {1:w} LU {reason} the median of the video's {count} voice lines: its track's gain_db {1s:h} levels it with them (or check its voice's own level)",
 	.Tts_Unavailable           = "{where}: say {q:line} can not be spoken ({reason}): it is silent and its word times are estimates",
 	.Tts_Noncommercial         = "{where}: say {q:line} uses voice {q:voice}, whose recording is licensed for non-commercial use only",
 	.Tts_Not_Kept              = "{where}: say {q:line} was spoken but could not be kept in the store ({reason}): every run speaks it again",
@@ -302,6 +308,7 @@ DIAGNOSTIC_KEY := [Diagnostic_Code]string {
 	.Shader_Unbound_Channel    = "shader_channel:{name}:{channel}",
 	.Shader_Pass_Input         = "shader_uniform:{name}:{uniform}",
 	.Shader_Pass_Unbound       = "shader_channel:{name}:{pass}:{slot}",
+	.Shader_Frame_Rate         = "shader_frame_rate:{name}:{pass}",
 	.Shader_Depth_Of           = "shader_depth_of:{name}:{channel}",
 	.Shader_Load               = "",
 	.Shader_Run                = "",
@@ -344,6 +351,7 @@ DIAGNOSTIC_KEY := [Diagnostic_Code]string {
 	.Physics3d_Offscreen       = "physics3d_offscreen:{where}:{body}",
 	.Physics3d_Overlap         = "physics3d_overlap:{where}:{body}:{with}",
 	.Off_Beat                  = "off_beat:{where}",
+	.Voice_Level               = "voice_level:{clip}",
 	.Tts_Unavailable           = "tts_unavailable:{line}",
 	.Tts_Noncommercial         = "tts_noncommercial:{line}",
 	.Tts_Not_Kept              = "tts_not_kept:{line}",
@@ -633,6 +641,10 @@ write_field :: proc(b: ^strings.Builder, field: string, mode: string, d: Diagnos
 			fmt.sbprintf(b, "%.3f", v)
 		case "ds": // a signed difference in seconds
 			fmt.sbprintf(b, "%+.3f", v)
+		case "1": // one decimal (LU, dB)
+			fmt.sbprintf(b, "%.1f", v)
+		case "1s": // a signed change, one decimal
+			fmt.sbprintf(b, "%+.1f", v)
 		case:
 			fmt.sbprintf(b, "%v", v)
 		}

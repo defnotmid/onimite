@@ -182,7 +182,7 @@
       { "name": "Filter", "type": "highpass", "frequency": 180 }
     ],
     "echo": [
-      { "name": "PingPongDelay", "delay_time": "8n.", "feedback": 0.36 },
+      { "name": "PingPongDelay", "delay_time": 0.4017857142857143, "feedback": 0.36 },
       { "name": "Filter", "type": "highpass", "frequency": 420 }
     ]
   },
@@ -219,10 +219,10 @@
       [ "drop2@8m", -14, "step" ]
     ],
     "parts/drums/gain_db": [
-      [ "verse", -2.0 ],
-      [ "build", -2.5, "step" ],
-      [ "build@4m", 0.0 ],
-      [ "drop", -1.0 ]
+      [ "verse", -0.5 ],
+      [ "build", -1.0, "step" ],
+      [ "build@4m", 1.5 ],
+      [ "drop", 0.5 ]
     ],
     "returns/hall/Reverb/wet": [
       [ "intro", 0.85 ],

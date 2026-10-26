@@ -1,7 +1,10 @@
--- The film's sound effects: rows of the skill's library (instruments/sfx.json
--- and classic.json) as sound{} clips (each built
--- once, named by its content), each placed by the scene it belongs to on the
--- "sfx" bus. The music (music/) is only the score.
+-- The film's sound effects, each placed by the scene it belongs to on the
+-- "sfx" bus: the interface's sounds (keys, blips, DONEs, glitches) and the
+-- toms and thumps are rows of the skill's library (instruments/sfx.json and
+-- classic.json) as sound{} clips (each built once, named by its content);
+-- what is physical is recorded or sampled: a swoosh fetched from Freesound
+-- (fetch.sh, CC0), a real crash cymbal (the virtuosity kit), and an 808
+-- boom for the impacts. The music (music/) is only the score.
 --
 --   local sfx = require("sfx")
 --   scene { "Race", ..., audio = {
@@ -34,13 +37,24 @@ function S.tick(hz) return play("tick", hz) end
 function S.beep(hz) return play("beep", hz) end
 function S.tom(hz) return play("tom", hz, 0.55) end
 function S.thump(note) return sound { "thump", instruments = INSTRUMENTS, note = ("%.1f"):format(note), duration = 0.75, gain_db = 0 } end
-function S.impact() return play("impact", nil, 2.6) end
-function S.crash() return play("crash", nil, 1.7) end
+-- An impact: the library's 808, tuned to the score's C#, a short boom (a
+-- long one rings like a gong). Each recorded or sampled sound starts from
+-- the synthesized one it replaced (max momentary loudness alone), so the
+-- scenes' gains keep their meaning; the boom and the crash then came down by
+-- ear (4 and 6 dB: "a bit much").
+function S.impact() return sound { { LIB .. "instruments/808_bass.json", decay = 0.9 }, note = "C#2", duration = 1.2, gain_db = -3 } end
+-- A crash: the virtuosity kit's cymbal (a sample set odawg fetches).
+function S.crash() return sound { { "Sampler", set = "virtuosity/drums" }, note = "crash", duration = 1.7, gain_db = -1.2 } end
 function S.crackle() return play("crackle") end
 -- A hat ringing for `seconds`, dying by 37% every `decay` seconds.
 function S.hat(seconds, decay) return play({ "hat", decay = decay }, nil, seconds) end
--- A whoosh: noise swelling over `seconds` into a cut (with a rising tone).
-function S.whoosh(seconds, tone) return play({ "whoosh", tone = tone }, nil, seconds) end
+-- A whoosh swelling over `seconds` into a cut: Halgrimm's recorded swoosh
+-- (media/swoosh.mp3, fetch.sh), started so its peak, 0.95 s into the file,
+-- lands on the cut, and let ring 0.7 s past it.
+local SWOOSH_PEAK = 0.95
+function S.whoosh(seconds)
+  return { file = "swoosh.mp3", offset = math.max(0, SWOOSH_PEAK - seconds), length = math.min(seconds, SWOOSH_PEAK) + 0.7, gain_db = 5 }
+end
 -- A stutter of eight grains over `seconds`.
 function S.glitch(seconds) return play("glitch", nil, seconds) end
 
@@ -51,10 +65,15 @@ end
 
 -- A track for clip `name`, `lb` beats into the scene on section `section`,
 -- at `gain` (linear; 1 = as built), on the sfx bus; `cue`: the cue its sound
--- lands on (inspect checks).
+-- lands on (inspect checks). `name` is a clip or a recording's window
+-- ({ file, offset, length }: S.whoosh).
 function S.at(section, lb, name, gain, pan, cue)
-  return { name, start = score.seconds(lb, section), gain_db = 20 * math.log(gain or 1, 10), pan = pan, bus = "sfx",
-    cue = cue }
+  local start = score.seconds(lb, section)
+  local t = { name, start = start, gain_db = 20 * math.log(gain or 1, 10), pan = pan, bus = "sfx", cue = cue }
+  if type(name) == "table" and name.file then
+    t[1], t.offset, t.stop, t.gain_db = name.file, name.offset, start + name.length, t.gain_db + name.gain_db
+  end
+  return t
 end
 
 -- Keys for `text` typed over beats [from, to] of the scene on `section`,

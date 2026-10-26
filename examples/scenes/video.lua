@@ -2,7 +2,7 @@
 --
 --     onimite preview examples/scenes/video.lua
 
-video { width = 1280, height = 720, fps = 30, background = "#0f172a" }
+video { width = 1280, height = 720, fps = 60, background = "#0f172a" }
 
 local function title(f, label, color)
   local fade_in = animate(f, { { start = 0, stop = 0.5, from = 0, to = 1, easing = ease_out } })

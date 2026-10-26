@@ -88,8 +88,9 @@ local function not_needed(f, lb, gb)
   end)
   look.pip(f, 1440, 230, 440, 440, gb)
   rect { x = 0, y = GROUND, w = W, h = H - GROUND, fill = look.NIGHT, opacity = 0.85 }
-  for i, it in ipairs(ITEMS) do
-    do -- (above the frame until it drops)
+  -- the things fall in from above the frame: the clip says the cut is meant
+  group({ clip = { x = 0, y = 0, w = W, h = H } }, function()
+    for i, it in ipairs(ITEMS) do
       local x, y, angle = physics_at(pile, WALLS + i, f.seconds)
       local strike = progress(lb, landing(i) + 0.25, landing(i) + 0.5)
       group({ transform = { translate = { x, y }, rotate = angle }, shadow = look.SHADOW }, function()
@@ -100,7 +101,7 @@ local function not_needed(f, lb, gb)
         end
       end)
     end
-  end
+  end)
   local x, y = physics_at(pile, "ball", f.seconds)
   line { x1 = PIVOT[1], y1 = PIVOT[2], x2 = x, y2 = y, stroke = look.INK, stroke_width = 8 }
   circle { cx = x, cy = y, r = BALL, fill = look.NIGHT, stroke = look.INK, stroke_width = 6 }

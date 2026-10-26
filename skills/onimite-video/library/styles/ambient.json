@@ -3,14 +3,16 @@
   "instruments": "../instruments/classic.json",
   "parts": {
     "pad": {
+      "role": "pad",
       "instrument": "pad",
       "octave": 3,
-      "gain_db": -5,
+      "gain_db": -23.1,
       "room_db": -2,
       "sends": { "hall": -6 },
       "play": [ { "energy": [0, 1], "chords": { "voicing": "open" }, "velocity": 0.7 } ]
     },
     "strings": {
+      "role": "pad",
       "instrument": {
         "name": "Synth",
         "oscillator": { "type": "fatsawtooth", "count": 3, "spread": 30 },
@@ -24,9 +26,10 @@
       "play": [ { "energy": [0.3, 1], "chords": { "voicing": "spread" }, "velocity": 0.6 } ]
     },
     "bells": {
+      "role": "counter",
       "instrument": "bell",
       "octave": 5,
-      "gain_db": -14,
+      "gain_db": -8.4,
       "room_db": -6,
       "pan": -0.15,
       "sends": { "hall": -2 },
@@ -40,6 +43,7 @@
       ]
     },
     "sub": {
+      "role": "bass",
       "instrument": "sub_bass",
       "octave": 1,
       "gain_db": -8,
@@ -47,6 +51,7 @@
       "play": [ { "energy": [0.4, 1], "degrees": "1 - - - - - - -", "subdivision": "8n", "velocity": 0.6 } ]
     },
     "drums": {
+      "role": "drums",
       "instrument": "synth_kit",
       "octave": 3,
       "gain_db": -8,

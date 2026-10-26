@@ -2,9 +2,15 @@
 
 A two minute film about onimite, made with onimite, music included: slow and
 dramatic, then K-pop, then a twist. 1920x1080, 60 fps, a tempo that changes
-from 36 to 168 BPM, a soundtrack composed by odawg (`song{}`): string
-sections and a drone in the void, a TR-909 and an offbeat bass for K-pop, a
-quiet grand piano in the hush, a tape stopping, the matrix's dread pulse.
+from 36 to 168 BPM, a soundtrack composed by odawg (`song{}`) in C# minor
+that follows K-pop's own switch-ups: VS Chamber Orchestra 2's string sections
+and a drone in the void; a verse of four on the floor under a dembow rim and
+a tresillo 808; a quiet grand piano in the half-time hush; the chorus as
+Jersey club on the royal road (Amaj7 B7 G#m7 C#m9), Pip's hook on a lead the
+violins double; a tape stopping; the matrix's half-step dread pulse. Its
+sound effects are the interface's own (keys, blips, DONEs) and, where
+something physical lands, a recorded swoosh (Freesound, CC0, fetched by
+`fetch.sh`), a real crash cymbal and an 808 boom.
 
 ```sh
 onimite preview examples/onimite_saga/video.lua
@@ -21,7 +27,7 @@ any part of it by reading only that part.
 | `video.lua` | the manifest: the video, its music, the pumping and the flashes, the scenes in order |
 | `music/score.lua` | the song: a section per scene (its bars, tempo and ramps, chords, energy), the drops' transitions; each section is a cue |
 | `music/act1.lua` ... | what each part plays in that act's sections (play entries: steps, degrees, chords, notes, events) |
-| `music/parts.lua` | the instruments (a part each: the 909, rows of the skill's library, Samplers, effects, sends, side-chain), the hook, the builders the acts use |
+| `music/parts.lua` | the sources (VS Chamber Orchestra 2, pinned in `media/pins/vsco.pins`), the film's own layered rows (the string sections, the hook's lead with violins, the bells with a glockenspiel), the instruments (a part each, with its `role`: the 909, the 808, rows of the skill's library, effects, sends, side-chain), the hook, the builders the acts use |
 | `scenes/<name>.lua` | one scene: its own constants and drawing, then the `scene{}` call that places it on its section |
 | `scenes/family.lua` | the cards OVG, ODECS and OKSL share |
 | `look.lua` | palette, type, springs and the parts several scenes share |
@@ -30,7 +36,10 @@ any part of it by reading only that part.
 | `facts.lua`, `code.lua` | the numbers and code shown on screen |
 
 Pip is drawn by `examples/common/pip.lua`; nothing else comes from
-`examples/common/`.
+`examples/common/`. Pip dancing as an alpha clip, `media/transparent.mov`,
+and the whooshes' recording, `media/swoosh.mp3`, aren't committed: `fetch.sh`
+makes the one and downloads the other (SHA-256 checked), once, before the first render
+(`tools/gen_media/gen.sh onimite_saga`).
 
 ## How music and picture stay together
 
@@ -40,9 +49,11 @@ the song (`"slam@4n"`, the `logo_hit` marker); a sound `lb` beats into a
 scene starts `score.seconds(lb, "race")` after it, measured on the tempo map
 however fast it is there. The picture pumps on the kicks the drums really
 play (`score.pulse(f, { part = "drums", note = "kick", range = "one..slow" })`)
-and flashes on the drops' impacts (`score.hits { part = "fx", note = "C2" }`,
-a `flash` cue `inspect` checks against the song). The drops' risers, impacts
-and crashes are the song's `transition = "impact"`.
+and flashes on the drops' booms (`score.hits { part = "fx", note = "C#2" }`,
+a `flash` cue `inspect` checks against the song). The drops' booms and
+crashes are the song's `fx` and `fx_crash` parts; what leads into a drop is
+the music itself (the build's rolls and its pad's opening filter, the
+countdown), no riser.
 
 ## Changing it
 
@@ -75,9 +86,11 @@ onimite show video.lua song/score/parts/bass   # every note a part plays
   `onimite audio render video.lua --track score/bass -o bass.wav`, check its
   level with `onimite audio analyze video.lua montage..last --track score/bass`.
   `frame`, `strip` and `inspect` don't render the music, so they stay fast.
-- Levels: the parts' `gain_db` in `music/parts.lua`; `video.lua`'s
-  `master_gain_db` and limiter finish the mix (`audio analyze`: -14.0 LUFS,
-  -1.2 dBTP).
+- Levels: the parts' `role` and `gain_db` in `music/parts.lua` (`inspect`'s
+  `role_balance` names a part outside its role's band), the per-section lanes
+  in `music/score.lua`; `video.lua`'s `master_gain_db` and limiter finish the
+  mix (`audio analyze`: -13.7 LUFS, -1.2 dBTP; -22.7 in the hush, -11 to -9
+  in the choruses).
 
 ## Scenes
 

@@ -10,8 +10,10 @@
 -- shader, its impacts flash, its spectrum drives the uniforms, and a
 -- readout follows its sections and bars. In the break ottis says a line,
 -- its words timed for the captions, the music ducking under it. It ends
--- on the suite's structure under the seven names.
+-- on the suite's structure under the seven names. media/transparent.mov
+-- isn't in the repository: fetch.sh makes it, once, before the first run.
 --
+--     examples/suite/fetch.sh
 --     onimite render examples/suite/video.lua -o suite.mp4
 
 local beat = require("beat")
@@ -285,10 +287,9 @@ video {
   buses = { music = {}, voice = {} },
   audio = { { "score", bus = "music", fade_out = 0.5, curve = "equal_power", ducked = true },
     { "suite", start = LINE_AT } },
-  -- the song mixes near -18 LUFS: lifted to about -14 under the limiter
+  -- the song mixes near -18.5 LUFS: lifted to about -14 under the limiter
   -- (audio analyze: -14.1 LUFS, -1.5 dBTP)
   master_gain_db = 4.4,
-  limiter = { ceiling_db = -1.5 },
   render = function(f)
     local b = score.beat(f)
     rect { x = 0, y = 0, w = 1920, h = 1080, fill = ui.BG }

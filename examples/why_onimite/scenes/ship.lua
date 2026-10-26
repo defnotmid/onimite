@@ -8,6 +8,7 @@ local beat = require("beat")
 local score = require("track")
 local ui = require("ui")
 local T = require("timeline")
+local CRASH = require("library").CRASH
 local INSTRUMENTS = require("library").INSTRUMENTS
 local facts = require("facts")
 local snap, soft = beat.snap, beat.soft
@@ -199,7 +200,7 @@ local TICKS = { sound { "tick", instruments = INSTRUMENTS, note = "C#7" }, sound
 local LANDING = { build = sound { "impact", instruments = INSTRUMENTS, duration = "2n" }, onimite = sound { "blip", instruments = INSTRUMENTS, note = "E6", duration = "16n" },
   block = sound { "thump", instruments = INSTRUMENTS, note = "A1", duration = "4n" } }
 local audio = {
-  { sound { "crash", instruments = INSTRUMENTS, duration = "2n" }, start = T.at.SHIP_TOTAL, gain_db = -8 },
+  { CRASH, start = T.at.SHIP_TOTAL, gain_db = -4 },
   { sound { "done", instruments = INSTRUMENTS, note = "E6", duration = "16n" }, start = T.at.RELOAD, gain_db = -6 },
 }
 for _, h in ipairs(HITS) do

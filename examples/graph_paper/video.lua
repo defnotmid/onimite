@@ -20,7 +20,6 @@ local GRID_MINOR, GRID_MAJOR = "#c9d8de", "#9fb9c4"
 
 local score = require("track")
 local T = score.time
-local SFX = "../../../skills/onimite-video/library/instruments/sfx.json"
 -- A section's length and where things happen in it, in its scene's seconds.
 local function span(name)
   for _, sec in ipairs(score.sections) do
@@ -34,7 +33,7 @@ end
 
 video { width = W, height = H, fps = 60, background = PAPER,
   buses = { music = {}, sfx = {} }, audio = { { "score", bus = "music" } },
-  master_gain_db = 4, limiter = { ceiling_db = -1.5 } }   -- about -14 LUFS, true peak under -1 dBTP
+  master_gain_db = 7.7 }   -- about -14 LUFS, true peak under -1 dBTP
 
 local WORD = "ONIMITE"
 local MARKS = { "onimite", "ovg", "oksl", "odecs", "ottis", "o3d", "odawg" }
@@ -302,12 +301,15 @@ local function title_block(t)
   end
 end
 
--- A tick per hard landing, pitched by the shape (a letter's note, a mark's
--- an octave down), louder for harder ones; each shape's at most every
--- 0.25 s and all of them at most every 30 ms (a pile touches thousands of
--- times).
+-- A clack per hard landing: a wooden game piece dropped on a table (a real
+-- recording: media/pieces.mp3, CC0, fetched by fetch.sh), one of its single
+-- clacks in turn, pitched a little by the shape (a mark a fifth below its
+-- letter) through the clip's speed, louder for harder landings; each shape's
+-- at most every 0.25 s and all of them at most every 30 ms (a pile touches
+-- thousands of times).
 local TITLE = T("fill@3m") - T("fill")
-local TICK_NOTES = { "D", "F", "G", "A", "C", "D", "F" }
+local CLACKS = { 9.30, 10.56, 11.24 }                  -- single clacks' onsets in pieces.mp3
+local SHAPE_STEP = { 0, 2, 4, 5, 7, 9, 11 }            -- semitones, the shapes up the scale
 local ticks, last, last_any = {}, {}, -1
 for _, c in ipairs(pile.contacts) do
   for _, b in ipairs { c.a, c.b } do
@@ -315,9 +317,10 @@ for _, c in ipairs(pile.contacts) do
     if k and c.speed > 500 and (last[k] or -1) < c.t - 0.25 and c.t - last_any >= 0.03 then
       last[k], last_any = c.t, c.t
       local _, is_mark = drop_shape(k)
-      local note = TICK_NOTES[(k - 1) % N + 1] .. (is_mark and "4" or "5")
-      ticks[#ticks + 1] = { sound { "tick", instruments = SFX, note = note }, start = c.t,
-        gain_db = remap(c.speed, 500, 3000, -10, 2), pan = clamp(c.x / W * 1.6 - 0.8, -0.8, 0.8), bus = "sfx" }
+      local semis = SHAPE_STEP[(k - 1) % N + 1] / 2 - 3 - (is_mark and 7 or 0)
+      ticks[#ticks + 1] = { "pieces.mp3", start = c.t, offset = CLACKS[#ticks % 3 + 1], stop = c.t + 0.22,
+        speed = 2 ^ (semis / 12), gain_db = remap(c.speed, 500, 3000, -6, 6), pan = clamp(c.x / W * 1.6 - 0.8, -0.8, 0.8),
+        fade_out = 0.05, bus = "sfx" }
       break
     end
   end

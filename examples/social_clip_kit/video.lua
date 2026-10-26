@@ -66,6 +66,17 @@ end
 local HEAD = { "ONE SCRIPT", "EVERY FORMAT" }
 local HEAD_SIZE = fit(HEAD, DISPLAY, 800, L.head.w, L.head.h, 180, 1.05, -2)
 
+-- The most the whole frame grows on a crash and a kick together (around its
+-- centre; the render function's punch).
+local PUNCH = 1 + 0.06 + 0.006
+-- How much larger than its box (centre cx, width w) a slam may start, at most
+-- `want`, so that under the punch it stays on the canvas: in the wide format
+-- the boxes sit off centre and get less.
+local function slam_from(want, cx, w)
+  return math.min(want, 2 * (W / 2 / PUNCH - math.abs(cx - W / 2)) / w)
+end
+local HEAD_SLAM = slam_from(1.35, L.head.cx, L.head.w)
+
 -- The three format frames: in a row across the area, or, in the tall
 -- format, 9:16 and 1:1 side by side over 16:9 as wide as both; labels
 -- under each.
@@ -135,6 +146,8 @@ do
   while stack(size) > m.h do size = size - 2 end
   local total, tag = stack(size)
   OUT.size, OUT.tag = size, tag
+  -- the wordmark's slam starts 1.25 times larger, or as much as stays on the canvas
+  OUT.slam = slam_from(1.25, m.cx, m.w)
   OUT.mark = m.y + (m.h - total) / 2 + size * 0.8
   OUT.tagline = OUT.mark + tag * 1.7
   OUT.pill = OUT.tagline + PILL.size * 2.3
@@ -238,7 +251,7 @@ local function hook(f, gb, lb)
     local p = ease(SNAP, since(gb, at))
     if p > 0 then
       local y = y0 + (k - 1) * lead
-      group({ transform = { scale = 1.35 - 0.35 * p, origin = { hd.cx, y - HEAD_SIZE * 0.35 } }, opacity = clamp01(p * 3) },
+      group({ transform = { scale = HEAD_SLAM - (HEAD_SLAM - 1) * p, origin = { hd.cx, y - HEAD_SIZE * 0.35 } }, opacity = clamp01(p * 3) },
         function()
           text { line, x = hd.cx, y = y, align = "center", font = DISPLAY, size = HEAD_SIZE, weight = 800,
             letter_spacing = -2, fill = k == 1 and PAPER or th.accent }
@@ -397,7 +410,7 @@ local function outro(f, gb, lb)
   bo(f, st.cx, st.cy, st.w * 1.1 * (0.85 + 0.15 * s), clamp01(s * 2))
   local m = L.mark
   local mp = ease(SNAP, since(gb, T.MARK))
-  group({ transform = { scale = 1.25 - 0.25 * mp, origin = { m.cx, OUT.mark - OUT.size * 0.35 } },
+  group({ transform = { scale = OUT.slam - (OUT.slam - 1) * mp, origin = { m.cx, OUT.mark - OUT.size * 0.35 } },
     opacity = clamp01(mp * 3) }, function()
     text { "onimite", x = m.cx, y = OUT.mark, align = "center", font = DISPLAY, size = OUT.size, weight = 800,
       letter_spacing = -6, fill = PAPER }
@@ -456,14 +469,12 @@ video {
   audio = { { "score", bus = "music", fade_out = 0.6 } },
   -- the song mixes near -17.5 LUFS: lifted to about -14 under the limiter
   -- (audio analyze: -14.1 LUFS, -1.5 dBTP)
-  master_gain_db = 3.4,
-  limiter = { ceiling_db = -1.5 },
+  master_gain_db = 4.9,
   render = function(f)
     local gb = score.beat(f)
     backdrop(f, gb)
-    local punch = 1 + 0.06 * score.pulse(f, CUT)
-    local kick = score.pulse(f, KICK)
-    group({ transform = { scale = punch + 0.006 * kick, origin = { W / 2, H / 2 } } }, function() render_scenes(f) end)
+    local punch = 0.06 * score.pulse(f, CUT) + 0.006 * score.pulse(f, KICK)   -- at most PUNCH - 1
+    group({ transform = { scale = 1 + punch, origin = { W / 2, H / 2 } } }, function() render_scenes(f) end)
     captions(f.global_seconds, CAPTIONS)
     progress_bar(gb)
     local flash = score.pulse(f, FLASH)

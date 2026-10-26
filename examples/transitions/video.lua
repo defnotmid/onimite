@@ -86,7 +86,7 @@ local function card(i, c)
   end
 end
 
-video { width = 1920, height = 1080, fps = 30, background = BG }
+video { width = 1920, height = 1080, fps = 60, background = BG }
 
 for i, c in ipairs(CARDS) do
   scene { c[1], duration = i == 1 and 1.5 or 1.75, transition = c[2], render = card(i, c) }

@@ -7,7 +7,7 @@ local score = require("track")
 
 local T = {}
 
-T.FPS = 30
+T.FPS = 60
 
 -- the beat of a position ("formats", "outro@0:3", "end"), or of each hit
 local function B(pos) return score.beat(score.time(pos)) end

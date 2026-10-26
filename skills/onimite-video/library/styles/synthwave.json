@@ -3,6 +3,7 @@
   "instruments": "../instruments/classic.json",
   "parts": {
     "drums": {
+      "role": "drums",
       "instrument": "../machines/909.json",
       "octave": 3,
       "gain_db": -3,
@@ -17,6 +18,7 @@
       ]
     },
     "bass": {
+      "role": "bass",
       "instrument": {
         "name": "MonoSynth",
         "oscillator": { "type": "sawtooth" },
@@ -31,6 +33,7 @@
       "play": [ { "energy": [0.4, 1], "degrees": "1 8 1 8 1 8 1 8", "subdivision": "8n", "duration": "16n" } ]
     },
     "pad": {
+      "role": "pad",
       "instrument": {
         "name": "Synth",
         "oscillator": { "type": "fatsawtooth", "count": 3, "spread": 24 },
@@ -47,6 +50,7 @@
       "play": [ { "energy": [0, 1], "chords": { "voicing": "open" }, "velocity": 0.7 } ]
     },
     "arp": {
+      "role": "counter",
       "instrument": "pluck",
       "octave": 4,
       "gain_db": -12,

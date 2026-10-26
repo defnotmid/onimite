@@ -753,7 +753,7 @@ paint_shape :: proc(r: ^Renderer, style: Shape_Style, rule := vg.Fill_Rule.Non_Z
 layout_text :: proc(r: ^Renderer, t: Text) -> ^vg.Text_Layout {
 	// Paint tags: 0 is the text's own fill, i + 1 is span i's.
 	clear(&r.pieces)
-	style := vg.Text_Style{family = t.font, size = t.size, weight = t.weight, italic = t.italic, letter_spacing = t.letter_spacing, features = t.features}
+	style := vg.Text_Style{family = t.font, size = t.size, weight = t.weight, italic = t.italic, letter_spacing = t.letter_spacing, features = t.features, variations = t.variations}
 	append(&r.pieces, vg.Text_Piece{t.text, style, 0, 0})
 	for span, i in t.spans {
 		st := style
@@ -767,7 +767,8 @@ layout_text :: proc(r: ^Renderer, t: Text) -> ^vg.Text_Layout {
 		append(&r.pieces, vg.Text_Piece{span.text, st, span.dx, span.dy})
 	}
 	l := &r.text
-	vg.text_layout(&r.media.fonts, r.pieces[:], {t.x, t.y, vg.Text_Align(t.align), vg.Text_Baseline(t.baseline), t.line_height}, l)
+	fonts := media_text_fonts(r.media, t.font, t.weight, t.italic, t.variations)
+	vg.text_layout(fonts, r.pieces[:], {t.x, t.y, vg.Text_Align(t.align), vg.Text_Baseline(t.baseline), t.line_height}, l)
 	return l
 }
 

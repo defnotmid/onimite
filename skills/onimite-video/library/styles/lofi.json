@@ -5,6 +5,7 @@
   "instruments": "../instruments/classic.json",
   "parts": {
     "drums": {
+      "role": "drums",
       "instrument": "synth_kit",
       "octave": 3,
       "gain_db": -2,
@@ -21,6 +22,7 @@
       ]
     },
     "keys": {
+      "role": "comp",
       "instrument": {
         "name": "FMSynth",
         "harmonicity": 1,
@@ -41,6 +43,7 @@
       "play": [ { "energy": [0, 1], "chords": { "voicing": "open" }, "velocity": 0.6, "humanize": 0.012 } ]
     },
     "bass": {
+      "role": "bass",
       "instrument": {
         "name": "MonoSynth",
         "oscillator": { "type": "triangle" },

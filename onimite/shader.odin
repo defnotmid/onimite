@@ -445,6 +445,7 @@ shader :: proc(ctx: ^Context, f: Frame, p: Shader_Params) -> bool {
 			}
 		}
 		shader_report_unset(ctx, m, label, p.uniforms)
+		shader_report_frame_rate(ctx, g, pass, label)
 		for in_ in passes[pi].inputs {
 			ch := shader_input_channel(m, in_)
 			if ch < 0 {
@@ -631,6 +632,22 @@ shader_report_unset :: proc(ctx: ^Context, m: ^oksl.Module, label: string, unifo
 			}
 		}
 		report(ctx, .Warning, {code = .Shader_Unset_Uniform, name = label, a = info.name})
+	}
+}
+
+// A pass that reads its own (or any) last frame steps once a frame: unless
+// each step is scaled by iTimeDelta, what it accumulates (a trail's fade, a
+// drift, a decay) depends on the video's fps. Say so where it's written.
+@(private = "file")
+shader_report_frame_rate :: proc(ctx: ^Context, g: ^oksl.Pass_Graph, pass: oksl.Pass, label: string) {
+	if .Time_Delta in pass.module.inputs_used {
+		return
+	}
+	for e in g.edges[pass.edges.start:][:pass.edges.count] {
+		if e.source == .Previous {
+			report(ctx, .Warning, {code = .Shader_Frame_Rate, name = label, b = pass.name})
+			return
+		}
 	}
 }
 

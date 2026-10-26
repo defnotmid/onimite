@@ -136,7 +136,9 @@ end }
   (`/usr/share/fonts/`, `~/.local/share/fonts/`; macOS `/System/Library/Fonts/`,
   `/Library/Fonts/`, `~/Library/Fonts/`; Windows `C:\Windows\Fonts\`); onimite never
   reads those folders itself, so the video renders the same everywhere. `show video.lua fonts`
-  lists the families text can use.
+  lists the families text can use. A variable font draws at any instance:
+  `text{ ..., variations = { wght = 650, wdth = 90 } }` (and `weight` alone moves its `wght`);
+  a sweep steps through a set of values, each made once and kept (`references/api.md`).
 - `require("name")` and `dofile` resolve beside the script; `SCRIPT_DIR` is its directory
   (for `io.open` on data files). Script lines in errors, `inspect` and `show` (and a file's
   `debug.getinfo` source) are paths from the script's folder (`scenes/race.lua:23`), whatever
@@ -151,9 +153,9 @@ The examples in the onimite repository are working patterns to read and borrow f
 
 | example | shows |
 | --- | --- |
-| `examples/onimite_saga` | a 2 min film laid out for agents: a manifest, one file per scene on its section, a song whose sections follow the scenes with tempo ramps (`music/score.lua`), its parts in their own files, `sound{}` effects; its README shows how to find and change any part |
-| `examples/disco` | a song from a JSON5 file on a style of its own (`media/styles/french_disco.json`) whose instruments are other people's CC0 libraries fetched by URL and pinned; buses (a pump keyed by the kick, a dark filter); a picture that reads the song: a ray-traced club in shader `passes` (a mirror ball throwing flecks, haze traced at half resolution in a scaled shader fed in as an input, a spectrum floor), a scene per section |
-| `examples/why_onimite` | 50 s beat-synced promo: BPM clock (`beat_clock` in `beat.lua`), quick cuts as a `series`, one timeline of beats for picture and sound (`timeline.lua`), sections as sync points (`cue()` and each scene's `cue`), soundtrack composed with `song{}` (`track.lua`) and read back for the cuts (`score.time`, `score.hits`), glitch cuts, shader title, spectrum outro |
+| `examples/onimite_saga` | a 2 min film laid out for agents: a manifest, one file per scene on its section, a song whose sections follow the scenes with tempo ramps (`music/score.lua`: K-pop's switch-ups in C# minor, VS Chamber Orchestra 2's string sections in the void, a dembow verse, a Jersey club chorus on the royal road, the tape stopping), its parts in their own files with their `role`s, `sound{}` effects with recorded ones where something physical lands (a fetched swoosh, a sampled crash, an 808 boom); its README shows how to find and change any part |
+| `examples/disco` | a song from a JSON5 file (`media/song.json`, which odawg's CLI renders too), French touch with no style: one loop through a bus of distortion, a low-pass whose cutoff lane is the arrangement and the library's phaser row; voices of its own (a talk box, a driven bass) layered with other people's CC0 libraries fetched by URL and pinned; every part ducking under the kick by note sidechain; a `role` on every part; a picture that reads the song (its lights follow the filter's lane): a ray-traced club in shader `passes` (a mirror ball throwing flecks, haze traced at half resolution in a scaled shader fed in as an input, a spectrum floor), a scene per section |
+| `examples/why_onimite` | 53 s beat-synced promo: BPM clock (`beat_clock` in `beat.lua`), quick cuts as a `series`, one timeline of beats for picture and sound (`timeline.lua`), sections as sync points (`cue()` and each scene's `cue`), soundtrack composed with `song{}` (`track.lua`: UK garage, a 2-step on the 909, a sliding sub and a warping bass of its own, a recorded crash) and read back for the cuts (`score.time`, `score.hits`), glitch cuts, shader title, spectrum outro |
 | `examples/suite` | one composition per frame: an SkSL world warping a `uniform shader` group child, an SVG animated by id, ProRes 4444 and VP9-alpha clips in masked portals, a WebP skyline, spectrum-driven uniforms |
 | `examples/data_story` | 30 s explainer drawn from `props` (one video per `--batch` row): springy bar chart with `stagger`, a line drawn on, a donut, counters, `mix_color`, scene transitions |
 | `examples/motion_poster` | generative 1080x1350 poster from noise: `turbulence` and animated `morphology` filters, `noise()`, an SkSL warp, beat-synced ripples |
@@ -161,7 +163,7 @@ The examples in the onimite repository are working patterns to read and borrow f
 | `examples/designer_handoff` | designer files in: `tokens.json` via `json_decode` (colours, type, spacing, copy), an SVG drawn on from its own paths (`shared` + `path_data`) then shown with `svg{}` overrides, a Lottie badge recoloured from the tokens |
 | `examples/shadertoy_multipass` | Shadertoy multipass: Common + two feedback buffers + Image, a group channel feeding a buffer, buffers at half resolution |
 | `examples/shader_passes` | `passes` in two dialects: an SkSL trail reading its own last frame (feedback) and a group input, coloured by a GLSL pass |
-| `examples/captions_demo` | word-level TikTok captions from a Whisper-style JSON: `captions{}` with a sliding box and a colour pop, `max_duration` / `combine_ms` paging, synthesized beat |
+| `examples/captions_demo` | word-level TikTok captions from a Whisper-style JSON: `captions{}` with a sliding box and a colour pop, `max_duration` / `combine_ms` paging, an Afrobeats song under it (Karoryfer's guitar SFZ through `sources`, an 808 groove, FM keys, a VSCO flute) |
 | `examples/lottie_demo` | `lottie{}`: After Effects (Lottie) animations at the scene clock, a speed / offset, a script-picked frame, a per-layer override; `lottie_info` |
 | `examples/svg_demo` | `svg{}` with per-id overrides (a flapping bird) |
 | `examples/three_d` | `view3d{}`: a 3D scene in three.js's terms (an orbiting camera, a shadow-casting light, standard, metal, basic and custom `ShaderMaterial` meshes, a textured floor, a generated sky as the environment, a transparent outline label on the floor drawn from its curves) under a 2D title card |
@@ -173,7 +175,7 @@ The examples in the onimite repository are working patterns to read and borrow f
 | `examples/physics_demo` | rigid bodies: `physics{}` simulated once at load (in `shared`), tiles dropped into a word with `start` staggers, `physics_at` per frame, a pop per impact from `sim.contacts` (the saga's NotNeeded scene: a wrecking ball on a rope; why_onimite's Ship: 311 grains poured) |
 | `examples/otfx` | otfx's terminal text effects (decrypt, burn, thunderstorm) full screen on a cell grid, played with `preview --bare --fullscreen`, text from `--set text=...`: a per-character timeline built at load from seeded `hash` draws, read by tick each frame; block elements drawn as rects so the banner's halves meet; `require`d modules shared between effects (`term.lua`, `effects/NAME.lua`); beyond a terminal: burn's SkSL fire reads a heat map drawn as a group child (`shader{ uniforms = { uHeat = function() ... end } }`), thunderstorm lights each glyph by its distance to the bolt, flickers return strokes and blooms (`group{ bloom = ... }`) |
 | `examples/audio_demo` | tracks on video and scenes, voice + ducking, SFX on animation constants |
-| `examples/voiceover` | spoken lines made with `say()` (text to speech with word times), their captions, keys and SFX on spoken words (`say_cue`), a pad ducking under the voice; its README explains the `cue_no_hit` findings left on run-together words |
+| `examples/voiceover` | spoken lines made with `say()` (text to speech with word times), their captions, keys and SFX on spoken words (`say_cue`: recorded CC0 effects fetched by `fetch.sh`), chamber strings and piano ducking under the voice; its README explains the `cue_no_hit` findings left on run-together words |
 | `examples/cuts` | an edit as a list of cuts: `scene{ clip = { file, from, to } }` per row, clips of other sizes and frame rates (a 9:16 60 fps phone clip letterboxed, 24 fps footage), whole files and ranges, fade / slide / wipe between cuts with the sound crossfading, a label naming each cut |
 | `examples/footage` | footage anywhere a picture goes: a clip inside an SVG's silhouette (Pip, `mask_type = "alpha"`), inside text, through an SkSL ripple (a clip as a shader child), a grid at four speeds and backwards; each scene's clip row (`picture = false`) places the sound, its render draws the same row's picture |
 | `examples/media_demo` | `video_frame` clip with its sound, WebVTT `subtitle_at`, `audio_spectrum` bars, durations from media |
@@ -319,7 +321,7 @@ with commas.
 | --- | --- |
 | `show [PATH] [--at T] [--page N]` | explore the video like a debugger's watch window: the video, then `scenes`, `scene/Race`, `scene/Race/nodes`, `cue/drop`, `bus/sfx`, `track/12`, `clip/x`, `says`, `say/intro` (a spoken line's words and times), `say/intro/3` (one word, and when each track playing it says it on the video), `songs`, `song/score` (a song's sections, parts and automation lanes), `song/score/parts/bass` (every note on the video), `song/score/automation/parts/pad/cutoff` (a lane's points), `instruments` and `instrument/MonoSynth` (the built-in rows, as data to copy), `media` and `media/logo.png` (the files besides sounds), `fonts`, `bodies` and `body/ball` (what `physics{}` and `physics3d{}` simulated: start, end, still moving), `marks` and `mark/2` (what the user marked in the preview), `node/scenes/race.lua:19[2]`; an unknown path lists the ones there are; each has a summary, its fields, its children by path (20 a page) and the script line that made it |
 | `timeline [RANGE]` | scenes (with their cue and the file and line that defines them), audio tracks, cues, songs (sections, tracks); a range lists only what happens in it |
-| `inspect [RANGE] [--every 0.1s \| --all-frames] [--info] [--fail-on error\|warning\|never]` | find problems without looking (exit 2 on failure; `--info` also lists text entirely off canvas) |
+| `inspect [RANGE] [--every 0.1s \| --all-frames] [--info] [--fail-on error\|warning\|never]` | find problems without looking (exit 2 on failure; `--info` also lists text entirely off canvas). It checks a frame every 0.25 s, each scene's first and last frame and the first frames after every cue and scene start (where a slam overshoots); run it with `--all-frames` once before delivering, since a motion between checked frames goes unseen otherwise |
 | `strip [RANGE] -n N [--columns 4] [--width 480] [-o strip.png]` | flow and motion in one image |
 | `frame SPECS [-o frames] [--svg]` | full-size PNGs; `--svg` also writes each frame's node tree as SVG to read positions, text and colours |
 | `onion RANGE [-n 6] [-o onion.png]` | a movement's trajectory and easing |
@@ -332,7 +334,7 @@ with commas.
 | `audio render [RANGE] [-o audio.wav] [--float]` | the mix as a stereo WAV |
 | `audio onsets [RANGE] [--min 0.1]` | where sounds start (seconds, strength) and the beat (BPM, first beat) |
 | `audio pin` | fetch what the songs play from their sources and write their pins (after a `not_pinned` finding, or a new source); fails when a file couldn't be fetched |
-| `audio parts [--against parts.json]` | each song alone, part by part: notes, the first of them, LUFS, peak; keep a `--json` of a song you like, and `--against` it after a change names each part that moved (exit 1) |
+| `audio parts [--against parts.json]` | each song alone, part by part: notes, the first of them, LUFS, peak, and the balance table (each part's LU under the song's mix in every section, with its peak): level the parts from it; keep a `--json` of a song you like, and `--against` it after a change names each part that moved (exit 1) |
 | `probe FILE...` | the streams of media files (container, video, audio) |
 | `update [--check]` | replace an installed release with the latest (`--check`: only say whether one is out) |
 
@@ -517,11 +519,13 @@ sample, a layer only on hard notes); `references/audio.md`, "Songs and sounds" a
 "Instruments"). An instrument the sample sets don't have (a harp, a flute, a trumpet) is a
 free library's own SFZ played through the song's `sources` and pinned with `onimite audio
 pin`, never its samples mapped by file name (names lie: VSCO's run an octave low), levelled
-by measurement (`references/sound_design.md`, "An instrument the sets don't have"); `inspect`
-names the raise for a part buried under the mix (`buried_part`). This
+by measurement (`references/sound_design.md`, "An instrument the sets don't have"). Give every
+part a `role` (`melody`, `counter`, `bass`, `drums`, `comp`, `pad`, `fx`, `texture`): `inspect`
+names each part outside its role's level band and the change that fixes it (`role_balance`). This
 skill's `library/` folder (copy what you use into `media/`) shows how voices and songs are
-built: programmed synth voices (`instruments/synths.json`), drums, sound effects, a TB-303,
-the TR-808/909 from their circuits and four variants of them, seven styles and reference
+built: programmed synth voices (`instruments/synths.json`), effects as rows of nodes (a phaser,
+flanger, tremolo, autopan, autowah: `instruments/effects.json`), drums, sound effects, a TB-303,
+the TR-808/909 from their circuits and four variants of them, seven styles (presets: a song needn't be one, and every example song is written without: its own parts, instrument rows and effect rows) and reference
 songs in ten genres (`songs/`; `sfz_chamber.json` plays VS Chamber Orchestra 2's own SFZ
 files). It is techniques to learn from, not sounds to reuse: write
 the song's own voices and patterns for its video, at least the lead and the pad (or whatever
@@ -534,7 +538,7 @@ sections; let sections run long enough for a musical phrase instead of cutting o
 scene. Place the song
 like a clip (`{ "score", bus = "music", ducked = true }`); its sections are cues, and its
 notes drive the picture (`score.time("drop@1m")`, `score.pulse(f, { part = "drums", note =
-"kick" })`, `score.hits { ... }`). Sound effects: `sound { "impact", instruments = "instruments/sfx.json" }`. Lines first, then the
+"kick" })`, `score.hits { ... }`). Sound effects: generated (`sound { "impact", instruments = "instruments/sfx.json" }`) or downloaded (real recordings for anything physical: footsteps, a match, water, a whoosh of air; CC0 from Freesound's CC0 filter, Kenney's audio packs or OpenGameArt, placed from `media/` like any clip; `references/audio.md`, "Files"). Lines first, then the
 song, then placement (say → song → placement), one leader per moment (`say_cue` for the
 music following the voice, `say_start` for the voice following the music).
 Time SFX from the same constants that drive the animation. Check with `audio analyze`

@@ -299,8 +299,7 @@ video {
   width = 1920, height = 1080, fps = T.FPS, duration = score.duration, background = ui.BG,
   audio = { { "score", fade_out = 0.8 } },
   -- the song lifted to about -14 LUFS under the limiter
-  master_gain_db = 7.9,
-  limiter = { ceiling_db = -1.2 },
+  master_gain_db = 10.6,
   render = function(f)
     local t = f.global_seconds
     local kick = score.pulse(f, { part = "drums", note = "kick", decay = 9 })   -- the kicks really played

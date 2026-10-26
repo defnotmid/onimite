@@ -19,7 +19,7 @@ local function dots(t)
   end
 end
 
-video { width = W, height = H, fps = 30, duration = 6, background = "#06070b",
+video { width = W, height = H, fps = 60, duration = 6, background = "#06070b",
   render = function(f)
     local t = f.index / f.fps
     shader(f, { x = 0, y = 0, w = W, h = H,
@@ -28,6 +28,6 @@ video { width = W, height = H, fps = 30, duration = 6, background = "#06070b",
           inputs = { uLast = "trail", uDots = function() dots(t) end } },
         { name = "show", src = "shaders/show.frag", inputs = { uTrail = "trail" } },
       },
-      uniforms = { uFade = 0.965 } })
+      uniforms = { uFade = 0.3434 } }) -- the trail kept after a second
   end,
 }

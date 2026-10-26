@@ -1,42 +1,346 @@
 {
-  // A French disco house track on styles/french_disco.json: the style
-  // brings the band (its sources, its mappings, its parts by energy); the
-  // song brings the form, the harmony and the mix. Everything the music
-  // goes through pumps under the kick (the pump bus listens to it), and the
-  // intro and the break come through a dark filter of their own.
-  "name": "French disco",
-  "bpm": 122,
-  "key": "D minor",
-  "seed": 1979,
+  // French touch, hard and electronic: Stardust's filtered pump, Bob
+  // Sinclar's "Gym Tonic" and "I Feel for You" clap-and-chop disco loops and
+  // Flight Facilities' glossy synths as inspiration, none of them copied.
+  // The band plays one loop (a driven synth bass with a fingered bass inside
+  // it, funk guitar chops, saw stabs with an upright piano in them, a string
+  // pad) and the whole loop goes through one low-pass and a grain of
+  // distortion, the `loop` bus. Its cutoff is the song: shut, a club heard
+  // through a wall, in the intro; opening over the groove; wide open for the
+  // hook; falling back and resonating in the break; climbing a bar into the
+  // drop (the build is the filter, no riser); closing again in the outro.
+  // Everything ducks hard under the 909 kick (each part's sidechain on
+  // drums/kick, the kick's notes). Over the loop: a talk-box lead of our own
+  // (a saw and a pulse through three formant band-passes that open from "oo"
+  // to "ah" on each note, driven), the violin section answering it in the
+  // hook and a sixteenth-note synth arpeggio in the drop.
+  //
+  // B-flat minor at 126: the loop is a dorian vamp (Bbm9 to Eb9, its major
+  // third the colour), the hook steps down Gbmaj9 Fm7 Ebm9 Ab13, the break
+  // turns on F7 into the drop. The bass is played, not bounced: each bar's
+  // last sixteenth leads a half step into the next root.
+  //
+  // Every recorded instrument is a CC0 library's own SFZ, fetched from where
+  // its authors publish it and pinned by SHA-256 (pins/); the percussion is
+  // a set of VCSL's files written out here.
+  "name": "French touch",
+  "bpm": 126,
+  "key": "Bb minor",
+  "seed": 1998,
+  "swing": 0.05,
+  "swing_subdivision": "16n",
+  "gain_db": -15,
+  "sources": {
+    "fashionbass": {
+      "url": "https://raw.githubusercontent.com/sfzinstruments/karoryfer.fashionbass/0703973b300a6bacb837602be9b588ab64732a72/",
+      "page": "https://github.com/sfzinstruments/karoryfer.fashionbass",
+      "licence": "CC0-1.0",
+      "credit": "Fashionbass by Karoryfer Samples (D. Smolken), CC0 1.0",
+      "pins": "pins/fashionbass.pins"
+    },
+    "emily": {
+      "url": "https://raw.githubusercontent.com/sfzinstruments/karoryfer.emilyguitar/b4920dc662fd9cad6dcaccdeecffdd91c8725d8c/",
+      "page": "https://github.com/sfzinstruments/karoryfer.emilyguitar",
+      "licence": "CC0-1.0",
+      "credit": "Emilyguitar by Karoryfer Samples (D. Smolken), CC0 1.0",
+      "pins": "pins/emily.pins"
+    },
+    "vsco": {
+      "url": "https://raw.githubusercontent.com/sgossner/VSCO-2-CE/6dd651d55dde97fd4028699be9d4481f26917891/",
+      "page": "https://github.com/sgossner/VSCO-2-CE/tree/SFZ",
+      "licence": "CC0-1.0",
+      "credit": "VS Chamber Orchestra 2: Community Edition by Versilian Studios LLC, CC0 1.0",
+      "pins": "pins/vsco.pins"
+    },
+    "vcsl": {
+      "url": "https://raw.githubusercontent.com/sgossner/VCSL/c1ea7bcc3c7309650ab0da9d15c9cd1fbc4a4c7e/",
+      "page": "https://github.com/sgossner/VCSL",
+      "licence": "CC0-1.0",
+      "credit": "Versilian Community Sample Library (VCSL) by Versilian Studios, CC0 1.0",
+      "pins": "pins/vcsl.pins"
+    }
+  },
+  "sets": {
+    // hand percussion on its pads, a list a round robin
+    "percussion": {
+      "pads": {
+        "tambourine": [
+          { "file": "vcsl/Idiophones/Struck Idiophones/Tambourine 1/Tamb1_Shake_rr1_Mid.wav", "hi_velocity": 90 },
+          { "file": "vcsl/Idiophones/Struck Idiophones/Tambourine 1/Tamb1_Shake_rr2_Mid.wav", "hi_velocity": 90 },
+          { "file": "vcsl/Idiophones/Struck Idiophones/Tambourine 1/Tamb1_Hit_v2_rr1_Mid.wav", "lo_velocity": 91 }
+        ],
+        "shaker": [ "vcsl/Idiophones/Struck Idiophones/Shaker, Small/Mid_ShakerDouble_Down_rr1.wav", "vcsl/Idiophones/Struck Idiophones/Shaker, Small/Mid_ShakerDouble_Up_rr1.wav" ],
+        "conga_mid": [ "vcsl/Membranophones/Struck Membranophones/Conga/Conga_HitN_v2_rr1_Sum.wav", "vcsl/Membranophones/Struck Membranophones/Conga/Conga_HitN_v2_rr2_Sum.wav" ],
+        "conga_high": [ "vcsl/Membranophones/Struck Membranophones/Conga/Quinto_HitN_v2_rr1_Sum.wav", "vcsl/Membranophones/Struck Membranophones/Conga/Quinto_HitFM1_v2_rr1_Sum.wav" ]
+      },
+      "credit": "Versilian Community Sample Library (VCSL) by Versilian Studios, CC0 1.0"
+    }
+  },
+  "effects": "../../../skills/onimite-video/library/instruments/effects.json",
+  "instruments": [
+    "../../../skills/onimite-video/library/instruments/synths.json",
+    {
+      // the talk box: a saw and a pulse (the voice) through three formant
+      // band-passes; the first two open from "oo" to "ah" as each note
+      // starts and settle back a little (the mouth), a slow vibrato fades in
+      // on held notes, and tied notes glide
+      "talk": {
+        "mono": true,
+        "portamento": 0.045,
+        "options": { "mouth": "mouth/attack", "vowel": [ "f1/frequency/octaves", "f2/frequency/octaves" ] },
+        "nodes": {
+          "vib": { "class": "Lfo", "rate": 5.2, "delay": 0.25, "fade": 0.3 },
+          "saw": { "class": "Osc", "wave": "sawtooth", "frequency": { "by": "vib", "octaves": 0.008 } },
+          "buzz": { "class": "Osc", "wave": "pulse", "width": 0.3, "gain_db": -6, "frequency": { "by": "vib", "octaves": 0.008 } },
+          "voice": { "class": "Mix", "inputs": [ "saw", "buzz" ] },
+          "mouth": { "class": "Env", "attack": 0.09, "decay": 0.3, "sustain": 0.65, "release": 0.12 },
+          "f1": { "class": "Filter", "type": "bandpass", "q": 4.5, "input": "voice", "frequency": { "base": 330, "by": "mouth", "octaves": 1.15 } },
+          "f2": { "class": "Filter", "type": "bandpass", "q": 6, "input": "voice", "frequency": { "base": 820, "by": "mouth", "octaves": 0.6 } },
+          "f3": { "class": "Filter", "type": "bandpass", "q": 7, "input": "voice", "frequency": 2700, "gain_db": -8 },
+          "vowels": { "class": "Mix", "inputs": [ "f1", "f2", "f3" ] },
+          "drive": { "class": "Drive", "input": "vowels", "amount": 2.2, "oversample": 1 },
+          "env": { "class": "Env", "attack": 0.008, "decay": 0.2, "sustain": 0.85, "release": 0.1 },
+          "out": { "class": "Mix", "inputs": [ "drive" ], "amp": "env", "gain_db": 6 }
+        },
+        "out": "out"
+      },
+      // the grit: a saw and a square an octave down through a resonant ladder
+      // a short envelope barks open (harder notes further), driven hard; one
+      // voice, sliding into notes marked ~
+      "grit": {
+        "mono": true,
+        "portamento": 0.03,
+        "options": { "cutoff": "lp/frequency", "bark": "lp/frequency/octaves" },
+        "nodes": {
+          "saw": { "class": "Osc", "wave": "sawtooth" },
+          "sq": { "class": "Osc", "wave": "square", "ratio": 0.5, "gain_db": -5 },
+          "both": { "class": "Mix", "inputs": [ "saw", "sq" ] },
+          "bark": { "class": "Decay", "time": 0.16 },
+          "lp": { "class": "Ladder", "input": "both", "q": 2.6,
+                  "frequency": [ { "base": 260, "by": "bark", "octaves": 2.4 }, { "by": "velocity", "octaves": 1 } ] },
+          "drive": { "class": "Drive", "input": "lp", "amount": 2.6, "oversample": 2 },
+          "env": { "class": "Env", "attack": 0.003, "decay": 0.25, "sustain": 0.8, "release": 0.06 },
+          "out": { "class": "Mix", "inputs": [ "drive" ], "amp": "env", "gain_db": -14 }
+        },
+        "out": "out"
+      },
+      // the bass: the grit with Karoryfer's fingered bass inside it
+      "bassline": {
+        "layers": [
+          { "instrument": "grit" },
+          { "instrument": { "name": "fashionbass/fashionbass_clean.sfz", "ampeg_release": 0.08 }, "gain_db": -8 }
+        ]
+      },
+      // the stabs: the library's saw stab with an upright piano in it
+      "stabs": {
+        "layers": [
+          { "instrument": { "name": "stab", "decay": 0.22 } },
+          { "instrument": { "name": "Sampler", "set": "vcsl/upright_piano", "release": 0.2 }, "gain_db": -6 }
+        ]
+      },
+      // the pad: the violas' section with the library's synth pad in it
+      "silk": {
+        "layers": [
+          { "instrument": { "name": "vsco/ViolaEnsSusVib-Quiet.sfz", "ampeg_attack": 0.4, "ampeg_release": 0.9 } },
+          { "instrument": { "name": "pad", "attack": 0.4, "cutoff": 1400 }, "gain_db": -8 }
+        ]
+      }
+    }
+  ],
   "sections": [
-    { "name": "intro", "duration": "8m", "style": "styles/french_disco.json", "energy": 0.35, "chords": "Dm9 G9 Cmaj9 Am9" },
-    { "name": "groove", "duration": "8m", "energy": 0.6, "chords": "Dm9 G9 Cmaj9 Am9" },
-    { "name": "lift", "duration": "8m", "energy": 0.8, "chords": "Dm9 G9 Cmaj9 Am9" },
-    { "name": "break", "duration": "4m", "energy": 0.3, "chords": "Bbmaj9 Am9 Gm9 A7", "transition": "none" },
-    { "name": "drop", "duration": "8m", "energy": 1, "chords": "Dm9 G9 Cmaj9 Am9", "transition": "none" },
-    { "name": "outro", "duration": "4m", "energy": 0.5, "chords": "Dm9 G9", "transition": "none" }
+    { "name": "intro", "duration": "8m", "chords": "Bbm9 Eb9" },
+    { "name": "groove", "duration": "8m", "chords": "Bbm9 Eb9" },
+    { "name": "hook", "duration": "8m", "chords": "Gbmaj9 Fm7 Ebm9 Ab13" },
+    { "name": "break", "duration": "4m", "chords": "Gbmaj9 Fm7 Ebm9 F7" },
+    { "name": "drop", "duration": "8m", "chords": "Bbm9 Eb9 Bbm9 Eb9 Gbmaj9 Fm7 Ebm9 Ab13" },
+    { "name": "outro", "duration": "4m", "chords": "Bbm9 Eb9" }
   ],
   "buses": {
-    "dark": { "effects": [ { "name": "Filter", "type": "lowpass", "frequency": 650, "q": 2.5, "rolloff": -24 } ], "to": "pump" },
-    "pump": { "key": "kick", "effects": [ { "name": "Compressor", "threshold": -26, "ratio": 5, "attack": 0.004, "release": 0.16, "knee": 6 } ] }
-  },
-  "parts": {
-    "bass": { "to": "pump" },
-    "guitar": { "to": "pump" },
-    "violins": { "to": "pump" },
-    "brass": { "to": "pump" },
-    "trombone": { "to": "pump" },
-    "strings": { "to": "pump" },
-    // the chops before the band comes in, through the dark filter
-    "guitar_dark": {
-      "instrument": { "name": "emily/emily_clean.sfz", "ampeg_release": 0.05 },
-      "to": "dark",
-      "gain_db": -4.7,
-      "pan": -0.35,
-      "play": [
-        { "range": "intro", "octave": 4, "humanize": 0.006, "chords": { "rhythm": "..x..x.x..x..x.x", "voicing": "close" }, "duration": "32n", "velocity": 0.75 },
-        { "range": "break", "octave": 4, "humanize": 0.006, "chords": { "rhythm": "x.....x.....x...", "voicing": "close" }, "duration": "16n", "velocity": 0.7 }
+    // the loop's grit, then its one filter (so a shut filter takes the grit's
+    // edge away too), then the library's phaser sweeping it every four
+    // seconds
+    "loop": {
+      "effects": [
+        { "name": "Distortion", "distortion": 0.3, "wet": 0.25 },
+        { "name": "Filter", "type": "lowpass", "frequency": 260, "q": 1.4, "rolloff": -24 },
+        { "name": "phaser", "rate": 0.25, "feedback": 0.5 }
       ]
     }
+  },
+  "returns": {
+    "room": [ { "name": "Reverb", "decay": 0.8, "pre_delay": 0.004 }, { "name": "Filter", "type": "highpass", "frequency": 250 } ],
+    "hall": [ { "name": "Reverb", "decay": 2.2, "pre_delay": 0.02 }, { "name": "Filter", "type": "highpass", "frequency": 300 } ],
+    "echo": [ { "name": "PingPongDelay", "delay_time": "8n.", "feedback": 0.32, "wet": 1 }, { "name": "Filter", "type": "lowpass", "frequency": 3200 } ]
+  },
+  "parts": {
+    // the 909, driven: the kick from the first bar (everything else ducks
+    // under it), an open hat on each off-beat from the fifth, sixteenth hats
+    // and a doubled clap from the groove with a ghost before the bar's end, a
+    // crash on the hook and the drop; the break keeps only the hats, ticking
+    // from its third bar
+    "drums": {
+      "role": "drums",
+      "instrument": { "name": "machines/909.json", "tone": 0.5, "decay": 0.7 },
+      "effects": [ { "name": "Distortion", "distortion": 0.2, "wet": 0.3 } ],
+      "gain_db": 0,
+      "sends": { "room": -18 },
+      "play": [
+        { "range": "intro..intro@4m", "humanize": 0.002, "steps": { "kick": "x...x...x...x..." } },
+        { "range": "intro@4m..", "humanize": 0.002, "steps": { "kick": "x...x...x...x...", "open_hat": "..o...o...o...o." } },
+        { "range": "groove", "humanize": 0.003, "steps": {
+            "kick": "x...x...x...x...", "hat": "xo.oxo.oxo.oxo.o", "open_hat": "..x...x...x...x.",
+            "clap": [ "....x.......x...", "....x.......x..o" ] } },
+        { "range": "hook", "humanize": 0.003, "steps": {
+            "kick": "X...x...x...x...", "hat": "xo.oxo.oxo.oxo.o", "open_hat": "..x...x...x...x.",
+            "clap": [ "....X.......X...", "....X.......X..o" ], "snare": "....x.......x...",
+            "crash": [ "X...............", "", "", "", "", "", "", "" ] } },
+        { "range": "break@2m..", "steps": { "hat": "xxxxxxxxxxxxxxxx", "open_hat": "..x...x...x...x." } },
+        { "range": "drop..outro", "humanize": 0.003, "steps": {
+            "kick": "X...x...x...x...", "hat": "xo.oxo.oxo.oxo.o", "open_hat": "..x...x...x...x.",
+            "clap": [ "....X.......X...", "....X.......X..o", "....X.......X...", "....X..o....X.o." ], "snare": "....x.......x...",
+            "crash": [ "X...............", "", "", "", "", "", "", "" ] } }
+      ]
+    },
+    // VCSL's hands: congas from the groove, tambourine and shaker for the
+    // hook and the drop
+    "percussion": {
+      "role": "texture",
+      "instrument": { "name": "Sampler", "set": "percussion" },
+      "gain_db": 6,
+      "pan": -0.2,
+      "sends": { "room": -12 },
+      "play": [
+        { "range": "groove", "humanize": 0.005, "velocity": 0.8, "steps": {
+            "conga_high": [ "......x.....x.x.", "......x..x..x..." ], "conga_mid": "...x.......x...." } },
+        { "range": "hook", "humanize": 0.005, "steps": {
+            "tambourine": "x.x.X.x.x.x.X.xx", "shaker": "xoxoxoxoxoxoxoxo",
+            "conga_high": [ "......x.....x.x.", "......x..x..x..." ], "conga_mid": "...x.......x...." } },
+        { "range": "drop..outro", "humanize": 0.005, "steps": {
+            "tambourine": "x.x.X.x.x.x.X.xx", "shaker": "xoxoxoxoxoxoxoxo",
+            "conga_high": [ "......x.....x.x.", "......x..x..x..." ], "conga_mid": "...x.......x...." } }
+      ]
+    },
+    // the bass: the grit and the fingered bass, a line with an approach
+    // into every root; long roots in the break
+    "bass": {
+      "role": "bass",
+      "instrument": "bassline",
+      "to": "loop",
+      "sidechain": { "source": "drums/kick", "depth": 0.8, "release": 0.2 },
+      "gain_db": 12.5,
+      "play": [
+        { "range": "intro..groove", "subdivision": "16n", "velocity": 0.85, "humanize": 0.003,
+          "notes": "Bb1 - . Bb1 . . Bb2 . Ab1 . Bb1 . Db2 . D2 . | Eb2 - . Eb2 . . Eb3 . Db2 . Bb1 . G1 . A1 ." },
+        { "range": "hook", "subdivision": "16n", "velocity": 0.85, "humanize": 0.003,
+          "notes": "Gb1 - . Gb1 . . Gb2 . Db2 . Bb1 . Ab1 . Gb1 . | F1 - . F1 . . C2 . F2 . Eb2 . C2 . D2 . | Eb2 - . Eb2 . . Bb2 . Eb2 . Db2 . Bb1 . A1 . | Ab1 - . Ab1 . . Eb2 . Ab2 . Gb2 . Eb2 . G1 ." },
+        { "range": "break", "subdivision": "2n", "velocity": 0.55, "notes": "Gb1 Gb1 F1 F1 Eb2 Eb2 F1 F1" },
+        { "range": "drop", "subdivision": "16n", "velocity": 0.9, "humanize": 0.003,
+          "notes": "Bb1 - . Bb1 . . Bb2 . Ab1 . Bb1 . Db2 . D2 . | Eb2 - . Eb2 . . Eb3 . Db2 . Bb1 . G1 . A1 . | Bb1 - . Bb1 . . Bb2 . Ab1 . Bb1 . Db2 . D2 . | Eb2 - . Eb2 . . Eb3 . Db2 . Bb1 . G1 . Gb1 . | Gb1 - . Gb1 . . Gb2 . Db2 . Bb1 . Ab1 . Gb1 . | F1 - . F1 . . C2 . F2 . Eb2 . C2 . D2 . | Eb2 - . Eb2 . . Bb2 . Eb2 . Db2 . Bb1 . A1 . | Ab1 - . Ab1 . . Eb2 . Ab2 . Gb2 . Eb2 . A1 ." },
+        { "range": "outro", "subdivision": "16n", "velocity": 0.85, "humanize": 0.003,
+          "notes": "Bb1 - . Bb1 . . Bb2 . Ab1 . Bb1 . Db2 . D2 . | Eb2 - . Eb2 . . Eb3 . Db2 . Bb1 . G1 . A1 ." }
+      ]
+    },
+    // the guitar: Karoryfer's Emily, sixteenth chops, accents pushed off
+    // the beat, ghosts between
+    "guitar": {
+      "role": "comp",
+      "instrument": { "name": "emily/emily_clean.sfz", "ampeg_release": 0.05 },
+      "to": "loop",
+      "sidechain": { "source": "drums/kick", "depth": 0.8, "release": 0.2 },
+      "gain_db": 4,
+      "pan": -0.3,
+      "sends": { "room": -14 },
+      "play": [
+        { "range": "intro..break", "octave": 3, "duration": "32n", "velocity": 0.8, "humanize": 0.005,
+          "chords": { "voicing": "close", "rhythm": [ "x.oX.ox.oxo.X.ox", "x.oX.o.xoX..x.oX" ] } },
+        { "range": "drop..outro", "octave": 3, "duration": "32n", "velocity": 0.85, "humanize": 0.005,
+          "chords": { "voicing": "close", "rhythm": [ "x.oX.ox.oxo.X.ox", "x.oX.o.xoX..x.oX" ] } }
+      ]
+    },
+    // the stabs: the chord pushed ahead of the beat, harder from the hook,
+    // out for the break
+    "stabs": {
+      "role": "comp",
+      "instrument": "stabs",
+      "to": "loop",
+      "sidechain": { "source": "drums/kick", "depth": 0.8, "release": 0.2 },
+      "gain_db": -6,
+      "pan": 0.2,
+      "sends": { "room": -12 },
+      "play": [
+        { "range": "intro..groove", "octave": 4, "duration": "8n", "velocity": 0.7, "humanize": 0.004,
+          "chords": { "voicing": "close", "rhythm": [ "..x..x....x..x..", "..x..x.......x.." ] } },
+        { "range": "hook", "octave": 4, "duration": "8n", "velocity": 0.85, "humanize": 0.004,
+          "chords": { "voicing": "close", "rhythm": [ "..X..x....X..x..", "..X..x.......X.." ] } },
+        { "range": "drop..outro", "octave": 4, "duration": "8n", "velocity": 0.85, "humanize": 0.004,
+          "chords": { "voicing": "close", "rhythm": [ "..X..x....X..x..", "..X..x.......X.." ] } }
+      ]
+    },
+    // the pad under the loop from the hook to the drop, a chord a bar
+    "pad": {
+      "role": "pad",
+      "instrument": "silk",
+      "to": "loop",
+      "sidechain": { "source": "drums/kick", "depth": 0.8, "release": 0.2 },
+      "gain_db": -0.5,
+      "sends": { "hall": -10 },
+      "play": [
+        { "range": "hook..drop", "octave": 3, "duration": "1m", "velocity": 0.5, "chords": { "voicing": "open", "rhythm": "x..............." } }
+      ]
+    },
+    // the talk box: the hook, then the drop's call before the hook again
+    "talk": {
+      "role": "melody",
+      "instrument": "talk",
+      "sidechain": { "source": "drums/kick", "depth": 0.35, "release": 0.2 },
+      "gain_db": -13,
+      "sends": { "hall": -14, "echo": -16 },
+      "play": [
+        { "range": "hook", "subdivision": "8n", "velocity": 0.85, "humanize": 0.004,
+          "notes": "F5 - Eb5 Db5 - Bb4 - - | . . Ab4 Bb4 C5 - Ab4 - | Bb4 - Gb4 F4 - Eb4 - - | . . F4 Ab4 C5 - Eb5 - | F5 - Eb5 Db5 - Bb4 - - | . . Ab4 Bb4 C5 - Ab4 - | Bb4 - Gb4 F4 - Eb4 - - | . . F4 Ab4 Bb4 - - -" },
+        { "range": "drop", "subdivision": "8n", "velocity": 0.9, "humanize": 0.004,
+          "notes": "Db5 - Bb4 - Ab4 Bb4 - - | . . G4 Bb4 Db5 - C5 - | Db5 - Bb4 - Ab4 F4 - - | . . G4 Bb4 C5 - Eb5 - | F5 - Eb5 Db5 - Bb4 - - | . . Ab4 Bb4 C5 - Ab4 - | Bb4 - Gb4 F4 - Eb4 - - | . . F4 Ab4 Bb4 - - -" }
+      ]
+    },
+    // the violins answer it in the hook: long tones a half note each, moving
+    // against it
+    "violins": {
+      "role": "counter",
+      "instrument": { "name": "vsco/ViolinEnsSusVib.sfz", "ampeg_attack": 0.08, "ampeg_release": 0.5 },
+      "sidechain": { "source": "drums/kick", "depth": 0.35, "release": 0.16 },
+      "gain_db": 15,
+      "pan": 0.3,
+      "sends": { "hall": -8 },
+      "play": [
+        { "range": "hook", "subdivision": "2n", "velocity": 0.6, "notes": "Bb5 Db6 C6 Ab5 Gb5 Bb5 C6 Bb5" }
+      ]
+    },
+    // the drop's arpeggio: the library's pluck up and down the chord in
+    // sixteenths, two octaves, through the dotted echo
+    "arp": {
+      "role": "counter",
+      "instrument": { "name": "pluck", "decay": 0.25 },
+      "sidechain": { "source": "drums/kick", "depth": 0.6, "release": 0.2 },
+      "gain_db": 6,
+      "pan": 0.25,
+      "sends": { "echo": -12, "hall": -16 },
+      "play": [
+        { "range": "drop", "octave": 4, "velocity": 0.75, "humanize": 0.003, "arpeggio": { "pattern": "upDown", "interval": "16n", "octaves": 2 } }
+      ]
+    }
+  },
+  "automation": {
+    // the filter: the club through a wall, opening over the groove, wide for
+    // the hook, back down and singing in the break, a bar's climb into the
+    // drop, closing in the outro
+    "buses/loop/Filter/frequency": [
+      [ "intro", 260 ], [ "intro@4m", 420 ], [ "groove", 900 ], [ "groove@6m", 2600 ], [ "hook", 16000 ],
+      [ "break", 16000 ], [ "break@1m", 520 ], [ "break@3m", 520 ], [ "drop", 16000 ],
+      [ "outro", 16000 ], [ "end", 300 ]
+    ],
+    "buses/loop/Filter/q": [ [ "break", 1.4 ], [ "break@1m", 3 ], [ "break@3m", 3.5 ], [ "drop", 1.4, "step" ] ],
+    // the hats carry the break alone: up to a kit's level while the kick
+    // is out (role_balance: 22 LU under the mix there)
+    "parts/drums/gain_db": [ [ "intro", 0 ], [ "break", 8, "step" ], [ "drop", 0, "step" ] ]
   }
 }

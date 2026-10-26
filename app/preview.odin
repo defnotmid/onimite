@@ -172,6 +172,8 @@ Preview_State :: struct {
 	first_frame_at:     f64,
 	rendering:          bool,
 	loading:            bool,
+	// A placed song's sample sets are still loading: playback holds.
+	sounds_loading:     bool,
 	// While loading: what the worker is doing, the media files, the time so far.
 	load_phase:         Load_Phase,
 	load_files:         int,
@@ -829,7 +831,7 @@ preview_seek :: proc(app: ^App_State, frame: int) {
 preview_sync_audio :: proc(app: ^App_State) {
 	pv := &app.preview
 	if pv.audio != nil {
-		audio_set_state(pv.audio, pv.playing && !pv.scrubbing, pv.muted, pv.loop)
+		audio_set_state(pv.audio, pv.playing && !pv.scrubbing && !pv.sounds_loading, pv.muted, pv.loop)
 		audio_set_gain(pv.audio, pv.volume)
 	}
 }
@@ -1288,7 +1290,7 @@ CLOCK_STEER :: 0.1
 @(private)
 preview_playback_advance :: proc(app: ^App_State, dt: f64) {
 	pv := &app.preview
-	if !pv.playing || pv.scrubbing || pv.timeline.frames <= 0 {
+	if !pv.playing || pv.scrubbing || pv.sounds_loading || pv.timeline.frames <= 0 {
 		return
 	}
 	fps := f64(preview_fps(app))
@@ -1449,12 +1451,19 @@ preview_take_published :: proc(app: ^App_State, r: ^render.Renderer, now: f64) {
 	}
 	pv.rendering = mb.rendering
 	pv.loading = mb.loading
+	sounds_were := pv.sounds_loading
+	pv.sounds_loading = mb.sounds_loading
 	pv.load_phase = mb.load_phase
 	pv.load_files = mb.load_files
 	if pv.loading {
 		pv.load_seconds = time.duration_seconds(time.tick_since(mb.load_began))
 	}
 	sync.mutex_unlock(&mb.mutex)
+	if pv.sounds_loading != sounds_were {
+		// held or let go: the stream starts again where the picture is
+		preview_seek(app, pv.frame)
+		preview_sync_audio(app)
+	}
 
 	playing := pv.playing && !pv.scrubbing
 	pv.play_window &&= playing
@@ -1978,6 +1987,8 @@ status_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32) {
 	switch {
 	case pv.loading:
 		work = fmt.tprintf(" · loading %.1f s…", pv.load_seconds)
+	case pv.sounds_loading:
+		work = " · loading sounds (playback waits)…"
 	case pv.rendering || pv.shown_frame != pv.frame:
 		work = " · rendering…"
 	}

@@ -279,3 +279,25 @@ test_media_follows_links :: proc(t: ^testing.T) {
 	_, dangling := media.images["c.png"]
 	testing.expect(t, !dangling)
 }
+
+// A variable font's instance is an artifact: the first text that asks makes
+// it, the same instance again is the same collection (its durable id), another
+// value another one, and no variations the media's own collection.
+@(test)
+test_font_instances :: proc(t: ^testing.T) {
+	m: Media
+	media_init(&m)
+	defer media_destroy(&m)
+	w500 := []Font_Variation{{"wght", 500}}
+	a := media_text_fonts(&m, "DM Sans", 400, false, w500)
+	b := media_text_fonts(&m, "DM Sans", 400, false, []Font_Variation{{"wght", 500}})
+	c := media_text_fonts(&m, "DM Sans", 400, false, []Font_Variation{{"wght", 600}})
+	testing.expect(t, a != &m.fonts && a == b)
+	testing.expect(t, c != a)
+	testing.expect(t, len(m.instances.list) == 2)
+	// a static family at a weight it has a face for, and one it hasn't
+	// (no wght axis): the media's collection, nothing made
+	testing.expect(t, media_text_fonts(&m, "DM Sans", 700, false, nil) == &m.fonts)
+	testing.expect(t, media_text_fonts(&m, "DM Sans", 900, false, nil) == &m.fonts)
+	testing.expect(t, len(m.instances.list) == 2)
+}

@@ -198,6 +198,14 @@ warn_load :: proc(s: ^script.Script, m: ^om.Media) {
 	}
 }
 
+// What loading the songs' samples found (`song_load_diagnostics`), one line
+// each, as `warn_load` writes the load's: a note that plays silent is said.
+warn_song_loads :: proc(s: ^script.Script) {
+	for d in song_load_diagnostics(s, true) {
+		fmt.eprintfln("%s: %s", "error" if d.severity == .Error else "warning", om.diagnostic_message(d, context.temp_allocator))
+	}
+}
+
 // The frames of a comma or space separated list of specs.
 resolve_frames :: proc(app: ^App_State, t: ^om.Timeline, fps: int, specs: string) -> (specs_out: []string, frames: []int, err: Error) {
 	names := make([dynamic]string, context.temp_allocator)

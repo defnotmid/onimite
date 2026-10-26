@@ -16,7 +16,7 @@
 --
 --     onimite render examples/designer_handoff/video.lua -o designer_handoff.mp4
 
-local W, H, FPS = 1920, 1080, 30
+local W, H, FPS = 1920, 1080, 60
 
 -- ---- tokens.json -------------------------------------------------------------
 
@@ -158,21 +158,22 @@ local function art(draw, fill, glow)
   end
 end
 
--- The button: `press` 0..1 dips it, `done` 0..1 swaps the label.
+-- The button: `press` 0..1 dips it, `done` 0..1 swaps the label (the old
+-- one out over the first half, the new one in over the second: never both).
 local function button(press, done)
   local x, y, w, h = CARD.button_x, CARD.row_y, CARD.button_w, CARD.button_h
   local s = 1 - 0.06 * press
   group({ transform = { scale = s, origin = { x + w / 2, y + h / 2 } } }, function()
     rect { x = x, y = y, w = w, h = h, rx = math.min(R.pill, h / 2), fill = mix_color(C.brand, C.ink, 0.25 * press) }
-    if done < 1 then
+    if done < 0.5 then
       styled(BODY, tok("content.cta"), { x = x + w / 2, y = y + h / 2, align = "center", baseline = "middle",
-        fill = C.surface, opacity = 1 - done })
+        fill = C.surface, opacity = 1 - 2 * done })
     end
-    if done > 0 then
+    if done > 0.5 then
       local label = tok("content.done")
       local lw = measure(BODY, label) + BODY.size * 1.2
       local lx = x + (w - lw) / 2
-      group({ opacity = done }, function()
+      group({ opacity = 2 * done - 1 }, function()
         path { d = string.format("M%.1f %.1f l%.1f %.1f l%.1f %.1f", lx + 4, y + h / 2, BODY.size * 0.25, BODY.size * 0.25,
           BODY.size * 0.45, -BODY.size * 0.5), fill = "none", stroke = C.glow, stroke_width = 4, line_cap = "round",
           line_join = "round" }

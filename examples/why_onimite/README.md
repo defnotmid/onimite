@@ -1,7 +1,7 @@
 # why_onimite
 
-A 50 second pitch for onimite against fframes, made with onimite, music
-included: 1920x1080, 60 fps, 140 BPM.
+A 53 second pitch for onimite against fframes, made with onimite, music
+included: 1920x1080, 60 fps, UK garage at 132 BPM.
 
 ```sh
 onimite render examples/why_onimite/video.lua -o why_onimite.mp4
@@ -19,13 +19,18 @@ onimite render examples/why_onimite/video.lua -o why_onimite.mp4
 
 Files: `facts.lua` holds every number on screen with its source
 (BENCHMARK.md "Full run", the measured installs); `track.lua` is the
-soundtrack, an odawg `song{}` whose sections are the scenes: house on
-the library's 909 machine (`machines/909.json`) for the title, race and bill, a
-TB-303 line (the `acid_house` style's `tb303`) taking over for
-shipping and the agents, a breakdown under the tricks, the last drop with
-a lead hook, an ambient tail. Its transitions make the risers and the two
-impacts; its own parts add the glitch stutters, the bill's counter blips and
-a crash on each scene's downbeat. The picture reads the song:
+soundtrack, an odawg `song{}` whose sections are the scenes: UK garage after
+MJ Cole's "Sincere" in G minor, a swung 2-step on the library's 909
+(`machines/909.json`), a sine sub of its own that slides, an electric piano
+on jazz ninths (Gm9 Cm9 Abmaj9 D7), speed garage for shipping (four to the
+floor, organ stabs, a warping bass of its own), the hook on an upright piano
+with a synth pluck inside it for the agents and the last drop, VS Chamber
+Orchestra 2's strings for the tricks' breakdown (`sources`, pinned in
+`media/pins/vsco.pins`). Every part has a `role`, so `inspect` holds its
+level to what it is for. Its own parts carry what the picture answers to:
+a boom (the library's 808) and a recorded crash on each drop, the glitch
+stutters, the bill's counter ticks on a glockenspiel, a crash on each
+scene's downbeat. The picture reads the song:
 `timeline.lua` gives every moment as a song position (`"race@1m"`,
 `"agents@2:3"`) or as the song's own hits (the counters tick on the `ticks`
 part's blips, the tricks cut on the `glitch` part's stutters, the race's
@@ -33,16 +38,17 @@ DONEs snap to the nearest eighth); `video.lua` starts each scene on its
 section, pumps the picture on the kicks the drums really play
 (`score.pulse`), flashes on the impacts (`score.hits`, a `cue` inspect
 checks) and glitches on the cuts. The sounds that answer the picture
-(DONEs, the crates landing, blips, crashes) are `sound{}` clips on an
+(DONEs, the crates landing, blips, the recorded crash) are `sound{}` clips on an
 `sfx` bus in their scene's `audio`; the shipping scene's blocks are dropped
 so they land on the beat. `beat.lua` is the easing; `scenes/` one file per
 scene (`tricks.lua` plays its four cuts as a `series`).
 
-Mix: `onimite audio analyze` gives -14.0 LUFS integrated, -1.5 dBTP true
-peak (`master_gain_db = 3` into a -1.5 dB limiter).
+Mix: `onimite audio analyze` gives -14.8 LUFS integrated, -1.5 dBTP true
+peak (`master_gain_db = 6` into a -1.5 dB limiter), from -16.8 LUFS in the
+shipping and the tricks to -12.4 in the outro.
 
 Media: fonts copied from other examples (Bebas Neue, Space Grotesk,
 JetBrains Mono, Instrument Serif; OFL), Noto Sans Arabic Bold (OFL, from
 the system's Noto fonts), `bird.svg` from svg_demo and `transparent.mov`
-(Pip dancing, rendered by `tools/gen_media/mascot.lua`; MIT, this
-repository).
+(Pip dancing, rendered by `tools/gen_media/mascot.lua`; MIT, made by this
+repository's scripts: not committed, `fetch.sh` makes it).

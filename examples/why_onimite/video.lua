@@ -1,12 +1,14 @@
--- Why onimite: a 50 second pitch made with onimite, music included. The
+-- Why onimite: a 53 second pitch made with onimite, music included. The
 -- numbers on screen come from BENCHMARK.md and the release builds
--- (facts.lua); the soundtrack is an odawg song (track.lua), 140 BPM, and
--- the picture follows it: every scene starts on its section, the picture
--- pumps on the kicks the drums really play, flashes on the impacts, glitches
--- on the cuts and the stutters, and the counters tick on the song's blips
--- (timeline.lua). The sounds that answer the picture (DONEs, landings,
--- blips) belong to their scenes.
+-- (facts.lua); the soundtrack is an odawg song (track.lua), UK garage at
+-- 132 BPM, and the picture follows it: every scene starts on its section,
+-- the picture pumps on the kicks the drums really play, flashes on the
+-- booms, glitches on the cuts and the stutters, and the counters tick on
+-- the song's glockenspiel (timeline.lua). The sounds that answer the
+-- picture (DONEs, landings, blips, a recorded crash) belong to their scenes. media/transparent.mov isn't in the
+-- repository: fetch.sh makes it, once, before the first run.
 --
+--     examples/why_onimite/fetch.sh
 --     onimite render examples/why_onimite/video.lua -o why_onimite.mp4
 
 local beat = require("beat")
@@ -35,10 +37,10 @@ local LABELS = { title = "01 / TITLE", slam = "01 / TITLE", race = "02 / RENDER 
 local GLITCH_FRAMES = {}
 for i = 2, #SCENES do GLITCH_FRAMES[#GLITCH_FRAMES + 1] = score.frame(SCENES[i].section, FPS) end
 for _, t in ipairs(T.at.TRICK_CUTS) do GLITCH_FRAMES[#GLITCH_FRAMES + 1] = math.floor(t * FPS + 0.5) end
-cue("impact", score.hits { part = "fx", note = "C2" }, { hit = "score" })
+cue("impact", score.hits { part = "fx", note = "G1" }, { hit = "score" })
 
 local KICK = { part = "drums", note = "kick", decay = 9 }
-local IMPACT = { part = "fx", note = "C2", decay = 5 }
+local IMPACT = { part = "fx", note = "G1", decay = 5 }
 
 local function energy(f)
   local s = 1 + score.pulse(f, KICK) * 0.008
@@ -84,10 +86,9 @@ video {
   width = 1920, height = 1080, fps = FPS, background = ui.BG, duration = score.duration,
   buses = { music = {}, sfx = { gain_db = 0 } },
   audio = { { "score", bus = "music", fade_out = 0.5 } },
-  -- the song mixes near -17 LUFS: lifted to about -14 under the limiter
+  -- the song mixes near -21 LUFS: lifted to about -15 under the limiter
   -- (audio analyze: -14.0 LUFS, -1.5 dBTP)
-  master_gain_db = 3,
-  limiter = { ceiling_db = -1.5 },
+  master_gain_db = 6,
   render = function(f)
     rect { x = 0, y = 0, w = 1920, h = 1080, fill = ui.BG }
     energy(f)

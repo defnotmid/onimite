@@ -50,7 +50,7 @@ local SOUNDS = {
   -- the hit, a beat in
   sfx.at("slam", 1, sfx.impact(), 1.0, nil, "logo_hit"),
   sfx.at("slam", 1, sfx.tom(55), 0.8),
-  sfx.at("slam", 1, sfx.crash(), 0.8),
+  sfx.at("slam", 1, sfx.crash(), 0.45),
   -- and a riser into the matrix
   sfx.at("slam", 3, sfx.whoosh(sfx.seconds("slam", 3, 1), 0.2), 0.2),
 }

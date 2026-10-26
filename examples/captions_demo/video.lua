@@ -1,30 +1,65 @@
--- Word-level captions, TikTok style: a 10 s vertical clip over a lo-fi beat
--- (an odawg song), its captions read from a Whisper-style word-timed JSON file
+-- Word-level captions, TikTok style: a 10 s vertical clip over an Afrobeats
+-- groove (an odawg song), its captions read from a Whisper-style word-timed JSON file
 -- (media/talk.json) and drawn by captions{} in two highlight styles: a box
 -- sliding from word to word, then a colour pop with an outline.
 --
 --     onimite render examples/captions_demo/video.lua -o captions_demo.mp4
 
--- The skill's library (skills/onimite-video/library: rows and styles to
--- copy into your media folder), from this example's media folder.
+-- The skill's library (skills/onimite-video/library: rows to copy into your
+-- media folder), from this example's media folder.
 local LIB = "../../../skills/onimite-video/library/"
-local INSTRUMENTS = { LIB .. "instruments/synths.json", LIB .. "instruments/classic.json", LIB .. "instruments/sfx.json" }
 
 local W, H = 1080, 1920
 
--- The beat: lo-fi hip hop in A minor, a section per style, two bars (5 s) each. The
--- style's swung boom-bap, round bass and filtered keys, the keys a real FM electric
--- piano (sampled); in "pop" a soft grand arpeggiates on top.
-local score = song { "score", instruments = INSTRUMENTS, key = "A minor", bpm = 96, seed = 120,
-  sections = {
-    { "box", duration = "2m", style = LIB .. "styles/lofi.json", energy = 0.5, chords = "Am9 Fmaj7" },
-    { "pop", duration = "2m", energy = 0.6, chords = "Cmaj7 G" },
+-- The beat, a section per caption style, two bars (5 s) each. Why: a clip made
+-- for the feed wants the feed's warmth, so Afrobeats after Wizkid's "Essence":
+-- a clean, palm-muted highlife guitar picking around the chords (Karoryfer's
+-- Emily guitar, its own SFZ), a syncopated drum-machine groove with swung
+-- shakers and congas, a fingered bass over a synth sub, a soft FM electric
+-- piano, and a short flute hook when the captions change style. Eb major,
+-- major sevenths, no lo-fi loop.
+local score = song { "score", key = "Eb major", bpm = 96, seed = 21, swing = 0.18, swing_subdivision = "16n",
+  sources = {
+    emily = { url = "https://raw.githubusercontent.com/sfzinstruments/karoryfer.emilyguitar/b4920dc662fd9cad6dcaccdeecffdd91c8725d8c/",
+      page = "https://github.com/sfzinstruments/karoryfer.emilyguitar", licence = "CC0-1.0",
+      credit = "Emilyguitar by Karoryfer Samples (D. Smolken), CC0", pins = "pins/emily.pins" },
+    vsco = { url = "https://raw.githubusercontent.com/sgossner/VSCO-2-CE/6dd651d55dde97fd4028699be9d4481f26917891/",
+      page = "https://github.com/sgossner/VSCO-2-CE/tree/SFZ", licence = "CC0-1.0",
+      credit = "VS Chamber Orchestra 2: Community Edition by Versilian Studios LLC, CC0 1.0", pins = "pins/vsco.pins" },
   },
+  instruments = { LIB .. "instruments/synths.json", {
+    -- the bass: a fingered bass over a sine sub
+    lowend = { layers = { { instrument = { "Sampler", set = "karoryfer/growlybass", release = 0.15 } },
+                          { instrument = { "Synth", oscillator = { type = "sine" }, envelope = { attack = 0.004, decay = 0.2, sustain = 0.7, release = 0.1 } }, gain_db = -6 } } },
+  } },
+  sections = {
+    { "box", duration = "2m", chords = "Ebmaj7 Cm7" },
+    { "pop", duration = "2m", chords = "Abmaj7 Bb6" },
+  },
+  returns = { room = { { "Reverb", decay = 1.2, pre_delay = 0.01 }, { "Filter", type = "highpass", frequency = 300 } } },
   parts = {
-    drums = { gain_db = 1 },
-    keys = { instrument = { "Sampler", set = "vcsl/fm_piano" }, gain_db = -12.3 },
-    piano = { instrument = { "Sampler", set = "osiris/soft_piano" }, gain_db = -12.4, pan = 0.25, sends = { room = -6 },
-      play = { { "pop", arpeggio = { pattern = "upDown", interval = "8n", octaves = 2 }, octave = 4, velocity = 0.55 } } },
+    -- the groove: a kick that skips, the rim on the off-beats, shakers swung, congas answering
+    drums = { instrument = { LIB .. "machines/808.json", tone = 0.55 }, gain_db = -1, sends = { room = -18 }, play = {
+      { "box..pop", velocity = 0.8, humanize = 0.004, steps = {
+        kick = { "x..x..x...x..x..", "x..x..x...x....." }, rim = "....x.......x...",
+        shaker = "xoxoXoxoxoxoXoxo", conga_high = { "......x.....x.x.", "..x...x.......x." },
+        conga_low = { "..........x.....", "..........x..x.." } } },
+    } },
+    -- the guitar: palm-muted sixteenths around the chord, highlife style
+    guitar = { instrument = { "emily/emily_clean.sfz", ampeg_release = 0.05 }, gain_db = 7, sends = { room = -12 }, play = {
+      { "box..pop", notes = "Bb4 . G4 Bb4 . Eb5 . Bb4 G4 . Bb4 . D5 . Bb4 . | G4 . Eb4 G4 . C5 . G4 Eb4 . G4 . Bb4 . G4 .", subdivision = "16n",
+        velocity = 0.6, humanize = 0.005, vary = { {}, { thin = 0.2 } } },
+    } },
+    bass = { instrument = { "lowend" }, gain_db = -9, sidechain = { "drums/kick", depth = 0.25 }, play = {
+      { "box..pop", degrees = "1 - . 1 . . 5 . 6 - . 5 . 3 . 1", subdivision = "16n", octave = 2, velocity = 0.8, humanize = 0.003 },
+    } },
+    keys = { instrument = { "keys", brightness = 0.5 }, gain_db = -3, sends = { room = -10 }, play = {
+      { "box..pop", chords = { voicing = "spread", rhythm = { "x.......x.......", "x...........x..." } }, octave = 3, duration = "2n", velocity = 0.5 },
+    } },
+    -- the flute's hook when the captions pop
+    flute = { instrument = { "vsco/FluteSusVib.sfz", ampeg_attack = 0.03, ampeg_release = 0.3 }, gain_db = 2, sends = { room = -8 }, play = {
+      { "pop", notes = ". . Eb6 . F6 . G6 - - - Bb5 . . . . . | . . C6 . Bb5 . G6 - - - F6 . Eb6 . . .", subdivision = "16n", velocity = 0.65, humanize = 0.006 },
+    } },
   },
 }
 
@@ -50,9 +85,9 @@ local function label(s)
   text(q)
 end
 
-video { width = W, height = H, fps = 30, duration = score.duration, background = "#0b0b12",
+video { width = W, height = H, fps = 60, duration = score.duration, background = "#0b0b12",
   audio = { { "score" } },
-  master_gain_db = 6.6, limiter = { ceiling_db = -1.2 },   -- the song lifted to about -14 LUFS
+  master_gain_db = 5.4,   -- the song lifted to about -14 LUFS
   render = function(f)
     local t = f.global_seconds
     local kick = score.pulse(f, { part = "drums", note = "kick", decay = 6 })

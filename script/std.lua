@@ -711,11 +711,11 @@ end
 -- text_size{ "TEXT", font, weight, letter_spacing, features, max_width, size }: the
 -- largest font size (at most `size`) at which the text fits `max_width` on one
 -- line: titles that fill a width without leaving the canvas.
-local TEXT_SIZE_KEYS = { "font", "weight", "letter_spacing", "features", "max_width", "size", "italic", "text" }
+local TEXT_SIZE_KEYS = { "font", "weight", "letter_spacing", "features", "variations", "max_width", "size", "italic", "text" }
 function text_size(t)
   check_fields(t, "text_size", TEXT_SIZE_KEYS)
   local q = { t[1] or t.text, font = t.font, weight = t.weight, letter_spacing = t.letter_spacing,
-    features = t.features, italic = t.italic, size = t.size or 1000 }
+    features = t.features, variations = t.variations, italic = t.italic, size = t.size or 1000 }
   local size = q.size
   for _ = 1, 3 do -- widths scale with the size, letter spacing does not: settle in a few steps
     q.size = size
@@ -730,12 +730,12 @@ end
 -- every character with its x from the start of the text (kerning included)
 -- and its width, for animating letters one by one; draw each with text{} at
 -- x0 + c.x (left aligned).
-local TEXT_CHARS_KEYS = { "font", "size", "weight", "letter_spacing", "features", "italic", "text" }
+local TEXT_CHARS_KEYS = { "font", "size", "weight", "letter_spacing", "features", "variations", "italic", "text" }
 function text_chars(t)
   check_fields(t, "text_chars", TEXT_CHARS_KEYS)
   local str = t[1] or t.text
   local q = { "", font = t.font, size = t.size, weight = t.weight, letter_spacing = t.letter_spacing,
-    features = t.features, italic = t.italic }
+    features = t.features, variations = t.variations, italic = t.italic }
   local out = {}
   for p, c in utf8.codes(str) do
     local ch = utf8.char(c)

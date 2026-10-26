@@ -24,7 +24,7 @@ local function emitter(t, grow)
   end
 end
 
-video { width = 1920, height = 1080, fps = 30, duration = 12, background = "#05060c",
+video { width = 1920, height = 1080, fps = 60, duration = 12, background = "#05060c",
   render = function(f)
     local t = f.index / f.fps
     local grow = animate(f, { { start = 0, stop = 2.5, from = 0.2, to = 1, easing = ease_out } })

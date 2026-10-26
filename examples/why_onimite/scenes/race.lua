@@ -7,6 +7,7 @@
 local beat = require("beat")
 local ui = require("ui")
 local T = require("timeline")
+local CRASH = require("library").CRASH
 local INSTRUMENTS = require("library").INSTRUMENTS
 local facts = require("facts")
 local snap, soft = beat.snap, beat.soft
@@ -73,7 +74,7 @@ local function render(f, lb)
 end
 
 -- A DONE as each onimite bar lands, a crash when fframes' land.
-local audio = { { sound { "crash", instruments = INSTRUMENTS, duration = "2n" }, start = T.at.RACE_STOP, gain_db = -8 } }
+local audio = { { CRASH, start = T.at.RACE_STOP, gain_db = -4 } }
 for _, t in ipairs(T.at.RACE_DONE) do audio[#audio + 1] = { sound { "done", instruments = INSTRUMENTS, duration = "16n" }, start = t, gain_db = -6 } end
 
 return { name = "Race", section = "race", render = render, audio = audio }

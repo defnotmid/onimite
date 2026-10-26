@@ -570,6 +570,74 @@ off_beat_check :: proc(app: ^App_State, r: ^om.Renderer) -> []om.Diagnostic {
 // An off-beat hit, counted into its placing line's finding (which names
 // the loudest).
 @(private = "file")
+// A voice line far from the video's others in loudness (`voice_level`): each
+// voice track (a `say` line, or a track on a voice bus) measured as it plays,
+// with its gain, against the median of them all. One voice of a TTS a lot
+// quieter than the rest reads as a mistake, and nothing else would say so.
+VOICE_LEVEL_SPREAD :: 4.0
+
+voice_level_check :: proc(app: ^App_State, r: ^om.Renderer) -> []om.Diagnostic {
+	Line :: struct {
+		p:    ^om.Placed_Track,
+		lufs: f64,
+	}
+	lines := make([dynamic]Line, context.temp_allocator)
+	for &p in om.placed_audio(&r.ctx).tracks {
+		if p.muted || p.song != nil || p.clip == nil || !(p.track.voice || p.kind == .Voice) {
+			continue
+		}
+		lo := min(p.file_start * 2, len(p.clip.samples))
+		hi := min(lo + (p.end - p.start) * 2, len(p.clip.samples))
+		l, right := om.channels_from_interleaved(p.clip.samples[lo:hi])
+		lu := oanalyze.loudness_from_samples(l, right, om.MIX_RATE, context.temp_allocator)
+		if math.is_inf(lu.integrated, 0) {
+			continue
+		}
+		append(&lines, Line{&p, lu.integrated + f64(p.track.gain_db)})
+	}
+	levels := make([]f64, len(lines), context.temp_allocator)
+	for x, i in lines {
+		levels[i] = x.lufs
+	}
+	median, outliers := voice_level_outliers(levels)
+	out := make([dynamic]om.Diagnostic, context.temp_allocator)
+	for i in outliers {
+		x := lines[i]
+		off := x.lufs - median
+		append(&out, om.Diagnostic {
+			severity = .Warning,
+			code     = .Voice_Level,
+			frame    = om.frame_at(f64(x.p.start) / om.MIX_RATE, r.video.fps),
+			name     = x.p.track.source,
+			a        = x.p.track.src,
+			b        = "under" if off < 0 else "over",
+			n        = i64(len(lines)),
+			w        = f32(abs(off)),
+			h        = f32(-off),
+		})
+	}
+	return out[:]
+}
+
+// The median of the lines' loudness (LUFS) and the lines more than
+// VOICE_LEVEL_SPREAD from it, by index; none under two lines.
+voice_level_outliers :: proc(levels: []f64) -> (median: f64, outliers: []int) {
+	n := len(levels)
+	if n < 2 {
+		return 0, nil
+	}
+	sorted := slice.clone(levels, context.temp_allocator)
+	slice.sort(sorted)
+	median = sorted[n / 2] if n % 2 == 1 else (sorted[n / 2 - 1] + sorted[n / 2]) / 2
+	out := make([dynamic]int, context.temp_allocator)
+	for v, i in levels {
+		if abs(v - median) > VOICE_LEVEL_SPREAD {
+			append(&out, i)
+		}
+	}
+	return median, out[:]
+}
+
 Off_Beat_Row :: struct {
 	d:     om.Diagnostic,
 	count: int,

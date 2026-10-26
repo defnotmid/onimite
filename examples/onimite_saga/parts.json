@@ -2,85 +2,960 @@
   "songs": [
     {
       "name": "score",
-      "at": "music/score.lua:44",
+      "at": "music/score.lua:51",
+      "sections": [
+        "before",
+        "weight",
+        "spark",
+        "one",
+        "download",
+        "race",
+        "bill",
+        "reload",
+        "slow",
+        "hush",
+        "rise",
+        "montage",
+        "ovg",
+        "odecs",
+        "oksl",
+        "not_needed",
+        "check",
+        "last",
+        "tape_stop",
+        "fade",
+        "slam",
+        "rain"
+      ],
       "parts": [
         {
           "name": "arp",
-          "notes": 470,
+          "notes": 96,
+          "first": [
+            "C#4",
+            "E4",
+            "G#4",
+            "C#5",
+            "G#4",
+            "E4",
+            "G#4",
+            "C#5"
+          ],
+          "lufs": -39.3999999999999986,
+          "peak_db": -27.8000000000000007,
+          "balance": [
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 13.6999999999999993,
+              "peak_db": -27.8000000000000007
+            },
+            {
+              "plays": true,
+              "under": 13.4000000000000004,
+              "peak_db": -28.0000000000000000
+            },
+            {
+              "plays": true,
+              "under": 13.0000000000000000,
+              "peak_db": -28.3000000000000007
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 13.4000000000000004,
+              "peak_db": -27.8000000000000007
+            }
+          ]
+        },
+        {
+          "name": "arp3",
+          "notes": 288,
           "first": [
             "A4",
-            "C5",
+            "C#5",
             "E5",
             "A5",
             "E5",
-            "C5",
+            "C#5",
             "E5",
             "A5"
           ],
-          "lufs": -32.0000000000000000,
-          "peak_db": -17.8000000000000007
+          "lufs": -41.8999999999999986,
+          "peak_db": -30.5000000000000000,
+          "balance": [
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 18.8999999999999986,
+              "peak_db": -30.8000000000000007
+            },
+            {
+              "plays": true,
+              "under": 17.1999999999999993,
+              "peak_db": -31.1999999999999993
+            },
+            {
+              "plays": true,
+              "under": 19.5000000000000000,
+              "peak_db": -30.8000000000000007
+            },
+            {
+              "plays": true,
+              "under": 18.1999999999999993,
+              "peak_db": -31.6000000000000014
+            },
+            {
+              "plays": true,
+              "under": 18.0000000000000000,
+              "peak_db": -31.3999999999999986
+            },
+            {
+              "plays": true,
+              "under": 18.3000000000000007,
+              "peak_db": -31.6000000000000014
+            },
+            {
+              "plays": true,
+              "under": 18.6999999999999993,
+              "peak_db": -30.5000000000000000
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 18.5000000000000000,
+              "peak_db": -30.5000000000000000
+            }
+          ]
         },
         {
           "name": "bass",
-          "notes": 396,
+          "notes": 178,
           "first": [
-            "A1",
-            "A2",
-            "A1",
-            "A1",
-            "A2",
-            "A1",
-            "A1",
-            "A2"
+            "C#1",
+            "C#1",
+            "C#1",
+            "G#1",
+            "B1",
+            "F#1",
+            "F#1",
+            "F#1"
           ],
-          "lufs": -25.1999999999999993,
-          "peak_db": -17.0000000000000000
+          "lufs": -28.5000000000000000,
+          "peak_db": -11.3000000000000007,
+          "balance": [
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 6.2000000000000002,
+              "peak_db": -21.6000000000000014
+            },
+            {
+              "plays": true,
+              "under": 4.0999999999999996,
+              "peak_db": -21.1999999999999993
+            },
+            {
+              "plays": true,
+              "under": 5.5000000000000000,
+              "peak_db": -21.3999999999999986
+            },
+            {
+              "plays": true,
+              "under": 4.2999999999999998,
+              "peak_db": -21.1000000000000014
+            },
+            {
+              "plays": true,
+              "under": 5.2000000000000002,
+              "peak_db": -21.3999999999999986
+            },
+            {
+              "plays": true,
+              "under": 8.0000000000000000,
+              "peak_db": -15.1999999999999993
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 5.0000000000000000,
+              "peak_db": -17.8999999999999986
+            },
+            {
+              "plays": true,
+              "under": 3.3999999999999999,
+              "peak_db": -19.8999999999999986
+            },
+            {
+              "plays": true,
+              "under": 6.2000000000000002,
+              "peak_db": -17.3999999999999986
+            },
+            {
+              "plays": true,
+              "under": 4.4000000000000004,
+              "peak_db": -19.8000000000000007
+            },
+            {
+              "plays": true,
+              "under": 4.9000000000000004,
+              "peak_db": -19.3000000000000007
+            },
+            {
+              "plays": true,
+              "under": 4.5999999999999996,
+              "peak_db": -19.8000000000000007
+            },
+            {
+              "plays": true,
+              "under": 5.0000000000000000,
+              "peak_db": -18.1000000000000014
+            },
+            {
+              "plays": true,
+              "under": 8.5999999999999996,
+              "peak_db": -11.5000000000000000
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 5.7000000000000002,
+              "peak_db": -11.5000000000000000
+            }
+          ]
         },
         {
           "name": "bells",
           "notes": 9,
           "first": [
-            "A4",
-            "C5",
+            "C#5",
             "E5",
-            "A3",
+            "G#5",
+            "C#4",
+            "E4",
             "C4",
-            "G#3",
-            "A4",
-            "C5"
+            "C#5",
+            "E5"
           ],
-          "lufs": -32.7999999999999972,
-          "peak_db": -22.8999999999999986
+          "lufs": -32.3999999999999986,
+          "peak_db": -18.1000000000000014,
+          "balance": [
+            {
+              "plays": true,
+              "under": 3.7000000000000002,
+              "peak_db": -18.1000000000000014
+            },
+            {
+              "plays": true,
+              "under": 4.7000000000000002,
+              "peak_db": -25.3999999999999986
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 1.8999999999999999,
+              "peak_db": -18.1000000000000014
+            },
+            {
+              "plays": true,
+              "under": 4.0000000000000000,
+              "peak_db": -18.1000000000000014
+            }
+          ]
         },
         {
           "name": "boom",
           "notes": 2,
           "first": [
-            "C4",
-            "C4"
+            "G#1",
+            "C#2"
           ],
-          "lufs": -26.0000000000000000,
-          "peak_db": -16.6000000000000014
+          "lufs": -22.1999999999999993,
+          "peak_db": -12.8000000000000007,
+          "balance": [
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": -4.7000000000000002,
+              "peak_db": -12.8000000000000007
+            },
+            {
+              "plays": true,
+              "under": 4.7000000000000002,
+              "peak_db": -15.9000000000000004
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 6.0000000000000000,
+              "peak_db": -14.4000000000000004
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 2.6000000000000001,
+              "peak_db": -12.8000000000000007
+            }
+          ]
+        },
+        {
+          "name": "creep",
+          "notes": 54,
+          "first": [
+            "D5",
+            "E5",
+            "D5",
+            "G#5",
+            "E5",
+            "D5",
+            "C#5",
+            "C#5"
+          ],
+          "lufs": -36.3999999999999986,
+          "peak_db": -25.3000000000000007,
+          "balance": [
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 8.8000000000000007,
+              "peak_db": -25.3000000000000007
+            },
+            {
+              "plays": true,
+              "under": 8.8000000000000007,
+              "peak_db": -25.3000000000000007
+            }
+          ]
         },
         {
           "name": "drone",
           "notes": 14,
           "first": [
+            "C#2",
+            "G#2",
+            "C#3",
+            "E3",
             "A1",
             "E2",
             "A2",
-            "C3",
-            "F1",
-            "C2",
-            "F2",
-            "G#2"
+            "C3"
           ],
-          "lufs": -26.6999999999999993,
-          "peak_db": -13.3000000000000007
+          "lufs": -37.7000000000000028,
+          "peak_db": -24.3000000000000007,
+          "balance": [
+            {
+              "plays": true,
+              "under": 8.4000000000000004,
+              "peak_db": -25.0000000000000000
+            },
+            {
+              "plays": true,
+              "under": 8.5999999999999996,
+              "peak_db": -25.1999999999999993
+            },
+            {
+              "plays": true,
+              "under": 8.5999999999999996,
+              "peak_db": -27.8000000000000007
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 9.0000000000000000,
+              "peak_db": -24.3000000000000007
+            },
+            {
+              "plays": true,
+              "under": 8.9000000000000004,
+              "peak_db": -24.3000000000000007
+            }
+          ]
         },
         {
           "name": "drums",
-          "notes": 716,
+          "notes": 889,
           "first": [
             "kick",
             "kick",
@@ -91,189 +966,1827 @@
             "kick",
             "hat"
           ],
-          "lufs": -21.0000000000000000,
-          "peak_db": -4.0999999999999996
+          "lufs": -28.1000000000000014,
+          "peak_db": -8.3000000000000007,
+          "balance": [
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 2.7000000000000002,
+              "peak_db": -17.3000000000000007
+            },
+            {
+              "plays": true,
+              "under": 4.5000000000000000,
+              "peak_db": -14.9000000000000004
+            },
+            {
+              "plays": true,
+              "under": 3.8999999999999999,
+              "peak_db": -16.3999999999999986
+            },
+            {
+              "plays": true,
+              "under": 3.7000000000000002,
+              "peak_db": -16.1999999999999993
+            },
+            {
+              "plays": true,
+              "under": 3.8999999999999999,
+              "peak_db": -16.5000000000000000
+            },
+            {
+              "plays": true,
+              "under": 3.7999999999999998,
+              "peak_db": -17.1000000000000014
+            },
+            {
+              "plays": true,
+              "under": 8.4000000000000004,
+              "peak_db": -14.3000000000000007
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 8.8000000000000007,
+              "peak_db": -22.0000000000000000
+            },
+            {
+              "plays": true,
+              "under": 4.2999999999999998,
+              "peak_db": -15.5000000000000000
+            },
+            {
+              "plays": true,
+              "under": 3.0000000000000000,
+              "peak_db": -17.3000000000000007
+            },
+            {
+              "plays": true,
+              "under": 4.9000000000000004,
+              "peak_db": -17.1000000000000014
+            },
+            {
+              "plays": true,
+              "under": 3.8999999999999999,
+              "peak_db": -15.9000000000000004
+            },
+            {
+              "plays": true,
+              "under": 3.6000000000000001,
+              "peak_db": -16.8999999999999986
+            },
+            {
+              "plays": true,
+              "under": 4.0999999999999996,
+              "peak_db": -17.0000000000000000
+            },
+            {
+              "plays": true,
+              "under": 4.0999999999999996,
+              "peak_db": -14.6999999999999993
+            },
+            {
+              "plays": true,
+              "under": 8.6999999999999993,
+              "peak_db": -11.8000000000000007
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 4.9000000000000004,
+              "peak_db": -11.8000000000000007
+            }
+          ]
         },
         {
           "name": "fall",
           "notes": 3,
           "first": [
-            "A5",
-            "D6",
-            "F#7"
+            "C#6",
+            "F#6",
+            "A#7"
           ],
-          "lufs": -28.1000000000000014,
-          "peak_db": -20.3000000000000007
+          "lufs": -19.8000000000000007,
+          "peak_db": -12.4000000000000004,
+          "balance": [
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 0.5000000000000000,
+              "peak_db": -12.6999999999999993
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 3.6000000000000001,
+              "peak_db": -14.5000000000000000
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": -2.2999999999999998,
+              "peak_db": -20.6000000000000014
+            },
+            {
+              "plays": true,
+              "under": -2.2000000000000002,
+              "peak_db": -12.6999999999999993
+            }
+          ]
         },
         {
           "name": "fx",
           "notes": 2,
           "first": [
-            "C2",
-            "C2"
+            "C#2",
+            "C#2"
           ],
-          "lufs": -25.3000000000000007,
-          "peak_db": -16.6000000000000014
+          "lufs": -29.0000000000000000,
+          "peak_db": -20.3999999999999986,
+          "balance": [
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 5.2999999999999998,
+              "peak_db": -20.6999999999999993
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 7.5000000000000000,
+              "peak_db": -20.6000000000000014
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 7.0000000000000000,
+              "peak_db": -20.6000000000000014
+            }
+          ]
         },
         {
           "name": "fx_crash",
-          "notes": 2,
+          "notes": 6,
           "first": [
-            "C4",
-            "C4"
+            "crash",
+            "crash",
+            "crash",
+            "crash",
+            "crash",
+            "crash"
           ],
-          "lufs": -27.3999999999999986,
-          "peak_db": -17.1000000000000014
+          "lufs": -32.6000000000000014,
+          "peak_db": -20.5000000000000000,
+          "balance": [
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 6.7999999999999998,
+              "peak_db": -20.5000000000000000
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 9.3000000000000007,
+              "peak_db": -20.8999999999999986
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 8.5000000000000000,
+              "peak_db": -20.5000000000000000
+            }
+          ]
         },
         {
           "name": "heart",
           "notes": 2,
           "first": [
-            "A#1",
-            "C2"
+            "D2",
+            "E2"
           ],
-          "lufs": -24.8000000000000007,
-          "peak_db": -13.4000000000000004
+          "lufs": -32.0000000000000000,
+          "peak_db": -21.0000000000000000,
+          "balance": [
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 3.2999999999999998,
+              "peak_db": -21.0000000000000000
+            },
+            {
+              "plays": true,
+              "under": 3.2999999999999998,
+              "peak_db": -21.0000000000000000
+            }
+          ]
         },
         {
           "name": "lead",
-          "notes": 60,
+          "notes": 48,
           "first": [
+            "B5",
+            "G#5",
+            "D#5",
+            "F#5",
+            "G#5",
             "E5",
-            "G5",
-            "A5",
-            "G5",
-            "E5",
-            "D5",
-            "F5",
-            "A5"
+            "D#5",
+            "C#5"
           ],
-          "lufs": -28.3000000000000007,
-          "peak_db": -20.5000000000000000
+          "lufs": -29.8000000000000007,
+          "peak_db": -15.5000000000000000,
+          "balance": [
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 5.2999999999999998,
+              "peak_db": -15.5000000000000000
+            },
+            {
+              "plays": true,
+              "under": 6.2999999999999998,
+              "peak_db": -21.3000000000000007
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 6.5000000000000000,
+              "peak_db": -20.1000000000000014
+            },
+            {
+              "plays": true,
+              "under": 7.7000000000000002,
+              "peak_db": -20.8000000000000007
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 6.5999999999999996,
+              "peak_db": -15.5000000000000000
+            }
+          ]
         },
         {
           "name": "pad",
-          "notes": 12,
+          "notes": 16,
           "first": [
-            "A3",
+            "F#3",
+            "C#4",
             "E4",
-            "C5",
-            "C4",
+            "G#4",
             "A4",
-            "F5",
-            "F4",
-            "D5"
+            "G#3",
+            "C#4",
+            "E4"
           ],
-          "lufs": -35.0000000000000000,
-          "peak_db": -24.6999999999999993
+          "lufs": -38.2999999999999972,
+          "peak_db": -27.6999999999999993,
+          "balance": [
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 6.9000000000000004,
+              "peak_db": -27.6999999999999993
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 6.9000000000000004,
+              "peak_db": -27.6999999999999993
+            }
+          ]
         },
         {
           "name": "piano",
           "notes": 21,
           "first": [
+            "F#2",
+            "F#4",
+            "A4",
+            "C#5",
+            "A4",
             "A2",
             "A4",
-            "C5",
-            "E5",
-            "C5",
-            "F2",
-            "F4",
-            "A4"
+            "C#5"
           ],
-          "lufs": -27.6000000000000014,
-          "peak_db": -13.1999999999999993
+          "lufs": -32.3999999999999986,
+          "peak_db": -16.8999999999999986,
+          "balance": [
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 1.3000000000000000,
+              "peak_db": -16.8999999999999986
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 1.3000000000000000,
+              "peak_db": -16.8999999999999986
+            }
+          ]
         },
         {
-          "name": "rise",
-          "notes": 2,
+          "name": "pulse",
+          "notes": 36,
           "first": [
-            "C4",
-            "C4"
+            "C#2",
+            "C#2",
+            "D2",
+            "D2",
+            "C#2",
+            "C#2",
+            "C#2",
+            "C#2"
           ],
-          "lufs": -32.1000000000000014,
-          "peak_db": -24.1000000000000014
+          "lufs": -30.0000000000000000,
+          "peak_db": -22.6000000000000014,
+          "balance": [
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 2.3999999999999999,
+              "peak_db": -22.6000000000000014
+            },
+            {
+              "plays": true,
+              "under": 2.3999999999999999,
+              "peak_db": -22.6000000000000014
+            }
+          ]
         },
         {
           "name": "slam",
           "notes": 3,
           "first": [
-            "A1",
-            "A2",
-            "A#2"
+            "C#2",
+            "C#3",
+            "D3"
           ],
-          "lufs": -21.1999999999999993,
-          "peak_db": -9.8000000000000007
+          "lufs": -36.5000000000000000,
+          "peak_db": -24.8999999999999986,
+          "balance": [
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 0.9000000000000000,
+              "peak_db": -26.1999999999999993
+            },
+            {
+              "plays": true,
+              "under": 9.0000000000000000,
+              "peak_db": -24.8999999999999986
+            },
+            {
+              "plays": true,
+              "under": 8.6999999999999993,
+              "peak_db": -24.8999999999999986
+            }
+          ]
         },
         {
           "name": "stabs",
-          "notes": 274,
+          "notes": 373,
           "first": [
-            "A4",
-            "C5",
-            "E5",
-            "A4",
-            "C5",
-            "E5",
-            "A4",
-            "C5"
+            "C#4",
+            "E4",
+            "G#4",
+            "B4",
+            "D#5",
+            "D#4",
+            "E4",
+            "G#4"
           ],
-          "lufs": -31.8999999999999986,
-          "peak_db": -9.5999999999999996
+          "lufs": -33.3999999999999986,
+          "peak_db": -10.4000000000000004,
+          "balance": [
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 7.4000000000000004,
+              "peak_db": -12.1999999999999993
+            },
+            {
+              "plays": true,
+              "under": 7.5999999999999996,
+              "peak_db": -12.8000000000000007
+            },
+            {
+              "plays": true,
+              "under": 6.0000000000000000,
+              "peak_db": -13.0999999999999996
+            },
+            {
+              "plays": true,
+              "under": 8.0000000000000000,
+              "peak_db": -13.0999999999999996
+            },
+            {
+              "plays": true,
+              "under": 5.7999999999999998,
+              "peak_db": -10.4000000000000004
+            },
+            {
+              "plays": true,
+              "under": 12.5999999999999996,
+              "peak_db": -12.4000000000000004
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 11.0000000000000000,
+              "peak_db": -14.0999999999999996
+            },
+            {
+              "plays": true,
+              "under": 10.1999999999999993,
+              "peak_db": -16.0000000000000000
+            },
+            {
+              "plays": true,
+              "under": 11.0999999999999996,
+              "peak_db": -14.4000000000000004
+            },
+            {
+              "plays": true,
+              "under": 11.1999999999999993,
+              "peak_db": -14.9000000000000004
+            },
+            {
+              "plays": true,
+              "under": 9.9000000000000004,
+              "peak_db": -13.4000000000000004
+            },
+            {
+              "plays": true,
+              "under": 11.1999999999999993,
+              "peak_db": -16.3000000000000007
+            },
+            {
+              "plays": true,
+              "under": 12.3000000000000007,
+              "peak_db": -12.0000000000000000
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 9.6999999999999993,
+              "peak_db": -10.4000000000000004
+            }
+          ]
         },
         {
           "name": "strings",
           "notes": 11,
           "first": [
+            "C#3",
+            "G#3",
+            "D#4",
+            "E4",
             "A2",
             "E3",
             "A3",
-            "C4",
-            "F2",
-            "C3",
-            "F3",
-            "G#3"
-          ],
-          "lufs": -27.5000000000000000,
-          "peak_db": -15.6999999999999993
-        },
-        {
-          "name": "sweep",
-          "notes": 2,
-          "first": [
-            "C4",
             "C4"
           ],
-          "lufs": -23.8999999999999986,
-          "peak_db": -14.9000000000000004
+          "lufs": -29.8000000000000007,
+          "peak_db": -15.8000000000000007,
+          "balance": [
+            {
+              "plays": true,
+              "under": 3.6000000000000001,
+              "peak_db": -20.5000000000000000
+            },
+            {
+              "plays": true,
+              "under": 1.7000000000000000,
+              "peak_db": -19.5000000000000000
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 0.3000000000000000,
+              "peak_db": -15.8000000000000007
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 1.3999999999999999,
+              "peak_db": -15.8000000000000007
+            }
+          ]
         },
         {
           "name": "swell",
-          "notes": 9,
+          "notes": 10,
           "first": [
-            "A2",
-            "E3",
-            "A3",
-            "C4",
+            "C#3",
+            "G#3",
+            "C#4",
             "E4",
-            "A2",
-            "A3",
+            "G#4",
+            "G#2",
+            "G#3",
             "C4"
           ],
-          "lufs": -28.6000000000000014,
-          "peak_db": -17.5000000000000000
+          "lufs": -36.0000000000000000,
+          "peak_db": -24.5000000000000000,
+          "balance": [
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 3.5000000000000000,
+              "peak_db": -25.5000000000000000
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 13.5999999999999996,
+              "peak_db": -24.5000000000000000
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 6.0999999999999996,
+              "peak_db": -24.5000000000000000
+            }
+          ]
         },
         {
           "name": "tape",
           "notes": 5,
           "first": [
-            "A2",
-            "A3",
-            "C4",
+            "C#3",
+            "C#4",
             "E4",
-            "A4"
+            "G#4",
+            "C#5"
           ],
-          "lufs": -26.0000000000000000,
-          "peak_db": -16.1000000000000014
+          "lufs": -24.1000000000000014,
+          "peak_db": -14.5000000000000000,
+          "balance": [
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 7.4000000000000004,
+              "peak_db": -14.5000000000000000
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 7.4000000000000004,
+              "peak_db": -14.5000000000000000
+            }
+          ]
         }
       ]
     }

@@ -4,6 +4,7 @@
   "swing_subdivision": "16n",
   "parts": {
     "drums": {
+      "role": "drums",
       "instrument": { "name": "../machines/909.json", "tone": 0.55 },
       "octave": 3,
       "gain_db": 0,
@@ -54,6 +55,7 @@
       ]
     },
     "bass": {
+      "role": "bass",
       "instrument": {
         "name": "MonoSynth",
         "oscillator": { "type": "sawtooth" },
@@ -76,6 +78,7 @@
       ]
     },
     "organ": {
+      "role": "comp",
       "instrument": {
         "name": "FMSynth",
         "harmonicity": 2,
@@ -101,6 +104,7 @@
       ]
     },
     "piano": {
+      "role": "melody",
       "instrument": {
         "name": "FMSynth",
         "harmonicity": 1,
@@ -111,7 +115,7 @@
         "modulation_envelope": { "attack": 0.001, "decay": 0.35, "sustain": 0.1, "release": 0.3 }
       },
       "octave": 4,
-      "gain_db": -12,
+      "gain_db": -10.3,
       "room_db": -3,
       "pan": -0.12,
       "sidechain": { "name": "drums/kick", "depth": 0.3 },
@@ -127,6 +131,7 @@
       ]
     },
     "pad": {
+      "role": "pad",
       "instrument": {
         "name": "Synth",
         "oscillator": { "type": "fatsawtooth", "count": 4, "spread": 18 },

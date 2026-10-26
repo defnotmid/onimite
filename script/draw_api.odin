@@ -2,6 +2,7 @@ package onimite_script
 
 import "core:c"
 import "core:math"
+import "core:slice"
 import "core:strings"
 import om "../onimite"
 import vg "deps:ovg"
@@ -227,6 +228,34 @@ read_features :: proc(L: ^lua.State, t: c.int) -> []om.Font_Feature {
 		lua.pop(L, 1)
 	}
 	return out
+}
+
+// `variations = { wght = 333, opsz = 32 }`: a variable font's instance, an
+// axis tag and its value in the axis's units each (`media_text_fonts` makes
+// the instance the first time it is drawn). nil when absent.
+@(private)
+read_variations :: proc(L: ^lua.State, t: c.int) -> []om.Font_Variation {
+	field(L, t, "variations")
+	defer lua.pop(L, 1)
+	if lua.isnil(L, -1) {
+		return nil
+	}
+	if !lua.istable(L, -1) {
+		lua.L_error(L, "variations: a table of axis tags and values, as { wght = 333, opsz = 32 }")
+	}
+	v := lua.absindex(L, -1)
+	out := make([dynamic]om.Font_Variation, context.temp_allocator)
+	lua.pushnil(L)
+	for lua.next(L, v) != 0 {
+		if lua.type(L, -2) != .STRING || lua.type(L, -1) != .NUMBER {
+			lua.L_error(L, "variations: key an axis by its tag with a number, as { wght = 333 }")
+		}
+		append(&out, om.Font_Variation{feature_tag(L, -2), f32(lua.tonumber(L, -1))})
+		lua.pop(L, 1)
+	}
+	// one order for one instance, whatever order the table walked in
+	slice.sort_by(out[:], proc(a, b: om.Font_Variation) -> bool {return a.tag < b.tag})
+	return out[:]
 }
 
 // The string at `i` if it is an OpenType tag: one to four letters, digits

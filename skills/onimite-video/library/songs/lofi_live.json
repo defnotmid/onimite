@@ -16,14 +16,18 @@
     { "name": "lift", "duration": "8m", "energy": 0.8, "chords": "Bbmaj7 Am7 Gm7 A7" },
     { "name": "outro", "duration": "4m", "energy": 0.3, "chords": "Dm9 Gm7" }
   ],
+  "automation": {
+    "parts/drums/gain_db": [ [ "intro", 11 ], [ "groove", 0, "step" ] ]
+  },
   "parts": {
-    "keys": { "instrument": { "name": "Sampler", "set": "osiris/soft_piano", "release": 0.6 }, "gain_db": -17.4 },
+    "keys": { "instrument": { "name": "Sampler", "set": "osiris/soft_piano", "release": 0.6 }, "gain_db": -24.7 },
     "bass": { "instrument": { "name": "Sampler", "set": "karoryfer/growlybass", "release": 0.15 }, "gain_db": -21.8 },
     "drums": { "instrument": { "name": "Sampler", "set": "virtuosity/drums" }, "gain_db": -11.5 },
     "strings": {
+      "role": "pad",
       "instrument": { "name": "Sampler", "set": "vsco2/strings", "attack": 0.4, "release": 1.2 },
       "octave": 3,
-      "gain_db": -33.9,
+      "gain_db": -29.5,
       "room_db": -2,
       "play": [ { "name": "lift..outro", "chords": { "voicing": "spread" }, "velocity": 0.5 } ]
     }

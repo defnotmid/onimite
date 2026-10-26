@@ -2,7 +2,7 @@
 // visible in each, as on Shadertoy).
 
 #define COMETS 7
-#define DECAY 0.985
+#define DECAY 0.6355 // the ink kept after a second
 
 const float TAU = 6.28318530718;
 

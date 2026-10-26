@@ -4,15 +4,16 @@
 -- a transition overlaps two cuts; `speed` plays a cut faster (its sound too,
 -- tape-style). The clips differ in size and frame rate:
 -- a 24 fps wide beach, a 9:16 phone clip at 60 fps (letterboxed), a 4:3
--- clip used whole. street.mp4, surf.mp4 and clip.mp4 are made by
--- tools/gen_media/gen.sh.
+-- clip used whole. street.mp4, surf.mp4 and clip.mp4 aren't in the
+-- repository: fetch.sh makes them (tools/gen_media), once, before the first run.
 --
+--     examples/cuts/fetch.sh
 --     onimite preview examples/cuts/video.lua
 --     onimite render examples/cuts/video.lua -o cuts.mp4
 
 local W, H = 1280, 720
 
-video { width = W, height = H, fps = 30, background = "#000" }
+video { width = W, height = H, fps = 60, background = "#000", master_gain_db = -1.2 } -- about -14 LUFS
 
 -- The edit: which file, which stretch, how each cut enters.
 local CUTS = {

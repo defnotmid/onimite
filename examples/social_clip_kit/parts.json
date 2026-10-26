@@ -2,53 +2,60 @@
   "songs": [
     {
       "name": "score",
-      "at": "track.lua:18",
+      "at": "track.lua:23",
+      "sections": [
+        "hook",
+        "formats",
+        "features",
+        "outro",
+        "tail"
+      ],
       "parts": [
-        {
-          "name": "arp",
-          "notes": 48,
-          "first": [
-            "C4",
-            "E4",
-            "G4",
-            "C5",
-            "E5",
-            "G5",
-            "E5",
-            "C5"
-          ],
-          "lufs": -24.3000000000000007,
-          "peak_db": -12.4000000000000004
-        },
-        {
-          "name": "bass",
-          "notes": 60,
-          "first": [
-            "A2",
-            "A3",
-            "A2",
-            "A2",
-            "A3",
-            "A2",
-            "A2",
-            "A3"
-          ],
-          "lufs": -23.3000000000000007,
-          "peak_db": -10.1999999999999993
-        },
         {
           "name": "blips",
           "notes": 6,
           "first": [
-            "A5",
-            "C6",
-            "E6",
-            "F6",
-            "A6",
-            "A6"
+            "C#5",
+            "F5",
+            "G#5",
+            "D#6",
+            "G6",
+            "C6"
           ],
-          "lufs": -29.3000000000000007,
-          "peak_db": -14.9000000000000004
+          "lufs": -29.1000000000000014,
+          "peak_db": -15.6999999999999993,
+          "balance": [
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 10.4000000000000004,
+              "peak_db": -15.8000000000000007
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 11.0000000000000000,
+              "peak_db": -15.6999999999999993
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 10.5000000000000000,
+              "peak_db": -15.6999999999999993
+            }
+          ]
         },
         {
           "name": "crash",
@@ -61,24 +68,88 @@
             "crash",
             "crash"
           ],
-          "lufs": -28.8000000000000007,
-          "peak_db": -16.5000000000000000
+          "lufs": -26.1999999999999993,
+          "peak_db": -15.0999999999999996,
+          "balance": [
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 9.6999999999999993,
+              "peak_db": -15.4000000000000004
+            },
+            {
+              "plays": true,
+              "under": 7.7000000000000002,
+              "peak_db": -15.3000000000000007
+            },
+            {
+              "plays": true,
+              "under": 8.8000000000000007,
+              "peak_db": -15.0999999999999996
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 7.9000000000000004,
+              "peak_db": -15.0999999999999996
+            }
+          ]
         },
         {
           "name": "drums",
-          "notes": 229,
+          "notes": 138,
           "first": [
             "shaker",
-            "hat",
             "shaker",
-            "hat",
             "shaker",
-            "open_hat",
-            "hat",
+            "shaker",
+            "shaker",
+            "rim",
+            "shaker",
             "shaker"
           ],
-          "lufs": -20.1000000000000014,
-          "peak_db": -5.0000000000000000
+          "lufs": -23.8999999999999986,
+          "peak_db": -11.4000000000000004,
+          "balance": [
+            {
+              "plays": true,
+              "under": 11.6999999999999993,
+              "peak_db": -17.6000000000000014
+            },
+            {
+              "plays": true,
+              "under": 5.2000000000000002,
+              "peak_db": -11.6999999999999993
+            },
+            {
+              "plays": true,
+              "under": 6.0999999999999996,
+              "peak_db": -11.6999999999999993
+            },
+            {
+              "plays": true,
+              "under": 4.7999999999999998,
+              "peak_db": -11.9000000000000004
+            },
+            {
+              "plays": true,
+              "under": -2.2999999999999998,
+              "peak_db": -12.4000000000000004
+            },
+            {
+              "plays": true,
+              "under": 5.0999999999999996,
+              "peak_db": -11.6999999999999993
+            }
+          ]
         },
         {
           "name": "hits",
@@ -89,74 +160,184 @@
             "clap",
             "kick"
           ],
-          "lufs": -24.8000000000000007,
-          "peak_db": -11.4000000000000004
+          "lufs": -23.3999999999999986,
+          "peak_db": -9.8000000000000007,
+          "balance": [
+            {
+              "plays": true,
+              "under": -0.7000000000000000,
+              "peak_db": -9.8000000000000007
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": -0.7000000000000000,
+              "peak_db": -9.8000000000000007
+            }
+          ]
         },
         {
-          "name": "impact",
-          "notes": 1,
+          "name": "keys",
+          "notes": 34,
           "first": [
-            "A4"
+            "F2",
+            "G#3",
+            "C4",
+            "D#4",
+            "G5",
+            "G#2",
+            "A#3",
+            "C4"
           ],
-          "lufs": -29.1999999999999993,
-          "peak_db": -20.6000000000000014
+          "lufs": -28.3999999999999986,
+          "peak_db": -12.5000000000000000,
+          "balance": [
+            {
+              "plays": true,
+              "under": 4.5999999999999996,
+              "peak_db": -12.5000000000000000
+            },
+            {
+              "plays": true,
+              "under": 10.1999999999999993,
+              "peak_db": -13.8000000000000007
+            },
+            {
+              "plays": true,
+              "under": 11.0999999999999996,
+              "peak_db": -12.5000000000000000
+            },
+            {
+              "plays": true,
+              "under": 12.5999999999999996,
+              "peak_db": -15.6999999999999993
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 10.0000000000000000,
+              "peak_db": -12.5000000000000000
+            }
+          ]
         },
         {
-          "name": "organ",
-          "notes": 60,
+          "name": "logdrum",
+          "notes": 30,
           "first": [
-            "A4",
-            "C5",
-            "E5",
-            "A4",
-            "C5",
-            "E5",
-            "A4",
-            "C5"
+            "C#2",
+            "C#1",
+            "G#1",
+            "C#2",
+            "D#2",
+            "A#1",
+            "D#2",
+            "D#1"
           ],
-          "lufs": -28.3000000000000007,
-          "peak_db": -13.0000000000000000
-        },
-        {
-          "name": "pad",
-          "notes": 21,
-          "first": [
-            "C3",
-            "G3",
-            "E4",
-            "D3",
-            "B3",
-            "G4",
-            "A3",
-            "E4"
-          ],
-          "lufs": -24.8999999999999986,
-          "peak_db": -13.0000000000000000
+          "lufs": -22.3000000000000007,
+          "peak_db": -9.3000000000000007,
+          "balance": [
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 3.7000000000000002,
+              "peak_db": -9.9000000000000004
+            },
+            {
+              "plays": true,
+              "under": 4.5999999999999996,
+              "peak_db": -9.8000000000000007
+            },
+            {
+              "plays": true,
+              "under": 4.0000000000000000,
+              "peak_db": -9.3000000000000007
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 4.0999999999999996,
+              "peak_db": -9.3000000000000007
+            }
+          ]
         },
         {
           "name": "piano",
-          "notes": 15,
+          "notes": 129,
           "first": [
-            "A4",
-            "E5",
-            "C6",
+            "F4",
+            "G#4",
             "C5",
-            "A5",
-            "E6",
-            "E5",
-            "C6"
+            "D#5",
+            "G5",
+            "G4",
+            "G#4",
+            "C5"
           ],
-          "lufs": -29.5000000000000000,
-          "peak_db": -15.3000000000000007
-        },
-        {
-          "name": "rise",
-          "notes": 1,
-          "first": [
-            "C4"
-          ],
-          "lufs": -32.0000000000000000,
-          "peak_db": -24.3999999999999986
+          "lufs": -27.6000000000000014,
+          "peak_db": -12.0000000000000000,
+          "balance": [
+            {
+              "plays": true,
+              "under": 3.8999999999999999,
+              "peak_db": -12.0000000000000000
+            },
+            {
+              "plays": true,
+              "under": 10.5999999999999996,
+              "peak_db": -14.1999999999999993
+            },
+            {
+              "plays": true,
+              "under": 8.6999999999999993,
+              "peak_db": -12.0000000000000000
+            },
+            {
+              "plays": true,
+              "under": 13.0999999999999996,
+              "peak_db": -15.3000000000000007
+            },
+            {
+              "plays": true,
+              "under": 5.5000000000000000,
+              "peak_db": -15.4000000000000004
+            },
+            {
+              "plays": true,
+              "under": 8.6999999999999993,
+              "peak_db": -12.0000000000000000
+            }
+          ]
         }
       ]
     }

@@ -8,7 +8,7 @@
 local CARD_IN = 0.8      -- the card lands
 local TITLE_AT = 3.0     -- the second scene's title pops
 
-video { width = 1280, height = 720, fps = 30, background = "#0f172a",
+video { width = 1280, height = 720, fps = 60, background = "#0f172a", master_gain_db = 5, -- about -14 LUFS
   audio = {
     { "music.mp3", start = 0, gain_db = -14, fade_in = 1.0, fade_out = 2.0,
       curve = "equal_power", ducked = true },
@@ -22,9 +22,12 @@ scene { "Intro", duration = 4,
   },
   render = function(f)
     local x = animate(f, { { start = 0, stop = CARD_IN, from = -500, to = 0, easing = spring { stiffness = 180, damping = 18 } } })
-    group({ transform = translate(x, 0) }, function()
-      rect { x = 340, y = 260, w = 600, h = 200, rx = 28, fill = "#38bdf8" }
-      text { "Sound on the beat", x = 640, y = 375, align = "center", font = "DM Sans", size = 44, fill = "#0f172a" }
+    -- the card slides in across the canvas edge: a clip says the cut is meant
+    group({ clip = { x = 0, y = 0, w = 1280, h = 720 } }, function()
+      group({ transform = translate(x, 0) }, function()
+        rect { x = 340, y = 260, w = 600, h = 200, rx = 28, fill = "#38bdf8" }
+        text { "Sound on the beat", x = 640, y = 375, align = "center", font = "DM Sans", size = 44, fill = "#0f172a" }
+      end)
     end)
   end }
 

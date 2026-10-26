@@ -278,6 +278,9 @@ Text :: struct {
 	baseline:       Text_Baseline,
 	letter_spacing: f32,
 	features:       []Font_Feature,
+	// A variable font's instance for the whole text, spans included
+	// (`media_text_fonts`); nil: the font's default.
+	variations:     []Font_Variation,
 	line_height:    f32,
 	fill:           Paint,
 	fill_opacity:   Maybe(f32),
@@ -571,6 +574,13 @@ text :: proc(ctx: ^Context, t: Text) {
 	t.text = strings.clone(t.text, ctx.tree.arena)
 	t.font = strings.clone(t.font, ctx.tree.arena)
 	t.features = copy_features(ctx, t.features)
+	if t.variations != nil {
+		vs := make([]Font_Variation, len(t.variations), ctx.tree.arena)
+		for v, i in t.variations {
+			vs[i] = {strings.clone(v.tag, ctx.tree.arena), v.value}
+		}
+		t.variations = vs
+	}
 	t.fill = copy_paint(ctx, t.fill)
 	t.stroke = copy_stroke(ctx, t.stroke)
 	if len(t.spans) > 0 {

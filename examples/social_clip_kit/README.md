@@ -1,6 +1,6 @@
 # social_clip_kit
 
-One 16 second promo (30 fps, 120 BPM) rendered in the three shapes social
+One 17 second promo (60 fps, 113 BPM) rendered in the three shapes social
 video comes in, 9:16 (1080x1920), 1:1 (1080x1080) and 16:9 (1920x1080),
 from one script. `props.format` picks the canvas; the layout follows from it
 at load, so one `--batch` renders all three.
@@ -14,10 +14,10 @@ Without props it renders 9:16.
 
 | beats | seconds | section | what |
 | --- | --- | --- | --- |
-| 0-8 | 0-4 | Hook | Pip hops in; "ONE SCRIPT" and "EVERY FORMAT" slam on beats 2 and 4, fitted to their box; a riser |
-| 8-16 | 4-8 | Formats | the drop: a frame per beat for 9:16, 1:1 and 16:9, then this video's own frame lights up and Pip hops into it |
-| 16-24 | 8-12 | Features | four cuts two beats apart: word chips with a hopping highlight, the track's own `audio_spectrum`, the beats of the bar, Pip over a checkerboard (the alpha showing) |
-| 24-32 | 12-16 | Outro | the impact: the wordmark at the largest size that fits with the stack under it, the tagline, the `render --batch` pill, the three formats as chips |
+| 0-8 | 0-4.2 | Hook | Pip hops in; "ONE SCRIPT" and "EVERY FORMAT" slam on beats 2 and 4 on their claps, fitted to their box (the slam's overshoot never leaves the canvas) |
+| 8-16 | 4.2-8.5 | Formats | the drop: a frame per beat for 9:16, 1:1 and 16:9, then this video's own frame lights up and Pip hops into it |
+| 16-24 | 8.5-12.7 | Features | four cuts two beats apart: word chips with a hopping highlight, the track's own `audio_spectrum`, the beats of the bar, Pip over a checkerboard (the alpha showing) |
+| 24-32 | 12.7-17 | Outro | the crash: the wordmark at the largest size that fits with the stack under it, the tagline, the `render --batch` pill, the three formats as chips |
 
 How the formats adapt (`video.lua`, all at load):
 
@@ -45,15 +45,22 @@ The pieces the brief asks for:
   every two seconds (four beats), so it dances on the beat in every
   section.
 - **Music with beat-synced cuts**: `track.lua` is an odawg `song{}`,
-  Chicago house in C (C G Am F) on a swung 909 (the library's `machines/909.json`), a rolling
-  bass, organ stabs and, at the outro, piano chords on a sampled upright
-  (`Sampler`, vcsl), a section per part of the promo. The picture reads the
+  amapiano in F minor at 113 BPM after Focalistic and Vigro Deep's "Ke
+  Star", a section per part of the promo: its own `logdrum` row (a sine
+  falling into its note, a hollow triangle over it, a little drive: the
+  genre's tuned bass) carrying the groove from the drop, swung sixteenth
+  shakers with accents and rim shots off the beat on the library's 909
+  (`machines/909.json`), jazzy stabs on the VCSL upright and a soft electric
+  piano bed (minor ninths moving to major ninths for the drop), the format
+  frames on a glockenspiel (VS Chamber Orchestra 2's own SFZ through the
+  song's `sources`, pinned in `media/pins/vsco.pins`) and a real crash (the
+  virtuosity jazz kit) only on the cuts. The picture reads the
   song (`timeline.lua`): the scenes start on its sections, the headline
   lines slam on its claps, the format frames pop on its blips, the feature
   cuts are its crashes (the picture flashes and punches in on them with
   `score.pulse`, and a `cue` lets inspect check the song hits there) and
-  the picture pumps on its kicks. `onimite audio analyze`: -14.1 LUFS,
-  -1.5 dBTP.
+  the picture pumps on its kicks. `onimite audio analyze`: -14.5 LUFS,
+  -1.5 dBTP; the hook -19, the drop and the cuts -14 to -13.
 - **Progress bar**: story-style, a segment per section filling as it plays.
 
 Render with `build/onimite` (Vulkan Video): the three-row batch in 5.4-5.6 s
@@ -65,5 +72,6 @@ in beats, read from the song, and the voice-over), `track.lua` (the song),
 
 Media: `mascot.webm` from `tools/gen_media` (this repository, MIT); fonts
 copied from other examples (OFL): Inter ExtraBold, DM Sans Medium,
-JetBrains Mono. The music is composed by odawg from `track.lua` (the
-piano: the VCSL upright, CC0, downloaded on first use).
+JetBrains Mono. The music is composed by odawg from `track.lua` (CC0,
+downloaded on first use: the VCSL upright, the virtuosity kit's crash and
+VS Chamber Orchestra 2's glockenspiel).

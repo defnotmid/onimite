@@ -150,11 +150,15 @@ trumpet and cellos from VS Chamber Orchestra 2.
    moves an envelope during a note).
 7. **Level it by measurement.** An SFZ plays at its author's levels, which
    differ a lot: one note at the same velocity spans 17.6 dB across
-   `sfz_chamber`'s five files. Set each part's `gain_db` from its loudness
-   per scene (`onimite audio analyze video.lua --track score/flute`) and
-   `onimite audio parts video.lua` (below). `onimite inspect` warns about a
-   part buried under the mix (`buried_part`) and names the raise; make it,
-   and run `inspect` again (a raise moves the mix).
+   `sfz_chamber`'s five files, and VS Chamber Orchestra 2's mallets play
+   15-25 dB under a piano at the same velocity. Give every part a `role`,
+   then set its `gain_db` from the balance table `onimite audio parts
+   video.lua` prints (each part's LU under the song's mix in every section,
+   and its peak; below). `onimite inspect` names each part outside its
+   role's band (`role_balance`) and the change that puts it in; make it,
+   and run `inspect` again (a change moves the mix). A velocity change can
+   reach another layer of an SFZ: `onimite audio pin` again when `inspect`
+   says files can't be had (`asset_unavailable`).
 
 ## Mixing as part of the sound
 
@@ -169,6 +173,12 @@ trumpet and cellos from VS Chamber Orchestra 2.
   boxy low-mids (`EQ3` `mid: -2` to `-3 dB` on pads and comping keys), and
   spread parts across the stereo field (`pan: -0.22` on keys, `+0.25` on arp,
   `-0.15` on brass, lead dead-centre).
+- **Movement as an effect.** A phaser, flanger, tremolo, autopan or autowah is
+  a row of nodes in the library's `instruments/effects.json` (name it in the
+  song's `effects`, place it by name: `{ "phaser", rate = 0.25 }`): a filter
+  sweep on a whole loop bus with a phaser after it is French house; write a
+  row of your own the same way when none fits (an `Input`, the signal nodes,
+  an `Lfo` or a `Follower` moving them).
 - **Pumping.** `sidechain` from `drums/kick` ducks pads, basses and stabs in
   dance music; a song that isn't dance music usually shouldn't pump.
 - **One reference level.** Every voice in `synths.json` reaches −18 LUFS
@@ -176,19 +186,44 @@ trumpet and cellos from VS Chamber Orchestra 2.
   alone (C4; the basses C2). Swapping one voice for another keeps the
   part's level. A voice of your own set to the same reference drops in the
   same way. A chord of four notes comes out about 6 dB louder.
-- **Levels, energy arc and spectrograms.** `onimite audio analyze video.lua`
-  reports each scene's loudness, stereo width, crest and the masking between
-  buses; `--track score/bass` hears one part as it sounds in the mix, per
-  scene, and `onimite audio parts video.lua` gives each part's loudness and
-  peak alone:
+- **Levels, energy arc and spectrograms.** `onimite audio parts video.lua`
+  prints each song's balance table: a row a part, a column a section (and the
+  song), each cell how many LU under the song's mix the part sits there and
+  its peak (`·` where it has no notes, `-` where it has notes but no sound);
+  balance from it. `onimite audio analyze video.lua` reports each scene's
+  loudness, stereo width, crest and the masking between buses (`--track
+  score/bass` hears one part as it sounds in the video's mix). Where the
+  songs accepted for the examples sit, as a part's `role` (`inspect`'s
+  `role_balance` holds each where it plays, 1 LU either side; "too loud" only
+  where 4 or more parts play):
+
+  | role | for | LU under the mix |
+  | --- | --- | --- |
+  | `melody` | the hook, a lead | 0–8 |
+  | `counter` | a second line | 4–10 |
+  | `bass` | | 3–8 |
+  | `drums` | the whole kit, in one part | 2–8 |
+  | `comp` | chords, comping strings | 6–12 |
+  | `pad` | beds, quiet strings | 9–15 |
+  | `fx` | risers, hits, one-shots | its peak 0–12 dB under the mix's peak |
+  | `texture` | ambience, shakers, hiss | 12–25 |
+
+  Keep the kit in one `drums` part: a kick, hats and claps split into parts
+  are each judged as a whole kit. To pump the others under its kick, give
+  each `sidechain = { "drums/kick", depth = 0.6 }` (the kick's notes) rather
+  than a compressor listening to a kick-only part. When `role_balance` says
+  no one change fits, it names a per-section lane on `parts/X/gain_db`; a
+  lane holds its first point's value before that point too, so start it at
+  0: `{ { "intro", 0 }, { "break", 6, "step" }, { "drop", 0, "step" } }`.
   - The scenes' loudness should follow the arrangement's `energy` arc (e.g.
     an intro at −19 LUFS, a verse at −16, a build at −15, a drop at −12).
   - Inside a drop, drums and bass anchor the mix, the lead sits 3–5 LU above
     the comping (`keys`, `pad`, `arp`), and no active part sits more than
     15 LU below the mix (it is inaudible there). `inspect` reports a part
-    that does in every section it has notes in (`buried_part`), naming the
-    `gain_db` raise that puts it 12 LU under where it plays loudest; take
-    the number, don't round it by taste, and check again until none is left.
+    that does in every section it has notes in (`buried_part`, for a part
+    with no `role`), naming the `gain_db` raise that puts it 12 LU under
+    where it plays loudest; take the number, don't round it by taste, and
+    check again until none is left.
   - Keep low-end sub energy (`20–120 Hz`) out of low-energy intros and
     breakdowns so the drop hits with physical contrast.
 
@@ -196,7 +231,10 @@ trumpet and cellos from VS Chamber Orchestra 2.
 
 Left to itself, a generator writes the most likely song: A minor, Am F C G,
 120 bpm, a kick on every beat, a clap on 2 and 4, eight-bar sections built
-up and dropped. Choose each of these on purpose:
+up and dropped. `inspect` warns when a song sits on four of six such
+defaults (`default_song`: 118–122 bpm, a kick on every beat, A or D minor or
+C major or i–VI–III–VII, no feel, the same parts everywhere, a chord loop).
+Choose each of these on purpose:
 
 - **Genre and feel first.** Pick a genre for the piece, find a real reference
   track, and copy its decisions: its tempo, meter, swing, which instruments
@@ -220,7 +258,10 @@ up and dropped. Choose each of these on purpose:
 
 The reference songs in the skill's `library/songs/` each show one of these
 (JSON song files: read one with `song(json_decode(...))` as `examples/disco` does,
-with the library's `instruments/`, `machines/`, `styles/` and `pins/` folders in `media/`):
+with the library's `instruments/`, `machines/`, `styles/` and `pins/` folders in `media/`).
+They and the `styles/` are presets to learn from or start with; a song needn't be one, and
+for a video it usually shouldn't: write its own parts, instrument rows and effect rows, as
+every example song does:
 
 | song | genre | key | meter, tempo | what it shows |
 | --- | --- | --- | --- | --- |

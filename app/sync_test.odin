@@ -32,3 +32,14 @@ test_sync_check :: proc(t: ^testing.T) {
 	testing.expect_value(t, om.diagnostic_message(got[1], context.temp_allocator), `cue "beat[*]": 3 of 3 animate keys: -0.500s off their cues`)
 	testing.expect_value(t, om.diagnostic_message(got[2], context.temp_allocator), `cue "drop": animate key (a.lua:9) at 4.200s: +0.200s off cue at 4.000s`)
 }
+
+// The ottis demo's six lines as measured: marius (the third) 7 LU under the
+// rest is the one told; george, 1 LU under the median, is not.
+@(test)
+test_voice_level_outliers :: proc(t: ^testing.T) {
+	median, outliers := voice_level_outliers({-13.0, -12.5, -21.3, -13.9, -15.1, -14.4})
+	testing.expect(t, abs(median - -14.15) < 1e-9)
+	testing.expect(t, len(outliers) == 1 && outliers[0] == 2)
+	_, none := voice_level_outliers({-14.0})
+	testing.expect(t, len(none) == 0)
+}

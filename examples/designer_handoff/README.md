@@ -1,7 +1,7 @@
 # designer_handoff
 
 A designer's files driven straight into an animated product card: 15 s at
-1920x1080, 30 fps. The script imports the three formats a designer hands
+1920x1080, 60 fps. The script imports the three formats a designer hands
 over and redraws or re-types nothing:
 
 | file | format | used for |

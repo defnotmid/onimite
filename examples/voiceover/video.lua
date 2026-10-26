@@ -8,12 +8,8 @@
 --     onimite show examples/voiceover/video.lua song/score
 --     onimite render examples/voiceover/video.lua -o voiceover.mp4
 --
--- The voice is Pocket TTS by Kyutai (CC-BY-4.0), voice "alba".
-
--- The skill's library (skills/onimite-video/library: rows and styles to
--- copy into your media folder), from this example's media folder.
-local LIB = "../../../skills/onimite-video/library/"
-local INSTRUMENTS = { LIB .. "instruments/synths.json", LIB .. "instruments/classic.json", LIB .. "instruments/sfx.json" }
+-- The voice is Pocket TTS by Kyutai (CC-BY-4.0), voice "alba". Run fetch.sh first: it
+-- downloads the sound effects (CC0 recordings) into media/.
 
 local W, H = 1920, 1080
 
@@ -22,26 +18,59 @@ local climb = say("climb", "The keeper climbed the spiral stairs.", { seed = 3 }
 local top = say("top", "At the top, the great lamp was dark.", { seed = 5 })
 local strike = say("strike", "He struck a match. Light swept across the sea.", { seed = 2 })
 
--- The score: ambient in A minor, a section per line. "climb" and "top" are as long as
--- their lines plus a breath (whole bars); "strike" is a bar of riser under the match;
--- "beam" lands on the word "Light" with an impact, the strings, a sub and a heartbeat kick.
-local score = song { "score", instruments = INSTRUMENTS, key = "A minor", bpm = 120, seed = 11,
-  sections = {
-    { "climb", duration = { audio = "climb", plus = { seconds = 1.2 } }, style = LIB .. "styles/ambient.json", energy = 0.2, chords = "Am9 Fmaj7" },
-    { "top", duration = { audio = "top", plus = { seconds = 1.2 } }, energy = 0.35, chords = "Cmaj7 G" },
-    { "strike", duration = "1m", energy = 0.25, chords = "Em7" },
-    { "beam", duration = "2m", energy = 0.85, chords = "Fmaj7 C" },
+-- The score, a section per line: "climb" and "top" are as long as their lines plus a
+-- breath (whole bars), "strike" is a held bar under the match, and "beam" lands on the
+-- word "Light".
+--
+-- Why: a quiet story told close to the ear, so an intimate chamber underscore after
+-- Ólafur Arnalds' "Near Light": a soft felt piano turning a broken-chord figure, a cello
+-- section under it, violas joining at the lamp, and the light as the harmony's
+-- arrival. F major, but it stays on its dark side (Dm9, Bbmaj7, Gm9) until "Light",
+-- where it lands home on F, the violins swell in and a solo violin sings over them
+-- (its pickup on "He struck a match"). The strings are VS Chamber Orchestra 2's own
+-- SFZ files read through `sources` and pinned (media/pins/vsco.pins, by `onimite
+-- audio pin`), the piano is the osiris soft grand. No riser, no impact, no crash.
+local score = song { "score", key = "F major", bpm = 84, seed = 11,
+  sources = {
+    vsco = { url = "https://raw.githubusercontent.com/sgossner/VSCO-2-CE/6dd651d55dde97fd4028699be9d4481f26917891/",
+      page = "https://github.com/sgossner/VSCO-2-CE/tree/SFZ", licence = "CC0-1.0",
+      credit = "VS Chamber Orchestra 2: Community Edition by Versilian Studios LLC, CC0 1.0", pins = "pins/vsco.pins" },
   },
+  sections = {
+    { "climb", duration = { audio = "climb", plus = { seconds = 1.2 } }, chords = "Dm9 Bbmaj7" },
+    { "top", duration = { audio = "top", plus = { seconds = 1.2 } }, chords = "Gm9 Bbmaj7" },
+    { "strike", duration = "1m", chords = "Csus4" },
+    { "beam", duration = "2m", chords = "F Am7 Bbmaj7 F" },
+  },
+  returns = { hall = { { "Reverb", decay = 3.2, pre_delay = 0.03 }, { "Filter", type = "highpass", frequency = 250 } } },
   parts = {
-    -- the bar of riser under the match, the impact and a crash on "Light"
-    rise = { instrument = "riser", gain_db = 3, play = { { "strike", events = { { time = 0, duration = "1m", note = "C4", velocity = 0.35 } } } } },
-    fx = { instrument = "impact", gain_db = -4, play = { { "beam", events = { { time = 0, duration = 2.5, note = "C2", velocity = 0.8 } } } } },
-    fx_crash = { instrument = "crash", gain_db = -1, play = { { "beam", events = { { time = 0, duration = 1.6, note = "C4", velocity = 0.7 } } } } },
-    -- the riser, the crash and ambient.json's bells (-14), drums (-8), strings (-16) and sub (-8) raised to where inspect's buried_part put it: 12 LU under the mix where the part plays loudest
-    bells = { gain_db = -4 },
-    drums = { gain_db = 1 },
-    strings = { gain_db = -8 },
-    sub = { gain_db = -5 },
+    -- the piano: a broken chord in eighths, held still for the match, opening out at the light
+    piano = { instrument = { "Sampler", set = "osiris/soft_piano", release = 1.2 }, gain_db = -3, sends = { hall = -12 }, play = {
+      { "climb..top", arpeggio = { pattern = "up", interval = "8n", octaves = 2 }, octave = 3, velocity = 0.42, humanize = 0.008 },
+      { "strike", chords = { voicing = "spread", rhythm = "x..............." }, octave = 3, duration = "1m", velocity = 0.32 },
+      { "beam", arpeggio = { pattern = "upDown", interval = "8n", octaves = 2 }, octave = 3, velocity = 0.55, humanize = 0.008 },
+    } },
+    -- the cello section: the roots, long and soft
+    cellos = { instrument = { "vsco/CelloEnsSusVib-Quiet.sfz", ampeg_attack = 0.35, ampeg_release = 0.9 }, gain_db = 4, sends = { hall = -14 }, play = {
+      { "climb..strike", degrees = "1", subdivision = "1m", octave = 2, velocity = 0.5 },
+      { "beam", degrees = "1 1", subdivision = "2n", octave = 2, velocity = 0.7 },
+    } },
+    -- violas from the lamp: the chord held, swelling into the light
+    violas = { instrument = { "vsco/ViolaEnsSusVib-Quiet.sfz", ampeg_attack = 0.6, ampeg_release = 1 }, gain_db = 2, sends = { hall = -12 }, play = {
+      { "top..strike", chords = { voicing = "close", rhythm = "x..............." }, octave = 3, duration = "1m", velocity = 0.45 },
+      { "beam", chords = { voicing = "close", rhythm = "x.......x......." }, octave = 3, duration = "2n", velocity = 0.6 },
+    } },
+    -- the light: the violin section in, a solo violin singing over it
+    violins = { instrument = { "vsco/ViolinEnsSusVib.sfz", ampeg_attack = 0.45, ampeg_release = 1.2 }, gain_db = 10, sends = { hall = -10 }, play = {
+      { "beam", chords = { voicing = "open", rhythm = "x.......x......." }, octave = 4, duration = "2n", velocity = 0.55 },
+    } },
+    solo = { instrument = { "vsco/SViolinVib.sfz", ampeg_attack = 0.06, ampeg_release = 0.5 }, gain_db = 8, sends = { hall = -8 }, play = {
+      { "beam", notes = "A5 - - G5 F5 - C6 - A5 - - - - - - -", subdivision = "8n", velocity = 0.65, humanize = 0.006, pickup = "F5 G5" },
+    } },
+  },
+  automation = {
+    ["parts/violas/gain_db"] = { { "top", -8 }, { "beam", 0 } },      -- on the part's own level
+    ["parts/violins/gain_db"] = { { "beam", -12 }, { "beam@1m", 0 } },
   },
 }
 
@@ -60,43 +89,45 @@ local SEA = say_cue(strike, STRIKE_AT, "sea")
 local MATCH = score.snap(say_cue(strike, STRIKE_AT, "match"), "8n")
 local SWEPT = score.snap(say_cue(strike, STRIKE_AT, "swept"), "8n")
 
--- Sound effects, one sound{} per kind.
-local STEP = sound { "tick", instruments = INSTRUMENTS, note = "A5" }                                  -- a footstep on iron
-local SCRAPE = sound { { "NoiseSynth", noise = { type = "pink" },          -- the match struck
-  envelope = { attack = 0.004, decay = 0.45, sustain = 0, release = 0.1 } }, duration = 0.5 }
-local EMBER = sound { "crackle", instruments = INSTRUMENTS }
-local BELL = sound { "bell", instruments = INSTRUMENTS, note = score.note("1", "beam"), duration = "1m", gain_db = -4.6 }   -- the lamp catching (sound{}'s -10, +5.4 for synths.json's bell level)
-local WHOOSH = sound { "whoosh", instruments = INSTRUMENTS, duration = 0.7 }                            -- the beam passing
+-- Sound effects: real recordings (CC0, from Freesound), downloaded by fetch.sh into
+-- media/ and checked against their SHA-256; they aren't in the repository, so
+-- run `sh examples/voiceover/fetch.sh` once first. Each placement takes the part of its
+-- file it needs (`offset` into the file, `stop`); the files are left as recorded.
+local FX = ""   -- where fetch.sh puts them: media/, beside the fonts
 
--- The keeper's steps: one per stair, from "climbed" to "stairs" (a roll, not beat-checked).
+-- The keeper's steps: one per stair, from "climbed" to "stairs" (a roll, not beat-checked),
+-- each a single footfall cut from one take on metal stairs (four of its steps, in turn).
+local STEP_AT = { 0.63, 2.32, 4.22, 6.94 }   -- the footfalls' onsets in steps.mp3
 local STEPS = 8
 local steps = {}
 for i = 0, STEPS - 1 do
-  steps[#steps + 1] = { STEP, start = CLIMBED + (STAIRS - CLIMBED) * i / STEPS - score.time("climb"),
-    gain_db = 2, bus = "sfx", pan = (i % 2 == 0) and -0.2 or 0.2 }
+  local t = CLIMBED + (STAIRS - CLIMBED) * i / STEPS - score.time("climb")
+  steps[#steps + 1] = { FX .. "steps.mp3", start = t, stop = t + 0.14, offset = STEP_AT[i % 4 + 1],
+    gain_db = 6, bus = "sfx", pan = (i % 2 == 0) and -0.25 or 0.25 }
 end
 steps[1].cue = "climbed"
 
--- The match struck, the lamp catching, the beam passing (from the Light scene's start).
+-- The match struck and catching (its strike at 2.21 s in match.mp3) on the half beat
+-- nearest "match"; the lamp's flame catching on "Light" (the burst at 1.35 s in
+-- flame.mp3); the beam passing with a whoosh near "swept" (from the Light scene's start).
 local at = score.time("strike")
 local light_fx = {
-  { SCRAPE, start = MATCH - at, gain_db = 14, bus = "sfx" },
-  { BELL, start = LIGHT - at, gain_db = 3, bus = "sfx", cue = "light" },
-  { WHOOSH, start = SWEPT - at, gain_db = 10, bus = "sfx" },
+  { FX .. "match.mp3", start = MATCH - at, offset = 2.21, stop = MATCH - at + 1.6, gain_db = 8, fade_out = 0.4, bus = "sfx" },
+  { FX .. "flame.mp3", start = LIGHT - at, offset = 1.35, stop = LIGHT - at + 3, gain_db = -4, fade_out = 1.2, bus = "sfx", cue = "light" },
+  { FX .. "whoosh.mp3", start = SWEPT - at, offset = 0.015, gain_db = 2, bus = "sfx" },
 }
-for k = 0, 9 do  -- the match's crackle: a roll after the scrape
-  light_fx[#light_fx + 1] = { EMBER, start = MATCH - at + 0.01 + k * 0.035, gain_db = 14 - k, bus = "sfx",
-    pan = k % 2 == 0 and -0.3 or 0.3 }
-end
 
-video { width = W, height = H, fps = 30, duration = score.duration, background = "#070b16",
+video { width = W, height = H, fps = 60, duration = score.duration, background = "#070b16",
   buses = { music = { gain_db = 0 }, voice = { gain_db = 0 }, sfx = { gain_db = -5 } },
-  master_gain_db = 6, limiter = { ceiling_db = -1.2 },
+  master_gain_db = 8.5,
   audio = {
     { "score", gain_db = -6, fade_in = 1, fade_out = 1.5, ducked = true, bus = "music" },
     { "climb", start = CLIMB_AT },     -- spoken lines go on the voice bus by themselves
     { "top", start = TOP_AT },
     { "strike", start = STRIKE_AT },
+    -- the sea under it all, night waves on a beach, rising for "the sea"
+    { FX .. "sea.mp3", start = 0, gain_db = 4, fade_in = 2, fade_out = 1.5, bus = "sfx" },
+    { FX .. "sea.mp3", start = SEA - 0.8, offset = 12, gain_db = 2, fade_in = 1.2, fade_out = 1.5, bus = "sfx" },
   },
   render = function(f)
     render_scenes(f)

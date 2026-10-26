@@ -111,12 +111,23 @@ Community Edition and VCSL (github.com/sgossner).
   The model is CC0 (PixelMannen); its rigging and animations are CC-BY 4.0
   by @tomkranis (`LICENSES/CC-BY-4.0.txt`).
 - `examples/svg_demo` bird and the ovg demo rocket: CC0, drawn for onimite.
+- Recordings the examples' `fetch.sh` download from Freesound (CC0 1.0, each
+  checked by SHA-256, never in this repository): `graph_paper`'s "Board Game
+  Pieces" by taure (freesound.org/s/555190); `physics_demo`'s and
+  `physics3d_demo`'s "Wooden Thud (Mono)" by Breviceps (449955) and "Rubber
+  ball bouncing" by SomeoneCool15 (423778), and `physics3d_demo`'s "Wood
+  Crash" by benjaminpotter (343164); `onimite_saga`'s "swoosh" by Halgrimm
+  (169867); `voiceover`'s "Metal Stairs Foot Steps" by sagamusix (452421),
+  "Match - Strike and Light 02" by JarredGibb (248236), "Bonfire Being Lit"
+  by samararaine (186374), "Whoosh" by qubodup (60013) and "Ocean beach at
+  night with small waves" by BonnyOrbit (465435).
 - Generated media, part of this repository (MIT, like the code): every
-  sound, voice line, video clip and photo in `examples/` (music, effects,
+  other sound, voice line, video clip and photo in `examples/` (music, effects,
   `vo.wav` / `vo2.m4a`, `clip.mp4`, the alpha clips `transparent.mov`,
   `avatar_vp9_alpha.webm` and `mascot.webm`, `canyon.webp`) is rendered or
   synthesized by onimite from the scripts in `tools/gen_media/` and
-  converted by `tools/gen_media/gen.sh`, which regenerates them all. The
+  converted by `tools/gen_media/gen.sh`, which regenerates them all (the
+  examples' `fetch.sh` make the clips that aren't committed). The
   voice lines are placeholders spoken by espeak-ng (run by `gen.sh` as a
   build tool, like ffmpeg; neither ships with onimite) and may be replaced
   by other synthesized speech (e.g. Gemini TTS) with the same words and

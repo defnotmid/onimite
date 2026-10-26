@@ -1,6 +1,9 @@
 -- The onimite saga: a two minute film about onimite, made with onimite,
 -- music included. Slow and dramatic, then K-pop, then a twist.
+-- media/transparent.mov isn't in the repository: fetch.sh makes it, once,
+-- before the first run.
 --
+--     examples/onimite_saga/fetch.sh
 --     onimite render examples/onimite_saga/video.lua -o onimite_saga.mp4
 --
 -- This file is the manifest: the video, its music and the scenes in order.
@@ -20,7 +23,7 @@ local PUMPING = {
   { part = "drums", note = "kick", decay = 9, range = "montage..tape_stop" },
 }
 -- The drops' impacts (the song's transitions), each as strong as its section says.
-local FLASH = { part = "fx", note = "C2", decay = 5 }
+local FLASH = { part = "fx", note = "C#2", decay = 5 }
 local FLASH_STRENGTH = { one = 0.7, montage = 0.55 }
 cue("flash", score.hits(FLASH), { hit = "score" })
 
@@ -29,9 +32,8 @@ video {
   audio = { { "score", bus = "music", fade_out = 0.2 } },
   -- the score and the sound effects (each scene places its own, sfx.lua)
   buses = { music = { gain_db = 0 }, sfx = { gain_db = -3 } },
-  -- audio analyze: about -14 LUFS, true peak under -1 dBTP
-  master_gain_db = 6.5,
-  limiter = { ceiling_db = -1.2 },
+  -- audio analyze: about -14 LUFS, true peak under -1 dBTP (the song alone peaks under -1)
+  master_gain_db = 8.5,
   render = function(f)
     local pump = 0
     for _, k in ipairs(PUMPING) do pump = math.max(pump, score.pulse(f, k)) end

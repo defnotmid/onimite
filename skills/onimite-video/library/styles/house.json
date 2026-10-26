@@ -3,6 +3,7 @@
   "instruments": "../instruments/classic.json",
   "parts": {
     "drums": {
+      "role": "drums",
       "instrument": "../machines/909.json",
       "octave": 3,
       "gain_db": -3,
@@ -26,14 +27,16 @@
       ]
     },
     "bass": {
+      "role": "bass",
       "instrument": "bass",
       "octave": 2,
-      "gain_db": -3,
+      "gain_db": 0.3,
       "room_db": 0,
       "sidechain": "drums/kick",
       "play": [ { "energy": [0.4, 1], "degrees": ". . 1 . . . 1 8 . . 1 . . . 1 .", "subdivision": "16n" } ]
     },
     "keys": {
+      "role": "comp",
       "instrument": "stab",
       "octave": 4,
       "gain_db": -7,
@@ -43,6 +46,7 @@
       "play": [ { "energy": [0.6, 1], "chords": { "rhythm": "x.....x.....x..." }, "duration": "8n" } ]
     },
     "pad": {
+      "role": "pad",
       "instrument": "pad",
       "octave": 3,
       "gain_db": -9,
@@ -51,6 +55,7 @@
       "play": [ { "energy": [0.2, 0.75], "chords": { "voicing": "open" } } ]
     },
     "arp": {
+      "role": "counter",
       "instrument": "pluck",
       "octave": 4,
       "gain_db": -12,

@@ -274,6 +274,7 @@ audio_analyze :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 	start, end := resolve_range(app, &r.timeline, fps, regs.spec) or_return
 	mix, placed, _ := audio_mix(app, r, start, end, regs.track) or_return
 	defer delete(mix)
+	warn_song_loads(&app.script)
 	l, right := om.channels_from_interleaved(mix)
 	lu := oanalyze.loudness_from_samples(l, right, om.MIX_RATE, context.temp_allocator)
 	max_momentary := math.inf_f64(-1)
@@ -845,6 +846,11 @@ audio_pin :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 		strings.write_string(&b, "no song names a source")
 	}
 	for p, i in pins {
+		if p.error != "" {
+			fmt.sbprintf(&b, "%serror: %s: %s", "\n" if i > 0 else "", p.source, p.error)
+			app.exit_code = 1
+			continue
+		}
 		fmt.sbprintf(&b, "%s%s: %d pinned (%d new) in %s, licence %s", "\n" if i > 0 else "", p.source, p.total, p.added, p.path, p.licence)
 	}
 	for d in load_diagnostics(&app.script, app_media(app)) {

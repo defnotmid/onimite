@@ -2,213 +2,736 @@
   "songs": [
     {
       "name": "score",
-      "at": "track.lua:41",
+      "at": "track.lua:52",
+      "sections": [
+        "title",
+        "bars",
+        "line",
+        "donut",
+        "outro",
+        "tail"
+      ],
       "parts": [
         {
-          "name": "arp",
-          "notes": 80,
-          "first": [
-            "A4",
-            "C5",
-            "E5",
-            "A5",
-            "C6",
-            "E6",
-            "C6",
-            "A5"
-          ],
-          "lufs": -29.0000000000000000,
-          "peak_db": -22.6999999999999993
-        },
-        {
           "name": "bass",
-          "notes": 65,
+          "notes": 49,
           "first": [
+            "E2",
+            "E2",
+            "B2",
+            "D3",
             "A2",
             "A2",
-            "A3",
-            "A2",
-            "A2",
-            "F2",
-            "F2",
-            "F3"
+            "E3",
+            "G3"
           ],
-          "lufs": -25.8999999999999986,
-          "peak_db": -11.4000000000000004
-        },
-        {
-          "name": "bells",
-          "notes": 2,
-          "first": [
-            "C6",
-            "G5"
-          ],
-          "lufs": -40.8999999999999986,
-          "peak_db": -29.5000000000000000
+          "lufs": -29.5000000000000000,
+          "peak_db": -13.0000000000000000,
+          "balance": [
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 5.7000000000000002,
+              "peak_db": -15.1999999999999993
+            },
+            {
+              "plays": true,
+              "under": 4.5999999999999996,
+              "peak_db": -13.4000000000000004
+            },
+            {
+              "plays": true,
+              "under": 6.9000000000000004,
+              "peak_db": -14.5999999999999996
+            },
+            {
+              "plays": true,
+              "under": 6.5000000000000000,
+              "peak_db": -13.0000000000000000
+            },
+            {
+              "plays": true,
+              "under": 3.7999999999999998,
+              "peak_db": -16.5000000000000000
+            },
+            {
+              "plays": true,
+              "under": 5.9000000000000004,
+              "peak_db": -13.0000000000000000
+            }
+          ]
         },
         {
           "name": "chimes",
           "notes": 3,
           "first": [
-            "C4",
-            "C4",
-            "C4"
+            "B5",
+            "E6",
+            "E5"
           ],
-          "lufs": -34.7999999999999972,
-          "peak_db": -19.8999999999999986
-        },
-        {
-          "name": "crash",
-          "notes": 5,
-          "first": [
-            "crash",
-            "crash",
-            "crash",
-            "crash",
-            "crash"
-          ],
-          "lufs": -32.2999999999999972,
-          "peak_db": -19.8000000000000007
+          "lufs": -33.1000000000000014,
+          "peak_db": -18.3000000000000007,
+          "balance": [
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 10.5999999999999996,
+              "peak_db": -21.8000000000000007
+            },
+            {
+              "plays": true,
+              "under": 8.5999999999999996,
+              "peak_db": -23.5000000000000000
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 8.8000000000000007,
+              "peak_db": -18.3000000000000007
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 9.0000000000000000,
+              "peak_db": -18.3000000000000007
+            }
+          ]
         },
         {
           "name": "drums",
-          "notes": 229,
+          "notes": 181,
           "first": [
             "hat",
             "kick",
             "hat",
+            "hat",
+            "hat",
+            "hat",
             "kick",
-            "hat",
-            "hat",
-            "hat",
-            "kick"
+            "hat"
           ],
-          "lufs": -24.8999999999999986,
-          "peak_db": -10.0999999999999996
+          "lufs": -29.8000000000000007,
+          "peak_db": -11.8000000000000007,
+          "balance": [
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 7.0000000000000000,
+              "peak_db": -12.0000000000000000
+            },
+            {
+              "plays": true,
+              "under": 15.5000000000000000,
+              "peak_db": -23.0000000000000000
+            },
+            {
+              "plays": true,
+              "under": 6.0000000000000000,
+              "peak_db": -11.8000000000000007
+            },
+            {
+              "plays": true,
+              "under": 5.5999999999999996,
+              "peak_db": -13.6999999999999993
+            },
+            {
+              "plays": true,
+              "under": 3.3999999999999999,
+              "peak_db": -18.0000000000000000
+            },
+            {
+              "plays": true,
+              "under": 6.0999999999999996,
+              "peak_db": -11.8000000000000007
+            }
+          ]
+        },
+        {
+          "name": "glock",
+          "notes": 30,
+          "first": [
+            "B6",
+            "E6",
+            "G6",
+            "A6",
+            "F#6",
+            "B6",
+            "E6",
+            "G6"
+          ],
+          "lufs": -35.8999999999999986,
+          "peak_db": -19.6999999999999993,
+          "balance": [
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 12.5000000000000000,
+              "peak_db": -19.8999999999999986
+            },
+            {
+              "plays": true,
+              "under": 10.6999999999999993,
+              "peak_db": -19.8999999999999986
+            },
+            {
+              "plays": true,
+              "under": 12.9000000000000004,
+              "peak_db": -19.6999999999999993
+            },
+            {
+              "plays": true,
+              "under": 12.8000000000000007,
+              "peak_db": -20.1999999999999993
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 12.3000000000000007,
+              "peak_db": -19.6999999999999993
+            }
+          ]
+        },
+        {
+          "name": "harp",
+          "notes": 48,
+          "first": [
+            "E4",
+            "G4",
+            "B4",
+            "D5",
+            "F#5",
+            "E5",
+            "G5",
+            "B5"
+          ],
+          "lufs": -36.2999999999999972,
+          "peak_db": -21.3999999999999986,
+          "balance": [
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 13.3000000000000007,
+              "peak_db": -21.3999999999999986
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 13.3000000000000007,
+              "peak_db": -21.3999999999999986
+            }
+          ]
         },
         {
           "name": "impact",
           "notes": 1,
           "first": [
-            "C4"
+            "E1"
           ],
-          "lufs": -38.3999999999999986,
-          "peak_db": -30.1000000000000014
+          "lufs": -30.1999999999999993,
+          "peak_db": -19.3999999999999986,
+          "balance": [
+            {
+              "plays": true,
+              "under": 2.8999999999999999,
+              "peak_db": -19.3999999999999986
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 2.8999999999999999,
+              "peak_db": -19.3999999999999986
+            }
+          ]
         },
         {
-          "name": "keys",
-          "notes": 108,
+          "name": "marimba",
+          "notes": 144,
           "first": [
-            "F4",
-            "A4",
-            "C5",
-            "F4",
-            "A4",
-            "C5",
-            "F4",
-            "A4"
+            "E5",
+            "B4",
+            "D5",
+            "E5",
+            "B4",
+            "G5",
+            "F#5",
+            "D5"
           ],
-          "lufs": -29.3000000000000007,
-          "peak_db": -12.0000000000000000
+          "lufs": -30.5000000000000000,
+          "peak_db": -18.6999999999999993,
+          "balance": [
+            {
+              "plays": true,
+              "under": 4.0000000000000000,
+              "peak_db": -19.6000000000000014
+            },
+            {
+              "plays": true,
+              "under": 6.7000000000000002,
+              "peak_db": -18.6999999999999993
+            },
+            {
+              "plays": true,
+              "under": 6.2000000000000002,
+              "peak_db": -19.8999999999999986
+            },
+            {
+              "plays": true,
+              "under": 6.9000000000000004,
+              "peak_db": -18.8999999999999986
+            },
+            {
+              "plays": true,
+              "under": 8.0000000000000000,
+              "peak_db": -19.6999999999999993
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 6.5999999999999996,
+              "peak_db": -18.6999999999999993
+            }
+          ]
         },
         {
           "name": "months",
           "notes": 12,
           "first": [
-            "C5",
-            "C5",
+            "E4",
+            "E4",
+            "G4",
+            "G4",
+            "B4",
             "D5",
-            "D5",
-            "G5",
             "A5",
-            "E6",
-            "A6"
+            "D6"
           ],
-          "lufs": -31.3999999999999986,
-          "peak_db": -19.8999999999999986
+          "lufs": -31.1000000000000014,
+          "peak_db": -18.8000000000000007,
+          "balance": [
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 7.7999999999999998,
+              "peak_db": -18.8000000000000007
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 7.7999999999999998,
+              "peak_db": -18.8000000000000007
+            }
+          ]
         },
         {
           "name": "pad",
-          "notes": 21,
+          "notes": 70,
           "first": [
-            "C3",
+            "E2",
             "G3",
-            "E4",
-            "E3",
-            "C4",
-            "A4",
-            "F3",
-            "C4"
+            "B3",
+            "D4",
+            "F#5",
+            "F#2",
+            "G3",
+            "B3"
           ],
-          "lufs": -29.1000000000000014,
-          "peak_db": -19.6999999999999993
-        },
-        {
-          "name": "rise",
-          "notes": 1,
-          "first": [
-            "C4"
-          ],
-          "lufs": -35.0000000000000000,
-          "peak_db": -27.6000000000000014
+          "lufs": -35.8999999999999986,
+          "peak_db": -23.6000000000000014,
+          "balance": [
+            {
+              "plays": true,
+              "under": 8.3000000000000007,
+              "peak_db": -24.8999999999999986
+            },
+            {
+              "plays": true,
+              "under": 12.0000000000000000,
+              "peak_db": -23.6000000000000014
+            },
+            {
+              "plays": true,
+              "under": 11.1999999999999993,
+              "peak_db": -24.1000000000000014
+            },
+            {
+              "plays": true,
+              "under": 13.1999999999999993,
+              "peak_db": -25.1000000000000014
+            },
+            {
+              "plays": true,
+              "under": 13.5999999999999996,
+              "peak_db": -25.3999999999999986
+            },
+            {
+              "plays": true,
+              "under": 6.5999999999999996,
+              "peak_db": -24.0000000000000000
+            },
+            {
+              "plays": true,
+              "under": 11.8000000000000007,
+              "peak_db": -23.6000000000000014
+            }
+          ]
         },
         {
           "name": "riser",
-          "notes": 1,
+          "notes": 2,
           "first": [
-            "C4"
+            "E5",
+            "B5"
           ],
-          "lufs": -34.0000000000000000,
-          "peak_db": -26.1000000000000014
+          "lufs": -34.7999999999999972,
+          "peak_db": -26.3000000000000007,
+          "balance": [
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 9.6999999999999993,
+              "peak_db": -26.3000000000000007
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 9.6999999999999993,
+              "peak_db": -26.3000000000000007
+            }
+          ]
         },
         {
           "name": "segments",
           "notes": 5,
           "first": [
+            "D5",
             "E5",
             "G5",
             "A5",
-            "C6",
-            "D6"
+            "B5"
           ],
-          "lufs": -33.0000000000000000,
-          "peak_db": -16.8999999999999986
+          "lufs": -32.3999999999999986,
+          "peak_db": -19.5000000000000000,
+          "balance": [
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 9.5999999999999996,
+              "peak_db": -19.5000000000000000
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 9.5999999999999996,
+              "peak_db": -19.5000000000000000
+            }
+          ]
         },
         {
-          "name": "strings",
-          "notes": 3,
+          "name": "thump",
+          "notes": 35,
           "first": [
-            "C2",
-            "E3",
-            "G4"
+            "kick",
+            "kick",
+            "kick",
+            "kick",
+            "kick",
+            "kick",
+            "kick",
+            "kick"
           ],
-          "lufs": -39.3999999999999986,
-          "peak_db": -27.1000000000000014
-        },
-        {
-          "name": "sub",
-          "notes": 0,
-          "first": [
-
-          ],
-          "lufs": -100.0000000000000000,
-          "peak_db": -100.0000000000000000
+          "lufs": -33.2999999999999972,
+          "peak_db": -20.6999999999999993,
+          "balance": [
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 10.1999999999999993,
+              "peak_db": -21.3999999999999986
+            },
+            {
+              "plays": true,
+              "under": 10.6999999999999993,
+              "peak_db": -24.5000000000000000
+            },
+            {
+              "plays": true,
+              "under": 9.9000000000000004,
+              "peak_db": -20.6999999999999993
+            },
+            {
+              "plays": true,
+              "under": 9.5000000000000000,
+              "peak_db": -21.3999999999999986
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 9.8000000000000007,
+              "peak_db": -20.6999999999999993
+            }
+          ]
         },
         {
           "name": "ticks",
           "notes": 12,
           "first": [
-            "C5",
-            "D5",
             "E5",
-            "F5",
+            "F#5",
             "G5",
             "A5",
             "B5",
-            "C6"
+            "C#6",
+            "D6",
+            "E6"
           ],
-          "lufs": -33.2999999999999972,
-          "peak_db": -21.8999999999999986
+          "lufs": -33.2000000000000028,
+          "peak_db": -20.0000000000000000,
+          "balance": [
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 10.0999999999999996,
+              "peak_db": -20.0000000000000000
+            },
+            {
+              "plays": false,
+              "under": null,
+              "peak_db": null
+            },
+            {
+              "plays": true,
+              "under": 10.0999999999999996,
+              "peak_db": -20.0000000000000000
+            }
+          ]
+        },
+        {
+          "name": "violas",
+          "notes": 70,
+          "first": [
+            "E3",
+            "G3",
+            "B3",
+            "D4",
+            "F#4",
+            "F#3",
+            "G3",
+            "B3"
+          ],
+          "lufs": -35.8999999999999986,
+          "peak_db": -22.3000000000000007,
+          "balance": [
+            {
+              "plays": true,
+              "under": 8.1999999999999993,
+              "peak_db": -23.5000000000000000
+            },
+            {
+              "plays": true,
+              "under": 12.1999999999999993,
+              "peak_db": -23.3000000000000007
+            },
+            {
+              "plays": true,
+              "under": 11.3000000000000007,
+              "peak_db": -22.3000000000000007
+            },
+            {
+              "plays": true,
+              "under": 13.5000000000000000,
+              "peak_db": -22.3000000000000007
+            },
+            {
+              "plays": true,
+              "under": 13.6999999999999993,
+              "peak_db": -23.0000000000000000
+            },
+            {
+              "plays": true,
+              "under": 7.2999999999999998,
+              "peak_db": -22.3000000000000007
+            },
+            {
+              "plays": true,
+              "under": 11.9000000000000004,
+              "peak_db": -22.3000000000000007
+            }
+          ]
         }
       ]
     }

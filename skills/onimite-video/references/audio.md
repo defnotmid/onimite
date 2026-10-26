@@ -16,6 +16,27 @@ with the commands below, and ask the user to listen in `onimite preview`.
   track swapped in).
 - Narration without a recording: `say()` speaks a line with the time of every word
   ("Spoken lines", below).
+- Sound effects: generate them or download them.
+  - **Generated**: `sound{}` on a row (the library's `instruments/sfx.json`: risers, whooshes,
+    impacts, ticks, blips). Good for UI blips, tones and abstract hits.
+  - **Downloaded**: real recordings for anything physical (footsteps, a match, a door,
+    water, wind, a crowd, a whoosh of air), which synthesis does badly. Use only licences
+    that allow the video's use: CC0 needs no credit; CC-BY needs the credit in the video's
+    notes. Look on [Freesound](https://freesound.org/search/?f=license:%22Creative+Commons+0%22)
+    (the CC0 filter; each sound's page gives its licence and author), in
+    [Kenney's audio packs](https://kenney.nl/assets/category:Audio) (all CC0: impacts,
+    footsteps, interface) and on [OpenGameArt](https://opengameart.org) (filter by CC0).
+    Not the BBC's archive (non-commercial only), and nothing without a stated licence.
+  - Download with a script, not by hand: one line per file with its name, URL, SHA-256
+    and credit, writing into `media/` itself (clips are read from the media folder's top
+    level; its subfolders hold sample sets) and checking each hash, so the next run gets
+    the same sound. `examples/voiceover/fetch.sh` is one. Place the files like any clip
+    (`{ "match.mp3", start = t, offset = 2.21, stop = t + 1.6 }`): take the part you need
+    with `offset`, `stop` and `fade_out` instead of editing the recording. Level each by
+    measurement (`audio analyze --track match.mp3`), and say where it came from in a
+    comment where it's placed.
+  - Never commit recordings to a code repository or a skill: keep them out of commits
+    (a `.gitignore` in `media/` listing them) and let the script fetch them.
 
 ## Songs and sounds (odawg)
 
@@ -40,8 +61,8 @@ local score = song { "score", key = "Eb major", seed = 7,          -- start = 0:
       chords = "Abmaj9 Bb13 Gm9 Cm9" },
   },
   parts = {
-    keys = { instrument = { "keys", brightness = 0.7 } },               -- the style's part on our own voice
-    lead = { instrument = "lead", play = { { "drop@4m..", notes = "G5 Bb5 C6 - Bb5 G5 F5 -", subdivision = "8n", humanize = 0.006 } } },
+    keys = { role = "comp", instrument = { "keys", brightness = 0.7 } },   -- the style's part on our own voice
+    lead = { role = "melody", instrument = "lead", play = { { "drop@4m..", notes = "G5 Bb5 C6 - Bb5 G5 F5 -", subdivision = "8n", humanize = 0.006 } } },
   },
   markers = { { "logo", at = "drop@2m" } },
 }
@@ -58,7 +79,15 @@ local score = song { "score", key = "Eb major", seed = 7,          -- start = 0:
   `style = "footwork"`). Parts not given come from the section's style. A song's part of the
   same name is changes over the style's (what it doesn't set, the style's part gives:
   instrument, octave, level, sends); a new name adds a part. A style's entries play by the
-  section's `energy` in bands `[lo, hi)`. A part's `instrument` is a row (below).
+  section's `energy` in bands `[lo, hi)`. A part's `instrument` is a row (below). A style is a
+  preset, and a song needn't use one: with no `style` a song is its own parts (each with its
+  `role`), its own instrument rows and effect rows, and the notes it writes for its
+  transitions (`transition = "none"`, the default). Every example song is written that way.
+- A part's `role` says what it is for, and `inspect` holds its level to that (`role_balance`):
+  `melody` (the hook, a lead), `counter` (a second line), `bass`, `drums` (the whole kit: one
+  part), `comp` (chords, comping strings), `pad` (beds, quiet strings), `fx` (risers, hits,
+  one-shots), `texture` (ambience, shakers, hiss). Give every part one; the bands are in
+  [sound_design.md](sound_design.md), "Mixing as part of the sound".
 - Transitions are written, never picked: `transition = "riser"`, `"impact"` or `"fill"` with
   `transition_part = "fx"` (or `"drums/snare"` for a fill) plays one note on that part (a
   riser 0.35, an impact 0.8), and `"cut"`/`"pause"`/`"none"` shape the change. A drop that
@@ -229,10 +258,11 @@ a genre's decisions ([sound_design.md](sound_design.md) has the table); read one
 | `instruments/classic.json` | drums `kick`, `snare`, `clap`, `hat`, `open_hat`, `crash`, `tom`; `bass`, `sub_bass`, `pad`, `stab`, `pluck`, `lead`, `bell`; `synth_kit` (a machine of the drums) | `cutoff`, `cutoff2` (Hz: where a filter starts and ends), `decay` (seconds: the fall's time constant), `envelope = { attack }` |
 | `instruments/sfx.json` | `riser`, `whoosh`, `impact`, `thump`, `fall`, `tape_chord`, `tick`, `beep`, `crackle`, `glitch`, `blip`, `done` | `cutoff`, `cutoff2`, `tone` (riser, whoosh: the rising tone's level) |
 | `instruments/tb303.json` | a TB-303: one voice, accents and slides (`portamento`) | `oscillator = { type }`, `tune`, `cutoff`, `resonance`, `filter_envelope = { octaves }`, `decay`, `accent` |
+| `instruments/effects.json` | effects as rows (name the file in the song's `effects`): `phaser`, `phaser6`, `flanger`, `tremolo`, `autopan`, `autowah` | `phaser`: `rate`, `depth`, `center`, `feedback`, `mix`; `flanger`: `rate`, `delay`, `sweep`, `feedback`; `tremolo`: `rate`, `depth`; `autopan`: `rate`, `width`; `autowah`: `center`, `range`, `sensitivity`, `attack`, `release`, `q`, `dry` |
 | `instruments/808_bass.json`, `909_bass.json` | a machine's kick as a bass, tuned to the note | `decay` (1), `tone` (0.5), `tune` (semitones) |
 | `machines/808.json`, `machines/909.json` | the TR-808 and TR-909 from their circuits, 18 pads | `decay` (1: as built), `tone` (0.5), `tune` (semitones) |
 | `machines/linn_80s.json`, `tight_modern.json`, `crunch_bap.json`, `cinematic_perc.json` | the 909 toward an 80s drum computer, the 909 tightened for garage and house, the 808 roughened for boom bap, the 808 tuned down and lengthened for trailer hits; each file's `description` says what changed | as the 808's and 909's |
-| `styles/*.json` | seven styles (above) | |
+| `styles/*.json` | seven styles (above): presets, which a song needn't use | |
 
 A machine's notes play its pads by name (`steps = { kick = "x...x..." }`), else the pad at
 the note's pitch: `kick`, `snare`, `clap`, `rim`, `hat`, `open_hat`, `crash`, `ride`, `tom_low`,
@@ -405,6 +435,18 @@ parts = {
 }
 ```
 
+- An effect that isn't built in (`Filter`, `EQ3`, `Compressor`, `Limiter`, `Gate`, `Reverb`,
+  `FeedbackDelay`, `PingPongDelay`, `Chorus`, `Distortion`, `BitCrusher`, `AutoFilter`,
+  `StereoWidener`) is a row of nodes, written like an instrument: the song names its file
+  (`effects = "instruments/effects.json"`, or `{ name = row }` inline) and any chain places
+  it by name, `effects = { { "phaser", rate = 0.25, feedback = 0.5 } }` (the library's
+  `effects.json`: a phaser, a flanger, a tremolo, an autopan, an autowah). In a row an `Input`
+  node is what it's placed on and its `out` what comes back; between them `Filter`, `Ladder`,
+  `OnePole`, `Comb`, `Drive`, `Slew`, `Map`, `Mix`, `Mul`, moved by an `Lfo` (on the song
+  clock: its rate can't be automated, its depth and mix can) or a `Follower` (the input's
+  level). A row has no note: an envelope, oscillator or sample in one is `effect_reads_note`.
+  `parts/X/effects/phaser/mix` and the bus forms automate its options. A video's own buses
+  and tracks take built-ins only.
 - `to` moves a part's or a bus's output onto a bus; `sends` add a path at a gain (dB);
   `key` is what a part's compressor or gate listens to (a real sidechain on the drums'
   sound, not only their notes).
@@ -520,15 +562,16 @@ de-click fades into a master bus, then `master_gain_db` and odawg's true-peak `L
 video { width = 1920, height = 1080, fps = 30, duration = 5,
   audio = { { "music.mp3", start = 0 } },
   master_gain_db = 3.5,              -- before the limiter
-  limiter = { ceiling_db = -1.5 },   -- true peak, default -1 dBTP; limiter = false turns it off
+  limiter = { ceiling_db = -2 },     -- true peak, default -2 dBTP; limiter = false turns it off
 }
 ```
 
 The limiter stops loud overlaps from clipping, but a limiter working hard squashes the mix:
-fix track gains first. To hit a loudness target with a hot synthesized track, raise
-`master_gain_db` and lower `ceiling_db` until `audio analyze` shows the target with true peak
-under -1 dBTP (why_onimite: `master_gain_db = 5.5`, `ceiling_db = -3.4` gives -14.3 LUFS,
--3.4 dBTP).
+fix track gains first, then raise `master_gain_db` until `audio analyze` shows the target
+(about -14 LUFS for the web). Its ceiling defaults to -2 dBTP, a dB under the -1 dBTP bar,
+because the render's AAC encode overshoots the mix's peak (a mix limited to -1.0 measured
+-0.5 dBTP once encoded at 192 kbps); `audio analyze` measures the mix before encoding, so
+leave the default unless the file goes out uncompressed.
 
 ## Checking without listening
 
@@ -546,8 +589,13 @@ onimite audio render video.lua Intro -o intro.wav # the mix of a range, for the 
 
 Every audio command takes `--track FILE`: that track alone, as it sounds in the mix (the others
 still duck it); a bus name hears the bus, `--track score/bass` one part of a song. `inspect`
-renders each song alone through odawg's checks (`silent_part`, `buried_part` with the raise it needs, `clipping`, `true_peak`) and
-reports what reading and composing it found (`song_finding`).
+renders each song alone through odawg's checks (`role_balance` with the `gain_db` change or
+per-section lane a part needs, `buried_part` for a part without a role, `silent_part`, `clipping`,
+`true_peak`, `default_song` for a song sitting on four of a generator's defaults) and reports what
+reading and composing it found (`song_finding`: a note no region or pad answers `no_region`, a
+pitch outside MIDI `note_range`) and what loading its samples found (`asset_unavailable`: files its
+notes reach that aren't pinned play silent; `onimite audio pin` fetches them). `audio parts`
+and `audio analyze` print that last one too.
 
 Targets for the report:
 - Integrated loudness about -14 LUFS for web and social (-16 for podcasts, -23 for
@@ -810,6 +858,11 @@ Where lines come from and what it costs:
   that doesn't load, an unknown voice) is
   `tts_unavailable`: the script still loads with the line silent, `inspect` lists it, and
   `render` refuses to start (error code `load_errors`) rather than ship silent narration.
+- `say` makes every line at -23 LUFS (EBU R128), whatever the voice, so a narrated video
+  needs about +6 to +9 dB of `master_gain_db` to reach -14 (`examples/voiceover`: 8.5,
+  the ottis demo: 6.5). Recorded voice tracks come at their own levels: `inspect` measures
+  every voice line as it plays and warns about one more than 4 LU from the others' median
+  (`voice_level`), with the `gain_db` that levels it. Set that on the line's track.
 
 Licences: the audio must be credited *Pocket TTS by Kyutai (CC-BY-4.0)* (put it in the
 video's credits or description). The voices `cosette` and `jean` come from recordings

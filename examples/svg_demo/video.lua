@@ -13,7 +13,7 @@ local STAR = [[
            fill="#facc15" stroke="#a16207" stroke-width="4" stroke-linejoin="round"/>
 </svg>]]
 
-video { width = 1280, height = 720, fps = 30, background = "#e0f2fe", duration = 4,
+video { width = 1280, height = 720, fps = 60, background = "#e0f2fe", duration = 4,
   render = function(f)
     local t = f.seconds
     local flap = math.sin(t * math.pi * 3) * 28

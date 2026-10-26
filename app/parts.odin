@@ -8,12 +8,15 @@ import "core:slice"
 import "core:strings"
 import oanalyze "deps:odawg/analyze"
 import obase "deps:odawg/base"
+import ocheck "deps:odawg/check"
 import osong "deps:odawg/song"
 import om "../onimite"
 import script "../script"
 
 // `audio parts`: each song the script makes, rendered alone, part by part:
-// how many notes it plays, the first of them, its loudness and peak. With
+// how many notes it plays, the first of them, its loudness and peak, and
+// its balance: how far under the song's mix it sits in each section (and
+// over the song), with its peak there. With
 // `--against FILE` (an earlier `--json` of it) it says what drifted and
 // fails: the check that an odawg release (or an edit) leaves a song as it
 // was, read without listening.
@@ -30,12 +33,26 @@ Part_Row :: struct {
 	first:   []string `json:"first"`,
 	lufs:    f64      `json:"lufs"`, // integrated, to 0.1; -100 when silent
 	peak_db: f64      `json:"peak_db"`,
+	// A cell per section of the song, then one over the sections it plays.
+	balance: []Balance_Cell `json:"balance"`,
+}
+
+// A part in a section against the song's mix (odawg's balance rows): how
+// far under the mix its loudness sits (LU, to 0.1; nil where it plays but
+// is silent or too short to measure) and its sample peak there (dBFS; a hit
+// that lands reads loud here and low in loudness), or `plays` false where it
+// has no notes.
+Balance_Cell :: struct {
+	plays:   bool       `json:"plays"`,
+	under:   Maybe(f64) `json:"under"`,
+	peak_db: Maybe(f64) `json:"peak_db"`,
 }
 
 Song_Parts :: struct {
-	name:  string     `json:"name"`,
-	at:    string     `json:"at"`,
-	parts: []Part_Row `json:"parts"`,
+	name:     string     `json:"name"`,
+	at:       string     `json:"at"`,
+	sections: []string   `json:"sections"`,
+	parts:    []Part_Row `json:"parts"`,
 }
 
 Audio_Parts_Result :: struct {
@@ -45,8 +62,9 @@ Audio_Parts_Result :: struct {
 
 @(private)
 audio_parts :: proc(app: ^App_State, regs: Command_Regs) -> Error {
-	// songs' renders meter each part
-	om.music_set_measures(&app.media, {.Parts})
+	// songs' renders meter each part, and measure the mix with the stems
+	// (the balance)
+	om.music_set_measures(&app.media, {.Parts, .Mix})
 	build_audio(app) or_return
 	s := &app.script
 	songs := make([dynamic]Song_Parts, context.temp_allocator)
@@ -56,6 +74,7 @@ audio_parts :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 		}
 		append(&songs, song_parts(x))
 	}
+	warn_song_loads(s)
 	res := Audio_Parts_Result{songs = songs[:]}
 	b := strings.builder_make(context.temp_allocator)
 	for sp in songs {
@@ -63,6 +82,7 @@ audio_parts :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 		for p in sp.parts {
 			fmt.sbprintf(&b, "  %-12s %5s notes  %6s LUFS  %6s dB peak  %s\n", p.name, fmt.tprint(p.notes), fmt.tprintf("%.1f", p.lufs), fmt.tprintf("%.1f", p.peak_db), strings.join(p.first, " ", context.temp_allocator))
 		}
+		write_balance(&b, sp)
 	}
 	if len(songs) == 0 {
 		strings.write_string(&b, "no songs (sound{} one-shots aren't listed)\n")
@@ -86,6 +106,36 @@ audio_parts :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 	return nil
 }
 
+// A song's balance as a table: a row a part, a column a section and the
+// song, each cell how far under the mix it sits there (LU) and its peak.
+@(private = "file")
+write_balance :: proc(b: ^strings.Builder, sp: Song_Parts) {
+	if len(sp.parts) == 0 || len(sp.parts[0].balance) == 0 {
+		return
+	}
+	strings.write_string(b, "  balance: LU under the song's mix where each part plays (its peak, dBFS); · no notes there, - notes but no sound\n")
+	fmt.sbprintf(b, "  %-12s", "")
+	for name in sp.sections {
+		fmt.sbprintf(b, " %12s", name)
+	}
+	fmt.sbprintf(b, " %12s\n", "song")
+	for p in sp.parts {
+		fmt.sbprintf(b, "  %-12s", p.name)
+		for c in p.balance {
+			cell := "·"
+			if c.plays {
+				cell = "-"
+				if under, ok := c.under.?; ok {
+					peak, _ := c.peak_db.?
+					cell = fmt.tprintf("%.1f (%.0f)", under, peak)
+				}
+			}
+			fmt.sbprintf(b, " %12s", cell)
+		}
+		strings.write_byte(b, '\n')
+	}
+}
+
 // One song's parts' rows, from its render (made once, alone: the song's
 // own render, which measured each part as it was made).
 @(private = "file")
@@ -95,6 +145,18 @@ song_parts :: proc(x: script.Script_Song) -> Song_Parts {
 	g := &x.clip.song
 	n := len(g.parts)
 	rows := make([]Part_Row, n, context.temp_allocator)
+	// the balance: a row a part and section, then the song, from the mix
+	// and the stems the render measured
+	sections := make([]string, len(g.sections), context.temp_allocator)
+	for sec, k in g.sections {
+		sections[k] = sec.name
+	}
+	cols := len(g.sections) + 1
+	balance: []ocheck.Balance_Row
+	if .Mix in rd.measured {
+		measures := ocheck.measures_from(&rd.measuring, context.temp_allocator)
+		balance = ocheck.balance_from_measures(g, &measures, context.temp_allocator)
+	}
 	for name, i in g.parts {
 		l := oanalyze.loudness_from_meter(&rd.part_meters[i], context.temp_allocator)
 		row := Part_Row{name = name, lufs = -100, peak_db = -100}
@@ -129,10 +191,22 @@ song_parts :: proc(x: script.Script_Song) -> Song_Parts {
 			f = notes[k].name
 		}
 		row.first = first
+		if len(balance) >= (i + 1) * cols {
+			cells := make([]Balance_Cell, cols, context.temp_allocator)
+			for &c, k in cells {
+				br := balance[i * cols + k]
+				c.plays = br.plays
+				if br.plays && !math.is_inf(br.under) && !math.is_nan(br.under) {
+					c.under = math.round(br.under * 10) / 10
+					c.peak_db = math.round(br.peak_db * 10) / 10
+				}
+			}
+			row.balance = cells
+		}
 		rows[i] = row
 	}
 	slice.sort_by(rows, proc(a, b: Part_Row) -> bool {return a.name < b.name})
-	return {x.name, x.at, rows}
+	return {x.name, x.at, sections, rows}
 }
 
 // What changed from an earlier `--json` of the same script: parts gone or

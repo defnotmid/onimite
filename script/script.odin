@@ -1378,6 +1378,7 @@ l_text :: proc "c" (L: ^lua.State) -> c.int {
 			baseline = read_baseline(L, 1),
 			letter_spacing = get_num(L, 1, "letter_spacing", 0),
 			features = read_features(L, 1),
+			variations = read_variations(L, 1),
 			line_height = get_num(L, 1, "line_height", 0),
 			fill = fill,
 			fill_opacity = get_maybe(L, 1, "fill_opacity"),
@@ -1881,6 +1882,7 @@ font_query :: proc(L: ^lua.State, t: c.int) -> om.Font_Query {
 		italic = read_italic(L, t),
 		letter_spacing = get_num(L, t, "letter_spacing", 0),
 		features = read_features(L, t),
+		variations = read_variations(L, t),
 	}
 }
 
@@ -1952,6 +1954,9 @@ l_text_width :: proc "c" (L: ^lua.State) -> c.int {
 		u64(transmute(u32)q.size) << 20 ~ u64(q.weight) << 7 ~ u64(q.italic) ~ u64(transmute(u32)q.letter_spacing) * 1099511628211
 	for f in q.features {
 		key = key * 1099511628211 ~ hash.fnv64a(transmute([]u8)f.tag) ~ u64(f.value) << 40
+	}
+	for v in q.variations {
+		key = key * 1099511628211 ~ hash.fnv64a(transmute([]u8)v.tag) ~ u64(transmute(u32)v.value) << 24
 	}
 	w, cached := s.widths[key]
 	if !cached {

@@ -4,8 +4,10 @@
 -- picture = false) places the clip's sound and the scene's length; its
 -- render draws the same row's picture where it wants it, so picture and
 -- sound read one stretch at one speed. street.mp4, surf.mp4 and clip.mp4
--- are made by tools/gen_media/gen.sh (as examples/cuts' are).
+-- (the same as examples/cuts') aren't in the repository: fetch.sh makes them
+-- (tools/gen_media), once, before the first run.
 --
+--     examples/footage/fetch.sh
 --     onimite preview examples/footage/video.lua
 --     onimite render examples/footage/video.lua -o footage.mp4
 
@@ -13,7 +15,7 @@ local pip = dofile("../common/pip.lua")
 local W, H = 1280, 720
 local BG = "#14121f"
 
-video { width = W, height = H, fps = 30, background = BG }
+video { width = W, height = H, fps = 60, background = BG, master_gain_db = -2.2 } -- about -14 LUFS
 
 -- A clip row's picture in a box, from the row: where it starts in the file
 -- and how fast it plays.

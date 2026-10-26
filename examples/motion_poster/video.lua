@@ -245,8 +245,7 @@ video {
   width = W, height = H, fps = T.FPS, duration = score.duration, background = INK,
   audio = { { "score", fade_out = 1.5 } },
   -- the song lifted to about -14 LUFS under the limiter
-  master_gain_db = 2,
-  limiter = { ceiling_db = -1.2 },
+  master_gain_db = 5,
   render = function(f)
     local t = f.global_seconds
     local b = score.beat(t)

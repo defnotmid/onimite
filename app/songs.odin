@@ -101,6 +101,33 @@ write_song :: proc(b: ^strings.Builder, t: Timeline_Song) {
 	}
 }
 
+// What loading each song's samples found (files its notes reach that can't
+// be had: not pinned, offline), as findings at the line that made it. The
+// load comes on first use, after the script's report: `load` loads what
+// isn't in yet first (the CLI); else a song still loading is left for later
+// (the preview, until its sounds are in).
+song_load_diagnostics :: proc(s: ^script.Script, load: bool) -> []om.Diagnostic {
+	out := make([dynamic]om.Diagnostic, context.temp_allocator)
+	for x in s.songs {
+		if x.clip == nil {
+			continue
+		}
+		if load {
+			om.song_clip_load(x.clip)
+		} else if om.song_clip_loading(x.clip) {
+			continue
+		}
+		for f in x.clip.load_findings {
+			if f.severity == .Info {
+				continue
+			}
+			hint := f.code == "asset_unavailable" ? "; `onimite audio pin` fetches and pins what the notes reach" : ""
+			append(&out, om.Diagnostic{severity = f.severity == .Error ? .Error : .Warning, code = .Song_Finding, name = x.at, a = x.name, b = fmt.tprintf("%s (%s%s)", f.message, f.code, hint)})
+		}
+	}
+	return out[:]
+}
+
 // What odawg's checks find in each song the script made, rendered alone
 // (clipping, its peak and loudness), as findings at the line that made it:
 // measured as its kept render was made. Info rows (its loudness) only with

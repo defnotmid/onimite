@@ -147,7 +147,14 @@ shader(f, { x = 0, y = 0, w = 1280, h = 720,
   at the box's on-screen pixel size, unless a pass reads it: then its buffer is drawn.
 - Seeking is exact in every dialect (`frame 300` runs the feedback passes for frames 0..299
   first; the preview keeps checkpoints), so keep effects a function of iFrame/iTime, not of
-  wall time. Only a program where some pass reads a last frame pays that: passes that only
+  wall time.
+- A pass reading its last frame steps once a frame, so write every step as a rate a second
+  times `iTimeDelta`: a fade `last *= pow(0.34, iTimeDelta)` (34% kept after a second), a
+  drift `q += velocity * iTimeDelta`, a blur's spread `6.6 * sqrt(iTimeDelta)` px. Then the
+  video looks the same at 30 and 60 fps; a fixed amount a frame (`last *= 0.965`) fades twice
+  as fast at 60. `inspect` warns about a feedback pass that never reads `iTimeDelta`
+  (`shader_frame_rate`). `examples/shader_passes` and `shadertoy_multipass` are written this
+  way. Only a program where some pass reads a last frame pays that: passes that only
   read earlier passes' output of this frame draw each frame alone.
 - Uniform values go to every pass that declares them; inputs go in the passes (`uniforms`
   naming an input warns `shader_pass_input`). Errors name the pass: `shader trail.sksl:

@@ -1,7 +1,7 @@
 # shadertoy_multipass
 
 A Shadertoy multipass program: Common, two buffers with feedback and the
-Image pass, 12 seconds at 1920x1080, 30 fps.
+Image pass, 12 seconds at 1920x1080, 60 fps.
 
 ```sh
 onimite render examples/shadertoy_multipass/video.lua -o multipass.mp4

@@ -1,6 +1,6 @@
 # shader_passes
 
-A program of passes in two dialects, 6 seconds at 1280x720, 30 fps.
+A program of passes in two dialects, 6 seconds at 1280x720, 60 fps.
 
 ```sh
 onimite render examples/shader_passes/video.lua -o passes.mp4

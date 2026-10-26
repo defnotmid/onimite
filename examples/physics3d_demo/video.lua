@@ -1,12 +1,13 @@
 -- 3D Box3D Physics Demo: Wrecking Ball vs Block Tower + Bouncing Spheres,
 -- then a ragdoll down a staircase (ball joints with cone and twist limits,
 -- hinges with limits: knees and elbows bend one way only).
--- physics3d{} once at load; its contacts place the sound: an impact where
--- the ball hits the tower, a thump per block landing, a tick per orb bounce
--- (pitched per orb), louder for harder hits and panned to where they land.
--- The sounds are odawg's sound effects (media/instruments/sfx.json, the
--- skill's library).
+-- physics3d{} once at load; its contacts place the sound: a wood crash where
+-- the ball first hits the tower, a wooden thud per block, ragdoll part and
+-- letter landing, a rubber ball's bounce per orb bounce (pitched per orb),
+-- louder for harder hits and panned to where they land. The sounds are CC0
+-- recordings fetch.sh downloads.
 --
+--     examples/physics3d_demo/fetch.sh
 --     onimite render examples/physics3d_demo/video.lua -o physics3d_demo.mp4
 video {
   width = 1280,
@@ -14,6 +15,7 @@ video {
   fps = 60,
   background = "#0b0f19",
   buses = { sfx = { gain_db = -2 } },
+  master_gain_db = 6, -- the impacts at about -14.6 LUFS
 }
 
 local BLOCK_W, BLOCK_H, BLOCK_D = 1.2, 0.35, 0.4
@@ -94,11 +96,14 @@ end)
 
 -- A sound per impact worth hearing: the hard ones, a body's at most every
 -- GAP seconds (a collapsing tower touches hundreds of times).
-local SFX = "instruments/sfx.json"
-local IMPACT = sound { "impact", instruments = SFX }
-local THUMP = sound { "thump", instruments = SFX, duration = "16n" }
-local ORB_NOTES = { "C6", "E6", "G6", "A6", "C7", "E7" }
-local hits, last = {}, {}
+-- the recordings (fetch.sh): the crash's first hit is 0.93 s in, one
+-- bounce of the ball 0.82 s in; the orbs' bounces pitched up a major
+-- chord (tape-style, `speed`)
+local function thud(t, gain, pan, k)
+  return { "thud.mp3", start = t, gain_db = gain, pan = pan, bus = "sfx", speed = 0.92 + 0.16 * hash(k, 3) }
+end
+local ORB_SPEEDS = { 1, 1.26, 1.5, 1.68, 2, 2.52 }
+local hits, last, crashed = {}, {}, false
 local last_thump = -1 -- the tower's thumps at least 40 ms apart, all blocks together
 local function kind(name)
   if name == "wrecking_ball" then return "ball" end
@@ -116,14 +121,19 @@ for _, c in ipairs(sim.contacts) do
     last[who] = c.t
     local pan = clamp(c.x / 5, -0.8, 0.8)
     if who == "ball" then
-      hits[#hits + 1] = { IMPACT, start = c.t, gain_db = remap(c.speed, 1, 6, -14, -2), pan = pan, bus = "sfx" }
+      if not crashed then
+        crashed = true
+        hits[#hits + 1] = { "crash.mp3", start = c.t, offset = 0.93, gain_db = remap(c.speed, 1, 6, -14, -4), pan = pan, bus = "sfx" }
+      else
+        hits[#hits + 1] = thud(c.t, remap(c.speed, 1, 6, -16, -4), pan, #hits)
+      end
     elseif who:sub(1, 4) == "orb_" then
       local n = tonumber(who:sub(5))
-      hits[#hits + 1] = { sound { "tick", instruments = SFX, note = ORB_NOTES[n] }, start = c.t,
-        gain_db = remap(c.speed, 1, 5, -22, -10), pan = pan, bus = "sfx" }
+      hits[#hits + 1] = { "bounce.mp3", start = c.t, offset = 0.82, stop = c.t + 0.35, speed = ORB_SPEEDS[n],
+        gain_db = remap(c.speed, 1, 5, -20, -8), pan = pan, bus = "sfx" }
     elseif c.t - last_thump >= 0.04 then
       last_thump = c.t
-      hits[#hits + 1] = { THUMP, start = c.t, gain_db = remap(c.speed, 2, 6, -22, -10), pan = pan, bus = "sfx" }
+      hits[#hits + 1] = thud(c.t, remap(c.speed, 2, 6, -22, -10), pan, #hits)
     end
   end
 end
@@ -310,8 +320,7 @@ for _, c in ipairs(ragdoll.contacts) do
     if not is_stairs(name) and c.speed > 1.2
       and (last_hit[name] or -1) < c.t - 0.2 then
       last_hit[name] = c.t
-      falls[#falls + 1] = { THUMP, start = c.t, gain_db = remap(c.speed, 1.2, 6, -24, -8),
-        pan = clamp(c.x / 4, -0.7, 0.7), bus = "sfx" }
+      falls[#falls + 1] = thud(c.t, remap(c.speed, 1.2, 6, -24, -8), clamp(c.x / 4, -0.7, 0.7), #falls)
     end
   end
 end
@@ -423,8 +432,7 @@ for _, c in ipairs(letters.contacts) do
   local li = who and tonumber(who:match("^(%d+)"))
   if li and c.speed > 1.0 and (letter_last[li] or -1) < c.t - 0.12 then
     letter_last[li] = c.t
-    tumbles[#tumbles + 1] = { THUMP, start = c.t, gain_db = remap(c.speed, 1, 6, -26, -10),
-      pan = clamp(-c.z / SPAN * 1.6, -0.8, 0.8), bus = "sfx" }
+    tumbles[#tumbles + 1] = thud(c.t, remap(c.speed, 1, 6, -26, -10), clamp(-c.z / SPAN * 1.6, -0.8, 0.8), #tumbles)
   end
 end
 

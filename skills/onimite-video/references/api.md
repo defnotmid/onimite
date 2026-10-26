@@ -611,13 +611,24 @@ text { "OUTLINE", x = 1100, y = 300, font = "Bebas Neue", size = 160, fill = "no
   stroke = "#f472b6", stroke_width = 3 }
 text { "ID 0042", x = 1100, y = 500, font = "JetBrains Mono", size = 64, fill = "#fff",
   features = { "zero" } }                                   -- OpenType features: slashed zero
+text { "Variable", x = 960, y = 800, font = "Adwaita Sans", size = 120, fill = "#fff",
+  variations = { wght = 100 + 800 * p } }                   -- a variable font's instance
 ```
 
 - Fields: `x`, `y`, `font` (a built-in family or a media font's; default DM Sans), `size`
   (16), `weight` (400, nearest available), `italic = true` or `style = "italic"`, `align`,
   `baseline = alphabetic|middle|central|hanging|top|bottom`, `letter_spacing`, `features`,
-  `line_height` (a factor of size), `fill` (default black), `fill_opacity`, `stroke`,
-  `opacity`, `spans`.
+  `variations`, `line_height` (a factor of size), `fill` (default black), `fill_opacity`,
+  `stroke`, `opacity`, `spans`.
+- `variations` draws a variable font (a media font with axes) at an instance, as CSS
+  `font-variation-settings`: `{ wght = 650, wdth = 87.5, opsz = 32 }`, each axis by its tag in
+  its own units (axes not named keep their default; a tag the font lacks does nothing). It
+  holds for the whole text, spans included. On a variable font, `weight` alone sets its
+  `wght` axis when no face has that weight. Each instance is made the first time a frame
+  draws it (about 0.3 ms) and kept for the render, so step through a set of values (a
+  sweep's nearest of 97, say) rather than a new value every frame. `text_width`, `text_fit`,
+  `text_lines`, `text_size`, `outline{}` take `variations` too; `--svg` writes it as
+  `font-variation-settings`.
 - `features` turns a font's OpenType features on or off over its defaults, as CSS
   `font-feature-settings`: `{ "zero", "ss02", liga = 0, kern = false, salt = 2 }` (a listed tag
   is on; a keyed one takes `true`/`false` or a number, n > 1 the nth alternate; a tag both
@@ -630,7 +641,7 @@ text { "ID 0042", x = 1100, y = 500, font = "JetBrains Mono", size = 64, fill = 
   (a span's `features` replace the text's).
 - Shaped by oglyph, ovg's OpenType shaper (HarfBuzz's rules, checked against it): ligatures, kerning,
   marks, Arabic joining, Indic scripts, right-to-left runs. Variable fonts draw at their
-  default instance. Glyphs missing from a font fall back to other media fonts, then to the
+  default instance unless `variations` (or a `weight` no face has) picks another. Glyphs missing from a font fall back to other media fonts, then to the
   bundled Noto Color Emoji; glyphs no font has are reported by `inspect`. Drawn as vector
   outlines (sharp under any transform).
 - Emoji just work: `text { "Launch day 🚀🔥 👩‍💻 🇯🇵", ... }` draws them in colour (vector

@@ -6,6 +6,7 @@
 #   bash .github/ci.sh test    # odin test, every package that has tests
 #   bash .github/ci.sh smoke   # the built binary draws a frame, renders a clip (software), serves MCP, updates itself
 #   bash .github/ci.sh songs   # every example song part by part against its parts.json (audio parts --against)
+#   bash .github/ci.sh media   # no heavy audio or video committed under examples/ or skills/
 #
 # ONIMITE_TEST_LDFLAGS (set by .github/actions/setup-toolchain) points the
 # links at CI's SDL3; unset, the system's is used.
@@ -103,8 +104,35 @@ songs)
 	done
 	exit $fail
 	;;
+media)
+	# No heavy media in the repository: an audio or video file over 256 KB
+	# under examples/ or skills/ fails, named. Such a file is made or fetched
+	# on first use (an example's fetch.sh, checked by hash) and listed in
+	# its media/.gitignore.
+	# What the commit holds: jj's list in a jj working copy (git's index
+	# there is jj's, not current), else git's (CI's checkout).
+	if jj root >/dev/null 2>&1; then
+		list() { jj file list examples skills; }
+	else
+		list() { git ls-files examples skills; }
+	fi
+	fail=0
+	while IFS= read -r f; do
+		case "$f" in
+		*.mp4 | *.mov | *.webm | *.mkv | *.avi | *.wav | *.mp3 | *.ogg | *.opus | *.flac | *.m4a | *.aac)
+			[ -f "$f" ] || continue
+			size=$(wc -c <"$f")
+			if [ "$size" -gt 262144 ]; then
+				echo "$f: $size bytes: heavy media isn't committed; make or fetch it on first use (an example's fetch.sh) and list it in its media/.gitignore"
+				fail=1
+			fi
+			;;
+		esac
+	done < <(list)
+	exit $fail
+	;;
 *)
-	echo "usage: bash .github/ci.sh build | test | smoke | songs" >&2
+	echo "usage: bash .github/ci.sh build | test | smoke | songs | media" >&2
 	exit 2
 	;;
 esac

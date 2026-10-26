@@ -1,7 +1,7 @@
 # batch
 
 A personalized title card (name, role, accent colour; initials instead of a photo), 1280x720
-@ 30 fps, 3 s. Everything per video comes from the table `props`, with defaults, so the
+@ 60 fps, 3 s. Everything per video comes from the table `props`, with defaults, so the
 script renders on its own too.
 
 One video per row, named from the row (`{index}` is the row number from 1):

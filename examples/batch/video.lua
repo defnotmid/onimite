@@ -19,7 +19,7 @@ for word in name:gmatch("%S+") do
   if #initials < 2 then initials = initials .. word:sub(1, 1):upper() end
 end
 
-video { width = W, height = H, fps = 30, background = "#0b1020", duration = duration,
+video { width = W, height = H, fps = 60, background = "#0b1020", duration = duration,
   render = function(f)
     local t = f.seconds
     local out = animate(t, { { start = duration - 0.4, stop = duration, from = 1, to = 0, easing = ease_in } })

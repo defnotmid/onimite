@@ -1,0 +1,93 @@
+{
+  "phaser": {
+    "description": "Four all-pass stages swept together by a sine LFO, summed with the dry signal: the notches where they cancel move up and down. rate in Hz (fixed: its phase is the song's), depth in octaves either side of center, feedback 0..1 sharpens the notches (it is the stages' q: all-pass, so no setting can boost or run away), mix 0..1 the swept signal's level. Stereo in, stereo out: spread (degrees, 90 by default; fixed as it is placed) sweeps the right side that far ahead of the left, so a centred sound comes out wide; 0 sweeps both together.",
+    "options": {
+      "rate": "lfo/rate",
+      "spread": "lfo/spread",
+      "depth": "ap*/frequency/octaves",
+      "center": "ap*/frequency",
+      "feedback": { "path": "ap*/q", "scale": 2.5, "offset": 0.5 },
+      "mix": { "path": "ap4/gain_db", "op": "mul" }
+    },
+    "nodes": {
+      "in": { "class": "Input" },
+      "lfo": { "class": "Lfo", "wave": "sine", "rate": 0.4, "spread": 90 },
+      "ap1": { "class": "Filter", "type": "allpass", "input": "in", "q": 1, "frequency": { "base": 700, "by": "lfo", "octaves": 1.5 } },
+      "ap2": { "class": "Filter", "type": "allpass", "input": "ap1", "q": 1, "frequency": { "base": 700, "by": "lfo", "octaves": 1.5 } },
+      "ap3": { "class": "Filter", "type": "allpass", "input": "ap2", "q": 1, "frequency": { "base": 700, "by": "lfo", "octaves": 1.5 } },
+      "ap4": { "class": "Filter", "type": "allpass", "input": "ap3", "q": 1, "frequency": { "base": 700, "by": "lfo", "octaves": 1.5 } },
+      "out": { "class": "Mix", "inputs": [ "in", "ap4" ], "gain_db": -3 }
+    }
+  },
+  "phaser6": {
+    "name": "phaser",
+    "description": "The phaser with six stages, as the classic small pedals have: three notches sweeping instead of two, a deeper, more liquid sweep. It is the phaser (its name) with two more stages: the phaser's options (rate, spread, depth, center, feedback) reach all six through ap*, and mix is the sixth stage's. odawg show SPEC parts/NAME lists them as placed.",
+    "nodes": {
+      "ap5": { "class": "Filter", "type": "allpass", "input": "ap4", "q": 1, "frequency": { "base": 700, "by": "lfo", "octaves": 1.5 } },
+      "ap6": { "class": "Filter", "type": "allpass", "input": "ap5", "q": 1, "frequency": { "base": 700, "by": "lfo", "octaves": 1.5 } },
+      "out": { "inputs": [ "in", "ap6" ] }
+    },
+    "options": {
+      "mix": { "path": "ap6/gain_db", "op": "mul" }
+    }
+  },
+  "flanger": {
+    "description": "A short delay (1 to 5 ms) swept by a slow triangle LFO, fed back into itself and set against the dry signal: a comb of deep notches sliding up and down, the jet sound. rate in Hz (fixed: its phase is the song's), delay in seconds (its center; fixed as the effect is placed), sweep in seconds either side, feedback 0..1 (0.9 at most into the line: it rings, it doesn't run away), spread (degrees, fixed as it is placed: the right side's sweep that far ahead, wide; 0, as written, both together).",
+    "options": {
+      "rate": "lfo/rate",
+      "spread": "lfo/spread",
+      "delay": "comb/delay",
+      "sweep": "comb/delay/amount",
+      "feedback": [ { "path": "comb/feedback", "scale": 0.9 }, { "path": "against/scale", "scale": 0.9, "offset": -1 } ]
+    },
+    "nodes": {
+      "in": { "class": "Input" },
+      "lfo": { "class": "Lfo", "wave": "triangle", "rate": 0.2 },
+      "comb": { "class": "Comb", "input": "in", "feedback": 0.45, "delay": { "base": 0.003, "by": "lfo", "amount": 0.002 } },
+      "against": { "class": "Map", "input": "comb", "scale": -0.55 },
+      "out": { "class": "Mix", "inputs": [ "in", "against" ], "gain_db": 4 }
+    }
+  },
+  "tremolo": {
+    "description": "The level rising and falling with a sine LFO: depth 0..1 how far it dips (0.5: to half), rate in Hz (fixed: its phase is the song's, so a tremolo on two parts moves together; a Tone length, \"8n\", on the beat). Stereo in, stereo out; spread (degrees) dips the sides apart (180: one up as the other is down).",
+    "options": {
+      "rate": "lfo/rate",
+      "spread": "lfo/spread",
+      "depth": "out/amp/depth"
+    },
+    "nodes": {
+      "lfo": { "class": "Lfo", "wave": "sine", "rate": 5 },
+      "out": { "class": "Input", "amp": { "by": "lfo", "depth": 0.5 } }
+    }
+  },
+  "autopan": {
+    "description": "The sound moving between the sides with a sine LFO: width 0..1 how far (1: all the way), rate in Hz (fixed: its phase is the song's).",
+    "options": {
+      "rate": "lfo/rate",
+      "width": "out/pan/amount"
+    },
+    "nodes": {
+      "lfo": { "class": "Lfo", "wave": "sine", "rate": 0.25 },
+      "out": { "class": "Input", "pan": { "by": "lfo", "amount": 0.7 } }
+    }
+  },
+  "autowah": {
+    "description": "A band-pass whose center follows how loud the input is: louder opens it up to range octaves above center. A Follower reads the level (attack and release its times); sensitivity in dB is how hard it reads it, q the band's narrowness, dry 0..1 the dry signal under it. For a funk guitar, a clav, a bass.",
+    "options": {
+      "center": "bp/frequency",
+      "range": "bp/frequency/octaves",
+      "sensitivity": "level/gain_db",
+      "attack": "level/attack",
+      "release": "level/release",
+      "q": "bp/q",
+      "dry": "dry/scale"
+    },
+    "nodes": {
+      "in": { "class": "Input" },
+      "level": { "class": "Follower", "input": "in", "attack": 0.005, "release": 0.12, "gain_db": 12 },
+      "bp": { "class": "Filter", "type": "bandpass", "input": "in", "q": 2.5, "frequency": { "base": 350, "by": "level", "octaves": 3 } },
+      "dry": { "class": "Map", "input": "in", "scale": 0.25 },
+      "out": { "class": "Mix", "inputs": [ "bp", "dry" ], "gain_db": 3 }
+    }
+  }
+}
