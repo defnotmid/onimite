@@ -91,8 +91,8 @@ osiris soft grand turning a broken-chord figure, and VS Chamber Orchestra 2's
 own SFZ files (cello and viola sections, the violin section, a solo violin)
 read through the song's `sources` and pinned in `media/pins/vsco.pins` by
 `onimite audio pin`. Its levels are set by measurement: at the light the solo
-violin and the piano lead, the sections 2-6 LU under; the music sits 10 LU
-under the voice.
+violin and the piano lead, the sections 2-6 LU under; the music sits well
+under the voice and ducks under every line.
 
 The voice is *Pocket TTS by Kyutai (CC-BY-4.0)*, voice "alba"; the strings
 are *VS Chamber Orchestra 2: Community Edition* (CC0). The effects (CC0, from
@@ -100,5 +100,5 @@ Freesound): "Metal Stairs Foot Steps" by sagamusix, "Match - Strike and Light
 02" by JarredGibb, "Bonfire Being Lit" by samararaine, "Whoosh" by qubodup and
 "Ocean beach at night with small waves" by BonnyOrbit. The score and
 effects are composed by odawg in the script (`song{}`, `sound{}`).
-`onimite audio analyze`: -15.1 LUFS, -2.0 dBTP. Fonts:
+Mastered to about -15 LUFS (`onimite audio analyze`). Fonts:
 Instrument Serif and Space Grotesk (OFL, copied from the other examples).

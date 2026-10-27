@@ -26,7 +26,7 @@ onimite audio analyze examples/disco/video.lua --waveform disco.png  # bands, cr
 
 The first run fetches what the notes reach into odawg's data folder (`$ODAWG_DATA`, else
 `odawg/` in the user data folder), verified against the pins; after that it renders offline.
-The mix: -14.2 LUFS, -1.0 dBTP; -16.4 LUFS in the intro, -14.4 in the break, -12.8 in the drop.
+Mastered to about -14 LUFS (`onimite audio analyze`): quieter in the intro, loudest in the drop.
 
 ## Layout
 

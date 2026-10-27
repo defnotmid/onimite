@@ -17,14 +17,16 @@ import common "deps:odecs/common"
 // the voice tracks), a song or sound its own tracks moved to where it
 // starts, let through its track's window. Then `master_gain_db` and the
 // master limiter (its ceiling -2 dBTP by default: the render's AAC encode
-// overshoots the mix's peak by about half a dB, and -1 dBTP is the bar for
-// the file, not the mix). The render is that
+// overshoots the mix's peak, and -1 dBTP is the bar for the file, not the
+// mix). The render is that
 // stream cut into time segments on every core; the preview plays the same
 // stream.
 
-// The master limiter's ceiling when the script sets none (dBTP): disco's
-// drop limited to -1.0 measured -0.5 dBTP once encoded to AAC at 192 kbps,
-// so the mix stops a dB lower to keep the file under -1.
+// The master limiter's ceiling when the script sets none (dBTP), a dB under
+// the file's -1 bar for the AAC encode's overshoot: disco's drop limited to
+// -1.0 measured -0.5 once encoded at 192 kbps. odecs v0.0.12's AAC overshoots
+// transient-heavy mixes by up to 1.5 dB (why_onimite -0.5 at -2.0); that is
+// the encoder's to fix, not this ceiling's.
 LIMITER_CEILING :: -2
 
 Mix_Options :: struct {

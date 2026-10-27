@@ -84,6 +84,9 @@ jobs:
       - name: No heavy media committed
         if: matrix.os == 'ubuntu-latest'
         run: bash onimite/.github/ci.sh media
+      - name: No measured loudness in example READMEs
+        if: matrix.os == 'ubuntu-latest'
+        run: bash onimite/.github/ci.sh readmes
       - name: Build
         run: bash onimite/.github/ci.sh build
       - name: Test

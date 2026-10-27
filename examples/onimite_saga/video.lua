@@ -32,7 +32,7 @@ video {
   audio = { { "score", bus = "music", fade_out = 0.2 } },
   -- the score and the sound effects (each scene places its own, sfx.lua)
   buses = { music = { gain_db = 0 }, sfx = { gain_db = -3 } },
-  -- audio analyze: about -14 LUFS, true peak under -1 dBTP (the song alone peaks under -1)
+  -- audio analyze: about -15 LUFS, true peak at the limiter's -2 dBTP (the check scene's card says so)
   master_gain_db = 8.5,
   render = function(f)
     local pump = 0

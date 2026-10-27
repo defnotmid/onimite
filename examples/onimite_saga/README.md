@@ -89,8 +89,8 @@ onimite show video.lua song/score/parts/bass   # every note a part plays
 - Levels: the parts' `role` and `gain_db` in `music/parts.lua` (`inspect`'s
   `role_balance` names a part outside its role's band), the per-section lanes
   in `music/score.lua`; `video.lua`'s `master_gain_db` and limiter finish the
-  mix (`audio analyze`: -13.7 LUFS, -1.2 dBTP; -22.7 in the hush, -11 to -9
-  in the choruses).
+  mix (about -15 LUFS, `audio analyze`; the hush far quieter, the
+  choruses loudest).
 
 ## Scenes
 

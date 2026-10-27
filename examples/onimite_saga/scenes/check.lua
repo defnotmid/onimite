@@ -59,8 +59,8 @@ local function check(f, lb, gb)
       local p = snap(lb - 5)
       if p > 0.001 then
         group({ opacity = clamp01(p * 3) }, function()
-          text { "-14 LUFS", x = x, y = y + 90, font = look.DISPLAY, size = 120, fill = look.O }
-          text { "true peak under -1 dBTP", x = x + 2, y = y + 140, font = look.MONO, size = 22, fill = look.INK }
+          text { "-15 LUFS", x = x, y = y + 90, font = look.DISPLAY, size = 120, fill = look.O }
+          text { "true peak -2 dBTP", x = x + 2, y = y + 140, font = look.MONO, size = 22, fill = look.INK }
           for i = 0, 23 do
             local v = 0.3 + 0.7 * math.abs(math.sin(i * 0.7 + gb * 0.8)) * (0.5 + 0.5 * math.sin(i * 0.3))
             rect { x = x + i * 20, y = y + 330 - v * 150, w = 12, h = v * 150, rx = 4, fill = look.CYAN }

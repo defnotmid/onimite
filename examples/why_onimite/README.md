@@ -43,9 +43,9 @@ checks) and glitches on the cuts. The sounds that answer the picture
 so they land on the beat. `beat.lua` is the easing; `scenes/` one file per
 scene (`tricks.lua` plays its four cuts as a `series`).
 
-Mix: `onimite audio analyze` gives -14.8 LUFS integrated, -1.5 dBTP true
-peak (`master_gain_db = 6` into a -1.5 dB limiter), from -16.8 LUFS in the
-shipping and the tricks to -12.4 in the outro.
+Mix: mastered to about -15 LUFS (`master_gain_db` into the limiter's
+default ceiling; `onimite audio analyze`), quietest in the shipping and the
+tricks, loudest in the outro.
 
 Media: fonts copied from other examples (Bebas Neue, Space Grotesk,
 JetBrains Mono, Instrument Serif; OFL), Noto Sans Arabic Bold (OFL, from

@@ -59,7 +59,7 @@ drums play (`score.pulse(f, { part = "drums", note = "kick" })`). Nothing
 is computed in beats: a changed pattern or section moves the picture with
 it. The moments are cues (`month[0]`..`month[11]`, `peak`, `segment[*]`,
 `slam`, `total`): `onimite frame video.lua peak@0.3s`.
-`onimite audio analyze`: -13.8 LUFS, -1.2 dBTP.
+Mastered to about -14 LUFS (`onimite audio analyze`).
 
 Render with `build/onimite_speed` (`-o:speed`): 1800 frames in 3.9 s; the
 three-row batch in 11.9 s.

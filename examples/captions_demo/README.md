@@ -29,7 +29,7 @@ hook. The guitar leads 4 LU under the mix; the bass and the kit sit just
 under it, the piano 9 under. The glow
 breathes with the kicks the drums really play (`score.pulse(f, { part =
 "drums", note = "kick" })`) and the dots count the song's beats
-(`score.beat(f)`). `onimite audio analyze`: -13.8 LUFS, -1.2 dBTP. Fonts:
+(`score.beat(f)`). Mastered to about -14 LUFS (`onimite audio analyze`). Fonts:
 Inter ExtraBold and JetBrains Mono (copied from the other examples).
 Samples (CC0 1.0, downloaded on first use): Emilyguitar and Growlybass by
 Karoryfer Samples; VS Chamber Orchestra 2: Community Edition by Versilian

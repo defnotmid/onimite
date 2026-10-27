@@ -59,8 +59,8 @@ The pieces the brief asks for:
   lines slam on its claps, the format frames pop on its blips, the feature
   cuts are its crashes (the picture flashes and punches in on them with
   `score.pulse`, and a `cue` lets inspect check the song hits there) and
-  the picture pumps on its kicks. `onimite audio analyze`: -14.5 LUFS,
-  -1.5 dBTP; the hook -19, the drop and the cuts -14 to -13.
+  the picture pumps on its kicks. Mastered to about -15 LUFS (`onimite
+  audio analyze`), the hook quieter than the drop and the cuts.
 - **Progress bar**: story-style, a segment per section filling as it plays.
 
 Render with `build/onimite` (Vulkan Video): the three-row batch in 5.4-5.6 s

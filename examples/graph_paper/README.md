@@ -52,8 +52,8 @@ How it's made:
   burst, a sine sub, the title block's chord with a glockenspiel glint. The
   orchestral sounds are VS Chamber Orchestra 2's own SFZ files through the
   song's `sources`, pinned in `media/pins/vsco.pins`. The picture reads its
-  timing from them (`score.hits`, `score.time`). Mastered to -14.2 LUFS,
-  -1.5 dBTP (`master_gain_db`, `limiter`).
+  timing from them (`score.hits`, `score.time`). Mastered to about -14
+  LUFS (`master_gain_db`; `onimite audio analyze`).
 
 Renders in 3.9 s on Linux (a Radeon RX 9070 XT) and 8.8 s on an M4.
 

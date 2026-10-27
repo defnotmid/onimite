@@ -59,8 +59,8 @@ the time since the last of `score.hits { part = "drums", note = "kick" }`),
 the colour splits on each bar's chord (`score.pulse` on the pad), the swirl
 follows the riser's span (`score.events { part = "riser" }`) and the flash
 decays from the impact. Drop a kick pattern or move the riser in
-`track.lua` and the picture follows. `onimite audio analyze`: -14.7 LUFS,
--1.2 dBTP; the scenes -22, -13, -20 and -13 LUFS.
+`track.lua` and the picture follows. Mastered to about -15 LUFS (`onimite
+audio analyze`), the first and third scenes quieter than the other two.
 
 Render with `build/onimite_speed` (`-o:speed`): 1200 frames in 4.6 s
 (16.1 s while turbulence was computed on the CPU every frame).

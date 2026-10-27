@@ -33,7 +33,7 @@ end
 
 video { width = W, height = H, fps = 60, background = PAPER,
   buses = { music = {}, sfx = {} }, audio = { { "score", bus = "music" } },
-  master_gain_db = 7.7 }   -- about -14 LUFS, true peak under -1 dBTP
+  master_gain_db = 7.7 }   -- about -14 LUFS
 
 local WORD = "ONIMITE"
 local MARKS = { "onimite", "ovg", "oksl", "odecs", "ottis", "o3d", "odawg" }

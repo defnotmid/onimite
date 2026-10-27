@@ -7,6 +7,7 @@
 #   bash .github/ci.sh smoke   # the built binary draws a frame, renders a clip (software), serves MCP, updates itself
 #   bash .github/ci.sh songs   # every example song part by part against its parts.json (audio parts --against)
 #   bash .github/ci.sh media   # no heavy audio or video committed under examples/ or skills/
+#   bash .github/ci.sh readmes # no measured loudness figures in example READMEs (they go stale)
 #
 # ONIMITE_TEST_LDFLAGS (set by .github/actions/setup-toolchain) points the
 # links at CI's SDL3; unset, the system's is used.
@@ -131,8 +132,18 @@ media)
 	done < <(list)
 	exit $fail
 	;;
+readmes)
+	# An example's README states no measured loudness: a figure copied from
+	# `audio analyze` goes stale with the next change to the mix or the
+	# limiter. It gives the target ("about -14 LUFS") and names the command;
+	# balances in LU (a part's place under the mix) are design, not figures.
+	if grep -nE -- '-[0-9]+(\.[0-9]+)? ?(LUFS|dBTP|dBFS)' examples/*/README.md | grep -vE 'about -[0-9]+ LUFS'; then
+		echo "measured loudness in an example README (above): give the target (about -14 LUFS) and name onimite audio analyze"
+		exit 1
+	fi
+	;;
 *)
-	echo "usage: bash .github/ci.sh build | test | smoke | songs | media" >&2
+	echo "usage: bash .github/ci.sh build | test | smoke | songs | media | readmes" >&2
 	exit 2
 	;;
 esac
