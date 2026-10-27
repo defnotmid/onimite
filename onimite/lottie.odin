@@ -4,6 +4,7 @@ import "core:hash"
 import "core:math"
 import "core:strings"
 import vg "deps:ovg"
+import vglottie "deps:ovg/lottie"
 
 // Lottie (Bodymovin JSON) animations as nodes: a parsed document (ovg
 // lottie.odin) drawn as vectors into a box like an image, at the frame the
@@ -60,20 +61,20 @@ Lottie :: struct {
 	opacity:    Maybe(f32),
 	// The document's frame (its own numbering, from `in_frame`).
 	frame:      f32,
-	doc:        ^vg.Lottie_Document,
+	doc:        ^vglottie.Document,
 	overrides:  []Lottie_Override,
 }
 
 // Lottie JSON parsed by one context (by content hash).
 @(private)
 Lottie_Cache :: struct {
-	docs: map[u64]^vg.Lottie_Document,
+	docs: map[u64]^vglottie.Document,
 }
 
 @(private)
 lottie_cache_destroy :: proc(c: ^Lottie_Cache) {
 	for _, doc in c.docs {
-		vg.lottie_destroy(doc)
+		vglottie.destroy(doc)
 		free(doc)
 	}
 	delete(c.docs)
@@ -117,7 +118,7 @@ lottie :: proc(ctx: ^Context, f: Frame, p: Lottie_Params) {
 }
 
 // The document frame `p` asks for at `f`.
-lottie_frame :: proc(doc: ^vg.Lottie_Document, f: Frame, p: Lottie_Params) -> f32 {
+lottie_frame :: proc(doc: ^vglottie.Document, f: Frame, p: Lottie_Params) -> f32 {
 	local: f32
 	switch {
 	case p.frame != nil:
@@ -143,25 +144,25 @@ lottie_frame :: proc(doc: ^vg.Lottie_Document, f: Frame, p: Lottie_Params) -> f3
 
 // The size, frame rate and length of a Lottie document (`ok = false` when
 // it is missing or does not parse).
-lottie_info :: proc(ctx: ^Context, src, data: string) -> (doc: ^vg.Lottie_Document, ok: bool) {
+lottie_info :: proc(ctx: ^Context, src, data: string) -> (doc: ^vglottie.Document, ok: bool) {
 	doc = lottie_resolve(ctx, src, data)
 	return doc, doc != nil
 }
 
 @(private)
-lottie_resolve :: proc(ctx: ^Context, src, data: string) -> ^vg.Lottie_Document {
+lottie_resolve :: proc(ctx: ^Context, src, data: string) -> ^vglottie.Document {
 	if data != "" {
 		key := hash.fnv64a(transmute([]u8)data)
 		if doc, ok := ctx.lotties.docs[key]; ok {
 			return doc
 		}
-		doc := new(vg.Lottie_Document)
+		doc := new(vglottie.Document)
 		loader := Svg_Loader{dir = ctx.media.dir}
-		err: vg.Lottie_Error
-		doc^, err = vg.lottie_parse(transmute([]u8)data, {load_file = svg_load_file, user = &loader})
+		err: vglottie.Error
+		doc^, err = vglottie.parse(transmute([]u8)data, {load_file = svg_load_file, user = &loader})
 		if err != nil {
 			report(ctx, .Error, {code = .Lottie_Data, n = i64(key), lottie = err})
-			vg.lottie_destroy(doc)
+			vglottie.destroy(doc)
 			free(doc)
 			return nil
 		}
@@ -176,13 +177,13 @@ lottie_resolve :: proc(ctx: ^Context, src, data: string) -> ^vg.Lottie_Document 
 }
 
 @(private)
-lottie_parse_media :: proc(data: []u8, dir: string) -> (^vg.Lottie_Document, bool) {
+lottie_parse_media :: proc(data: []u8, dir: string) -> (^vglottie.Document, bool) {
 	loader := Svg_Loader{dir = dir}
-	doc := new(vg.Lottie_Document)
-	err: vg.Lottie_Error
-	doc^, err = vg.lottie_parse(data, {load_file = svg_load_file, user = &loader})
+	doc := new(vglottie.Document)
+	err: vglottie.Error
+	doc^, err = vglottie.parse(data, {load_file = svg_load_file, user = &loader})
 	if err != nil {
-		vg.lottie_destroy(doc)
+		vglottie.destroy(doc)
 		free(doc)
 		return nil, false
 	}
@@ -190,9 +191,9 @@ lottie_parse_media :: proc(data: []u8, dir: string) -> (^vg.Lottie_Document, boo
 }
 
 @(private)
-put_lottie :: proc(m: ^Media, name: string, doc: ^vg.Lottie_Document) {
+put_lottie :: proc(m: ^Media, name: string, doc: ^vglottie.Document) {
 	if old, ok := m.lotties[name]; ok {
-		vg.lottie_destroy(old)
+		vglottie.destroy(old)
 		free(old)
 		m.lotties[name] = doc
 	} else {
@@ -211,7 +212,7 @@ draw_lottie :: proc(r: ^Renderer, n: Lottie) {
 	}
 	clear(&r.lottie_overrides)
 	for o in n.overrides {
-		ov := vg.Lottie_Override {
+		ov := vglottie.Override {
 			name    = o.name,
 			opacity = o.opacity,
 			fill    = o.fill,
@@ -223,7 +224,7 @@ draw_lottie :: proc(r: ^Renderer, n: Lottie) {
 			ov.transform = transform_matrix(t)
 		}
 		append(&r.lottie_overrides, ov)
-		if !vg.lottie_has_layer(doc, o.name) {
+		if !vglottie.has_layer(doc, o.name) {
 			report(&r.ctx, .Warning, {code = .Lottie_Missing_Layer, name = n.src, a = o.name})
 		}
 	}
@@ -245,7 +246,7 @@ draw_lottie :: proc(r: ^Renderer, n: Lottie) {
 	}
 	lr := lottie_renderer_of(r, doc)
 	lr.fonts = &r.media.fonts
-	vg.lottie_draw(c, &r.layers, lr, doc, n.frame, {pic.w / doc.width, 0, 0, pic.h / doc.height, pic.x, pic.y}, r.lottie_overrides[:])
+	vglottie.draw(c, &r.layers, lr, doc, n.frame, {pic.w / doc.width, 0, 0, pic.h / doc.height, pic.x, pic.y}, r.lottie_overrides[:])
 	if opacity < 1 {
 		vg.layer_pop(&r.layers, c)
 	}
@@ -262,18 +263,18 @@ draw_lottie :: proc(r: ^Renderer, n: Lottie) {
 	}
 }
 
-// The renderer's `vg.Lottie_Renderer` for `doc`, bound to its images on
+// The renderer's `vglottie.Renderer` for `doc`, bound to its images on
 // first use (one per document, as ovg wants).
 @(private = "file")
-lottie_renderer_of :: proc(r: ^Renderer, doc: ^vg.Lottie_Document) -> ^vg.Lottie_Renderer {
+lottie_renderer_of :: proc(r: ^Renderer, doc: ^vglottie.Document) -> ^vglottie.Renderer {
 	for d, i in r.lottie_docs {
 		if d == doc {
 			return &r.lottie_renderers[i]
 		}
 	}
 	append(&r.lottie_docs, doc)
-	append(&r.lottie_renderers, vg.Lottie_Renderer{})
+	append(&r.lottie_renderers, vglottie.Renderer{})
 	lr := &r.lottie_renderers[len(r.lottie_renderers) - 1]
-	vg.lottie_renderer_bind(lr, &r.canvas, doc)
+	vglottie.renderer_bind(lr, &r.canvas, doc)
 	return lr
 }

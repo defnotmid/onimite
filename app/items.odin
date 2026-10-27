@@ -3,7 +3,7 @@ package onimite_app
 import "core:fmt"
 import "core:slice"
 import "core:strings"
-import vg "deps:ovg"
+import vglottie "deps:ovg/lottie"
 import om "../onimite"
 import script "../script"
 
@@ -225,7 +225,7 @@ media_watch :: proc(it: Media_Item, first: int, fps: int) -> (label, detail: str
 }
 
 // A Lottie animation's length.
-lottie_seconds :: proc(doc: ^vg.Lottie_Document) -> f64 {
+lottie_seconds :: proc(doc: ^vglottie.Document) -> f64 {
 	return f64(doc.out_frame - doc.in_frame) / f64(max(doc.fps, 1))
 }
 

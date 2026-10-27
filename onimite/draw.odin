@@ -4,7 +4,12 @@ import "core:math"
 import "core:mem/virtual"
 import "core:sync"
 import "core:thread"
+import "deps:o3d"
+import common "deps:odecs/common"
+import "deps:oksl"
 import vg "deps:ovg"
+import vglottie "deps:ovg/lottie"
+import vgsvg "deps:ovg/svg"
 
 // A canvas image showing a decode of a media image (`Media_Image.key`).
 Canvas_Image :: struct {
@@ -31,9 +36,17 @@ Renderer :: struct {
 	// Recording: the records play on a GPU backend (clip frames convert
 	// there, video_yuv.odin). Set by the owner after `renderer_init`.
 	plays_on_gpu: bool,
-	// Borrowed task pool for fork-join work inside a frame (shader and
-	// feTurbulence bands on the software backend); nil works serially.
+	// Borrowed task pool for fork-join work inside a frame (shader bands,
+	// and the software backend's through `work`); nil works serially.
 	pool:      ^thread.Pool,
+	// `pool` as odecs' Work_Pool, which the software backend takes
+	// (software_pool).
+	work:      Pool_Work,
+	// What the CPU draws this renderer's frames with (renderer_cpu): its
+	// own, on `pool`, unless the owner points `cpu` at the one of the player
+	// that draws them (a recording renderer's frames played on the CPU).
+	cpu:       ^Cpu_Drawing,
+	own_cpu:   Cpu_Drawing,
 	arena:     virtual.Arena,
 	// Canvas images of media images by name (`media_image_id`), and the
 	// media's eviction count they were last checked against.
@@ -85,11 +98,11 @@ Renderer :: struct {
 	// images): one per document this renderer has drawn, found by document
 	// (parallel arrays), and the overrides of the node being drawn.
 	svg_assets:       [dynamic]^Svg_Asset,
-	svg_renderers:    [dynamic]vg.Svg_Renderer,
-	svg_overrides:    [dynamic]vg.Svg_Override,
-	lottie_docs:      [dynamic]^vg.Lottie_Document,
-	lottie_renderers: [dynamic]vg.Lottie_Renderer,
-	lottie_overrides: [dynamic]vg.Lottie_Override,
+	svg_renderers:    [dynamic]vgsvg.Renderer,
+	svg_overrides:    [dynamic]vgsvg.Override,
+	lottie_docs:      [dynamic]^vglottie.Document,
+	lottie_renderers: [dynamic]vglottie.Renderer,
+	lottie_overrides: [dynamic]vglottie.Override,
 }
 
 // Prepares a renderer drawing with `backend`, or with the software backend
@@ -129,19 +142,21 @@ renderer_init :: proc(r: ^Renderer, video: ^Video, media: ^Media, scale: f32 = 1
 }
 
 renderer_destroy :: proc(r: ^Renderer) {
+	pool_work_destroy(&r.work)
+	cpu_drawing_destroy(&r.own_cpu)
 	vg.layer_stack_destroy(&r.layers, &r.canvas)
 	video_images_destroy(&r.video_images, &r.canvas)
 	shader_state_destroy(&r.shader_state, &r.canvas)
 	view3d_state_destroy(&r.view3d)
 	for &sr in r.svg_renderers {
-		vg.svg_renderer_destroy(&sr, &r.canvas)
+		vgsvg.renderer_destroy(&sr, &r.canvas)
 	}
 	delete(r.svg_assets)
 	delete(r.svg_renderers)
 	delete(r.svg_overrides)
 	delete(r.lottie_overrides)
 	for &lr in r.lottie_renderers {
-		vg.lottie_renderer_destroy(&lr, &r.canvas)
+		vglottie.renderer_destroy(&lr, &r.canvas)
 	}
 	delete(r.lottie_docs)
 	delete(r.lottie_renderers)
@@ -191,7 +206,7 @@ render_frame :: proc(r: ^Renderer, index: int, output: vg.Render_Output = 0, rea
 	build_frame(r, index)
 	feedback_catch_up(r, index)
 	draw_frame(r)
-	r.software.pool = r.pool
+	r.software.pool = software_pool(r)
 	flush_frame(r, output)
 	if r.is_software {
 		return r.software.pixels
@@ -1082,4 +1097,51 @@ rect_transform :: proc "contextless" (r: vg.Rect, t: vg.Transform2D) -> vg.Rect 
 		hi = {max(hi.x, q.x), max(hi.y, q.y)}
 	}
 	return {lo.x, lo.y, hi.x - lo.x, hi.y - lo.y}
+}
+
+// The software backend's bands on the renderer's pool, through odecs'
+// Work_Pool (made the first time, again if the owner changed the pool);
+// nil when it has none.
+@(private)
+software_pool :: proc(r: ^Renderer) -> ^common.Work_Pool {
+	if r.pool == nil {
+		return nil
+	}
+	if r.work.pool != r.pool {
+		pool_work_destroy(&r.work)
+		pool_work_init(&r.work, r.pool)
+	}
+	return &r.work.work_pool
+}
+
+// What the CPU draws a renderer's frames with, owned by what draws them:
+// the task pool (borrowed), the float rows the shader interpreter shades
+// half-float targets through and its working memory by band worker, and
+// the 3D software renderer, each grown once and kept. Used by one drawing
+// thread at a time.
+Cpu_Drawing :: struct {
+	pool:     ^thread.Pool,
+	scratch:  [dynamic][4]f32,
+	runs:     [dynamic]oksl.Scratch,
+	software: o3d.Software,
+}
+
+cpu_drawing_destroy :: proc(d: ^Cpu_Drawing) {
+	delete(d.scratch)
+	for &r in d.runs {
+		oksl.scratch_destroy(&r)
+	}
+	delete(d.runs)
+	o3d.software_destroy(&d.software)
+	d^ = {}
+}
+
+// The renderer's Cpu_Drawing: the owner's, else its own on its pool.
+@(private)
+renderer_cpu :: proc(r: ^Renderer) -> ^Cpu_Drawing {
+	if r.cpu != nil {
+		return r.cpu
+	}
+	r.own_cpu.pool = r.pool
+	return &r.own_cpu
 }

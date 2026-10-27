@@ -115,7 +115,7 @@ bands_draw :: proc(w: ^Render_Worker, v: ^Band_View) -> bool {
 	if bt.texture == nil {
 		strips := (rows + BAND_STRIP - 1) / BAND_STRIP
 		bt^ = {rows = rows, step = t.step_num / max(t.step_den, 1), width = min(rows, BAND_STRIP), height = strips * om.BAND_COUNT}
-		bt.texture = sdl.CreateGPUTexture(w.device, {type = .D2, format = .R8_UNORM, usage = {.SAMPLER}, width = u32(bt.width), height = u32(bt.height), layer_count_or_depth = 1, num_levels = 1})
+		bt.texture = sdl.CreateGPUTexture(w.device, {type = .D2, format = .R8G8B8A8_UNORM, usage = {.SAMPLER}, width = u32(bt.width), height = u32(bt.height), layer_count_or_depth = 1, num_levels = 1})
 		if bt.texture == nil {
 			return false
 		}
@@ -154,23 +154,31 @@ bands_draw :: proc(w: ^Render_Worker, v: ^Band_View) -> bool {
 	return changed
 }
 
-// The levels in `rect` (x, y, w, h) into the texture: a copy pass on this
-// thread's command buffer, not waited on (the queue runs it before any frame
-// the texture is published to; SDL frees the transfer buffer when done).
+// The levels in `rect` (x, y, w, h) into the texture as their heat colours
+// (a level 0 is no reading: clear; 1..255 the ramp's 0..1, opaque): a copy
+// pass on this thread's command buffer, not waited on (the queue runs it
+// before any frame the texture is published to; SDL frees the transfer
+// buffer when done).
 @(private = "file")
 upload_levels :: proc(device: ^sdl.GPUDevice, bt: ^Band_Texture, levels: []u8, rect: [4]int) {
 	x, y, w, h := rect[0], rect[1], rect[2], rect[3]
-	tb := sdl.CreateGPUTransferBuffer(device, {usage = .UPLOAD, size = u32(w * h)})
+	tb := sdl.CreateGPUTransferBuffer(device, {usage = .UPLOAD, size = u32(w * h * 4)})
 	if tb == nil {
 		return
 	}
 	defer sdl.ReleaseGPUTransferBuffer(device, tb)
-	dst := ([^]u8)(sdl.MapGPUTransferBuffer(device, tb, false))
+	dst := ([^][4]u8)(sdl.MapGPUTransferBuffer(device, tb, false))
 	if dst == nil {
 		return
 	}
 	for r in 0 ..< h {
-		runtime.mem_copy_non_overlapping(dst[r * w:], raw_data(levels[(y + r) * bt.width + x:]), w)
+		for level, i in levels[(y + r) * bt.width + x:][:w] {
+			px := [4]u8{}
+			if level > 0 {
+				px.r, px.g, px.b, px.a = heat(f32(level - 1) / 254)
+			}
+			dst[r * w + i] = px
+		}
 	}
 	sdl.UnmapGPUTransferBuffer(device, tb)
 	cb := sdl.AcquireGPUCommandBuffer(device)

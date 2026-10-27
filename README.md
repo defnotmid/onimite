@@ -325,8 +325,11 @@ onimite update   [--check]                                # replace this release
 its own Lua state (render procs must be pure per frame, as in fframes) and
 records its frames, and one thread draws them on the GPU in frame order,
 converts them to I420 there and hands them to the encoder thread. The set
-of builders grows only while drawing waits for frames. `--software` draws
-and converts on all cores the same way. `tools/threads_check.sh` compares
+of builders grows only while drawing waits for frames. `--software` takes
+the same path: the builders record, and one software backend draws each
+frame in row bands on the pool, so drawing's working set (layer images,
+scratch) exists once at any thread count (the whole otfx video at 24
+threads peaks at 266 MB, 4.8 GB before). `tools/threads_check.sh` compares
 decoded frames of the pool and `--threads 1`.
 
 ## Scripts
@@ -495,7 +498,7 @@ fframes and their media, then `tools/bench.sh all` reproduces the run.
 | `encode/` | `onimite_encode` | RGBA to BT.709 I420 (GPU compute or CPU), odecs H.264 / H.265, MP4; clip and audio decoding |
 | `app/` | `onimite_app` | command rows and one dispatch (after paf / raddbg): the commands, their output, batches, the preview |
 | `main.odin` | `main` | the command line: parses arguments into command rows |
-| `platform/`, `render/`, `ui/` | | SDL3 window and input, the UI's 2D renderer, the raddbg-style UI (ported from paf) |
+| `platform/`, `render/`, `ui/` | | SDL3 window and input, the UI's frame drawn as one ovg canvas (as onib draws its own), the raddbg-style UI (ported from paf) |
 | `shaders/` | | Slang shaders (UI, GPU colour conversion) with committed SPIR-V and MSL (`build.sh`) |
 | `tools/` | | `gen_media/` (generated media), `bench.sh`, `threads_check.sh` |
 

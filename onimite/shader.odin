@@ -693,8 +693,8 @@ shader_channel :: proc(ctx: ^Context, f: Frame, label: string, in_: Shader_Input
 
 // Renderer-side shader state: ovg programs per library entry (and pass),
 // pooled output images, premultiplied copies of media images with
-// transparency (children), multipass feedback buffers, and the task pool
-// the CPU interpreter shades bands on (the renderer's, borrowed).
+// transparency (children) and multipass feedback buffers. The CPU
+// interpreter shades with the renderer's Cpu_Drawing (renderer_cpu).
 Shader_State :: struct {
 	programs:      [dynamic][oksl.PASS_MAX]vg.Program_Id,
 	cpu:           [dynamic][oksl.PASS_MAX]^Shader_Cpu,
@@ -709,17 +709,13 @@ Shader_State :: struct {
 	// By media image name; an invalid id: opaque, the regular texture serves.
 	premultiplied: map[string]Canvas_Image,
 	feedback:      Feedback,
-	pool:          ^thread.Pool,
-	// Float rows the CPU interpreter shades half-float targets through.
-	scratch:       [dynamic][4]f32,
-	// The interpreter's working memory, one per band worker.
-	runs:          [dynamic]oksl.Scratch,
 }
 
 // What the CPU program callback needs.
 Shader_Cpu :: struct {
 	module: ^oksl.Module,
-	state:  ^Shader_State,
+	// The renderer whose programs it runs (its Cpu_Drawing shades them).
+	r:      ^Renderer,
 }
 
 shader_state_destroy :: proc(s: ^Shader_State, c: ^vg.Canvas) {
@@ -753,11 +749,6 @@ shader_state_destroy :: proc(s: ^Shader_State, c: ^vg.Canvas) {
 	delete(s.format)
 	delete(s.used_frame)
 	delete(s.premultiplied)
-	delete(s.scratch)
-	for &r in s.runs {
-		oksl.scratch_destroy(&r)
-	}
-	delete(s.runs)
 	s^ = {}
 }
 
@@ -767,7 +758,6 @@ shader_state_destroy :: proc(s: ^Shader_State, c: ^vg.Canvas) {
 draw_shader :: proc(r: ^Renderer, n: Shader, sim := false) {
 	lib := &r.ctx.shaders
 	g := lib.graphs[n.program]
-	r.shader_state.pool = r.pool
 	outputs, ran := feedback_passes(r, n, g, sim)
 	if !ran || sim {
 		return
@@ -903,7 +893,7 @@ shader_program :: proc(r: ^Renderer, i, pass: int, m: ^oksl.Module) -> (vg.Progr
 shader_register :: proc(r: ^Renderer, m: ^oksl.Module, cpu: ^^Shader_Cpu) -> (vg.Program_Id, vg.Error) {
 	s := &r.shader_state
 	cpu^ = new(Shader_Cpu)
-	cpu^^ = {m, s}
+	cpu^^ = {m, r}
 	return vg.create_program(
 		&r.canvas,
 		{
@@ -1090,7 +1080,7 @@ Shader_Band :: struct {
 @(private = "file")
 shader_cpu_run :: proc(user: rawptr, uniforms: []u8, width, height: int, out: []u8, stride: int, format: vg.Pixel_Format, sampler: vg.Program_Sampler) {
 	sc := (^Shader_Cpu)(user)
-	s := sc.state
+	s := renderer_cpu(sc.r)
 	next := 0
 	band := Shader_Band{sc.module, uniforms, width, height, out, stride, format, nil, sampler, nil, &next}
 	if format == .RGBA16F {

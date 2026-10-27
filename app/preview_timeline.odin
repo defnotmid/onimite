@@ -881,7 +881,7 @@ draw_bands :: proc(v: ^Row_View, it: Timeline_Item, y, h: f32) {
 			// blends bands, never the strips stacked above and below
 			src := [4]f32{f32(r0 - f64(strip * BAND_STRIP)), f32(strip * om.BAND_COUNT) + 0.5, f32(end - f64(strip * BAND_STRIP)), f32((strip + 1) * om.BAND_COUNT) - 0.5}
 			wx, wy, ww, wh := axis_rect(v.a, x0, y, x1 - x0, h)
-			render.draw_image_src(r, &img, src, wx, wy, ww, wh, render.SAMPLE_HEAT)
+			render.draw_image_src(r, &img, src, wx, wy, ww, wh)
 			r0 = end
 		}
 	}

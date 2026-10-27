@@ -1,12 +1,8 @@
 package onimite_app
 
 import "base:runtime"
-import "core:fmt"
-import "core:sync"
 import "core:thread"
-import vg "deps:ovg"
 import om "../onimite"
-import enc "../encode"
 import script "../script"
 
 // Frame builders for `render`: frames are built as tasks on the app's pool,
@@ -15,12 +11,12 @@ import script "../script"
 // pure per frame; load-time data made with `shared` / `path_data` comes
 // from the app's state instead of being made again), a renderer and two
 // output slots (one being built, one handed over). A builder records the
-// frame (ovg commands, vertices, image work). On the GPU the loop plays it with the builder's
-// `Frame_Player`; on the CPU the builder plays it on its own software
-// backend and converts it (to I420, or writes the PNG). Clip frames are
-// asked for in frame order either way: the loop plays in order, and CPU
-// builders take turns for that step (`Build_Run.turn`), since the decoders
-// serve one position per clip.
+// frame (ovg commands, vertices, image work); the loop plays it with the
+// builder's `Frame_Player`, on the GPU or on one software backend whose
+// bands run on the pool, so the working set of drawing (layer images,
+// scratch, the shaders' shading) exists once, not once per builder. Clip
+// frames are asked for in frame order: the loop plays in order, as the
+// decoders serve one position per clip.
 //
 // Builders start one at a time: the set grows by one, up to one per pool
 // worker, whenever the loop would wait for its next frame from a builder
@@ -35,9 +31,7 @@ import script "../script"
 // Once the loop takes a frame that has them (or the range starts on one),
 // the set stops growing and hands every next frame to that frame's builder
 // (the lead), so the buffers advance once per frame; frames already handed
-// to the others are still taken, in order. On the CPU the lead runs on the
-// loop's thread and shades its bands on the pool (a task waiting on the
-// pool could end up running the frames it waits for).
+// to the others are still taken, in order.
 //
 // Media images decode on first use. With a pool, a scout (one more script
 // state) builds every SCOUT_STEP-th frame up to SCOUT_AHEAD frames past the
@@ -51,13 +45,8 @@ SCOUT_STEP :: 6
 Builder :: struct {
 	job:      om.Pool_Job,
 	run:      ^Build_Run,
-	// The CPU lead's pool for shader bands (see above).
-	pool:     ^thread.Pool,
 	script:   script.Script,
 	renderer: om.Renderer,
-	// CPU renders: the builder draws its records itself.
-	software: vg.Software_Backend,
-	player:   om.Frame_Player,
 	// The frame being built and the slot it goes into.
 	frame:    int,
 	slot:     int,
@@ -70,11 +59,7 @@ Builder :: struct {
 }
 
 Built_Frame :: struct {
-	// GPU: the recorded frame; CPU: its number and diagnostics.
-	record:     om.Frame_Record,
-	// CPU to MP4: the frame as I420, `y_stride = width`.
-	i420:       []u8,
-	png_failed: bool,
+	record: om.Frame_Record,
 }
 
 // What every builder of one render shares (read-only while they run).
@@ -90,13 +75,9 @@ Build_Run :: struct {
 	software:     bool,
 	// The GPU the players render 3D layers on (nil: the builders draw them).
 	gpu3d:        ^om.View3d_Gpu,
-	// PNG output directory ("" for MP4).
-	png_dir:      string,
-	// CPU renders with video clips: frames past `start` whose clip frames
-	// have been fetched; frame `start + turn` fetches next.
-	start:        int,
-	turn:         sync.Futex,
-	video_turns:  bool,
+	// CPU renders: what the loop draws every builder's frames with (the
+	// shaders' shading, 3D), set as each builder's renderer's.
+	cpu:          ^om.Cpu_Drawing,
 }
 
 Scout :: struct {
@@ -132,8 +113,6 @@ Builder_Set :: struct {
 builder_set_init :: proc(s: ^Builder_Set, run: ^Build_Run, pool: ^thread.Pool, start, end: int, ordered := false) {
 	n := clamp(om.pool_count(pool) if pool != nil else 1, 1, max(end - start, 1))
 	s^ = {pool = pool, builders = make([]Builder, n), order = make([]int, n), next = start, end = end}
-	run.start = start
-	run.video_turns = run.software && len(run.media.videos.names) > 0
 	for &b in s.builders {
 		b.run = run
 		b.job.procedure = builder_task
@@ -153,9 +132,6 @@ builder_set_init :: proc(s: ^Builder_Set, run: ^Build_Run, pool: ^thread.Pool, s
 @(private = "file")
 builder_set_lead :: proc(s: ^Builder_Set, k: int) {
 	s.ordered, s.lead = true, k
-	if s.builders[k].run.software {
-		s.builders[k].pool = s.pool
-	}
 }
 
 builder_set_destroy :: proc(s: ^Builder_Set) {
@@ -168,15 +144,10 @@ builder_set_destroy :: proc(s: ^Builder_Set) {
 		om.pool_join(&b.job)
 		if b.ready {
 			om.renderer_destroy(&b.renderer)
-			if b.run.software {
-				om.frame_player_destroy(&b.player)
-				vg.software_backend_destroy(&b.software)
-			}
 		}
 		script.unload(&b.script)
 		for &o in b.out {
 			om.frame_record_destroy(&o.record)
-			delete(o.i420)
 		}
 	}
 	delete(s.builders)
@@ -204,8 +175,7 @@ builder_set_spawn :: proc(s: ^Builder_Set, k: int) {
 	s.next += 1
 	s.order[(s.head + s.count) % len(s.order)] = k
 	s.count += 1
-	// The CPU lead builds right here, on the loop's thread.
-	om.pool_spawn(nil if b.pool != nil else s.pool, &b.job, runtime.heap_allocator())
+	om.pool_spawn(s.pool, &b.job, runtime.heap_allocator())
 }
 
 // The next frame in order: waits for it, gives its builder the next frame
@@ -278,54 +248,10 @@ scout_task :: proc(job: ^om.Pool_Job) {
 builder_task :: proc(job: ^om.Pool_Job) {
 	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 	b := container_of(job, Builder, "job")
-	run := b.run
 	if !b.ready && !builder_setup(b) {
-		// Later frames wait for this one's turn.
-		builder_turn(run, b.frame)
 		return
 	}
-	out := &b.out[b.slot]
-	r := &b.renderer
-	r.pool = b.pool
-	om.record_frame(r, b.frame, &out.record)
-	if !run.software {
-		return
-	}
-	builder_turn(run, b.frame, &b.player, &out.record)
-	om.play_frame_draw(&b.player, &out.record)
-	pixels := b.software.pixels
-	if run.png_dir != "" {
-		path := fmt.tprintf("%s/%06d.png", run.png_dir, b.frame)
-		out.png_failed = !write_png(path, pixels, r.width, r.height)
-	} else {
-		enc.rgba_to_i420(pixels, int(r.width), int(r.height), out.i420)
-	}
-}
-
-// Applies a CPU record's image work and fetches its clip frames; with video
-// clips, once every earlier frame has (frames are spawned in order, so the
-// wait is for tasks already running).
-@(private = "file")
-builder_turn :: proc(run: ^Build_Run, frame: int, p: ^om.Frame_Player = nil, rec: ^om.Frame_Record = nil) {
-	if !run.video_turns {
-		if p != nil {
-			om.play_frame_images(p, rec)
-		}
-		return
-	}
-	mine := u32(frame - run.start)
-	for {
-		turn := sync.atomic_load(&run.turn)
-		if u32(turn) == mine {
-			break
-		}
-		sync.futex_wait(&run.turn, u32(turn))
-	}
-	if p != nil {
-		om.play_frame_images(p, rec)
-	}
-	sync.atomic_store(&run.turn, sync.Futex(mine + 1))
-	sync.futex_broadcast(&run.turn)
+	om.record_frame(&b.renderer, b.frame, &b.out[b.slot].record)
 }
 
 // Loads the script and prepares the renderer (a builder's first task).
@@ -345,15 +271,7 @@ builder_setup :: proc(b: ^Builder) -> bool {
 	}
 	b.renderer.plays_on_gpu = !run.software
 	b.renderer.gpu3d = run.gpu3d
-	if run.software {
-		vg.software_backend_init(&b.software)
-		om.frame_player_init(&b.player, vg.software_backend(&b.software), run.media, nil)
-		if run.png_dir == "" {
-			for &o in b.out {
-				o.i420 = make([]u8, enc.i420_size(int(b.renderer.width), int(b.renderer.height)))
-			}
-		}
-	}
+	b.renderer.cpu = run.cpu
 	b.ready = true
 	return true
 }

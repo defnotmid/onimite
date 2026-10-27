@@ -339,22 +339,17 @@ preview_run :: proc(app: ^App_State, capture, drive, start_spec: string) -> Erro
 	defer render.shutdown(&r)
 	defer media_images_release(pv, &r)
 
-	font, font_ok := render.font_load(&r, UI_FONT, 32)
+	font, font_ok := render.font_load(UI_FONT)
 	if !font_ok {
 		return fail(app, {code = .Window_Drawing, drawing = .Font})
 	}
-	defer render.font_unload(&r, &font)
+	defer render.font_unload(&font)
 
 	s: ui.State
 	ui.init(&s, &r, &p, &font)
 	defer ui.destroy(&s)
 	s.theme.default_font_px = 15 * p.dpi_scale
 	s.theme.default_padding = 6 * p.dpi_scale
-	// The UI's text sizes, rasterized before the first frame.
-	{
-		dpi := p.dpi_scale
-		render.font_warm(&r, &font, {15 * dpi, 13 * dpi, 12 * dpi, 11 * dpi, 10 * dpi})
-	}
 
 	pv.device_name = strings.clone("software" if app.software else string(sdl.GetGPUDeviceDriver(p.device)))
 	props := sdl.GetGPUDeviceProperties(p.device)
@@ -408,6 +403,8 @@ preview_run :: proc(app: ^App_State, capture, drive, start_spec: string) -> Erro
 	// to. Applying after the present keeps a script switch from releasing
 	// textures the frame still draws.
 	frames := 0
+	// The next frame's start (preview_pace).
+	next_ns: u64
 	last_audio_log := 0
 	fullscreen := false
 	if pv.bare {
@@ -450,7 +447,7 @@ preview_run :: proc(app: ^App_State, capture, drive, start_spec: string) -> Erro
 				fmt.eprintln("preview: captured", capture)
 			}
 		} else {
-			render.end_frame(&r)
+			preview_pace(&r, render.end_frame(&r), &next_ns)
 		}
 
 		presented := time.tick_now()
@@ -2028,4 +2025,39 @@ mark_add :: proc(pv: ^Preview_State, at, to: int) {
 	append(&pv.marks, Mark{n + 1, at, to})
 	marks_sort(pv.marks[:])
 	pv.marks_changed = true
+}
+
+
+// The window loop's wait after a frame (`shown`: render.end_frame's). A
+// window nobody sees sleeps a while; a frame not shown, briefly (a
+// swapchain image comes back soon). A mailbox window's frames are spaced a
+// display refresh apart (as FIFO's vsync wait spaces them): it sleeps to
+// the next frame's start (`next_ns`), from the display's mode now (the
+// window may have moved displays).
+@(private = "file")
+preview_pace :: proc(r: ^render.Renderer, shown: bool, next_ns: ^u64) {
+	if sdl.GetWindowFlags(r.window) & {.HIDDEN, .MINIMIZED, .OCCLUDED} != {} {
+		sdl.Delay(16)
+		return
+	}
+	if !r.mailbox {
+		if !shown {
+			sdl.Delay(2)
+		}
+		return
+	}
+	hz: f32 = 60
+	if mode := sdl.GetCurrentDisplayMode(sdl.GetDisplayForWindow(r.window)); mode != nil && mode.refresh_rate > 0 {
+		hz = mode.refresh_rate
+	}
+	period := u64(1e9 / hz)
+	now := sdl.GetTicksNS()
+	if next_ns^ > now {
+		sdl.DelayPrecise(next_ns^ - now)
+		now = next_ns^
+	}
+	next_ns^ += period
+	if next_ns^ <= now {
+		next_ns^ = now + period // late: start again from now, no burst to catch up
+	}
 }

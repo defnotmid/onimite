@@ -857,9 +857,10 @@ video_render_to :: proc(app: ^App_State, regs: Command_Regs, fa: mem.Allocator) 
 	}
 
 	// Frames are built by builders on the pool (builders.odin) and taken in
-	// order here. GPU frames are played on this thread, converted to NV12
-	// on the GPU and read back pipelined (or read back as RGBA for PNGs,
-	// written by pool tasks); CPU frames arrive converted or written.
+	// order here, where one player per builder plays them: on the GPU
+	// (converted to NV12 there and read back pipelined, or read back as RGBA
+	// for PNGs), or on one software backend whose bands run on the pool
+	// (converted to I420 here). PNGs are written by pool tasks either way.
 	pool := app.pool
 	run := Build_Run {
 		script_path  = app.script.path,
@@ -870,7 +871,31 @@ video_render_to :: proc(app: ^App_State, regs: Command_Regs, fa: mem.Allocator) 
 		scale        = r.scale,
 		software     = r.is_software,
 		gpu3d        = r.gpu3d,
-		png_dir      = out if as_png else "",
+	}
+	// The CPU's drawing side: the backend, its bands on the pool and what
+	// draws shaders and 3D, made before any builder records for it.
+	sw: vg.Software_Backend
+	work: om.Pool_Work
+	cpu: om.Cpu_Drawing
+	backend: vg.Backend
+	if r.is_software {
+		vg.software_backend_init(&sw)
+		om.pool_work_init(&work, pool)
+		sw.pool = &work.work_pool if pool != nil else nil
+		cpu.pool = pool
+		run.cpu = &cpu
+		backend = vg.software_backend(&sw)
+	} else {
+		// Record frame N + 1 while the GPU draws frame N.
+		app.gpu.frames_in_flight = 2
+		backend = vgsdl.backend(&app.gpu)
+	}
+	defer if r.is_software {
+		om.pool_work_destroy(&work)
+		om.cpu_drawing_destroy(&cpu)
+		vg.software_backend_destroy(&sw)
+	} else {
+		app.gpu.frames_in_flight = 0
 	}
 	// No frame is in flight yet: pins left by an earlier render go.
 	om.media_evict(&app.media)
@@ -879,29 +904,29 @@ video_render_to :: proc(app: ^App_State, regs: Command_Regs, fa: mem.Allocator) 
 	defer builder_set_destroy(&builders)
 
 	shared: vg.Shared_Images
-	players: []om.Frame_Player
-	png_jobs: []Png_Job
-	yuv: enc.GPU_NV12
-	gpu_yuv := false
-	if !r.is_software {
-		// Record frame N + 1 while the GPU draws frame N.
-		app.gpu.frames_in_flight = 2
-		backend := vgsdl.backend(&app.gpu)
-		vg.shared_images_init(&shared, backend)
-		players = make([]om.Frame_Player, len(builders.builders))
-		for &p in players {
-			om.frame_player_init(&p, backend, &app.media, &shared)
+	vg.shared_images_init(&shared, backend)
+	players := make([]om.Frame_Player, len(builders.builders))
+	for &p in players {
+		om.frame_player_init(&p, backend, &app.media, &shared)
+		if !r.is_software {
 			p.gpu3d = &app.gpu3d
 		}
-		gpu_yuv = !as_png && enc.gpu_nv12_init(&yuv, app.gpu.device, int(r.width), int(r.height)) == nil
-		if as_png {
-			png_jobs = make([]Png_Job, len(builders.builders))
-		}
 	}
-	defer if !r.is_software {
-		app.gpu.frames_in_flight = 0
+	png_jobs: []Png_Job
+	if as_png {
+		png_jobs = make([]Png_Job, len(builders.builders))
+	}
+	yuv: enc.GPU_NV12
+	gpu_yuv := !r.is_software && !as_png && enc.gpu_nv12_init(&yuv, app.gpu.device, int(r.width), int(r.height)) == nil
+	// A frame as I420 (`y_stride = width`) where it's converted here.
+	planes: []u8
+	if !as_png && !gpu_yuv {
+		planes = make([]u8, enc.i420_size(int(r.width), int(r.height)))
+	}
+	defer {
 		png_jobs_destroy(png_jobs)
 		delete(png_jobs)
+		delete(planes)
 		if gpu_yuv {
 			enc.gpu_nv12_destroy(&yuv)
 		}
@@ -925,14 +950,6 @@ video_render_to :: proc(app: ^App_State, regs: Command_Regs, fa: mem.Allocator) 
 			break
 		}
 		switch {
-		case r.is_software && as_png:
-			if done.png_failed {
-				failed = {code = .Write, path = fmt.aprintf("%s/%06d.png", out, f, allocator = fa)}
-			}
-		case r.is_software:
-			if err := enc.write_i420(&e, done.i420, int(r.width)); err != nil {
-				failed = encoder_failure(&e, err, f)
-			}
 		case as_png:
 			om.play_frame(&players[k], &done.record)
 			j := &png_jobs[(f - start) % len(png_jobs)]
@@ -947,36 +964,37 @@ video_render_to :: proc(app: ^App_State, regs: Command_Regs, fa: mem.Allocator) 
 				break
 			}
 			png_job_start(j, shot.pixels, shot.width, shot.height, fmt.aprintf("%s/%06d.png", out, f), pool)
+		case gpu_yuv:
+			// The encoder reads the converted frames where they are
+			// mapped; a slot frees once it is done with one.
+			if err := enc.gpu_nv12_reserve(&yuv, &e); err != nil {
+				failed = encoder_failure(&e, err, f)
+				break
+			}
+			target := vgsdl.Output{texture = enc.gpu_nv12_target(&yuv), format = .R8G8B8A8_UNORM, width = r.width, height = r.height}
+			om.play_frame(&players[k], &done.record, vgsdl.output(&target))
+			err := enc.gpu_nv12_submit(&yuv, f)
+			if err == nil {
+				err = enc.gpu_nv12_feed(&yuv, &e, wait = false)
+			}
+			if err != nil {
+				failed = encoder_failure(&e, err, f)
+			}
 		case:
-			if gpu_yuv {
-				// The encoder reads the converted frames where they are
-				// mapped; a slot frees once it is done with one.
-				if err := enc.gpu_nv12_reserve(&yuv, &e); err != nil {
-					failed = encoder_failure(&e, err, f)
+			// On the CPU, or a GPU with no compute pass: converted here.
+			om.play_frame(&players[k], &done.record)
+			pixels := sw.pixels
+			if !r.is_software {
+				shot, err := vg.player_screenshot(&players[k].player, context.temp_allocator)
+				if err != nil {
+					failed = {code = .Read_Back, n = f, gpu = err}
 					break
 				}
-				target := vgsdl.Output{texture = enc.gpu_nv12_target(&yuv), format = .R8G8B8A8_UNORM, width = r.width, height = r.height}
-				om.play_frame(&players[k], &done.record, vgsdl.output(&target))
-				err := enc.gpu_nv12_submit(&yuv, f)
-				if err == nil {
-					err = enc.gpu_nv12_feed(&yuv, &e, wait = false)
-				}
-				if err != nil {
-					failed = encoder_failure(&e, err, f)
-				}
-				break
+				pixels = shot.pixels
 			}
-			// No compute pass on this device: convert here.
-			om.play_frame(&players[k], &done.record)
-			shot, err := vg.player_screenshot(&players[k].player, context.temp_allocator)
-			planes := make([]u8, enc.i420_size(int(r.width), int(r.height)), context.temp_allocator)
-			if err != nil {
-				failed = {code = .Read_Back, n = f, gpu = err}
-				break
-			}
-			enc.rgba_to_i420(shot.pixels, int(r.width), int(r.height), planes)
-			if werr := enc.write_i420(&e, planes, int(r.width)); werr != nil {
-				failed = encoder_failure(&e, werr, f)
+			enc.rgba_to_i420(pixels, int(r.width), int(r.height), planes)
+			if err := enc.write_i420(&e, planes, int(r.width)); err != nil {
+				failed = encoder_failure(&e, err, f)
 			}
 		}
 		// What building, drawing and (GPU) playing the frame reported.

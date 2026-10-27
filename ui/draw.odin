@@ -32,9 +32,6 @@ color_with_opacity :: proc(color: [4]u8, opacity: f32) -> [4]u8 {
 }
 
 draw_box :: proc(s: ^State, box: ^Box, dt: f32) {
-	previous_scope := s.r.scope
-	render.set_scope(s.r,box.draw_scope)
-	defer render.set_scope(s.r,previous_scope)
 	x := box.rect.min.x
 	y := box.rect.min.y
 	w := box.rect.max.x - box.rect.min.x

@@ -40,6 +40,12 @@ smoke)
 	"build/onimite$exe" frame examples/scenes/video.lua 0 --software -o "$out"
 	"build/onimite$exe" render examples/scenes/video.lua 0..15 --software --native -o "$out/scenes.mp4"
 	test -s "$out/0.png" && test -s "$out/scenes.mp4"
+	# On the CPU the file doesn't depend on the thread count (builders
+	# record, one player draws in bands on the pool, the native encoder codes
+	# fixed slices): a cross-fade on every thread and on one is the same file.
+	"build/onimite$exe" render examples/scenes/video.lua 90..105 --software --native -o "$out/fade.mp4"
+	"build/onimite$exe" render examples/scenes/video.lua 90..105 --software --native --threads 1 -o "$out/fade1.mp4"
+	cmp "$out/fade.mp4" "$out/fade1.mp4"
 	# The MCP server starts, answers, serves the guide and renders with
 	# paths relative to its --dir (as the Claude Desktop extension runs it).
 	work="$out/mcp"

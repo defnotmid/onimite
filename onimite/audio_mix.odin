@@ -23,10 +23,9 @@ import common "deps:odecs/common"
 // stream.
 
 // The master limiter's ceiling when the script sets none (dBTP), a dB under
-// the file's -1 bar for the AAC encode's overshoot: disco's drop limited to
-// -1.0 measured -0.5 once encoded at 192 kbps. odecs v0.0.12's AAC overshoots
-// transient-heavy mixes by up to 1.5 dB (why_onimite -0.5 at -2.0); that is
-// the encoder's to fix, not this ceiling's.
+// the file's -1 bar for the AAC encode's overshoot: odecs v0.0.13's AAC at
+// 192 kbps lands mixes limited to -2.0 at -1.5 to -1.9 dBTP (FFmpeg's
+// ebur128 on the saga, why_onimite, data_story, disco, motion_poster).
 LIMITER_CEILING :: -2
 
 Mix_Options :: struct {

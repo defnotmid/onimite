@@ -570,10 +570,9 @@ The limiter stops loud overlaps from clipping, but a limiter working hard squash
 fix track gains first, then raise `master_gain_db` until `audio analyze` shows the target
 (about -14 LUFS for the web). Its ceiling defaults to -2 dBTP, a dB under the -1 dBTP bar,
 because the render's AAC encode overshoots the mix's peak; `audio analyze` measures the mix
-before encoding, so leave the default unless the file goes out uncompressed. On
-transient-heavy mixes (slams, crashes) the AAC encoder overshoots by up to 1.5 dB today, so a
-rendered file can measure about -0.5 dBTP; that is a known encoder issue being fixed, not a
-reason to lower the ceiling.
+before encoding, so leave the default unless the file goes out uncompressed. Rendered files
+measure -1.5 to -1.9 dBTP from mixes at -2.0 (transient-heavy ones, with slams and crashes,
+included).
 
 ## Checking without listening
 

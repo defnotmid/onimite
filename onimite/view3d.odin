@@ -953,7 +953,6 @@ view3d_jobs_next :: proc(j: ^View3d_Jobs) -> ^View3d_Job {
 // scene the geometry types drawn on earlier frames and on the frame being
 // drawn (`geometry_growth`).
 View3d_State :: struct {
-	software: o3d.Software,
 	jobs:     View3d_Jobs,
 	drawn:    [dynamic]Drawn_Geometry,
 	// Where this renderer poses models (sized on first use), and the part
@@ -979,7 +978,6 @@ Drawn_Geometry :: struct {
 
 @(private)
 view3d_state_destroy :: proc(s: ^View3d_State) {
-	o3d.software_destroy(&s.software)
 	o3d.model_pose_destroy(&s.pose)
 	o3d.model_parts_destroy(&s.parts)
 	view3d_jobs_destroy(&s.jobs)
@@ -1037,8 +1035,10 @@ draw_view3d :: proc(r: ^Renderer, n: View3d) {
 	job.scene.depth = vg.image_id_valid(job.depth_image)
 	sync.shared_unlock(&v.lock)
 	if r.gpu3d == nil {
-		// the CPU draws it at its row too, reading the images made before it
-		job.software, job.pool, job.media = &s.software, r.pool, v
+		// the CPU draws it at its row too, reading the images made before
+		// it, with what draws the renderer's frames
+		d := renderer_cpu(r)
+		job.software, job.pool, job.media = &d.software, d.pool, v
 	}
 	// rendered at this point of the canvas's rows: after the images it
 	// samples (clips' frames, labels) were made, before the layer shows it

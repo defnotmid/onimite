@@ -6,6 +6,7 @@ import "core:os"
 import "core:path/filepath"
 import "core:strings"
 import vg "deps:ovg"
+import vgsvg "deps:ovg/svg"
 
 // SVG documents as nodes: a parsed document (ovg svg.odin) drawn as
 // vectors into a box like an image, with per-id overrides to animate its
@@ -44,34 +45,34 @@ Svg :: struct {
 }
 
 // An SVG document, parsed once, and its text laid out once with the
-// media's fonts (`vg.svg_layout`): read-only while drawing, so every
-// renderer shares it (each draws it with its own `vg.Svg_Renderer`).
+// media's fonts (`vgsvg.layout`): read-only while drawing, so every
+// renderer shares it (each draws it with its own `vgsvg.Renderer`).
 Svg_Asset :: struct {
-	doc:  vg.Svg_Document,
-	text: vg.Svg_Layout,
+	doc:  vgsvg.Document,
+	text: vgsvg.Layout,
 }
 
 // Parses `data` (`<image>` files resolve against `dir`) and lays its text
 // out with `fonts`.
 @(private)
-svg_asset_make :: proc(data: []u8, dir: string, fonts: ^vg.Font_Collection) -> (^Svg_Asset, vg.Svg_Error) {
+svg_asset_make :: proc(data: []u8, dir: string, fonts: ^vg.Font_Collection) -> (^Svg_Asset, vgsvg.Error) {
 	a := new(Svg_Asset)
 	loader := Svg_Loader{dir = dir}
-	err: vg.Svg_Error
-	a.doc, err = vg.svg_parse(data, {load_file = svg_load_file, user = &loader, fonts = fonts})
+	err: vgsvg.Error
+	a.doc, err = vgsvg.parse(data, {load_file = svg_load_file, user = &loader, fonts = fonts})
 	if err != nil {
-		vg.svg_destroy(&a.doc)
+		vgsvg.destroy(&a.doc)
 		free(a)
 		return nil, err
 	}
-	vg.svg_layout(&a.doc, fonts, &a.text)
+	vgsvg.layout(&a.doc, fonts, &a.text)
 	return a, nil
 }
 
 @(private)
 svg_asset_destroy :: proc(a: ^Svg_Asset) {
-	vg.svg_layout_destroy(&a.text)
-	vg.svg_destroy(&a.doc)
+	vgsvg.layout_destroy(&a.text)
+	vgsvg.destroy(&a.doc)
 	free(a)
 }
 
@@ -157,7 +158,7 @@ svg_local_bbox :: proc(ctx: ^Context, src, markup: string, id: string) -> (vg.Re
 	if a == nil {
 		return {}, false
 	}
-	n := vg.svg_find(&a.doc, id)
+	n := vgsvg.find(&a.doc, id)
 	if n < 0 {
 		return {}, false
 	}
@@ -222,19 +223,19 @@ put_svg :: proc(m: ^Media, name: string, a: ^Svg_Asset) {
 	}
 }
 
-// The renderer's `vg.Svg_Renderer` for asset `a`, bound to its document's
+// The renderer's `vgsvg.Renderer` for asset `a`, bound to its document's
 // images on first use (one per document, as ovg wants).
 @(private)
-svg_renderer_of :: proc(r: ^Renderer, a: ^Svg_Asset) -> ^vg.Svg_Renderer {
+svg_renderer_of :: proc(r: ^Renderer, a: ^Svg_Asset) -> ^vgsvg.Renderer {
 	for d, i in r.svg_assets {
 		if d == a {
 			return &r.svg_renderers[i]
 		}
 	}
 	append(&r.svg_assets, a)
-	append(&r.svg_renderers, vg.Svg_Renderer{})
+	append(&r.svg_renderers, vgsvg.Renderer{})
 	sr := &r.svg_renderers[len(r.svg_renderers) - 1]
-	vg.svg_renderer_bind(sr, &r.canvas, &a.doc)
+	vgsvg.renderer_bind(sr, &r.canvas, &a.doc)
 	return sr
 }
 
@@ -258,7 +259,7 @@ draw_svg :: proc(r: ^Renderer, n: Svg) {
 	vg.intersect_scissor(c, shown.x, shown.y, shown.w, shown.h)
 	clear(&r.svg_overrides)
 	for o in n.overrides {
-		ov := vg.Svg_Override {
+		ov := vgsvg.Override {
 			id      = o.id,
 			opacity = o.opacity,
 			fill    = o.fill,
@@ -281,7 +282,7 @@ draw_svg :: proc(r: ^Renderer, n: Svg) {
 		vg.layer_push(&r.layers, c, {opacity = opacity})
 	}
 	xf := vg.Transform2D{pic.w / doc.width, 0, 0, pic.h / doc.height, pic.x, pic.y}
-	vg.svg_draw(c, &r.layers, svg_renderer_of(r, a), doc, &a.text, xf, r.svg_overrides[:])
+	vgsvg.draw(c, &r.layers, svg_renderer_of(r, a), doc, &a.text, xf, r.svg_overrides[:])
 	if opacity < 1 {
 		vg.layer_pop(&r.layers, c)
 	}

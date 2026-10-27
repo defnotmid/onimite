@@ -6,6 +6,7 @@ import "core:slice"
 import "core:strings"
 import om "../onimite"
 import vg "deps:ovg"
+import vglottie "deps:ovg/lottie"
 import lua "vendor:lua/5.4"
 
 // Script API for SVG features beyond the basic nodes: polygons, patterns,
@@ -1131,7 +1132,7 @@ l_lottie_info :: proc "c" (L: ^lua.State) -> c.int {
 	set_num(L, "height", doc.height)
 	set_num(L, "fps", doc.fps)
 	set_num(L, "frames", doc.out_frame - doc.in_frame)
-	set_num(L, "duration", vg.lottie_duration(doc))
+	set_num(L, "duration", vglottie.duration(doc))
 	lua.createtable(L, i32(len(doc.markers)), 0)
 	for m, i in doc.markers {
 		lua.createtable(L, 0, 3)

@@ -146,8 +146,9 @@ trumpet and cellos from VS Chamber Orchestra 2.
    a pinned file the first time a note needs it.
 6. **Read the findings** (`onimite inspect video.lua`): `unsupported_opcode`
    names what isn't played, with its use count and the file and line of its
-   first use (VS Chamber Orchestra 2's `ampeg_dynamic` only matters when a CC
-   moves an envelope during a note).
+   first use. An instrument's CCs are set when it compiles and never move
+   during a note, so what a CC moving would change (`ampeg_dynamic` and the
+   other `*_dynamic` opcodes) isn't a finding.
 7. **Level it by measurement.** An SFZ plays at its author's levels, which
    differ a lot: one note at the same velocity spans 17.6 dB across
    `sfz_chamber`'s five files, and VS Chamber Orchestra 2's mallets play

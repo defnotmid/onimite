@@ -171,7 +171,6 @@ Text_Align :: enum u8 {
 Custom_Draw :: #type proc(s: ^State, box: ^Box, data: rawptr) // onimite
 
 Box :: struct {
-	draw_scope: u32, // captured numeric output owner; no view pointer
 	// intrusive tree (per-frame; nil-terminated)
 	first, last, next, prev, parent: ^Box,
 	child_count:                     int,
@@ -322,7 +321,6 @@ stack_use :: proc(s: ^Stack($T), fallback: T) -> T {
 // State is the whole UI context. Create with `init`, destroy with `destroy`.
 // One State per window/UI surface. Threaded explicitly to every proc.
 State :: struct {
-	draw_scope: u32,
 	r:                  ^render.Renderer,
 	p:                  ^platform.Platform,
 	font:               ^render.Font,
@@ -639,7 +637,6 @@ build_box :: proc(s: ^State, flags: Box_Flags, string_key: string) -> ^Box {
 	box.parent = nil
 	box.child_count = 0
 	box.key = key
-	box.draw_scope = s.draw_scope
 	box.text_metrics_valid = false
 
 	// link into tree

@@ -7,6 +7,7 @@ import "core:mem/virtual"
 import "core:slice"
 import "core:sync"
 import vg "deps:ovg"
+import vgsvg "deps:ovg/svg"
 import lua "vendor:lua/5.4"
 import om "../onimite"
 
@@ -99,7 +100,7 @@ l_outline :: proc "c" (L: ^lua.State) -> c.int {
 		raw: vg.Path
 		vg.path_init(&raw, context.temp_allocator)
 		found: bool
-		rule, _, found = vg.svg_element_path(doc, &raw, id, &a.text)
+		rule, _, found = vgsvg.element_path(doc, &raw, id, &a.text)
 		if !found {
 			om.media_svg_release(a, owned)
 			lua.L_error(L, "%s", fmt.ctprintf("outline: %q has no element with id %q", name, id))

@@ -371,8 +371,6 @@ feedback_catch_up :: proc(r: ^Renderer, index: int, rec: ^Frame_Record = nil) {
 		return
 	}
 	lib := &r.ctx.shaders
-	// Restores may copy on the CPU before anything is drawn.
-	r.shader_state.pool = r.pool
 	clear(&fb.sim_keys)
 	clear(&fb.sim_from)
 	start := index
@@ -421,7 +419,7 @@ feedback_catch_up :: proc(r: ^Renderer, index: int, rec: ^Frame_Record = nil) {
 			r.video_uploads, sim.video = sim.video, r.video_uploads
 			clear(&r.video_uploads)
 		} else {
-			r.software.pool = r.pool
+			r.software.pool = software_pool(r)
 			vg.flush(&r.canvas)
 		}
 	}

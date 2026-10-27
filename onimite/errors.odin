@@ -5,6 +5,8 @@ import "core:fmt"
 import "core:strings"
 import "deps:o3d"
 import vg "deps:ovg"
+import vglottie "deps:ovg/lottie"
+import vgsvg "deps:ovg/svg"
 import "deps:oksl"
 
 // Errors and diagnostics are plain values: a code plus the operands it
@@ -173,8 +175,8 @@ Diagnostic :: struct {
 	n, m:       i64,
 	x, y, w, h: f32,
 	gpu:        vg.Error,
-	svg:        vg.Svg_Error,
-	lottie:     vg.Lottie_Error,
+	svg:        vgsvg.Error,
+	lottie:     vglottie.Error,
 	video:      Video_Failure,
 	shader:     oksl.Error,
 	o3d:        o3d.Error,

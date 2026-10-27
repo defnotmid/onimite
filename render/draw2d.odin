@@ -1,91 +1,42 @@
 package render
 
-import sdl "vendor:sdl3"
+import vg "deps:ovg"
+import vgsdl "deps:ovg/sdlgpu"
 
-// General instanced-rect submission (used by draw_rect*, the font layer, and the
-// UI draw bucket). `tex_size` is the bound texture's dimensions in texels, for
-// src->uv in the shader. Consecutive instances with the same texture + clip/
-// viewport target coalesce into one draw.
-rect_inst :: proc(r: ^Renderer, inst: Rect_Inst, tex: ^sdl.GPUTexture, tex_size: [2]f32) {
-	append(&r.rect_insts, inst)
-	idx := u32(len(r.rect_insts) - 1)
-
-	if len(r.cmds) > 0 {
-		last := &r.cmds[len(r.cmds) - 1]
-		if last.tex == tex &&
-		   last.first + last.count == idx &&
-		   _same_target(r, last) {
-			last.count += 1
-			return
-		}
-	}
-	t := tex != nil ? tex : r.white_tex
-	cmd := Draw_Cmd {
-		first = idx,
-		count = 1,
-		tex = t,
-		rect_u = {viewport = {f32(r.fb_w), f32(r.fb_h)}, tex_size = tex_size},
-	}
-	_fill_target(r, &cmd)
-	append(&r.cmds, cmd)
-}
-
-_same_target :: proc(r: ^Renderer, c: ^Draw_Cmd) -> bool {
-	return(
-		c.use_viewport == r.use_viewport &&
-		c.viewport == r.viewport &&
-		c.use_scissor == r.use_scissor &&
-		c.scissor == r.scissor &&
-		c.scope == r.scope \
-	)
-}
-
-_solid_inst :: proc(x, y, w, h: f32, c: [4]u8, radius, border, softness: f32) -> Rect_Inst {
-	cf := color_f32(c)
-	return {
-		dst = {x, y, x + w, y + h},
-		src = {0, 0, 1, 1},
-		col_tl = cf,
-		col_tr = cf,
-		col_bl = cf,
-		col_br = cf,
-		radii = {radius, radius, radius, radius},
-		style = {border, softness, SAMPLE_SOLID, 0},
-	}
+// A straight-alpha byte colour as ovg takes it, its alpha times `opacity`.
+color :: proc "contextless" (c: [4]u8, opacity: f32 = 1) -> vg.Color {
+	return {f32(c.r) / 255, f32(c.g) / 255, f32(c.b) / 255, f32(c.a) / 255 * clamp(opacity, 0, 1)}
 }
 
 draw_rect :: proc(r: ^Renderer, x, y, w, h: f32, c: [4]u8) {
-	rect_inst(r, _solid_inst(x, y, w, h, c, 0, 0, 0), r.white_tex, {1, 1})
+	vg.path_reset(&r.path)
+	vg.path_rect(&r.path, x, y, w, h)
+	vg.fill_path(&r.canvas, &r.path, vg.paint_color(color(c)))
 }
 
 draw_rect_rounded :: proc(r: ^Renderer, x, y, w, h, radius: f32, c: [4]u8) {
-	rect_inst(r, _solid_inst(x, y, w, h, c, radius, 0, 1), r.white_tex, {1, 1})
+	vg.path_reset(&r.path)
+	vg.path_rounded_rect(&r.path, x, y, w, h, radius)
+	vg.fill_path(&r.canvas, &r.path, vg.paint_color(color(c)))
 }
 
-draw_rect_gradient_horizontal :: proc(
-	r: ^Renderer,
-	x, y, w, h: f32,
-	left, right: [4]u8,
-	radius: f32 = 0,
-) {
-	left_f := color_f32(left)
-	right_f := color_f32(right)
-	rect_inst(
-		r,
-		{
-			dst = {x, y, x + w, y + h},
-			src = {0, 0, 1, 1},
-			col_tl = left_f,
-			col_tr = right_f,
-			col_bl = left_f,
-			col_br = right_f,
-			radii = {radius, radius, radius, radius},
-			style = {0, radius > 0 ? 1 : 0, SAMPLE_SOLID, 0},
-		},
-		r.white_tex,
-		{1, 1},
-	)
+draw_rect_gradient_horizontal :: proc(r: ^Renderer, x, y, w, h: f32, left, right: [4]u8, radius: f32 = 0) {
+	vg.path_reset(&r.path)
+	vg.path_rounded_rect(&r.path, x, y, w, h, radius)
+	vg.fill_path(&r.canvas, &r.path, vg.paint_linear_gradient(x, y, x + w, y, color(left), color(right)))
 }
+
+// The ring `thickness` wide inside the rect: the rect less the rect inset.
+draw_rect_outline :: proc(r: ^Renderer, x, y, w, h, thickness: f32, c: [4]u8, radius: f32 = 0) {
+	t := max(thickness, 1)
+	vg.path_reset(&r.path)
+	vg.path_rounded_rect(&r.path, x, y, w, h, radius)
+	vg.path_rounded_rect(&r.path, x + t, y + t, max(w - 2 * t, 0), max(h - 2 * t, 0), max(radius - t, 0))
+	vg.path_solidity(&r.path, .Hole)
+	vg.fill_path(&r.canvas, &r.path, vg.paint_color(color(c)))
+}
+
+// ---- images ----
 
 // draw_image_contain fits the image inside the rect (letterboxed),
 // bilinear-filtered unless `nearest`.
@@ -102,82 +53,49 @@ draw_image_rect :: proc(r: ^Renderer, image: ^Image, x, y, w, h: f32, opacity: f
 	if !image_loaded(image) || w <= 0 || h <= 0 || opacity <= 0 {
 		return
 	}
-	color := [4]f32{1, 1, 1, clamp(opacity, 0, 1)}
-	rect_inst(
-		r,
-		{
-			dst = {x, y, x + w, y + h},
-			src = {0, 0, f32(image.width), f32(image.height)},
-			col_tl = color,
-			col_tr = color,
-			col_bl = color,
-			col_br = color,
-			style = {0, 0, SAMPLE_RGBA_NEAREST if nearest else SAMPLE_RGBA, 0},
-		},
-		image.texture,
-		{f32(image.width), f32(image.height)},
-	)
+	id := show(r, image, nearest)
+	vg.path_reset(&r.path)
+	vg.path_rect(&r.path, x, y, w, h)
+	vg.fill_path(&r.canvas, &r.path, vg.paint_image(id, x, y, w, h, 0, clamp(opacity, 0, 1)))
 }
 
 // draw_image_src draws the texels `src` (x0, y0, x1, y1) of `image` into
-// `(x, y, w, h)` by a sample mode: a stretch of a strip texture (a
-// spectrogram's rows, SAMPLE_HEAT).
-draw_image_src :: proc(r: ^Renderer, image: ^Image, src: [4]f32, x, y, w, h: f32, sample := SAMPLE_RGBA) {
-	if !image_loaded(image) || w <= 0 || h <= 0 {
+// `(x, y, w, h)`: a stretch of a strip texture (a spectrogram's rows).
+draw_image_src :: proc(r: ^Renderer, image: ^Image, src: [4]f32, x, y, w, h: f32) {
+	if !image_loaded(image) || w <= 0 || h <= 0 || src[2] <= src[0] || src[3] <= src[1] {
 		return
 	}
-	color := [4]f32{1, 1, 1, 1}
-	rect_inst(
-		r,
-		{
-			dst = {x, y, x + w, y + h},
-			src = src,
-			col_tl = color,
-			col_tr = color,
-			col_bl = color,
-			col_br = color,
-			style = {0, 0, sample, 0},
-		},
-		image.texture,
-		{f32(image.width), f32(image.height)},
-	)
+	sx, sy := w / (src[2] - src[0]), h / (src[3] - src[1])
+	id := show(r, image, false)
+	vg.path_reset(&r.path)
+	vg.path_rect(&r.path, x, y, w, h)
+	vg.fill_path(&r.canvas, &r.path, vg.paint_image(id, x - src[0] * sx, y - src[1] * sy, f32(image.width) * sx, f32(image.height) * sy, 0))
 }
 
-// outline (border ring) via the SDF border in the shader. A square ring is
-// drawn with no extra softness so a 1 px border stays 1 px; only rounded
-// rings take the anti-aliasing the corners need.
-draw_rect_outline :: proc(r: ^Renderer, x, y, w, h, thickness: f32, c: [4]u8, radius: f32 = 0) {
-	rect_inst(
-		r,
-		_solid_inst(x, y, w, h, c, radius, max(thickness, 1), radius > 0 ? 0.5 : 0),
-		r.white_tex,
-		{1, 1},
-	)
+// The next of the frame's borrowed images, showing `image`'s texture.
+@(private = "file")
+show :: proc(r: ^Renderer, image: ^Image, nearest: bool) -> vg.Image_Id {
+	if r.shown == len(r.borrowed) {
+		append(&r.borrowed, vg.Image_Id{})
+	}
+	flags: vg.Image_Flags = {.Nearest} if nearest else {}
+	r.borrowed[r.shown] = vgsdl.image_borrow_texture(&r.canvas, r.borrowed[r.shown], image.texture, image.width, image.height, .RGBA8, flags)
+	r.shown += 1
+	return r.borrowed[r.shown - 1]
 }
 
 // ---- scissor clip stack ----
 
 clip_push :: proc(r: ^Renderer, x, y, w, h: f32) {
-	cur := r.use_scissor ? r.scissor : sdl.Rect{0, 0, i32(r.fb_w), i32(r.fb_h)}
-	append(&r.clip_stack, cur)
-	r.scissor = _intersect(cur, {i32(x), i32(y), i32(w), i32(h)})
-	r.use_scissor = true
+	vg.save(&r.canvas)
+	vg.intersect_scissor(&r.canvas, x, y, w, h)
+	r.clips += 1
 }
 
 clip_pop :: proc(r: ^Renderer) {
-	if len(r.clip_stack) == 0 {
-		r.use_scissor = false
+	if r.clips == 0 {
 		return
 	}
-	prev := pop(&r.clip_stack)
-	r.scissor = prev
-	r.use_scissor = len(r.clip_stack) > 0 || (prev != sdl.Rect{0, 0, i32(r.fb_w), i32(r.fb_h)})
-}
-
-_intersect :: proc(a, b: sdl.Rect) -> sdl.Rect {
-	x0 := max(a.x, b.x)
-	y0 := max(a.y, b.y)
-	x1 := min(a.x + a.w, b.x + b.w)
-	y1 := min(a.y + a.h, b.y + b.h)
-	return {x0, y0, max(x1 - x0, 0), max(y1 - y0, 0)}
+	vg.restore(&r.canvas)
+	r.clips -= 1
 }

@@ -11,6 +11,8 @@ import "core:sync"
 import "base:runtime"
 import "core:thread"
 import vg "deps:ovg"
+import vglottie "deps:ovg/lottie"
+import vgsvg "deps:ovg/svg"
 import ft "deps:oglyph/font"
 import odimg "deps:odecs/image"
 
@@ -45,7 +47,7 @@ Media :: struct {
 	// Parsed SVG documents and their laid out text by file name (.svg).
 	svgs:     map[string]^Svg_Asset,
 	// Parsed Lottie documents by file name (.json files that are Lottie).
-	lotties:  map[string]^vg.Lottie_Document,
+	lotties:  map[string]^vglottie.Document,
 	// What 3D layers draw from: glTF models by file name (.glb, .gltf),
 	// their geometry and textures, media images used as textures.
 	view3d:   View3d_Media,
@@ -57,6 +59,10 @@ Media :: struct {
 	// Variable fonts' instances texts asked for (`media_text_fonts`);
 	// shared by copies of the media.
 	instances: ^Font_Instances,
+	// The font files behind `fonts` and every instance's collection: each
+	// face's family, layout tables and shaping plans made once for all of
+	// them (ovg's Font_Files); shared by copies of the media.
+	files:     ^vg.Font_Files,
 	// How many of `fonts.faces`, at the end, are BUILTIN_FONTS.
 	builtin_faces: int,
 	// Content hashes of the audio clips scripts added from memory
@@ -185,7 +191,9 @@ BUILTIN_FONTS := [?][]u8 {
 }
 
 media_init :: proc(m: ^Media) {
-	vg.font_collection_init(&m.fonts, BUILTIN_FONTS[0])
+	m.files = new(vg.Font_Files)
+	vg.font_files_init(m.files)
+	vg.font_collection_init(&m.fonts, BUILTIN_FONTS[0], files = m.files)
 	for data in BUILTIN_FONTS {
 		m.builtin_faces += vg.font_collection_add(&m.fonts, data)
 	}
@@ -209,7 +217,7 @@ media_init :: proc(m: ^Media) {
 	m.captions = make(map[string]Captions)
 	m.shaders = make(map[string]string)
 	m.svgs = make(map[string]^Svg_Asset)
-	m.lotties = make(map[string]^vg.Lottie_Document)
+	m.lotties = make(map[string]^vglottie.Document)
 	view3d_media_init(&m.view3d)
 	m.blobs = make([dynamic][]u8)
 	m.added_audio = make(map[string]u64)
@@ -231,6 +239,11 @@ media_destroy :: proc(m: ^Media) {
 		}
 		delete(m.instances.list)
 		free(m.instances)
+	}
+	// after every collection reading it
+	if m.files != nil {
+		vg.font_files_destroy(m.files)
+		free(m.files)
 	}
 	lru.destroy(&m.cache.lru, false)
 	free(m.cache)
@@ -275,7 +288,7 @@ media_destroy :: proc(m: ^Media) {
 	delete(m.svgs)
 	for name, doc in m.lotties {
 		delete(name)
-		vg.lottie_destroy(doc)
+		vglottie.destroy(doc)
 		free(doc)
 	}
 	delete(m.lotties)
@@ -732,7 +745,7 @@ Decode_Job :: struct {
 	read:       os.Error,
 	clip:       Audio_Clip,
 	svg_asset:  ^Svg_Asset,
-	lottie_doc: ^vg.Lottie_Document,
+	lottie_doc: ^vglottie.Document,
 	captions:   Captions,
 }
 
@@ -775,14 +788,14 @@ decode_task :: proc(task: thread.Task) {
 		j.read = err
 		return
 	}
-	if j.kind == .Lottie && !vg.lottie_sniff(data) {
+	if j.kind == .Lottie && !vglottie.sniff(data) {
 		j.kind = .Captions
 	}
 	#partial switch j.kind {
 	case .Audio, .Video:
 		j.clip, j.ok = audio_decode(data)
 	case .Svg:
-		err: vg.Svg_Error
+		err: vgsvg.Error
 		j.svg_asset, err = svg_asset_make(data, j.media.dir, &j.media.fonts)
 		j.ok = err == nil
 	case .Lottie:
@@ -876,7 +889,7 @@ media_text_fonts :: proc(m: ^Media, family: string, weight: int, italic: bool, v
 	for v, i in variations {
 		inst.variations[i] = {strings.clone(v.tag, a), v.value}
 	}
-	vg.font_collection_init(&inst.fonts, allocator = a)
+	vg.font_collection_init(&inst.fonts, BUILTIN_FONTS[0], allocator = a, files = m.files)
 	vg.font_collection_add(&inst.fonts, base.data, variations = inst.variations)
 	append(&insts.list, inst)
 	return &inst.fonts

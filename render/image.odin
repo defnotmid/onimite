@@ -39,12 +39,9 @@ texture_upload :: proc(r: ^Renderer, texture: ^sdl.GPUTexture, width, height: u3
 		false,
 	)
 	sdl.EndGPUCopyPass(copy_pass)
-	if !sdl.SubmitGPUCommandBuffer(command) {
-		sdl.ReleaseGPUTransferBuffer(r.device, transfer)
-		return false
-	}
-	defer_release_transfer_buffer(r, transfer)
-	return true
+	// SDL frees the transfer buffer once the upload is done.
+	defer sdl.ReleaseGPUTransferBuffer(r.device, transfer)
+	return sdl.SubmitGPUCommandBuffer(command)
 }
 
 // image_texture_make makes a sampled RGBA8 texture holding `pixels`.

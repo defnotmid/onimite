@@ -674,9 +674,9 @@ spectrogram :: proc(c: ^vg.Canvas, p: ^vg.Path, table: ^orender.Table, width: in
 }
 
 // A dark-to-bright ramp (black, purple, red, orange, pale yellow) at `v` in
-// 0..1: how a band level is drawn (the waveform PNG; the preview's bands are
-// the same ramp in shaders/rect2d.slang).
-@(private = "file")
+// 0..1: how a band level is drawn (the waveform PNG, and the preview's band
+// strips as they are uploaded, preview_bands.odin).
+@(private)
 heat :: proc(v: f32) -> (u8, u8, u8, u8) {
 	STOPS :: [5][3]f32{{0, 0, 4}, {87, 16, 110}, {188, 55, 84}, {249, 142, 9}, {252, 255, 164}}
 	stops := STOPS
