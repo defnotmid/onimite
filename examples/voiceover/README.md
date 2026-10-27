@@ -100,5 +100,5 @@ Freesound): "Metal Stairs Foot Steps" by sagamusix, "Match - Strike and Light
 02" by JarredGibb, "Bonfire Being Lit" by samararaine, "Whoosh" by qubodup and
 "Ocean beach at night with small waves" by BonnyOrbit. The score and
 effects are composed by odawg in the script (`song{}`, `sound{}`).
-`onimite audio analyze`: -14.8 LUFS, -2.0 dBTP. Fonts:
+`onimite audio analyze`: -15.1 LUFS, -2.0 dBTP. Fonts:
 Instrument Serif and Space Grotesk (OFL, copied from the other examples).

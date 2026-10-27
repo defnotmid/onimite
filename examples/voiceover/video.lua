@@ -118,7 +118,7 @@ local light_fx = {
 }
 
 video { width = W, height = H, fps = 60, duration = score.duration, background = "#070b16",
-  buses = { music = { gain_db = 0 }, voice = { gain_db = 0 }, sfx = { gain_db = -5 } },
+  buses = { music = { gain_db = -1 }, voice = { gain_db = 0 }, sfx = { gain_db = -6 } },  -- music and effects as far under the voice as on ottis v0.0.7 (its lines were 1 LU louder)
   master_gain_db = 8.5,
   audio = {
     { "score", gain_db = -6, fade_in = 1, fade_out = 1.5, ducked = true, bus = "music" },
