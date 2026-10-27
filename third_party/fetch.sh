@@ -19,4 +19,4 @@ fetch_repo() {
 }
 
 # The Rust original oframes ports and benchmarks against (tools/bench.sh).
-fetch_repo "fframes" "https://github.com/dmtrKovalenko/fframes.git" "f962cd6df51d19fa06462d470fc57e90cc0f17b0"
+fetch_repo "fframes" "https://github.com/dmtrKovalenko/fframes.git" "69174f0187b5d8e92329246898f70250b59f08f2" # v1.3.0

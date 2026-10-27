@@ -142,6 +142,10 @@ for i, tf in ipairs { a, b, c, d, e, m1, m2 } do
 end
 ```
 
+A drawn node takes `transform` too, as SVG's elements do: `rect`, `circle`, `ellipse`, `line`,
+`path`, `polygon`, `polyline`, `text` and `image` (`text { "Hi", x = 0, y = 0, size = 48,
+transform = rotate(-90) }`): the node is drawn in a group with it.
+
 Transform tables also take `skew_x` / `skew_y` for `skew = {x, y}`. Transforms animate
 component-wise (matrices too). Scale or rotate about a point with the
 origin arguments rather than translating by hand.
@@ -193,12 +197,14 @@ local d2 = stagger(3, nil, { n = 7, amount = 0.6, easing = ease_in })
 -- math helpers (plain Lua): lerp, clamp(x, lo, hi), clamp01, progress, remap, smoothstep(a, b, x),
 -- fract, round (half away from zero), sign, hash(n, seed) (a repeatable random 0..1: use it,
 -- not math.random, so every frame builder agrees); and native noise / colour mixing.
--- 3D: vec3_add/sub/scale/lerp/dot/cross/length/distance/normalize on { x, y, z } lists, and
+-- 3D: vec3_add/sub/scale/lerp/dot/cross/length/distance/normalize on { x, y, z } lists,
+-- quat_* (rotations that blend: slerp), mat4_* (transforms: nested groups, joint chains) and
 -- path_at / path_tangent for camera paths (3d.md, "Camera paths and vectors")
 local x = lerp(100, 900, ease(ease_out, f.seconds, 2))
 local p = progress(f.seconds, 1, 3)          -- 0..1 between 1 s and 3 s (clamped)
 local y = remap(f.seconds, 0, 4, 200, 800)   -- 0..4 s mapped to 200..800
 local wobble = noise(f.seconds * 0.5, 7) * 20   -- smooth -20..20 drift
+local spark = merge(SPARKS, { time = f.seconds })  -- a new table: SPARKS' fields, then these over them
 local tint = mix_color("#ff0040", "#00c8ff", p) -- even OKLab blend; "linear"/"srgb" too
 circle { cx = x + wobble, cy = y, r = 40, fill = tint }
 ```
@@ -704,6 +710,24 @@ decode again when a later frame (or a seek back in the preview) shows them; imag
 frames being built use are kept. Rounded images: wrap in a group with
 `clip_path` (e.g. a rounded-rect path) or a `mask`.
 
+### Baked images: an image drawn once
+
+```lua
+local badge = bake { name = "badge", w = 512, h = 512, background = "transparent", draw = function()
+  circle { cx = 256, cy = 256, r = 240, fill = "#1d4ed8" }
+  text { "NEW", x = 256, y = 290, align = "center", size = 120, fill = "#fff" }
+end }
+image { src = badge, x = 100, y = 100, w = 200, h = 200 }
+```
+
+`bake{}` (at load) draws its nodes once into a `w x h` image over `background` (black;
+`"transparent"` keeps alpha) and adds it to the media as `name`, returned: use it wherever an
+image's name goes, `image{}`, a shader's input, and in 3D a map (with mipmaps), the
+`environment` and the `background` (3d.md: a studio drawn by a shader). Anything 2D can be in
+it, `shader{}` included. It is drawn on the CPU when the script loads, once per render (a
+preview reload draws it again); draw what never changes there, not per frame. A name a media
+file has is an error.
+
 ## 3D
 
 ```lua
@@ -726,7 +750,8 @@ texture maps from `media/`, custom GLSL ES `ShaderMaterial`s, per-frame `LineGeo
 glTF, 3MF, OBJ and USD models (in `media/`, including skinned characters, morph targets and
 `KHR_lights_punctual`) at a time of their animation with optional `morphs` and `material`
 overrides and changes to their parts by name, `groups`, `attach` to a model's part,
-particles, `labels` on 3D points (hidden behind what is nearer), `lensflares` (fading as
+particles, `panels` (2D drawn onto a surface every frame: a monitor's UI, a generated texture, another
+`view3d` on a TV; a HUD stays a 2D overlay), `labels` on 3D points (hidden behind what is nearer), `lensflares` (fading as
 the scene covers their point), `blending = "additive"`, per-point `colors`, `ShadowMaterial`, an
 environment map (`.hdr` too), a physical `sky{}`, a colour `background`, `model_info(name)` (its parts' poses and boxes too) and `view3d_project(camera, point)`: read
 [3d.md](3d.md). A shader can read a 3D layer's depth (`{ depth_of = "uScene" }`, shaders.md). Animate sizes through a mesh's `scale`,

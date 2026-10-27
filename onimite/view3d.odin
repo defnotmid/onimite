@@ -2,6 +2,7 @@ package onimite
 
 import "base:runtime"
 import "core:fmt"
+import "core:hash"
 import "core:math"
 import "core:os"
 import "core:slice"
@@ -41,6 +42,14 @@ View3d :: struct {
 	models:                []Model_Pose,
 	particles:             []Particle_Emitter,
 	labels:                []View3d_Label,
+	// Textures drawn each frame, named: a map, a ShaderMaterial sampler or a
+	// particle sprite naming one shows it.
+	panels:                []View3d_Panel,
+	// The plane materials with `reflection` mirror (three.js's Reflector;
+	// a zero normal: none).
+	reflector:             o3d.Reflector,
+	// What is sharp and how much the rest blurs (BokehPass; blur 0: none).
+	depth_of_field:        o3d.Depth_Of_Field,
 	// Media images: the equirectangular environment lighting the scene
 	// and the background behind it ("" for none), and their strengths.
 	environment:           string,
@@ -179,6 +188,18 @@ View3d_Label :: struct {
 	occlusion_radius: f32,
 }
 
+// A texture drawn each frame (view3d's `panels`, three.js's CanvasTexture):
+// its nodes (`content`) laid out in a `w x h` panel, drawn into an image of
+// that size in the layer's pixels and bound to the texture every map,
+// ShaderMaterial sampler and particle sprite of the view naming `name`
+// samples (before a media image of the name). Sampled without mipmaps, as
+// video maps are.
+View3d_Panel :: struct {
+	name:    string,
+	w, h:    f32,
+	content: i32,
+}
+
 // The transform of the groups a mesh or model is in (view3d's `groups`),
 // none when it is in none.
 group_transform :: proc "contextless" (g: Maybe(o3d.Mat4)) -> o3d.Mat4 {
@@ -213,6 +234,10 @@ Path_Kind :: enum u8 {
 	Line_Segments = 2,
 	Points        = 3,
 	Tube          = 4,
+	// LatheGeometry: the profile `points` (x the radius, y the height)
+	// turned about Y, `geometry.params` its segments, phi_start and
+	// phi_length; made once per profile (`lathe_key`).
+	Lathe         = 5,
 }
 
 // A mesh: primitive geometry (its type and three.js parameters, see
@@ -392,11 +417,14 @@ Geometry_Type :: struct {
 GEOMETRY_TYPES := [o3d.Primitive]Geometry_Type {
 	.None     = {},
 	.Box      = {"BoxGeometry", {{"width", .Size, 1, 0}, {"height", .Size, 1, 0}, {"depth", .Size, 1, 0}, {"width_segments", .Count, 1, 1}, {"height_segments", .Count, 1, 1}, {"depth_segments", .Count, 1, 1}, {}}},
-	.Sphere   = {"SphereGeometry", {{"radius", .Size, 1, 0}, {"width_segments", .Count, 32, 3}, {"height_segments", .Count, 16, 2}, {}, {}, {}, {}}},
+	.Sphere   = {"SphereGeometry", {{"radius", .Size, 1, 0}, {"width_segments", .Count, 32, 3}, {"height_segments", .Count, 16, 2}, {"phi_start", .Size, 0, 0}, {"phi_length", .Size, 2 * math.PI, 0}, {"theta_start", .Size, 0, 0}, {"theta_length", .Size, math.PI, 0}}},
 	.Plane    = {"PlaneGeometry", {{"width", .Size, 1, 0}, {"height", .Size, 1, 0}, {"width_segments", .Count, 1, 1}, {"height_segments", .Count, 1, 1}, {}, {}, {}}},
 	.Cylinder = {"CylinderGeometry", {{"radius_top", .Size, 1, 0}, {"radius_bottom", .Size, 1, 0}, {"height", .Size, 1, 0}, {"radial_segments", .Count, 32, 3}, {"height_segments", .Count, 1, 1}, {"open_ended", .Flag, 0, 0}, {}}},
 	.Torus    = {"TorusGeometry", {{"radius", .Size, 1, 0}, {"tube", .Size, 0.4, 0}, {"radial_segments", .Count, 12, 3}, {"tubular_segments", .Count, 48, 3}, {}, {}, {}}},
 	.Capsule  = {"CapsuleGeometry", {{"radius", .Size, 1, 0}, {"height", .Size, 1, 0}, {"cap_segments", .Count, 4, 1}, {"radial_segments", .Count, 8, 3}, {}, {}, {}}},
+	.Rounded_Box = {"RoundedBoxGeometry", {{"width", .Size, 1, 0}, {"height", .Size, 1, 0}, {"depth", .Size, 1, 0}, {"segments", .Count, 2, 1}, {"radius", .Size, 0.1, 0}, {}, {}}},
+	.Circle   = {"CircleGeometry", {{"radius", .Size, 1, 0}, {"segments", .Count, 32, 3}, {"theta_start", .Size, 0, 0}, {"theta_length", .Size, 2 * math.PI, 0}, {}, {}, {}}},
+	.Ring     = {"RingGeometry", {{"inner_radius", .Size, 0.5, 0}, {"outer_radius", .Size, 1, 0}, {"theta_segments", .Count, 32, 3}, {"phi_segments", .Count, 1, 1}, {"theta_start", .Size, 0, 0}, {"theta_length", .Size, 2 * math.PI, 0}, {}}},
 }
 
 // Adds a 3D layer drawing at frame `f` (its scene keys `geometry_growth`).
@@ -442,6 +470,10 @@ view3d :: proc(ctx: ^Context, f: Frame, v: View3d) {
 	for &l in v.labels {
 		l.attach.node = strings.clone(l.attach.node, arena)
 		l.attach.model_name = ""
+	}
+	v.panels = clone_slice(v.panels, arena)
+	for &p in v.panels {
+		p.name = strings.clone(p.name, arena)
 	}
 	v.particles = clone_slice(v.particles, arena)
 	for &e in v.particles {
@@ -579,9 +611,11 @@ View3d_Media :: struct {
 	// Skies made by name (`view3d_sky`), with what each was baked from, so
 	// a script loaded again with the same sky gets the same image.
 	skies:       map[string]View3d_Sky,
-	// External textures labels are bound to, the ith label of a layer to
-	// the ith (made as needed, under the lock).
-	label_textures: [dynamic]o3d.Texture_Id,
+	// External textures a layer's labels, then its panels, are bound to,
+	// in order (made as needed, under the lock).
+	externals:   [dynamic]o3d.Texture_Id,
+	// LatheGeometry by profile and parameters (`lathe_key`).
+	lathes:      map[u64]o3d.Geometry_Id,
 	// Outline geometry by outline content and options (caps and sides
 	// groups too; a ShapeGeometry's are its whole).
 	outlines:    map[Outline_Key]o3d.Extruded,
@@ -644,7 +678,8 @@ view3d_media_destroy :: proc(v: ^View3d_Media) {
 	}
 	delete(v.textures_of)
 	delete(v.skies) // its names are textures_of's
-	delete(v.label_textures)
+	delete(v.externals)
+	delete(v.lathes)
 	delete(v.outlines)
 	o3d.geometries_destroy(&v.geometries)
 	o3d.textures_destroy(&v.textures)
@@ -706,7 +741,7 @@ view3d_add_model :: proc(v: ^View3d_Media, name, path: string) -> (what, why: st
 // Makes the meshes of node `n` that the tables lack; returns the geometry
 // types it made meshes of.
 @(private = "file")
-view3d_make_geometry :: proc(m: ^Media, n: View3d) -> (made: bit_set[o3d.Primitive], made_outlines: bit_set[Outline_Kind]) {
+view3d_make_geometry :: proc(m: ^Media, n: View3d) -> (made: bit_set[o3d.Primitive], made_shaped: bit_set[Shaped_Kind]) {
 	v := &m.view3d
 	context.allocator = v.allocator
 	for mesh in n.meshes {
@@ -727,7 +762,7 @@ view3d_make_geometry :: proc(m: ^Media, n: View3d) -> (made: bit_set[o3d.Primiti
 				rule := o3d.Fill_Rule.Even_Odd if o.asset.fill_rule == .Even_Odd else o3d.Fill_Rule.Nonzero
 				g := o3d.exact_shape_geometry(&v.geometries, &path, rule)
 				v.outlines[key] = {geometry = g, caps = g, sides = g}
-				made_outlines += {o.kind}
+				made_shaped += {.Shape}
 				continue
 			}
 			shapes := outline_shapes(o.asset, true)
@@ -741,7 +776,27 @@ view3d_make_geometry :: proc(m: ^Media, n: View3d) -> (made: bit_set[o3d.Primiti
 			} else {
 				v.outlines[key] = o3d.extrude_geometry(&v.geometries, shapes, o.options)
 			}
-			made_outlines += {o.kind}
+			made_shaped += {.Extrude if o.kind == .Extrude else .Shape}
+			continue
+		}
+		if mesh.path_kind == .Lathe {
+			key := lathe_key(mesh)
+			sync.shared_lock(&v.lock)
+			_, known := v.lathes[key]
+			sync.shared_unlock(&v.lock)
+			if known {
+				continue
+			}
+			profile := make([]o3d.Vec2, len(mesh.points), context.temp_allocator)
+			for p, i in mesh.points {
+				profile[i] = p.xy
+			}
+			p := mesh.geometry.params
+			sync.guard(&v.lock)
+			if key not_in v.lathes {
+				v.lathes[key] = o3d.lathe(&v.geometries, profile, int(p[0]), p[1], p[2])
+				made_shaped += {.Lathe}
+			}
 			continue
 		}
 		if mesh.geometry.kind == .None {
@@ -761,6 +816,15 @@ view3d_make_geometry :: proc(m: ^Media, n: View3d) -> (made: bit_set[o3d.Primiti
 		}
 	}
 	return
+}
+
+// A lathe's profile and parameters, hashed: the key its geometry is made
+// once under.
+@(private = "file")
+lathe_key :: proc(mesh: Mesh) -> u64 {
+	params := mesh.geometry.params
+	h := hash.fnv64a(slice.to_bytes(mesh.points))
+	return hash.fnv64a(slice.to_bytes(params[:]), h)
 }
 
 @(private = "file")
@@ -959,6 +1023,15 @@ View3d_State :: struct {
 	// tables a model's `nodes` / `materials` fill for its draw.
 	pose:     o3d.Model_Pose,
 	parts:    o3d.Model_Parts,
+	// The panels of the view being filled in, by name: what a name finds
+	// before the media's images.
+	panels:   [dynamic]View3d_Panel_Texture,
+}
+
+@(private)
+View3d_Panel_Texture :: struct {
+	name:    string,
+	texture: o3d.Texture_Id,
 }
 
 @(private)
@@ -967,13 +1040,29 @@ Drawn_Geometry :: struct {
 	frame:   int,
 	earlier: bit_set[o3d.Primitive],
 	now:     bit_set[o3d.Primitive],
-	// The same for outline geometry (ShapeGeometry, ExtrudeGeometry).
-	earlier_outlines, now_outlines: bit_set[Outline_Kind],
+	// The same for geometry made from an outline or a profile.
+	earlier_shaped, now_shaped: bit_set[Shaped_Kind],
 	// The types made new on this frame and on the renderer's previous
 	// frame of the scene: growth is a type made again frame after frame (a
 	// parameter animated), not a fixed shape that first shows up later.
-	made, made_last:                   bit_set[o3d.Primitive],
-	made_outlines, made_last_outlines: bit_set[Outline_Kind],
+	made, made_last:               bit_set[o3d.Primitive],
+	made_shaped, made_last_shaped: bit_set[Shaped_Kind],
+}
+
+// The geometry o3d keeps that a mesh's outline or lathe profile makes: a
+// new outline or profile is a new mesh.
+@(private)
+Shaped_Kind :: enum u8 {
+	Shape,
+	Extrude,
+	Lathe,
+}
+
+@(private)
+SHAPED_TYPES := [Shaped_Kind]string {
+	.Shape   = "ShapeGeometry",
+	.Extrude = "ExtrudeGeometry",
+	.Lathe   = "LatheGeometry",
 }
 
 @(private)
@@ -982,6 +1071,7 @@ view3d_state_destroy :: proc(s: ^View3d_State) {
 	o3d.model_parts_destroy(&s.parts)
 	view3d_jobs_destroy(&s.jobs)
 	delete(s.drawn)
+	delete(s.panels)
 	s^ = {}
 }
 
@@ -1003,8 +1093,8 @@ draw_view3d :: proc(r: ^Renderer, n: View3d) {
 	if !vg.image_id_valid(image) {
 		return
 	}
-	made, made_outlines := view3d_make_geometry(r.media, n)
-	check_geometry_growth(r, n, made, made_outlines)
+	made, made_shaped := view3d_make_geometry(r.media, n)
+	check_geometry_growth(r, n, made, made_shaped)
 	view3d_make_textures(r.media, n, r.ctx.frame.index)
 	view3d_make_shaders(r.media, n)
 	v := &r.media.view3d
@@ -1018,17 +1108,23 @@ draw_view3d :: proc(r: ^Renderer, n: View3d) {
 		d.image, d.width, d.height = job.depth_image, pw, ph
 	}
 	view3d_videos(r, n, job)
-	// each label's nodes drawn into its panel image, bound to its texture
+	// each label's and panel's nodes drawn into an image, bound to its
+	// texture (a panel may draw a view3d of its own, which fills s.panels
+	// for itself)
 	labels := make([]View3d_Label_Sprite, len(n.labels), context.temp_allocator)
 	for l, i in n.labels {
-		lw := u32(clamp(math.ceil(l.w * sx), 1, 4096))
-		lh := u32(clamp(math.ceil(l.h * sy), 1, 4096))
-		img := draw_content(r, l.content, l.w, l.h, lw, lh)
-		if !vg.image_id_valid(img) {
-			continue
+		labels[i].texture, labels[i].pixels = view3d_bind_content(r, job, i, l.content, l.w, l.h, sx, sy)
+	}
+	panels := make([]View3d_Panel_Texture, len(n.panels), context.temp_allocator)
+	for p, i in n.panels {
+		panels[i].name = p.name
+		panels[i].texture, _ = view3d_bind_content(r, job, len(n.labels) + i, p.content, p.w, p.h, sx, sy)
+	}
+	clear(&s.panels)
+	for p in panels {
+		if p.texture != 0 {
+			append(&s.panels, p)
 		}
-		labels[i] = {view3d_label_texture(v, i), {f32(lw), f32(lh)}}
-		append(&job.videos, Video_Binding{labels[i].texture, img})
 	}
 	sync.shared_lock(&v.lock)
 	view3d_scene(r, n, &job.scene, {int(pw), int(ph)}, labels)
@@ -1089,6 +1185,8 @@ view3d_scene :: proc(r: ^Renderer, n: View3d, scene: ^o3d.Scene, size: [2]int, l
 	v := &r.media.view3d
 	o3d.scene_clear(scene)
 	scene.camera = n.camera
+	scene.reflector = n.reflector
+	scene.depth_of_field = n.depth_of_field
 	// the view's clock, for what rides a physics body
 	now := f32(n.clock_index) / f32(max(n.clock_fps, 1))
 	append(&scene.lights, ..n.lights)
@@ -1249,6 +1347,12 @@ view3d_scene :: proc(r: ^Renderer, n: View3d, scene: ^o3d.Scene, size: [2]int, l
 		view3d_mesh(r, scene, mesh, attach_frame(mesh_on[i], mesh.attach, mesh.group, now) * o3d.compose(mesh.position, mesh.rotation, mesh.scale))
 	}
 	scene.environment = view3d_texture(r, n.environment)
+	for p in r.view3d.panels {
+		if p.name == n.environment {
+			report(&r.ctx, .Error, {code = .Panel_Environment, name = n.environment})
+			scene.environment = 0
+		}
+	}
 	scene.environment_intensity = n.environment_intensity
 	if col, is_color := view3d_background_color(r, n.background); is_color {
 		scene.background_color = col
@@ -1300,6 +1404,8 @@ view3d_mesh :: proc(r: ^Renderer, scene: ^o3d.Scene, mesh: Mesh, transform: o3d.
 		geo_id = o3d.scene_points(scene, mesh.points, mesh.colors)
 	case .Tube:
 		geo_id = o3d.scene_tube(scene, mesh.points, mesh.tube_radius, mesh.tube_segments, mesh.path_closed)
+	case .Lathe:
+		geo_id = v.lathes[lathe_key(mesh)]
 	}
 	di := len(scene.draws)
 	append(&scene.draws, o3d.Draw{geo_id, transform, material})
@@ -1315,15 +1421,28 @@ View3d_Label_Sprite :: struct {
 	pixels:  [2]f32,
 }
 
-// The external texture the `i`th label of a layer is bound to, made the
-// first time a layer has that many.
+// Draws `content` (`w` x `h`) into an image at the layer's scale and binds
+// it, for the job's render, to the layer's `i`th external texture (made the
+// first time a layer has that many); its texture and pixel size, zero when
+// it draws nothing.
 @(private = "file")
-view3d_label_texture :: proc(v: ^View3d_Media, i: int) -> o3d.Texture_Id {
-	sync.guard(&v.lock)
-	for len(v.label_textures) <= i {
-		append(&v.label_textures, o3d.texture_add_external(&v.textures, 1, 1))
+view3d_bind_content :: proc(r: ^Renderer, job: ^View3d_Job, i: int, content: i32, w, h, sx, sy: f32) -> (texture: o3d.Texture_Id, pixels: [2]f32) {
+	pw := u32(clamp(math.ceil(w * sx), 1, 4096))
+	ph := u32(clamp(math.ceil(h * sy), 1, 4096))
+	img := draw_content(r, content, w, h, pw, ph)
+	if !vg.image_id_valid(img) {
+		return
 	}
-	return v.label_textures[i]
+	v := &r.media.view3d
+	{
+		sync.guard(&v.lock)
+		for len(v.externals) <= i {
+			append(&v.externals, o3d.texture_add_external(&v.textures, 1, 1))
+		}
+		texture = v.externals[i]
+	}
+	append(&job.videos, Video_Binding{texture, img})
+	return texture, {f32(pw), f32(ph)}
 }
 
 // Emitter `e`'s particles alive at its time, placed by `world` (what it is
@@ -1545,12 +1664,17 @@ view3d_background_color :: proc(r: ^Renderer, name: string) -> (col: o3d.Vec4, o
 	return {c.r, c.g, c.b, c.a}, true
 }
 
-// The texture of media image `name` (0 for none), reporting an image the
-// media lacks or can not decode.
+// The texture of the panel or media image `name` (0 for none), reporting an
+// image the media lacks or can not decode.
 @(private = "file")
 view3d_texture :: proc(r: ^Renderer, name: string) -> o3d.Texture_Id {
 	if name == "" {
 		return 0
+	}
+	for p in r.view3d.panels {
+		if p.name == name {
+			return p.texture
+		}
 	}
 	if id, ok := r.media.view3d.textures_of[name]; ok {
 		return id
@@ -1567,7 +1691,7 @@ view3d_texture :: proc(r: ^Renderer, name: string) -> o3d.Texture_Id {
 // (`made`) that the renderer drew on an earlier frame of the node's scene:
 // the shape changes through its geometry's parameters.
 @(private = "file")
-check_geometry_growth :: proc(r: ^Renderer, n: View3d, made: bit_set[o3d.Primitive], made_outlines: bit_set[Outline_Kind]) {
+check_geometry_growth :: proc(r: ^Renderer, n: View3d, made: bit_set[o3d.Primitive], made_shaped: bit_set[Shaped_Kind]) {
 	frame := r.ctx.frame.index
 	d: ^Drawn_Geometry
 	for &e in r.view3d.drawn {
@@ -1583,27 +1707,31 @@ check_geometry_growth :: proc(r: ^Renderer, n: View3d, made: bit_set[o3d.Primiti
 	if d.frame != frame {
 		d.earlier += d.now
 		d.now = {}
-		d.earlier_outlines += d.now_outlines
-		d.now_outlines = {}
+		d.earlier_shaped += d.now_shaped
+		d.now_shaped = {}
 		d.made_last, d.made = d.made, {}
-		d.made_last_outlines, d.made_outlines = d.made_outlines, {}
+		d.made_last_shaped, d.made_shaped = d.made_shaped, {}
 		d.frame = frame
 	}
 	d.made += made
-	d.made_outlines += made_outlines
+	d.made_shaped += made_shaped
 	for kind in made & d.earlier & d.made_last {
 		report(&r.ctx, .Warning, {code = .Geometry_Growth, name = GEOMETRY_TYPES[kind].name})
 	}
-	OUTLINE_TYPES := [Outline_Kind]string{.None = "", .Shape = "ShapeGeometry", .Exact = "ShapeGeometry", .Extrude = "ExtrudeGeometry"}
-	for kind in made_outlines & d.earlier_outlines & d.made_last_outlines {
-		report(&r.ctx, .Warning, {code = .Geometry_Growth, name = OUTLINE_TYPES[kind]})
+	for kind in made_shaped & d.earlier_shaped & d.made_last_shaped {
+		report(&r.ctx, .Warning, {code = .Geometry_Growth, name = SHAPED_TYPES[kind]})
 	}
 	for mesh in n.meshes {
 		if mesh.geometry.kind != .None {
 			d.now += {mesh.geometry.kind}
 		}
-		if mesh.outline.kind != .None {
-			d.now_outlines += {mesh.outline.kind}
+		switch {
+		case mesh.outline.kind == .Extrude:
+			d.now_shaped += {.Extrude}
+		case mesh.outline.kind != .None:
+			d.now_shaped += {.Shape}
+		case mesh.path_kind == .Lathe:
+			d.now_shaped += {.Lathe}
 		}
 	}
 }

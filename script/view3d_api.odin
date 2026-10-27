@@ -51,9 +51,51 @@ l_view3d :: proc "c" (L: ^lua.State) -> c.int {
 		v.camera = read_camera(L, s, lua.absindex(L, -1))
 	}
 	lua.pop(L, 1)
+	// A background colour from rgba() or mix_color() (a colour table), as
+	// the CSS colour a string background names.
+	field(L, 1, "background")
+	if lua.istable(L, -1) {
+		col := read_color_value(L, -1)
+		v.background = fmt.tprintf("rgba(%d, %d, %d, %v)", int(col.r * 255 + 0.5), int(col.g * 255 + 0.5), int(col.b * 255 + 0.5), col.a)
+	}
+	lua.pop(L, 1)
 	field(L, 1, "fog")
 	if lua.istable(L, -1) {
 		v.fog = read_fog(L, s, lua.absindex(L, -1))
+	}
+	lua.pop(L, 1)
+	// three.js's Reflector: the plane through `point` facing `normal`, which
+	// materials with `reflection` mirror; `scale` its resolution (0.1..1).
+	// Depth of field: `focus` a distance along the camera's axis, or a point
+	// to keep sharp (its distance along that axis); `blur` and `max_blur`
+	// shares of the frame's height.
+	field(L, 1, "depth_of_field")
+	if lua.istable(L, -1) {
+		dt := lua.absindex(L, -1)
+		outer := fields_push(L, dt)
+		d := o3d.Depth_Of_Field{blur = get_num(L, dt, "blur", 0.02), max_blur = get_num(L, dt, "max_blur", 0)}
+		field(L, dt, "focus")
+		if lua.istable(L, -1) {
+			p := read_vec3(L, dt, "focus", {})
+			axis := linalg.normalize0(v.camera.target - v.camera.position)
+			d.focus = linalg.dot(p - v.camera.position, axis)
+		} else {
+			d.focus = f32(lua.tonumber(L, -1))
+		}
+		lua.pop(L, 1)
+		if d.focus <= 0 {
+			lua.L_error(L, "depth_of_field needs focus = a distance in front of the camera, or a point in front of it")
+		}
+		v.depth_of_field = d
+		fields_pop(L, s, dt, "depth_of_field", outer)
+	}
+	lua.pop(L, 1)
+	field(L, 1, "reflector")
+	if lua.istable(L, -1) {
+		rt := lua.absindex(L, -1)
+		outer := fields_push(L, rt)
+		v.reflector = {point = read_vec3(L, rt, "point", {}), normal = read_vec3(L, rt, "normal", {0, 1, 0}), scale = clamp(get_num(L, rt, "scale", 0.5), 0.1, 1)}
+		fields_pop(L, s, rt, "reflector", outer)
 	}
 	lua.pop(L, 1)
 	v.lights = read_list(L, s, 1, "lights", o3d.Light, read_light)
@@ -67,6 +109,7 @@ l_view3d :: proc "c" (L: ^lua.State) -> c.int {
 	read_groups(L, s, 1, nil, {}, &items)
 	resolve_attach_names(L, &items)
 	v.meshes, v.models, v.particles, v.labels = items.meshes[:], items.models[:], items.particles[:], items.labels[:]
+	v.panels = read_panels(L, s, 1)
 	bloom_filter, has_bloom := read_bloom_filter(L, 1)
 	if has_bloom {
 		om.group_begin(ctx, om.Group{filter = bloom_filter})
@@ -287,7 +330,7 @@ read_mesh :: proc(L: ^lua.State, s: ^Script, t: c.int) -> (m: om.Mesh, ok: bool)
 	m.material = o3d.MATERIAL_DEFAULT
 	default_mat := "MeshStandardMaterial"
 	switch m.path_kind {
-	case .None, .Tube:
+	case .None, .Tube, .Lathe:
 	case .Polyline, .Line_Segments:
 		default_mat = "LineBasicMaterial"
 		m.material.mode = .Lines
@@ -382,6 +425,19 @@ read_geometry :: proc(L: ^lua.State, s: ^Script, t: c.int, m: ^om.Mesh) -> (ok: 
 		m.points = read_points(L, t, "points")
 		m.colors = read_point_colors(L, t, len(m.points))
 		return true
+	case "LatheGeometry":
+		// A profile (x the radius, y the height) turned about Y: made once
+		// per profile, so a profile that changes every frame makes many.
+		defer fields_pop(L, s, t, "geometry", outer)
+		m.path_kind = .Lathe
+		m.points = read_points(L, t, "points")
+		if len(m.points) < 2 {
+			lua.L_error(L, "LatheGeometry needs points = { { radius, height }, ... }: two or more")
+		}
+		m.geometry.params[0] = max(math.floor(get_num(L, t, "segments", 12)), 1)
+		m.geometry.params[1] = get_num(L, t, "phi_start", 0)
+		m.geometry.params[2] = get_num(L, t, "phi_length", 2 * math.PI)
+		return true
 	case "PointsGeometry":
 		defer fields_pop(L, s, t, "geometry", outer)
 		m.path_kind = .Points
@@ -423,7 +479,7 @@ read_geometry :: proc(L: ^lua.State, s: ^Script, t: c.int, m: ^om.Mesh) -> (ok: 
 	}
 	if m.geometry.kind == .None {
 		field_log = outer
-		bad_string(L, "geometry type", name, "BoxGeometry, SphereGeometry, PlaneGeometry, CylinderGeometry, TorusGeometry, CapsuleGeometry, TubeGeometry, ShapeGeometry, ExtrudeGeometry, LineGeometry, LineSegmentsGeometry or PointsGeometry")
+		bad_string(L, "geometry type", name, "BoxGeometry, SphereGeometry, PlaneGeometry, CylinderGeometry, TorusGeometry, CapsuleGeometry, RoundedBoxGeometry, CircleGeometry, RingGeometry, LatheGeometry, TubeGeometry, ShapeGeometry, ExtrudeGeometry, LineGeometry, LineSegmentsGeometry or PointsGeometry")
 		return false
 	}
 	defer fields_pop(L, s, t, "geometry", outer)
@@ -655,6 +711,8 @@ read_material :: proc(L: ^lua.State, s: ^Script, t: c.int, default_type: string,
 		return
 	}
 	m.metalness = get_num(L, t, "metalness", m.metalness)
+	m.reflection = clamp(get_num(L, t, "reflection", 0), 0, 1)
+	m.env_intensity = max(get_num(L, t, "environment_intensity", 1), 0.0001)
 	m.roughness = get_num(L, t, "roughness", m.roughness)
 	m.emissive = read_color3(L, t, "emissive", m.emissive)
 	m.emissive_intensity = get_num(L, t, "emissive_intensity", m.emissive_intensity)
@@ -912,6 +970,40 @@ read_label :: proc(L: ^lua.State, s: ^Script, t: c.int) -> (l: om.View3d_Label, 
 	l.attach = read_attach(L, s, t)
 	l.content = read_panel(L, s, t, "a label takes draw = function() ... end: its nodes, laid out in its w x h panel")
 	return l, l.w > 0 && l.h > 0
+}
+
+// view3d's `panels` (three.js's CanvasTexture): `{ name = { w = 512, h = 512,
+// draw = function() ... end }, ... }`, each a texture drawn every frame, its
+// nodes laid out in its `w x h` panel, that a map, a ShaderMaterial sampler
+// or a particle sprite of the view names. Read in name order.
+@(private = "file")
+read_panels :: proc(L: ^lua.State, s: ^Script, t: c.int) -> []om.View3d_Panel {
+	field(L, t, "panels")
+	defer lua.pop(L, 1)
+	if lua.isnil(L, -1) {
+		return nil
+	}
+	if !lua.istable(L, -1) {
+		lua.L_error(L, "view3d: panels = { name = { w = 512, h = 512, draw = function() ... end } }")
+	}
+	pt := lua.absindex(L, -1)
+	out := make([dynamic]om.View3d_Panel, context.temp_allocator)
+	for name in sorted_keys(L, pt) {
+		push_key(L, pt, name)
+		if !lua.istable(L, -1) {
+			lua.L_error(L, "view3d: panels.%s is not a table: { w = 512, h = 512, draw = function() ... end }", strings.clone_to_cstring(name, context.temp_allocator))
+		}
+		pv := lua.absindex(L, -1)
+		outer := fields_push(L, pv)
+		p := om.View3d_Panel{name = name, w = get_num(L, pv, "w", 512), h = get_num(L, pv, "h", 512)}
+		p.content = read_panel(L, s, pv, "a panel takes draw = function() ... end: its nodes, laid out in its w x h")
+		fields_pop(L, s, pv, "panel", outer)
+		if p.w > 0 && p.h > 0 {
+			append(&out, p)
+		}
+		lua.pop(L, 1)
+	}
+	return out[:]
 }
 
 // A panel's `draw` function, run into a content group: its nodes.

@@ -740,6 +740,7 @@ USAGE_HEAD :: `Render and inspect onimite videos.
 usage: onimite <command> <video.lua> [args] [options]
        onimite <video.lua>                         (render the whole video)
        onimite --version
+       (a video or sound file works in place of video.lua: itself, its sound over black)
 
 commands:
 `

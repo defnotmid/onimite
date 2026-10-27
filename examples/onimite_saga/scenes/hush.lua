@@ -22,12 +22,21 @@ local function hush(f, lb, gb)
     end)
   end
   line("We're not perfect.", 0.3, 300)
-  line("fframes still wins hello_world and podcast.", 2, 450)
-  sub(string.format("%.2f s against %.2f s, %.2f against %.2f: x264 on every core beats a hardware encoder",
-    facts.HELLO.fframes, facts.HELLO.onimite, facts.PODCAST.fframes, facts.PODCAST.onimite), 2.7, 505)
+  if #facts.losses > 0 then
+    local times = {}
+    for i, r in ipairs(facts.losses) do
+      times[i] = string.format("%s: %.2f s against %.2f s", r.name, r.fframes, r.onimite)
+    end
+    line(facts.losses_line, 2, 450)
+    sub(table.concat(times, " · "), 2.7, 505)
+  else
+    local r = facts.CLOSEST
+    line("fframes comes closest on " .. r.name .. ".", 2, 450)
+    sub(string.format("%.2f s against %.2f s", r.fframes, r.onimite), 2.7, 505)
+  end
   line("No WebM output. Not yet.", 4, 640)
   sub("WebM and VP9 alpha play fine as input. Encoding them: not yet.", 4.7, 695)
-  line(string.format("But we're only a %.1f MB download,", facts.ONIMITE_MB), 5.6, 840, 84, look.LEMON)
+  line(string.format("But the whole download is %.1f MB,", facts.download_mb), 5.6, 840, 84, look.LEMON)
   line("and we can do all of this.", 6.6, 950, 84, look.LEMON)
 end
 

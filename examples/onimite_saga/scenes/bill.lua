@@ -36,12 +36,11 @@ end
 local function bill(f, lb, gb)
   fx.pop(f, 2, "#12062e", "#2a0c5a", "#8a5cff", look.kick(gb) * 0.6)
   look.title(lb, 0, "THE BILL", 100, 140, 96)
-  local cpu_x = facts.CPU.fframes / facts.CPU.onimite
-  local mem_x = facts.MEMORY.fframes * 1000 / facts.MEMORY.onimite
-  card(100, lb, 1, "CPU TIME", "tiktok · user + sys seconds", facts.CPU.fframes, facts.CPU.onimite, "s", "s",
-    string.format("%.0f× less", cpu_x), function(v) return string.format("%.0f s", v) end, string.format("%.1f s", facts.CPU.onimite))
-  card(1000, lb, 4, "PEAK MEMORY", "beta · max resident set", facts.MEMORY.fframes, facts.MEMORY.onimite, "GB", "MB",
-    string.format("%.0f× less", mem_x), function(v) return string.format("%.0f GB", v) end, string.format("%d MB", facts.MEMORY.onimite))
+  local cpu_x, mem_x = facts.cpu.ratio, facts.memory.ratio
+  card(100, lb, 1, "CPU TIME", facts.cpu.example .. " · user + sys seconds", facts.cpu.fframes, facts.cpu.onimite, "s", "s",
+    string.format("%.0f× less", cpu_x), function(v) return string.format("%.0f s", v) end, string.format("%.1f s", facts.cpu.onimite))
+  card(1000, lb, 4, "PEAK MEMORY", facts.memory.example .. " · max resident set", facts.memory.fframes, facts.memory.onimite, "GB", "MB",
+    string.format("%.0f× less", mem_x), function(v) return string.format("%.0f GB", v) end, string.format("%.0f MB", facts.memory.onimite))
 end
 
 -- Its sounds (sfx.lua), in beats into the scene: on the beat grid (inspect's

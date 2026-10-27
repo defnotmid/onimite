@@ -75,9 +75,9 @@ shader(f, { sksl = HAZE, x = 0, y = 0, w = 1920, h = 1080, uniforms = {
   `"wave.frag"` (in `media/` or relative to the script; `.glsl` means Shadertoy, `.frag` GLSL,
   anything else SkSL).
 - SkSL as in fframes' `Shader::sksl`: `half4 main(float2 coord)`, `coord` from the box's
-  top-left, premultiplied output. Declared `iResolution` (float3, the box size), `iTime`,
-  `iFrame` (from `f`: scene-relative in a scene), `iTimeDelta`, `iFrameRate` are filled for
-  you; `time = s` overrides the clock. Use another name (`uClock`) for a clock that continues
+  top-left, premultiplied output. Declare the inputs you use (`uniform float iTime;`):
+  `iResolution` (float3, the box size), `iTime`, `iFrame` (from `f`: scene-relative in a
+  scene), `iTimeDelta` and `iFrameRate` are then filled for you; `time = s` overrides the clock. Use another name (`uClock`) for a clock that continues
   across scenes.
 - Shadertoy (`void mainImage(out vec4 c, in vec2 p)`) compiles as GLSL ES 3 (oksl's GLSL
   dialect): `#define` with and without arguments, `#if`/`#ifdef`, `switch`, `discard`,

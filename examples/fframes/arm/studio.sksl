@@ -1,0 +1,41 @@
+// The lab's studio light (lab.rs `environment`: fframes-three-d's Studio::radiance), as an
+// equirectangular image for bake{}: a sky to ground gradient and four softboxes, rows of
+// panels in the ceiling and two strips. It is drawn relative to its brightest light, the
+// ceiling panels at 3.2, and in sRGB; the view's environment_intensity puts the 3.2 back.
+uniform float3 iResolution;
+
+const float PEAK = 3.2;
+
+float lin(float c) { return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4); }
+float3 hex(float r, float g, float b) { return float3(lin(r / 255.0), lin(g / 255.0), lin(b / 255.0)); }
+float srgb(float c) { return c <= 0.0031308 ? c * 12.92 : 1.055 * pow(c, 1.0 / 2.4) - 0.055; }
+
+// a softbox `w` x `h` degrees toward `dir` (its width along the horizon), its edges soft
+float3 box(float3 d, float3 dir, float w, float h, float3 color) {
+  dir = normalize(dir);
+  float c = dot(d, dir);
+  if (c <= -0.2) return float3(0.0);
+  float3 u = cross(dir, float3(0.0, 1.0, 0.0));
+  u = length(u) > 1e-6 ? normalize(u) : float3(1.0, 0.0, 0.0);
+  float3 v = cross(u, dir);
+  float2 hs = radians(float2(w, h)) * 0.5;
+  const float soft = 0.015;
+  float a = 1.0 - smoothstep(hs.x - soft * 0.5, hs.x + soft, abs(atan(dot(d, u), c)));
+  float b = 1.0 - smoothstep(hs.y - soft * 0.5, hs.y + soft, abs(atan(dot(d, v), c)));
+  // the soft edge spreads the light: the box keeps its energy
+  return color * a * b * (hs.x * hs.y) / ((hs.x + soft * 0.75) * (hs.y + soft * 0.75));
+}
+
+half4 main(float2 p) {
+  float2 uv = p / iResolution.xy;                 // equirectangular: u around, v down
+  float lon = uv.x * 6.2831853, lat = (0.5 - uv.y) * 3.14159265;
+  float3 d = float3(cos(lat) * sin(lon), sin(lat), cos(lat) * cos(lon));
+  float3 c = d.y >= 0.0 ? mix(hex(201.0, 204.0, 208.0), hex(238.0, 240.0, 242.0), smoothstep(0.0, 0.43, d.y))
+                        : mix(hex(201.0, 204.0, 208.0), hex(106.0, 108.0, 112.0), smoothstep(0.0, 0.08, -d.y));
+  c += box(d, float3(-0.35, 1.0, 0.0), 12.0, 70.0, float3(3.2));
+  c += box(d, float3(0.35, 1.0, 0.0), 12.0, 70.0, float3(3.2));
+  c += box(d, float3(0.0, 0.5, 0.85), 70.0, 10.0, hex(255.0, 241.0, 224.0) * 1.6);
+  c += box(d, float3(-1.0, 0.18, -0.3), 8.0, 40.0, hex(221.0, 232.0, 255.0) * 1.4);
+  c = clamp(c / PEAK, 0.0, 1.0);
+  return half4(half(srgb(c.r)), half(srgb(c.g)), half(srgb(c.b)), 1.0);
+}

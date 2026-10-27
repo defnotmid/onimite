@@ -3,6 +3,7 @@ package onimite_script
 import "core:encoding/base64"
 import "core:encoding/json"
 import "core:fmt"
+import "core:math"
 import "core:math/linalg"
 import "core:os"
 import "core:path/filepath"
@@ -11,16 +12,69 @@ import "core:testing"
 import "deps:o3d"
 import om "../onimite"
 import "../speech"
+import lua "vendor:lua/5.4"
+
+// A test's video.lua in a temp directory, loaded with its own media and
+// Shared (sounds may be added to the media before the load), and a renderer
+// of it made on the first frame asked for.
+@(private = "file")
+Fixture :: struct {
+	dir, path: string,
+	media:     om.Media,
+	shared:    Shared,
+	script:    Script,
+	r:         om.Renderer,
+	rendering: bool,
+}
+
+@(private = "file")
+fixture_init :: proc(t: ^testing.T, f: ^Fixture, src: string) {
+	derr: os.Error
+	f.dir, derr = os.make_directory_temp("", "onimite_test_*", context.temp_allocator)
+	testing.expect(t, derr == nil)
+	f.path, _ = filepath.join({f.dir, "video.lua"}, context.temp_allocator)
+	testing.expect(t, os.write_entire_file(f.path, transmute([]u8)src) == nil)
+	om.media_init(&f.media)
+}
+
+// Loads the fixture's script into `into` (the fixture's own by default);
+// false, failing the test, when it doesn't load.
+@(private = "file")
+fixture_load :: proc(t: ^testing.T, f: ^Fixture, into: ^Script = nil, loc := #caller_location) -> bool {
+	s := into if into != nil else &f.script
+	ok := load(s, f.path, nil, &f.media, &f.shared) == nil
+	testing.expectf(t, ok, "load failed: %s", error_message(s.failure, context.temp_allocator), loc = loc)
+	return ok
+}
+
+// Frame `i` of the fixture's script, rendered.
+@(private = "file")
+fixture_frame :: proc(t: ^testing.T, f: ^Fixture, i: int, loc := #caller_location) -> []u8 {
+	if !f.rendering {
+		testing.expect_value(t, om.renderer_init(&f.r, &f.script.video, &f.media), om.Error.None, loc = loc)
+		f.rendering = true
+	}
+	return om.render_frame(&f.r, i)
+}
+
+@(private = "file")
+fixture_destroy :: proc(f: ^Fixture) {
+	if f.rendering {
+		om.renderer_destroy(&f.r)
+	}
+	unload(&f.script)
+	shared_destroy(&f.shared)
+	om.media_destroy(&f.media)
+	os.remove_all(f.dir)
+}
 
 // text_width, text_fit and text_lines work at load, with the media the
 // script was loaded with (no render in progress).
 @(test)
 test_measure_at_load :: proc(t: ^testing.T) {
-	dir, derr := os.make_directory_temp("", "onimite_script_test_*", context.temp_allocator)
-	testing.expect(t, derr == nil)
-	defer os.remove_all(dir)
-	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
-	src := `
+	f: Fixture
+	defer fixture_destroy(&f)
+	fixture_init(t, &f, `
 local w = text_width { "Hello", size = 20 }
 local fitted = text_fit { "A long title that does not fit", size = 20, max_width = 100 }
 local lines = text_lines { "one two three four five six", size = 20, max_width = 80 }
@@ -34,23 +88,17 @@ assert(text_width { "AV", size = 20, features = { kern = true } } == kerned)
 assert(not pcall(text_width, { "AV", features = { "kerning" } }))
 assert(not pcall(text_width, { "AV", features = { liga = "off" } }))
 video { width = math.floor(w), height = 90, fps = 30, duration = 1 }
-`
-	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
-
-	media: om.Media
-	om.media_init(&media)
-	defer om.media_destroy(&media)
-	s: Script
-	defer unload(&s)
-	ok := load(&s, path, nil, &media)
-	testing.expectf(t, ok == nil, "load failed: %s", error_message(s.failure, context.temp_allocator))
-	w, _ := om.text_width(&media, {size = 20}, "Hello")
-	testing.expect_value(t, s.video.width, int(w))
+`)
+	if !fixture_load(t, &f) {
+		return
+	}
+	w, _ := om.text_width(&f.media, {size = 20}, "Hello")
+	testing.expect_value(t, f.script.video.width, int(w))
 
 	// Without the media, measuring at load is an error naming the call.
 	s2: Script
 	defer unload(&s2)
-	testing.expect(t, load(&s2, path, nil) != nil)
+	testing.expect(t, load(&s2, f.path, nil) != nil)
 }
 
 // `shared` builds its value in the first state loaded with a `Shared`; the
@@ -58,11 +106,9 @@ video { width = math.floor(w), height = 90, fps = 30, duration = 1 }
 // handles kept) without running the build again.
 @(test)
 test_shared_values :: proc(t: ^testing.T) {
-	dir, derr := os.make_directory_temp("", "onimite_script_test_*", context.temp_allocator)
-	testing.expect(t, derr == nil)
-	defer os.remove_all(dir)
-	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
-	src := `
+	f: Fixture
+	defer fixture_destroy(&f)
+	fixture_init(t, &f, `
 local built = false
 local v = shared("data", function()
   built = true
@@ -77,20 +123,16 @@ assert(math.type(v.n) == "integer" and v.x == 0.1 and v.s == "text" and v.yes an
 assert(v[0] == "zero" and v.d == path_data("M0 0 L10 0 L10 10 Z"))
 assert(not pcall(shared, "bad", function() return { print } end))
 video { width = built and 100 or 200, height = 90, fps = 30, duration = 1 }
-`
-	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
-
-	sh: Shared
-	defer shared_destroy(&sh)
-	first, second: Script
+`)
+	first: Script
 	defer unload(&first)
-	defer unload(&second)
-	testing.expectf(t, load(&first, path, nil, nil, &sh) == nil, "load failed: %s", error_message(first.failure, context.temp_allocator))
-	testing.expectf(t, load(&second, path, nil, nil, &sh) == nil, "load failed: %s", error_message(second.failure, context.temp_allocator))
+	if !fixture_load(t, &f, &first) || !fixture_load(t, &f) {
+		return
+	}
 	testing.expect_value(t, first.video.width, 100)
-	testing.expect_value(t, second.video.width, 200)
-	testing.expect_value(t, len(sh.paths), 1)
-	for _, a in sh.paths {
+	testing.expect_value(t, f.script.video.width, 200)
+	testing.expect_value(t, len(f.shared.paths), 1)
+	for _, a in f.shared.paths {
 		testing.expect_value(t, len(a.verbs), 4)
 	}
 }
@@ -100,11 +142,9 @@ video { width = built and 100 or 200, height = 90, fps = 30, duration = 1 }
 // record what a transition draws).
 @(test)
 test_std_lib :: proc(t: ^testing.T) {
-	dir, derr := os.make_directory_temp("", "onimite_script_test_*", context.temp_allocator)
-	testing.expect(t, derr == nil)
-	defer os.remove_all(dir)
-	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
-	src := `
+	f: Fixture
+	defer fixture_destroy(&f)
+	fixture_init(t, &f, `
 local function near(a, b) return math.abs(a - b) < 1e-9 end
 -- math helpers, noise and colour mixing
 assert(near(lerp(0, 10, 0.25), 2.5) and clamp(5, 0, 3) == 3 and near(progress(5, 0, 10), 0.5))
@@ -202,12 +242,8 @@ assert(not pcall(transition, "spin", 0.5, A, B))
 assert(not pcall(transition, "slide", 0.5, A, B, { from = "up" }))
 
 video { width = 64, height = 36, fps = 30, duration = 1 }
-`
-	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
-	s: Script
-	defer unload(&s)
-	ok := load(&s, path)
-	testing.expectf(t, ok == nil, "load failed: %s", error_message(s.failure, context.temp_allocator))
+`)
+	fixture_load(t, &f)
 }
 
 // 3D vectors and paths: the vec3 helpers on { x, y, z } lists; a path passes
@@ -215,11 +251,9 @@ video { width = 64, height = 36, fps = 30, duration = 1 }
 // travels at an even speed and eases its fraction.
 @(test)
 test_std_vec3_and_paths :: proc(t: ^testing.T) {
-	dir, derr := os.make_directory_temp("", "onimite_script_test_*", context.temp_allocator)
-	testing.expect(t, derr == nil)
-	defer os.remove_all(dir)
-	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
-	src := `
+	f: Fixture
+	defer fixture_destroy(&f)
+	fixture_init(t, &f, `
 local function near(a, b, e) return math.abs(a - b) < (e or 1e-9) end
 local function same(a, b, e) return near(a[1], b[1], e) and near(a[2], b[2], e) and near(a[3], b[3], e) end
 assert(same(vec3_add({ 1, 2, 3 }, { 4, 5, 6 }), { 5, 7, 9 }) and same(vec3_sub({ 4, 5, 6 }, { 1, 2, 3 }), { 3, 3, 3 }))
@@ -257,36 +291,28 @@ assert(vec3_distance(P[1], path_at(P, 0.2, { easing = ease_in })) < vec3_distanc
 assert(not pcall(path_at, { { 0, 0, 0 } }, 0.5))
 
 video { width = 64, height = 36, fps = 30, duration = 1 }
-`
-	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
-	s: Script
-	defer unload(&s)
-	ok := load(&s, path)
-	testing.expectf(t, ok == nil, "load failed: %s", error_message(s.failure, context.temp_allocator))
+`)
+	fixture_load(t, &f)
 }
 
 // A scene with `transition` gets its overlap from the transition's duration
 // (unless it has one) and a wrapped render; the previous scene leaves by it.
 @(test)
 test_std_scene_transition :: proc(t: ^testing.T) {
-	dir, derr := os.make_directory_temp("", "onimite_script_test_*", context.temp_allocator)
-	testing.expect(t, derr == nil)
-	defer os.remove_all(dir)
-	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
-	src := `
+	f: Fixture
+	defer fixture_destroy(&f)
+	fixture_init(t, &f, `
 video { width = 64, height = 36, fps = 30 }
 scene { "A", duration = 2, render = function(f) end }
 scene { "B", duration = 2, transition = { "fade", duration = 0.5 }, render = function(f) end }
 scene { "C", duration = 1, overlap = { previous = 0.25 }, transition = { "wipe", duration = 1 }, render = function(f) end }
-`
-	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
-	s: Script
-	defer unload(&s)
-	ok := load(&s, path)
-	testing.expectf(t, ok == nil, "load failed: %s", error_message(s.failure, context.temp_allocator))
-	testing.expect_value(t, len(s.video.scenes), 3)
-	testing.expect_value(t, s.video.scenes[1].overlap.previous, 0.5)
-	testing.expect_value(t, s.video.scenes[2].overlap.previous, 0.25)
+`)
+	if !fixture_load(t, &f) {
+		return
+	}
+	testing.expect_value(t, len(f.script.video.scenes), 3)
+	testing.expect_value(t, f.script.video.scenes[1].overlap.previous, 0.5)
+	testing.expect_value(t, f.script.video.scenes[2].overlap.previous, 0.25)
 }
 
 // `props`: JSON objects merged in order (objects to tables, arrays from 1,
@@ -294,11 +320,9 @@ scene { "C", duration = 1, overlap = { previous = 0.25 }, transition = { "wipe",
 // json_decode, which reads JSON text the same way.
 @(test)
 test_props :: proc(t: ^testing.T) {
-	dir, derr := os.make_directory_temp("", "onimite_script_test_*", context.temp_allocator)
-	testing.expect(t, derr == nil)
-	defer os.remove_all(dir)
-	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
-	src := `
+	f: Fixture
+	defer fixture_destroy(&f)
+	fixture_init(t, &f, `
 assert(props.title == "From set", props.title)
 assert(math.type(props.count) == "integer" and props.count == 3)
 assert(props.ratio == 0.5 and props.yes == true and props.no == false and props.none == nil)
@@ -314,24 +338,21 @@ assert(json_decode("[]") ~= nil and json_decode("3") == 3)
 local ok, msg = pcall(json_decode, '{"a": ')
 assert(not ok and msg:find("json_decode: invalid JSON", 1, true), msg)
 video { width = 10, height = 10, fps = 30, duration = 1 }
-`
-	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
+`)
 	props := []string {
 		`{"title": "From file", "base": "kept", "over": "first", "count": 3, "ratio": 0.5, "yes": true, "no": false, "none": null,
 		  "list": [1, 2, {"k": "v"}], "nested": {"inner": {"deep": "x"}, "empty": {}}}`,
 		`{"over": "second"}`,
 	}
-	s: Script
-	defer unload(&s)
-	ok := load(&s, path, {"title=From set", "size=40", "zip=007", "big=2e3", "pos"}, nil, nil, props)
-	testing.expectf(t, ok == nil, "load failed: %s", error_message(s.failure, context.temp_allocator))
+	ok := load(&f.script, f.path, {"title=From set", "size=40", "zip=007", "big=2e3", "pos"}, &f.media, &f.shared, props)
+	testing.expectf(t, ok == nil, "load failed: %s", error_message(f.script.failure, context.temp_allocator))
 
 	// Not an object, or not JSON: the load fails naming props.
 	bad: Script
 	defer unload(&bad)
-	testing.expect_value(t, load(&bad, path, nil, nil, nil, {`[1, 2]`}), Error.Props_Not_Object)
+	testing.expect_value(t, load(&bad, f.path, nil, &f.media, &f.shared, {`[1, 2]`}), Error.Props_Not_Object)
 	testing.expect_value(t, error_message(bad.failure, context.temp_allocator), `props: the JSON must be an object, e.g. {"title": "Hello"}`)
-	testing.expect_value(t, load(&bad, path, nil, nil, nil, {`{"a": `}), Error.Props_Json)
+	testing.expect_value(t, load(&bad, f.path, nil, &f.media, &f.shared, {`{"a": `}), Error.Props_Json)
 }
 
 @(test)
@@ -352,11 +373,9 @@ test_scalar_value :: proc(t: ^testing.T) {
 // sequence's.
 @(test)
 test_lottie_api :: proc(t: ^testing.T) {
-	dir, derr := os.make_directory_temp("", "onimite_script_test_*", context.temp_allocator)
-	testing.expect(t, derr == nil)
-	defer os.remove_all(dir)
-	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
-	src := `
+	f: Fixture
+	defer fixture_destroy(&f)
+	fixture_init(t, &f, `
 local ANIM = [[{"v": "5.7.0", "fr": 10, "ip": 0, "op": 10, "w": 40, "h": 20, "markers": [{"cm": "mid", "tm": 5, "dr": 0}],
   "layers": [{"ty": 1, "ind": 1, "ip": 0, "op": 10, "sc": "#ff0000", "sw": 20, "sh": 20,
     "ks": {"p": {"a": 1, "k": [{"t": 0, "s": [0, 0]}, {"t": 10, "s": [20, 0]}]}}},
@@ -372,20 +391,13 @@ scene { "Main", duration = 1, render = function(f)
   lottie { data = ANIM, overrides = { ["Title"] = { text = "Hello" } } }
   sequence(f, 0.5, nil, function(g) lottie(g, { data = ANIM, y = 20, loop = false }) end)
 end }
-`
-	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
-	media: om.Media
-	om.media_init(&media)
-	defer om.media_destroy(&media)
-	s: Script
-	defer unload(&s)
-	testing.expectf(t, load(&s, path, nil, &media) == nil, "load failed: %s", error_message(s.failure, context.temp_allocator))
-	r: om.Renderer
-	testing.expect_value(t, om.renderer_init(&r, &s.video, &media), om.Error.None)
-	defer om.renderer_destroy(&r)
+`)
+	if !fixture_load(t, &f) {
+		return
+	}
 	// Video frame 17: the scene's frame 7 (square at x = 14), the
 	// sequence's frame 2 (x = 4).
-	px := om.render_frame(&r, 17)
+	px := fixture_frame(t, &f, 17)
 	at :: proc(px: []u8, x, y: int) -> [4]u8 {
 		i := (y * 40 + x) * 4
 		return {px[i], px[i + 1], px[i + 2], px[i + 3]}
@@ -395,7 +407,7 @@ end }
 	testing.expect_value(t, at(px, 2, 30), [4]u8{255, 255, 255, 255})
 	testing.expect_value(t, at(px, 6, 30), [4]u8{255, 0, 0, 255})
 	// Only the expected miss is reported.
-	for d in r.ctx.diagnostics {
+	for d in f.r.ctx.diagnostics {
 		testing.expectf(t, d.severity < .Error || om.diagnostic_key(d, context.temp_allocator) == "missing_media:missing.json", "unexpected: %s", om.diagnostic_message(d, context.temp_allocator))
 	}
 }
@@ -405,12 +417,9 @@ end }
 // a channel naming a missing buffer is an error at the channel's use.
 @(test)
 test_shader_multipass_api :: proc(t: ^testing.T) {
-	dir, derr := os.make_directory_temp("", "onimite_script_test_*", context.temp_allocator)
-	testing.expect(t, derr == nil)
-	defer os.remove_all(dir)
-	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
-	image_path, _ := filepath.join({dir, "image.glsl"}, context.temp_allocator)
-	src := `
+	f: Fixture
+	defer fixture_destroy(&f)
+	fixture_init(t, &f, `
 video { width = 20, height = 10, fps = 10, duration = 2, background = "#000", render = function(f)
   shader(f, { x = 0, y = 0, w = 20, h = 10, shadertoy = {
     common = "#define STEP 0.1",
@@ -420,27 +429,21 @@ video { width = 20, height = 10, fps = 10, duration = 2, background = "#000", re
   shader(f, { x = 0, y = 0, w = 1, h = 1, shadertoy = {
     image = { source = "void mainImage(out vec4 o, in vec2 p) {\n  o = texture(iChannel2, p);\n}", channels = { [3] = "buffer_c" } } } })
 end }
-`
-	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
+`)
+	image_path, _ := filepath.join({f.dir, "image.glsl"}, context.temp_allocator)
 	image := "void mainImage(out vec4 o, in vec2 p) { o = texture(iChannel0, p / iResolution.xy); }"
 	testing.expect(t, os.write_entire_file(image_path, transmute([]u8)image) == nil)
-	media: om.Media
-	om.media_init(&media)
-	defer om.media_destroy(&media)
-	s: Script
-	defer unload(&s)
-	testing.expectf(t, load(&s, path, nil, &media) == nil, "load failed: %s", error_message(s.failure, context.temp_allocator))
-	r: om.Renderer
-	testing.expect_value(t, om.renderer_init(&r, &s.video, &media), om.Error.None)
-	defer om.renderer_destroy(&r)
+	if !fixture_load(t, &f) {
+		return
+	}
 	// Frame 3 (a seek: frames 0..2 run first): four steps of 0.1 in red;
 	// blue where the group's square is.
-	px := om.render_frame(&r, 3)
+	px := fixture_frame(t, &f, 3)
 	testing.expect_value(t, px[(5 * 20 + 2) * 4 + 0], u8(102))
 	testing.expect_value(t, px[(5 * 20 + 2) * 4 + 2], u8(0))
 	testing.expect_value(t, px[(5 * 20 + 15) * 4 + 2], u8(255))
 	bad := false
-	for d in r.ctx.diagnostics {
+	for d in f.r.ctx.diagnostics {
 		if d.severity == .Error && om.diagnostic_message(d, context.temp_allocator) == "shader <inline>: Image:2:15: iChannel2 reads Buffer C, which the program does not have" {
 			bad = true
 		} else {
@@ -457,12 +460,9 @@ end }
 // channel's use) or an output it lacks.
 @(test)
 test_shader_passes_api :: proc(t: ^testing.T) {
-	dir, derr := os.make_directory_temp("", "onimite_script_test_*", context.temp_allocator)
-	testing.expect(t, derr == nil)
-	defer os.remove_all(dir)
-	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
-	frag_path, _ := filepath.join({dir, "show.frag"}, context.temp_allocator)
-	src := `
+	f: Fixture
+	defer fixture_destroy(&f)
+	fixture_init(t, &f, `
 local HALF = "half4 main(float2 p) { return half4(0.25, 0.0, 0.0, 1.0); }"
 local DOUBLE = "uniform shader uIn;\nhalf4 main(float2 p) { return uIn.eval(p) * 2.0; }"
 local ACC = "uniform shader uLast;\nuniform float uStep;\nhalf4 main(float2 p) { return uLast.eval(p) + half4(uStep, 0.0, 0.0, 0.0) + half4(0.0, 0.0, 0.0, 0.1); }"
@@ -480,32 +480,26 @@ video { width = 20, height = 40, fps = 10, duration = 2, background = "#000", re
     { name = "a", sksl = DOUBLE, inputs = { uIn = { previous = "nope" } } } } })
   shader(f, { x = 0, y = 30, w = 1, h = 1, output = "nope", passes = { { name = "a", sksl = HALF } } })
 end }
-`
-	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
+`)
+	frag_path, _ := filepath.join({f.dir, "show.frag"}, context.temp_allocator)
 	frag := "#version 300 es\nprecision highp float;\nlayout(location = 0) in vec2 uv;\nlayout(location = 0) out vec4 color;\nuniform sampler2D uSrc;\nvoid main() { color = texture(uSrc, uv); }\n"
 	testing.expect(t, os.write_entire_file(frag_path, transmute([]u8)frag) == nil)
-	media: om.Media
-	om.media_init(&media)
-	defer om.media_destroy(&media)
-	s: Script
-	defer unload(&s)
-	testing.expectf(t, load(&s, path, nil, &media) == nil, "load failed: %s", error_message(s.failure, context.temp_allocator))
-	r: om.Renderer
-	testing.expect_value(t, om.renderer_init(&r, &s.video, &media), om.Error.None)
-	defer om.renderer_destroy(&r)
+	if !fixture_load(t, &f) {
+		return
+	}
 	at :: proc(px: []u8, x, y: int) -> [4]u8 {
 		i := (y * 20 + x) * 4
 		return {px[i], px[i + 1], px[i + 2], px[i + 3]}
 	}
 	// Frame 3, a seek: frames 0..2 run first, so the accumulator has
 	// four steps of 0.1 in red.
-	px := om.render_frame(&r, 3)
+	px := fixture_frame(t, &f, 3)
 	testing.expect_value(t, at(px, 10, 5), [4]u8{128, 0, 0, 255})
 	testing.expect_value(t, at(px, 10, 15), [4]u8{102, 0, 0, 255})
 	testing.expect_value(t, at(px, 2, 25), [4]u8{0, 255, 0, 255})
 	testing.expect_value(t, at(px, 17, 25), [4]u8{0, 0, 0, 255})
 	no_pass, no_output := false, false
-	for d in r.ctx.diagnostics {
+	for d in f.r.ctx.diagnostics {
 		msg := om.diagnostic_message(d, context.temp_allocator)
 		switch msg {
 		case "shader <inline>: a:2:31: uIn reads nope, which the program does not have":
@@ -523,11 +517,9 @@ end }
 // caption_words while rendering.
 @(test)
 test_captions_api :: proc(t: ^testing.T) {
-	dir, derr := os.make_directory_temp("", "onimite_script_test_*", context.temp_allocator)
-	testing.expect(t, derr == nil)
-	defer os.remove_all(dir)
-	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
-	src := `
+	f: Fixture
+	defer fixture_destroy(&f)
+	fixture_init(t, &f, `
 assert(captions_load("a.vtt", "WEBVTT\n\n00:00.000 --> 00:01.000\none <00:00.200>two three\n") == 3)
 assert(captions_load("w", { { text = "x", start = 0, stop = 0.5 }, { text = "y", start = 0.5, stop = 1 } }) == 2)
 local pages = caption_pages("w", { max_words = 1 })
@@ -542,19 +534,12 @@ video { width = 40, height = 40, fps = 10, duration = 2, render = function(f)
   assert(caption_words(1.1, "a.vtt", { hold = 0.2 }) ~= nil)
   captions(f, { src = "w", x = 0, y = 20, w = 40, size = 10, highlight = "box" })
 end }
-`
-	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
-	media: om.Media
-	om.media_init(&media)
-	defer om.media_destroy(&media)
-	s: Script
-	defer unload(&s)
-	testing.expectf(t, load(&s, path, nil, &media) == nil, "load failed: %s", error_message(s.failure, context.temp_allocator))
-	r: om.Renderer
-	testing.expect_value(t, om.renderer_init(&r, &s.video, &media), om.Error.None)
-	defer om.renderer_destroy(&r)
-	om.render_frame(&r, 3)
-	for d in r.ctx.diagnostics {
+`)
+	if !fixture_load(t, &f) {
+		return
+	}
+	fixture_frame(t, &f, 3)
+	for d in f.r.ctx.diagnostics {
 		testing.expectf(t, d.severity < .Error, "unexpected: %s", om.diagnostic_message(d, context.temp_allocator))
 	}
 }
@@ -563,11 +548,9 @@ end }
 // error while rendering instead of changing what the render reads.
 @(test)
 test_load_only_while_rendering :: proc(t: ^testing.T) {
-	dir, derr := os.make_directory_temp("", "onimite_script_test_*", context.temp_allocator)
-	testing.expect(t, derr == nil)
-	defer os.remove_all(dir)
-	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
-	src := `
+	f: Fixture
+	defer fixture_destroy(&f)
+	fixture_init(t, &f, `
 video { width = 40, height = 40, fps = 10 }
 scene { "S", duration = 1, render = function(f)
   local calls = {
@@ -587,26 +570,19 @@ scene { "S", duration = 1, render = function(f)
   end
   rect { x = 0, y = 0, width = 40, height = 40, fill = "#fff" }
 end }
-`
-	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
-	media: om.Media
-	om.media_init(&media)
-	defer om.media_destroy(&media)
-	s: Script
-	defer unload(&s)
-	testing.expectf(t, load(&s, path, nil, &media) == nil, "load failed: %s", error_message(s.failure, context.temp_allocator))
-	r: om.Renderer
-	testing.expect_value(t, om.renderer_init(&r, &s.video, &media), om.Error.None)
-	defer om.renderer_destroy(&r)
-	om.render_frame(&r, 3)
+`)
+	if !fixture_load(t, &f) {
+		return
+	}
+	fixture_frame(t, &f, 3)
 	// The render ran to its rect: no Lua error, no empty frame.
-	for d in r.ctx.diagnostics {
+	for d in f.r.ctx.diagnostics {
 		testing.expectf(t, false, "unexpected: %s", om.diagnostic_message(d, context.temp_allocator))
 	}
-	testing.expect_value(t, len(s.scenes), 1)
-	testing.expect_value(t, len(s.cues), 0)
-	testing.expect_value(t, s.video.width, 40)
-	testing.expect(t, "n" not_in media.audio && "c" not_in media.captions)
+	testing.expect_value(t, len(f.script.scenes), 1)
+	testing.expect_value(t, len(f.script.cues), 0)
+	testing.expect_value(t, f.script.video.width, 40)
+	testing.expect(t, "n" not_in f.media.audio && "c" not_in f.media.captions)
 }
 
 // Script lines are named from the script's folder, cleaned, however the
@@ -652,11 +628,9 @@ return { source = debug.getinfo(1, "S").source }`},
 // lights a flat surface fully, and every primitive parses without errors.
 @(test)
 test_filter_primitives :: proc(t: ^testing.T) {
-	dir, derr := os.make_directory_temp("", "onimite_script_test_*", context.temp_allocator)
-	testing.expect(t, derr == nil)
-	defer os.remove_all(dir)
-	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
-	src := `
+	f: Fixture
+	defer fixture_destroy(&f)
+	fixture_init(t, &f, `
 video { width = 80, height = 40, fps = 10, background = "#000000" }
 scene { "Main", duration = 1, render = function(f)
   local user = function(x, y, w, h) return { x = x, y = y, w = w, h = h, units = "userSpaceOnUse" } end
@@ -686,18 +660,11 @@ scene { "Main", duration = 1, render = function(f)
     rect { x = 5, y = 25, w = 10, h = 10, fill = "#ff0000" }
   end)
 end }
-`
-	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
-	media: om.Media
-	om.media_init(&media)
-	defer om.media_destroy(&media)
-	s: Script
-	defer unload(&s)
-	testing.expectf(t, load(&s, path, nil, &media) == nil, "load failed: %s", error_message(s.failure, context.temp_allocator))
-	r: om.Renderer
-	testing.expect_value(t, om.renderer_init(&r, &s.video, &media), om.Error.None)
-	defer om.renderer_destroy(&r)
-	px := om.render_frame(&r, 0)
+`)
+	if !fixture_load(t, &f) {
+		return
+	}
+	px := fixture_frame(t, &f, 0)
 	at :: proc(px: []u8, x, y: int) -> [4]u8 {
 		i := (y * 80 + x) * 4
 		return {px[i], px[i + 1], px[i + 2], px[i + 3]}
@@ -713,7 +680,7 @@ end }
 	testing.expect(t, a != b && a != [4]u8{0, 0, 0, 255})
 	// Lit from straight above: full white.
 	testing.expect_value(t, at(px, 70, 10), [4]u8{255, 255, 255, 255})
-	for d in r.ctx.diagnostics {
+	for d in f.r.ctx.diagnostics {
 		testing.expectf(t, d.severity < .Error || om.diagnostic_key(d, context.temp_allocator) == "missing_media:missing.png", "unexpected: %s", om.diagnostic_message(d, context.temp_allocator))
 	}
 }
@@ -723,13 +690,9 @@ end }
 // globals as errors; `require` returns the module only.
 @(test)
 test_script_checks :: proc(t: ^testing.T) {
-	dir, derr := os.make_directory_temp("", "onimite_script_test_*", context.temp_allocator)
-	testing.expect(t, derr == nil)
-	defer os.remove_all(dir)
-	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
-	mod, _ := filepath.join({dir, "mod.lua"}, context.temp_allocator)
-	testing.expect(t, os.write_entire_file(mod, transmute([]u8)string("return 7")) == nil)
-	src := `
+	f: Fixture
+	defer fixture_destroy(&f)
+	fixture_init(t, &f, `
 local parts = { require("mod") }
 assert(#parts == 1 and parts[1] == 7)
 local ok, err = pcall(function() return eas_out end)
@@ -741,11 +704,12 @@ animate(1, { { 0, nil, 0, 1, spring { stiffness = 200, damping = 20 } } })
 video { width = 100, height = 90, fps = 30, backgroud = "#000",
   audio = { { "a.wav", gain = -6 } } }
 scene { "A", duraton = 1, duration = 1 }
-`
-	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
-	s: Script
-	defer unload(&s)
-	testing.expectf(t, load(&s, path, nil) == nil, "load failed: %s", error_message(s.failure, context.temp_allocator))
+`)
+	mod, _ := filepath.join({f.dir, "mod.lua"}, context.temp_allocator)
+	testing.expect(t, os.write_entire_file(mod, transmute([]u8)string("return 7")) == nil)
+	if !fixture_load(t, &f) {
+		return
+	}
 	want := [?]string {
 		"video.lua:7: `stagger.form` is not used (did you mean `from`?)",
 		"video.lua:8: animate's last key has no stop, so it jumps to its `to` at 0.6s (give it a stop; stop = start for a jump)",
@@ -753,8 +717,8 @@ scene { "A", duraton = 1, duration = 1 }
 		"video.lua:10: `video.backgroud` is not used (did you mean `background`?)",
 		"video.lua:12: `scene.duraton` is not used (did you mean `duration`?)",
 	}
-	testing.expect_value(t, len(s.load_problems), len(want))
-	for d, i in s.load_problems {
+	testing.expect_value(t, len(f.script.load_problems), len(want))
+	for d, i in f.script.load_problems {
 		if i < len(want) {
 			testing.expect_value(t, om.diagnostic_message(d, context.temp_allocator), want[i])
 		}
@@ -767,11 +731,9 @@ scene { "A", duraton = 1, duration = 1 }
 // light, transfer and subregion tables while rendering.
 @(test)
 test_nested_option_checks :: proc(t: ^testing.T) {
-	dir, derr := os.make_directory_temp("", "onimite_script_test_*", context.temp_allocator)
-	testing.expect(t, derr == nil)
-	defer os.remove_all(dir)
-	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
-	src := `
+	f: Fixture
+	defer fixture_destroy(&f)
+	fixture_init(t, &f, `
 captions_load("w", { { text = "x", start = 0, stpo = 0.5 } })
 video { width = 40, height = 40, fps = 10, limiter = { ceiling = -1 },
   audio = { { "a.wav", ducked = { dept_db = -9 }, start = { seconds = 1, frmes = 2 } } } }
@@ -783,14 +745,10 @@ scene { "A", duration = { frames = 10, secs = 1 }, overlap = { previous = 0.5, n
     rect { x = 0, y = 0, w = 40, h = 40, fill = "#fff" }
   end)
 end }
-`
-	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
-	media: om.Media
-	om.media_init(&media)
-	defer om.media_destroy(&media)
-	s: Script
-	defer unload(&s)
-	testing.expectf(t, load(&s, path, nil, &media) == nil, "load failed: %s", error_message(s.failure, context.temp_allocator))
+`)
+	if !fixture_load(t, &f) {
+		return
+	}
 	want := [?]string {
 		"video.lua:2: `captions_load word.stpo` is not used (did you mean `stop`?)",
 		"video.lua:3: `time.frmes` is not used (did you mean `frames`?)",
@@ -799,15 +757,12 @@ end }
 		"video.lua:5: `duration.secs` is not used",
 		"video.lua:5: `overlap.nxt` is not used (did you mean `next`?)",
 	}
-	testing.expect_value(t, len(s.load_problems), len(want))
-	for d, i in s.load_problems {
+	testing.expect_value(t, len(f.script.load_problems), len(want))
+	for d, i in f.script.load_problems {
 		got := om.diagnostic_message(d, context.temp_allocator)
 		testing.expectf(t, i < len(want) && got == want[i], "load problem %d: %s", i, got)
 	}
-	r: om.Renderer
-	testing.expect_value(t, om.renderer_init(&r, &s.video, &media), om.Error.None)
-	defer om.renderer_destroy(&r)
-	om.render_frame(&r, 0)
+	fixture_frame(t, &f, 0)
 	frame_want := [?]string {
 		"video.lua:6: `shadow.blurr` is not used (did you mean `blur`?)",
 		"video.lua:6: `filter.srgbb` is not used (did you mean `srgb`?)",
@@ -817,7 +772,7 @@ end }
 		"video.lua:6: `subregion.hh` is not used (did you mean `h`?)",
 	}
 	got := make([dynamic]string, context.temp_allocator)
-	for d in r.ctx.diagnostics {
+	for d in f.r.ctx.diagnostics {
 		append(&got, om.diagnostic_message(d, context.temp_allocator))
 	}
 	for w in frame_want {
@@ -832,11 +787,9 @@ end }
 // no bus goes on the voice bus; say_cue names a word's video time.
 @(test)
 test_say_unavailable :: proc(t: ^testing.T) {
-	dir, derr := os.make_directory_temp("", "onimite_script_test_*", context.temp_allocator)
-	testing.expect(t, derr == nil)
-	defer os.remove_all(dir)
-	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
-	src := `
+	f: Fixture
+	defer fixture_destroy(&f)
+	fixture_init(t, &f, `
 local AT = 1.5
 local O = { voice = "nobody", seed = 2 }
 local line = say("intro", "The keeper climbed the stairs. Then the lamp went dark!", O)
@@ -857,32 +810,26 @@ local shifted = caption_pages("intro", { start = AT })
 assert(math.abs(shifted[1].start - (AT + pages[1].start)) < 1e-6)
 video { width = 100, height = 100, fps = 30, duration = { audio = "intro" }, buses = { speech = { kind = "voice" } },
   audio = { { "intro", start = AT } } }
-`
-	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
-
-	media: om.Media
-	om.media_init(&media)
-	defer om.media_destroy(&media)
-	s: Script
-	defer unload(&s)
-	ok := load(&s, path, nil, &media)
-	testing.expectf(t, ok == nil, "load failed: %s", error_message(s.failure, context.temp_allocator))
-
-	testing.expect_value(t, len(s.load_problems), 1)
-	if len(s.load_problems) == 1 {
-		testing.expect_value(t, s.load_problems[0].code, om.Diagnostic_Code.Tts_Unavailable)
-		testing.expect_value(t, s.load_problems[0].a, "intro")
+`)
+	if !fixture_load(t, &f) {
+		return
 	}
-	testing.expect(t, "intro" in media.audio)
-	cap := &media.captions["intro"]
+
+	testing.expect_value(t, len(f.script.load_problems), 1)
+	if len(f.script.load_problems) == 1 {
+		testing.expect_value(t, f.script.load_problems[0].code, om.Diagnostic_Code.Tts_Unavailable)
+		testing.expect_value(t, f.script.load_problems[0].a, "intro")
+	}
+	testing.expect(t, "intro" in f.media.audio)
+	cap := &f.media.captions["intro"]
 	testing.expect_value(t, om.caption_count(cap), 10)
 	testing.expect(t, cap.segmented)
 	testing.expect_value(t, cap.cues[5], 1)
 	testing.expect_value(t, om.caption_word(cap, 5), "Then")
-	testing.expect_value(t, s.video.audio[0].bus, "speech")
-	testing.expect(t, !s.video.audio[0].voice)
+	testing.expect_value(t, f.script.video.audio[0].bus, "speech")
+	testing.expect(t, !f.script.video.audio[0].voice)
 
-	l, have := said_line(&s, "intro")
+	l, have := said_line(&f.script, "intro")
 	testing.expect(t, have && !l.ready && len(l.words) == 10)
 }
 
@@ -922,11 +869,9 @@ test_line_captions :: proc(t: ^testing.T) {
 // draws the lit red box.
 @(test)
 test_view3d_api :: proc(t: ^testing.T) {
-	dir, derr := os.make_directory_temp("", "onimite_script_test_*", context.temp_allocator)
-	testing.expect(t, derr == nil)
-	defer os.remove_all(dir)
-	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
-	src := `
+	f: Fixture
+	defer fixture_destroy(&f)
+	fixture_init(t, &f, `
 video { width = 64, height = 48, fps = 10, background = "#000000" }
 scene { "A", duration = 1, render = function(f)
   view3d {
@@ -956,21 +901,14 @@ scene { "A", duration = 1, render = function(f)
     models = { { src = "duck.glb", animaton = "Walk" } },
   }
 end }
-`
-	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
-	media: om.Media
-	om.media_init(&media)
-	defer om.media_destroy(&media)
-	s: Script
-	defer unload(&s)
-	testing.expectf(t, load(&s, path, nil, &media) == nil, "load failed: %s", error_message(s.failure, context.temp_allocator))
-	r: om.Renderer
-	testing.expect_value(t, om.renderer_init(&r, &s.video, &media), om.Error.None)
-	defer om.renderer_destroy(&r)
-	px := om.render_frame(&r, 0)
+`)
+	if !fixture_load(t, &f) {
+		return
+	}
+	px := fixture_frame(t, &f, 0)
 
 	v: om.View3d
-	for n in r.ctx.tree.nodes {
+	for n in f.r.ctx.tree.nodes {
 		if node, ok := n.kind.(om.View3d); ok {
 			v = node
 		}
@@ -1021,12 +959,12 @@ end }
 		"video.lua:4: `mesh.cast_shdow` is not used (did you mean `cast_shadow`?)",
 		"video.lua:4: `geometry.radial` is not used (did you mean `radius`?)",
 		"video.lua:4: `material.roughness` is not used",
-		`invalid geometry type "Cube" (want BoxGeometry, SphereGeometry, PlaneGeometry, CylinderGeometry, TorusGeometry, CapsuleGeometry, TubeGeometry, ShapeGeometry, ExtrudeGeometry, LineGeometry, LineSegmentsGeometry or PointsGeometry)`,
+		`invalid geometry type "Cube" (want BoxGeometry, SphereGeometry, PlaneGeometry, CylinderGeometry, TorusGeometry, CapsuleGeometry, RoundedBoxGeometry, CircleGeometry, RingGeometry, LatheGeometry, TubeGeometry, ShapeGeometry, ExtrudeGeometry, LineGeometry, LineSegmentsGeometry or PointsGeometry)`,
 		"video.lua:4: `model.animaton` is not used (did you mean `animation`?)",
 		`no model "duck.glb" in the media`,
 	}
 	got := make([dynamic]string, context.temp_allocator)
-	for d in r.ctx.diagnostics {
+	for d in f.r.ctx.diagnostics {
 		append(&got, om.diagnostic_message(d, context.temp_allocator))
 	}
 	testing.expectf(t, len(got) == len(want), "diagnostics: %v", got[:])
@@ -1042,11 +980,9 @@ end }
 // linear light; the layers are not used on a MeshStandardMaterial.
 @(test)
 test_view3d_physical_material :: proc(t: ^testing.T) {
-	dir, derr := os.make_directory_temp("", "onimite_script_physical_test_*", context.temp_allocator)
-	testing.expect(t, derr == nil)
-	defer os.remove_all(dir)
-	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
-	src := `
+	f: Fixture
+	defer fixture_destroy(&f)
+	fixture_init(t, &f, `
 video { width = 64, height = 48, fps = 10 }
 scene { "A", duration = 1, render = function(f)
   view3d {
@@ -1061,21 +997,14 @@ scene { "A", duration = 1, render = function(f)
     },
   }
 end }
-`
-	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
-	media: om.Media
-	om.media_init(&media)
-	defer om.media_destroy(&media)
-	s: Script
-	defer unload(&s)
-	testing.expectf(t, load(&s, path, nil, &media) == nil, "load failed: %s", error_message(s.failure, context.temp_allocator))
-	r: om.Renderer
-	testing.expect_value(t, om.renderer_init(&r, &s.video, &media), om.Error.None)
-	defer om.renderer_destroy(&r)
-	om.render_frame(&r, 0)
+`)
+	if !fixture_load(t, &f) {
+		return
+	}
+	fixture_frame(t, &f, 0)
 
 	v: om.View3d
-	for n in r.ctx.tree.nodes {
+	for n in f.r.ctx.tree.nodes {
 		if node, ok := n.kind.(om.View3d); ok {
 			v = node
 		}
@@ -1104,7 +1033,7 @@ end }
 		testing.expect_value(t, v.meshes[2].material.transmission, 0)
 	}
 	got := make([dynamic]string, context.temp_allocator)
-	for d in r.ctx.diagnostics {
+	for d in f.r.ctx.diagnostics {
 		append(&got, om.diagnostic_message(d, context.temp_allocator))
 	}
 	testing.expectf(t, slice.contains(got[:], "video.lua:4: `material.transmission` is not used"), "diagnostics: %v", got[:])
@@ -1112,11 +1041,9 @@ end }
 
 @(test)
 test_view3d_shader_material :: proc(t: ^testing.T) {
-	dir, derr := os.make_directory_temp("", "onimite_script_shader_test_*", context.temp_allocator)
-	testing.expect(t, derr == nil)
-	defer os.remove_all(dir)
-	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
-	src := `
+	f: Fixture
+	defer fixture_destroy(&f)
+	fixture_init(t, &f, `
 video { width = 64, height = 48, fps = 10, background = "#000000" }
 scene { "A", duration = 1, render = function(f)
   view3d {
@@ -1139,21 +1066,14 @@ scene { "A", duration = 1, render = function(f)
     },
   }
 end }
-`
-	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
-	media: om.Media
-	om.media_init(&media)
-	defer om.media_destroy(&media)
-	s: Script
-	defer unload(&s)
-	testing.expectf(t, load(&s, path, nil, &media) == nil, "load failed: %s", error_message(s.failure, context.temp_allocator))
-	r: om.Renderer
-	testing.expect_value(t, om.renderer_init(&r, &s.video, &media), om.Error.None)
-	defer om.renderer_destroy(&r)
-	om.render_frame(&r, 0)
+`)
+	if !fixture_load(t, &f) {
+		return
+	}
+	fixture_frame(t, &f, 0)
 
 	v: om.View3d
-	for n in r.ctx.tree.nodes {
+	for n in f.r.ctx.tree.nodes {
 		if node, ok := n.kind.(om.View3d); ok {
 			v = node
 		}
@@ -1199,7 +1119,7 @@ end }
 		`no model "duck.glb" in the media`,
 	}
 	got := make([dynamic]string, context.temp_allocator)
-	for d in r.ctx.diagnostics {
+	for d in f.r.ctx.diagnostics {
 		append(&got, om.diagnostic_message(d, context.temp_allocator))
 	}
 	testing.expectf(t, len(got) == len(want), "diagnostics: %v", got[:])
@@ -1215,19 +1135,9 @@ end }
 // (extrude_folded).
 @(test)
 test_outline_api :: proc(t: ^testing.T) {
-	dir, derr := os.make_directory_temp("", "onimite_outline_test_*", context.temp_allocator)
-	testing.expect(t, derr == nil)
-	defer os.remove_all(dir)
-	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
-	font, _ := filepath.join({dir, "BebasNeue-Regular.ttf"}, context.temp_allocator)
-	svg, _ := filepath.join({dir, "mark.svg"}, context.temp_allocator)
-	font_data, ferr := os.read_entire_file("assets/fonts/BebasNeue-Regular.ttf", context.temp_allocator)
-	testing.expect(t, ferr == nil)
-	testing.expect(t, os.write_entire_file(font, font_data) == nil)
-	mark := `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" width="100" height="100">` +
-		`<rect x="0" y="0" width="10" height="10" fill="#f00"/><g id="s" display="none"><path d="M2 2H8V8H2Z"/></g></svg>`
-	testing.expect(t, os.write_entire_file(svg, transmute([]u8)mark) == nil)
-	src := `
+	f: Fixture
+	defer fixture_destroy(&f)
+	fixture_init(t, &f, `
 local function near(a, b) return math.abs(a - b) < 0.5 end
 local SQ = outline { d = "M0 0H100V100H0Z" }
 local x, y, w, h = outline_bounds(SQ)
@@ -1284,24 +1194,23 @@ video { width = 64, height = 64, fps = 10, duration = 0.1, render = function(f)
     { geometry = { type = "ExtrudeGeometry", shape = COMB, depth = 1, bevel_size = 0.6, bevel_offset = -0.6 } },
   } }
 end }
-`
-	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
-	media: om.Media
-	om.media_init(&media)
-	defer om.media_destroy(&media)
-	testing.expect_value(t, om.media_load_dir(&media, dir), om.Error.None)
-	sh: Shared
-	defer shared_destroy(&sh)
-	s: Script
-	defer unload(&s)
-	testing.expectf(t, load(&s, path, nil, &media, &sh) == nil, "load failed: %s", error_message(s.failure, context.temp_allocator))
-	testing.expect_value(t, len(s.load_problems), 0)
-	r: om.Renderer
-	testing.expect_value(t, om.renderer_init(&r, &s.video, &media), om.Error.None)
-	defer om.renderer_destroy(&r)
-	om.render_frame(&r, 0)
+`)
+	font, _ := filepath.join({f.dir, "BebasNeue-Regular.ttf"}, context.temp_allocator)
+	svg, _ := filepath.join({f.dir, "mark.svg"}, context.temp_allocator)
+	font_data, ferr := os.read_entire_file("assets/fonts/BebasNeue-Regular.ttf", context.temp_allocator)
+	testing.expect(t, ferr == nil)
+	testing.expect(t, os.write_entire_file(font, font_data) == nil)
+	mark := `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" width="100" height="100">` +
+		`<rect x="0" y="0" width="10" height="10" fill="#f00"/><g id="s" display="none"><path d="M2 2H8V8H2Z"/></g></svg>`
+	testing.expect(t, os.write_entire_file(svg, transmute([]u8)mark) == nil)
+	testing.expect_value(t, om.media_load_dir(&f.media, f.dir), om.Error.None)
+	if !fixture_load(t, &f) {
+		return
+	}
+	testing.expect_value(t, len(f.script.load_problems), 0)
+	fixture_frame(t, &f, 0)
 	folded := false
-	for d in r.ctx.diagnostics {
+	for d in f.r.ctx.diagnostics {
 		folded ||= d.code == .Extrude_Folded
 	}
 	testing.expect(t, folded)
@@ -1312,11 +1221,9 @@ end }
 // middle, the background shows outside it.
 @(test)
 test_view3d_exact_shape :: proc(t: ^testing.T) {
-	dir, derr := os.make_directory_temp("", "onimite_exact_shape_test_*", context.temp_allocator)
-	testing.expect(t, derr == nil)
-	defer os.remove_all(dir)
-	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
-	src := `
+	f: Fixture
+	defer fixture_destroy(&f)
+	fixture_init(t, &f, `
 local SQ = outline { d = "M-1 -1H1V1H-1Z" }
 video { width = 64, height = 64, fps = 10, duration = 0.1, background = "#000000", render = function(f)
   view3d { camera = { position = { 0, 0, 5 } }, meshes = {
@@ -1324,22 +1231,13 @@ video { width = 64, height = 64, fps = 10, duration = 0.1, background = "#000000
     { geometry = { type = "ShapeGeometry", shape = SQ }, position = { 0, 0, -50 }, material = { wireframe = true } },
   } }
 end }
-`
-	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
-	media: om.Media
-	om.media_init(&media)
-	defer om.media_destroy(&media)
-	sh: Shared
-	defer shared_destroy(&sh)
-	s: Script
-	defer unload(&s)
-	testing.expectf(t, load(&s, path, nil, &media, &sh) == nil, "load failed: %s", error_message(s.failure, context.temp_allocator))
-	r: om.Renderer
-	testing.expect_value(t, om.renderer_init(&r, &s.video, &media), om.Error.None)
-	defer om.renderer_destroy(&r)
-	px := om.render_frame(&r, 0)
-	testing.expect_value(t, len(r.ctx.diagnostics), 0)
-	for n in r.ctx.tree.nodes {
+`)
+	if !fixture_load(t, &f) {
+		return
+	}
+	px := fixture_frame(t, &f, 0)
+	testing.expect_value(t, len(f.r.ctx.diagnostics), 0)
+	for n in f.r.ctx.tree.nodes {
 		if v, ok := n.kind.(om.View3d); ok && len(v.meshes) == 2 {
 			testing.expect_value(t, v.meshes[0].outline.kind, om.Outline_Kind.Exact)
 			testing.expect_value(t, v.meshes[1].outline.kind, om.Outline_Kind.Shape)
@@ -1355,11 +1253,9 @@ end }
 // (each `shapes` entry placed by its x, y, angle in the body's frame).
 @(test)
 test_physics_shapes :: proc(t: ^testing.T) {
-	dir, derr := os.make_directory_temp("", "onimite_physics_test_*", context.temp_allocator)
-	testing.expect(t, derr == nil)
-	defer os.remove_all(dir)
-	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
-	src := `
+	f: Fixture
+	defer fixture_destroy(&f)
+	fixture_init(t, &f, `
 local sim = shared("table", function()
   return physics { duration = 2, gravity = 2000, bodies = {
     { static = true, box = { 2000, 40 }, x = 500, y = 520 },           -- top at 500
@@ -1372,17 +1268,11 @@ end)
 local x, y, a = physics_at(sim, "table", 2)
 assert(math.abs(y - 430) < 2 and math.abs(a) < 0.5, string.format("rests at %.1f, %.2f°", y, a))
 video { width = 32, height = 32, fps = 10, duration = 1 }
-`
-	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
-	media: om.Media
-	om.media_init(&media)
-	defer om.media_destroy(&media)
-	sh: Shared
-	defer shared_destroy(&sh)
-	s: Script
-	defer unload(&s)
-	testing.expectf(t, load(&s, path, nil, &media, &sh) == nil, "load failed: %s", error_message(s.failure, context.temp_allocator))
-	testing.expect_value(t, len(s.load_problems), 0)
+`)
+	if !fixture_load(t, &f) {
+		return
+	}
+	testing.expect_value(t, len(f.script.load_problems), 0)
 }
 
 // physics3d{}, physics3d_at (and physics_at dispatch), physics3d_instances,
@@ -1390,29 +1280,9 @@ video { width = 32, height = 32, fps = 10, duration = 1 }
 // self-checks (overlap, offscreen, unsettled and unused fields).
 @(test)
 test_physics3d_api :: proc(t: ^testing.T) {
-	dir, derr := os.make_directory_temp("", "onimite_physics3d_test_*", context.temp_allocator)
-	testing.expect(t, derr == nil)
-	defer os.remove_all(dir)
-	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
-	obj_path, _ := filepath.join({dir, "crate.obj"}, context.temp_allocator)
-	obj := `
-v -0.5 -0.5 -0.5
-v  0.5 -0.5 -0.5
-v  0.5  0.5 -0.5
-v -0.5  0.5 -0.5
-v -0.5 -0.5  0.5
-v  0.5 -0.5  0.5
-v  0.5  0.5  0.5
-v -0.5  0.5  0.5
-f 1 2 3 4
-f 5 8 7 6
-f 1 5 6 2
-f 2 6 7 3
-f 3 7 8 4
-f 4 8 5 1
-`
-	testing.expect(t, os.write_entire_file(obj_path, transmute([]u8)obj) == nil)
-	src := `
+	f: Fixture
+	defer fixture_destroy(&f)
+	fixture_init(t, &f, `
 local sim = shared("sim3d", function()
   return physics3d {
     duration = 1.5,
@@ -1481,20 +1351,31 @@ scene { "A", duration = 1, render = function(f)
     },
   }
 end }
+`)
+	obj_path, _ := filepath.join({f.dir, "crate.obj"}, context.temp_allocator)
+	obj := `
+v -0.5 -0.5 -0.5
+v  0.5 -0.5 -0.5
+v  0.5  0.5 -0.5
+v -0.5  0.5 -0.5
+v -0.5 -0.5  0.5
+v  0.5 -0.5  0.5
+v  0.5  0.5  0.5
+v -0.5  0.5  0.5
+f 1 2 3 4
+f 5 8 7 6
+f 1 5 6 2
+f 2 6 7 3
+f 3 7 8 4
+f 4 8 5 1
 `
-	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
-	media: om.Media
-	om.media_init(&media)
-	defer om.media_destroy(&media)
-	testing.expect_value(t, om.media_load_dir(&media, dir), om.Error.None)
+	testing.expect(t, os.write_entire_file(obj_path, transmute([]u8)obj) == nil)
+	testing.expect_value(t, om.media_load_dir(&f.media, f.dir), om.Error.None)
+	if !fixture_load(t, &f) {
+		return
+	}
 
-	sh: Shared
-	defer shared_destroy(&sh)
-	s: Script
-	defer unload(&s)
-	testing.expectf(t, load(&s, path, nil, &media, &sh) == nil, "load failed: %s", error_message(s.failure, context.temp_allocator))
-
-	bodies := physics_bodies(&s)
+	bodies := physics_bodies(&f.script)
 	testing.expect(t, len(bodies) >= 13)
 	if len(bodies) >= 2 {
 		testing.expect(t, bodies[1].is_3d)
@@ -1505,16 +1386,13 @@ end }
 	// Second load reuses the shared 3D tracks without re-simulating `sim`.
 	s2: Script
 	defer unload(&s2)
-	testing.expectf(t, load(&s2, path, nil, &media, &sh) == nil, "second load failed: %s", error_message(s2.failure, context.temp_allocator))
+	fixture_load(t, &f, &s2)
 
-	r: om.Renderer
-	testing.expect_value(t, om.renderer_init(&r, &s.video, &media), om.Error.None)
-	defer om.renderer_destroy(&r)
-	om.render_frame(&r, 0)
+	fixture_frame(t, &f, 0)
 
-	testing.expect_value(t, len(s.load_problems), 5)
+	testing.expect_value(t, len(f.script.load_problems), 5)
 	has_overlap, has_offscreen, has_unsettled := false, false, false
-	for d in s.load_problems {
+	for d in f.script.load_problems {
 		#partial switch d.code {
 		case .Physics3d_Overlap:
 			has_overlap = d.a == "b" && d.b == "a"
@@ -1522,7 +1400,7 @@ end }
 			has_offscreen = d.a == "faller"
 		}
 	}
-	for d in r.ctx.diagnostics {
+	for d in f.r.ctx.diagnostics {
 		if d.code == .Physics_Unsettled && d.a == "faller" {
 			has_unsettled = true
 		}
@@ -1558,11 +1436,9 @@ test_physics3d_euler :: proc(t: ^testing.T) {
 
 @(test)
 test_new_3d_audio_bloom_features :: proc(t: ^testing.T) {
-	dir, derr := os.make_directory_temp("", "onimite_new_features_test_*", context.temp_allocator)
-	testing.expect(t, derr == nil)
-	defer os.remove_all(dir)
-	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
-	src := `
+	f: Fixture
+	defer fixture_destroy(&f)
+	fixture_init(t, &f, `
 
 audio_add("tone.wav", function()
   local samples = {}
@@ -1620,19 +1496,12 @@ scene { "A", duration = 0.5, render = function(f)
     },
   }
 end }
-`
-	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
-	media: om.Media
-	om.media_init(&media)
-	defer om.media_destroy(&media)
-	s: Script
-	defer unload(&s)
-	testing.expectf(t, load(&s, path, nil, &media) == nil, "load failed: %s", error_message(s.failure, context.temp_allocator))
-	r: om.Renderer
-	testing.expect_value(t, om.renderer_init(&r, &s.video, &media), om.Error.None)
-	defer om.renderer_destroy(&r)
-	om.render_frame(&r, 1)
-	testing.expectf(t, len(r.ctx.diagnostics) == 0, "unexpected diagnostics: %v", r.ctx.diagnostics[:])
+`)
+	if !fixture_load(t, &f) {
+		return
+	}
+	fixture_frame(t, &f, 1)
+	testing.expectf(t, len(f.r.ctx.diagnostics) == 0, "unexpected diagnostics: %v", f.r.ctx.diagnostics[:])
 }
 
 
@@ -1642,11 +1511,9 @@ end }
 // is an unused field.
 @(test)
 test_view3d_blending_colors_flares :: proc(t: ^testing.T) {
-	dir, derr := os.make_directory_temp("", "onimite_flares_test_*", context.temp_allocator)
-	testing.expect(t, derr == nil)
-	defer os.remove_all(dir)
-	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
-	src := `
+	f: Fixture
+	defer fixture_destroy(&f)
+	fixture_init(t, &f, `
 video { width = 64, height = 48, fps = 10, duration = 0.1, background = "#000000", render = function(f)
   view3d { camera = { position = { 0, 0, 5 } },
     meshes = {
@@ -1661,28 +1528,19 @@ video { width = 64, height = 48, fps = 10, duration = 0.1, background = "#000000
   }
   assert(not pcall(view3d, { meshes = { { geometry = { type = "PointsGeometry", points = { { 0, 0, 0 } }, colors = { "#fff", "#000" } } } } }))
 end }
-`
-	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
-	media: om.Media
-	om.media_init(&media)
-	defer om.media_destroy(&media)
-	sh: Shared
-	defer shared_destroy(&sh)
-	s: Script
-	defer unload(&s)
-	testing.expectf(t, load(&s, path, nil, &media, &sh) == nil, "load failed: %s", error_message(s.failure, context.temp_allocator))
-	r: om.Renderer
-	testing.expect_value(t, om.renderer_init(&r, &s.video, &media), om.Error.None)
-	defer om.renderer_destroy(&r)
-	om.render_frame(&r, 0)
+`)
+	if !fixture_load(t, &f) {
+		return
+	}
+	fixture_frame(t, &f, 0)
 	unused := 0
-	for d in r.ctx.diagnostics {
+	for d in f.r.ctx.diagnostics {
 		testing.expectf(t, d.code == .Unused_Field, "diagnostic: %v", d)
 		unused += 1 if d.code == .Unused_Field else 0
 	}
 	testing.expect_value(t, unused, 1)
 	found := false
-	for n in r.ctx.tree.nodes {
+	for n in f.r.ctx.tree.nodes {
 		v, ok := n.kind.(om.View3d)
 		if !ok || len(v.meshes) != 2 {
 			continue
@@ -1704,17 +1562,232 @@ end }
 	testing.expect(t, found)
 }
 
+// The quaternion and 4x4 helpers agree with each other and with
+// vec3_apply_euler: Euler round trips, compose/decompose, invert, slerp.
+@(test)
+test_std_mat4_quat :: proc(t: ^testing.T) {
+	f: Fixture
+	defer fixture_destroy(&f)
+	fixture_init(t, &f, `
+local function near(a, b) for i = 1, #a do if math.abs(a[i] - b[i]) > 1e-9 then return false end end return true end
+local e, v = { 0.3, -0.7, 1.1 }, { 1, 2, 3 }
+assert(near(quat_to_euler(quat_from_euler(e)), e))
+assert(near(vec3_apply_quat(v, quat_from_euler(e)), vec3_apply_euler(v, e)))
+local m = mat4_compose({ 1, 2, 3 }, e, { 2, 3, 4 })
+local p, r, s = mat4_decompose(m)
+assert(near(p, { 1, 2, 3 }) and near(r, e) and near(s, { 2, 3, 4 }))
+assert(near(mat4_multiply(mat4_invert(m), m), mat4_identity()))
+assert(near(vec3_apply_mat4(v, m), vec3_add(vec3_apply_euler({ 2, 6, 12 }, e), { 1, 2, 3 })))
+assert(near(mat4_compose(nil, quat_from_euler(e)), mat4_compose(nil, e)))
+local q = quat_slerp({ 0, 0, 0, 1 }, quat_from_axis_angle({ 0, 1, 0 }, math.pi / 2), 0.5)
+assert(near(quat_to_euler(q), { 0, math.pi / 4, 0 }))
+assert(near(vec3_apply_quat({ 1, 0, 0 }, quat_from_unit_vectors({ 1, 0, 0 }, { 0, 1, 0 })), { 0, 1, 0 }))
+assert(near(quat_multiply(quat_from_axis_angle({ 0, 0, 1 }, 0.4), quat_from_axis_angle({ 0, 0, 1 }, 0.6)), quat_from_axis_angle({ 0, 0, 1 }, 1.0)))
+local bx, by, bz = mat4_extract_basis(mat4_make_basis({ 0, 1, 0 }, { -1, 0, 0 }, { 0, 0, 1 }))
+assert(near(bx, { 0, 1, 0 }) and near(by, { -1, 0, 0 }) and near(bz, { 0, 0, 1 }))
+local base = { a = 1, b = 2, t = { 1 } }
+local m2 = merge(base, { b = 3 }, nil, { c = 4 })
+assert(m2.a == 1 and m2.b == 3 and m2.c == 4 and m2.t == base.t and base.b == 2)
+video { width = 16, height = 16, fps = 10, duration = 0.1, render = function(f) end }
+`)
+	fixture_load(t, &f)
+}
+
+// bake{}: drawn once per render into a media image that image{} shows
+// (straight alpha: half-transparent red over white is light red), and a
+// second load sharing the render's Shared finds it made without drawing.
+@(test)
+test_bake :: proc(t: ^testing.T) {
+	f: Fixture
+	defer fixture_destroy(&f)
+	fixture_init(t, &f, `
+draws = 0
+local decal = bake { name = "decal", w = 16, h = 16, background = "transparent", draw = function()
+  draws = draws + 1
+  rect { x = 0, y = 0, w = 16, h = 16, fill = "rgba(255, 0, 0, 0.5)" }
+end }
+assert(decal == "decal")
+assert(not pcall(bake, { w = 4, h = 4, draw = function() end }))
+video { width = 32, height = 32, fps = 10, duration = 0.1, background = "#ffffff", render = function(f)
+  image { src = decal, x = 0, y = 0, w = 32, h = 32 }
+end }
+`)
+	draws :: proc(s: ^Script) -> int {
+		lua.getglobal(s.L, "draws")
+		defer lua.pop(s.L, 1)
+		return int(lua.tointeger(s.L, -1))
+	}
+	first: Script
+	defer unload(&first)
+	if !fixture_load(t, &f, &first) || !fixture_load(t, &f) {
+		return
+	}
+	testing.expect_value(t, draws(&first), 1)
+	testing.expect_value(t, draws(&f.script), 0)
+	px := fixture_frame(t, &f, 0)
+	i := (16 * 32 + 16) * 4
+	p := [4]u8{px[i], px[i + 1], px[i + 2], px[i + 3]}
+	testing.expectf(t, p.r == 255 && p.g > 120 && p.g < 135 && p.b > 120 && p.b < 135 && p.a == 255, "half red over white: %v", p)
+	testing.expectf(t, len(f.r.ctx.diagnostics) == 0, "diagnostics: %v", f.r.ctx.diagnostics[:])
+}
+
+// A drawn node takes `transform` as SVG's elements do: a rect translated 20
+// pixels lands there, the next node isn't moved, and the field counts as
+// used.
+@(test)
+test_leaf_transform :: proc(t: ^testing.T) {
+	f: Fixture
+	defer fixture_destroy(&f)
+	fixture_init(t, &f, `
+video { width = 64, height = 48, fps = 10, duration = 0.1, background = "#000000", render = function(f)
+  rect { x = 0, y = 0, w = 10, h = 10, fill = "#ff0000", transform = "translate(20 0)" }
+  text { "x", x = 0, y = 40, size = 12, fill = "#ffffff", transform = { rotate = 0 } }
+  rect { x = 50, y = 0, w = 10, h = 10, fill = "#00ff00" }
+end }
+`)
+	if !fixture_load(t, &f) {
+		return
+	}
+	px := fixture_frame(t, &f, 0)
+	at :: proc(px: []u8, x, y: int) -> [4]u8 {
+		i := (y * 64 + x) * 4
+		return {px[i], px[i + 1], px[i + 2], px[i + 3]}
+	}
+	testing.expect_value(t, at(px, 25, 5), [4]u8{255, 0, 0, 255})
+	testing.expect_value(t, at(px, 5, 5), [4]u8{0, 0, 0, 255})
+	testing.expect_value(t, at(px, 55, 5), [4]u8{0, 255, 0, 255})
+	for d in f.r.ctx.diagnostics {
+		testing.expectf(t, d.code != .Unused_Field, "diagnostic: %v", d)
+	}
+}
+
+// audio_info: a sound of the media's length, rate and channels; nil for a
+// name the media lacks.
+@(test)
+test_audio_info :: proc(t: ^testing.T) {
+	f: Fixture
+	defer fixture_destroy(&f)
+	fixture_init(t, &f, `
+local i = audio_info("beep.wav")
+assert(math.abs(i.duration - 0.5) < 1e-6, i.duration)
+assert(i.rate == 24000 and i.channels == 1)
+assert(audio_info("nothing.wav") == nil)
+video { width = 64, height = 48, fps = 10, duration = 0.1, background = "#000000", render = function(f) end }
+`)
+	om.media_add_audio_samples(&f.media, "beep.wav", make([]f32, 12000, context.temp_allocator), 24000, 1)
+	fixture_load(t, &f)
+}
+
+// o3d v0.0.38-39's: the reflector and a material's reflection and
+// environment intensity, depth of field focused on a point, the keyed
+// RoundedBox, Circle and Ring geometries, a partial sphere, and a lathe made
+// once however many frames draw it.
+@(test)
+test_view3d_reflector_geometries :: proc(t: ^testing.T) {
+	f: Fixture
+	defer fixture_destroy(&f)
+	fixture_init(t, &f, `
+video { width = 64, height = 48, fps = 10, duration = 0.3, background = "#000000", render = function(f)
+  view3d { camera = { position = { 0, 0, 5 } }, reflector = { point = { 0, 0, 0 }, normal = { 0, 1, 0 }, scale = 0.25 },
+    depth_of_field = { focus = { 0, 0, 1 }, blur = 0.03 }, background = rgba(0, 128, 255, 1),
+    meshes = {
+      { geometry = { type = "PlaneGeometry" }, material = { reflection = 0.7, environment_intensity = 0.9 } },
+      { geometry = { type = "RoundedBoxGeometry", radius = 0.2, segments = 3 } },
+      { geometry = { type = "CircleGeometry", radius = 0.5 } },
+      { geometry = { type = "RingGeometry", inner_radius = 0.2 } },
+      { geometry = { type = "SphereGeometry", phi_length = math.pi } },
+      { geometry = { type = "LatheGeometry", points = { { 0.2, 0 }, { 0.4, 0.5 }, { 0.1, 1 } } } },
+    } }
+  assert(not pcall(view3d, { meshes = { { geometry = { type = "LatheGeometry", points = { { 1, 0 } } } } } }))
+end }
+`)
+	if !fixture_load(t, &f) {
+		return
+	}
+	for i in 0 ..< 3 {
+		fixture_frame(t, &f, i)
+	}
+	testing.expectf(t, len(f.r.ctx.diagnostics) == 0, "diagnostics: %v", f.r.ctx.diagnostics[:])
+	testing.expect_value(t, len(f.media.view3d.lathes), 1)
+	found := false
+	for n in f.r.ctx.tree.nodes {
+		v, ok := n.kind.(om.View3d)
+		if !ok || len(v.meshes) != 6 {
+			continue
+		}
+		found = true
+		testing.expect_value(t, v.reflector.scale, 0.25)
+		testing.expect_value(t, v.meshes[0].material.reflection, 0.7)
+		testing.expect_value(t, v.meshes[0].material.env_intensity, 0.9)
+		testing.expect_value(t, v.depth_of_field.focus, 4) // the point's distance along the camera's axis
+		testing.expect_value(t, v.depth_of_field.blur, 0.03)
+		testing.expect_value(t, v.background, "rgba(0, 128, 255, 1)") // a colour table, not dropped
+		testing.expect_value(t, v.meshes[1].geometry.kind, o3d.Primitive.Rounded_Box)
+		testing.expect_value(t, v.meshes[4].geometry.params[4], f32(math.PI))
+		testing.expect_value(t, v.meshes[4].geometry.params[6], f32(math.PI))
+		testing.expect_value(t, v.meshes[5].path_kind, om.Path_Kind.Lathe)
+	}
+	testing.expect(t, found)
+}
+
+// view3d's panels: read in name order with their sizes (512 by default), a
+// map naming one finds it (no missing image), a misspelled panel key is an
+// unused field and a panel that isn't a table is an error.
+@(test)
+test_view3d_panels_read :: proc(t: ^testing.T) {
+	f: Fixture
+	defer fixture_destroy(&f)
+	fixture_init(t, &f, `
+video { width = 64, height = 48, fps = 10, duration = 0.1, background = "#000000", render = function(f)
+  view3d { camera = { position = { 0, 0, 5 } },
+    panels = {
+      screen = { w = 32, h = 16, draw = function() rect { x = 0, y = 0, w = 32, h = 16, fill = "#ff0000" } end },
+      logo = { colour = "#fff", draw = function() circle { cx = 256, cy = 256, r = 200, fill = "#ffffff" } end },
+    },
+    meshes = {
+      { geometry = { type = "BoxGeometry" }, material = { type = "MeshBasicMaterial", map = "screen", emissive_map = "logo" } },
+    },
+  }
+  assert(not pcall(view3d, { panels = { screen = "screen.png" } }))
+end }
+`)
+	if !fixture_load(t, &f) {
+		return
+	}
+	fixture_frame(t, &f, 0)
+	unused := 0
+	for d in f.r.ctx.diagnostics {
+		testing.expectf(t, d.code == .Unused_Field, "diagnostic: %v", d)
+		unused += 1 if d.code == .Unused_Field else 0
+	}
+	testing.expect_value(t, unused, 1)
+	found := false
+	for n in f.r.ctx.tree.nodes {
+		v, ok := n.kind.(om.View3d)
+		if !ok || len(v.panels) == 0 {
+			continue
+		}
+		found = true
+		testing.expect_value(t, len(v.panels), 2)
+		if len(v.panels) == 2 {
+			testing.expect_value(t, v.panels[0].name, "logo")
+			testing.expect_value(t, v.panels[0].w, 512)
+			testing.expect_value(t, v.panels[1].name, "screen")
+			testing.expect_value(t, v.panels[1].h, 16)
+		}
+	}
+	testing.expect(t, found)
+}
+
 // thrusts push a body by its mass times an acceleration, held over a window,
 // in its own frame: 2 m/s² for a second moves a body 1 m in that second and
 // 2 m a second after; off its centre the same push turns it as well. In 2D
 // the same in pixels.
 @(test)
 test_physics_thrusts :: proc(t: ^testing.T) {
-	dir, derr := os.make_directory_temp("", "onimite_thrusts_test_*", context.temp_allocator)
-	testing.expect(t, derr == nil)
-	defer os.remove_all(dir)
-	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
-	src := `
+	f: Fixture
+	defer fixture_destroy(&f)
+	fixture_init(t, &f, `
 local sim = physics3d { duration = 3, gravity = 0, bounds = false,
   bodies = { { name = "centred", box = 1, density = 2 }, { name = "off", box = 1, position = { 5, 0, 0 } } },
   thrusts = {
@@ -1757,16 +1830,8 @@ local wx, wy = physics_at(tilted, "world", 1)
 near(ox, 0, 3, "turned 90°, its own y is across the canvas") near(oy, 100, 3, "not down it")
 near(wy, 200, 3, "world_space: down the canvas") near(wx, 300, 3, "not across")
 video { width = 32, height = 32, fps = 10, duration = 0.1 }
-`
-	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
-	media: om.Media
-	om.media_init(&media)
-	defer om.media_destroy(&media)
-	sh: Shared
-	defer shared_destroy(&sh)
-	s: Script
-	defer unload(&s)
-	testing.expectf(t, load(&s, path, nil, &media, &sh) == nil, "load failed: %s", error_message(s.failure, context.temp_allocator))
+`)
+	fixture_load(t, &f)
 }
 
 // attach = { sim, body } rides a physics3d body (meshes and emitters alike);
@@ -1774,11 +1839,9 @@ video { width = 32, height = 32, fps = 10, duration = 0.1 }
 // body is an error.
 @(test)
 test_view3d_attach_body :: proc(t: ^testing.T) {
-	dir, derr := os.make_directory_temp("", "onimite_attach_body_test_*", context.temp_allocator)
-	testing.expect(t, derr == nil)
-	defer os.remove_all(dir)
-	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
-	src := `
+	f: Fixture
+	defer fixture_destroy(&f)
+	fixture_init(t, &f, `
 local sim = physics3d { duration = 2, gravity = 0, bodies = { { name = "ship", box = 1, velocity = { 1, 0, 0 } } } }
 video { width = 32, height = 32, fps = 10, duration = 0.1, render = function(f)
   view3d { camera = { position = { 0, 0, 10 } },
@@ -1787,23 +1850,14 @@ video { width = 32, height = 32, fps = 10, duration = 0.1, render = function(f)
       attach = { sim = sim, body = 1 } } } }
   assert(not pcall(view3d, { particles = { { rate = 5, world_space = true } } }))
 end }
-`
-	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
-	media: om.Media
-	om.media_init(&media)
-	defer om.media_destroy(&media)
-	sh: Shared
-	defer shared_destroy(&sh)
-	s: Script
-	defer unload(&s)
-	testing.expectf(t, load(&s, path, nil, &media, &sh) == nil, "load failed: %s", error_message(s.failure, context.temp_allocator))
-	r: om.Renderer
-	testing.expect_value(t, om.renderer_init(&r, &s.video, &media), om.Error.None)
-	defer om.renderer_destroy(&r)
-	om.render_frame(&r, 0)
-	testing.expectf(t, len(r.ctx.diagnostics) == 0, "diagnostics: %v", r.ctx.diagnostics[:])
+`)
+	if !fixture_load(t, &f) {
+		return
+	}
+	fixture_frame(t, &f, 0)
+	testing.expectf(t, len(f.r.ctx.diagnostics) == 0, "diagnostics: %v", f.r.ctx.diagnostics[:])
 	found := false
-	for n in r.ctx.tree.nodes {
+	for n in f.r.ctx.tree.nodes {
 		v, ok := n.kind.(om.View3d)
 		if !ok || len(v.particles) != 1 {
 			continue
@@ -1829,9 +1883,22 @@ end }
 // for the same sky, which environment and background take.
 @(test)
 test_model_parts_and_sky :: proc(t: ^testing.T) {
-	dir, derr := os.make_directory_temp("", "onimite_parts_test_*", context.temp_allocator)
-	testing.expect(t, derr == nil)
-	defer os.remove_all(dir)
+	f: Fixture
+	defer fixture_destroy(&f)
+	fixture_init(t, &f, `
+local function near(a, b) return math.abs(a - b) < 1e-4 end
+local info = model_info("tri.gltf")
+local body, tip = info.parts.Body, info.parts.Tip
+assert(near(body.position[2], 2) and near(body.rotation[3], math.pi / 2) and near(body.scale[1], 1))
+assert(near(body.min[1], -0.5) and near(body.max[1], 0.5) and near(body.min[2], 2.5) and near(body.max[2], 3.5))
+assert(near(tip.position[1], 1) and near(tip.rotation[3], 0) and near(tip.min[2], 2.5) and near(tip.center[2], 3))
+local dawn = sky { name = "dawn", sun = { 1, 0.1, 0 }, turbidity = 10, size = 64 }
+assert(dawn == "dawn" and sky { name = "dawn", sun = { 1, 0.1, 0 }, turbidity = 10, size = 64 } == "dawn")
+video { width = 32, height = 32, fps = 10, duration = 0.1, render = function(f)
+  view3d { camera = { position = { 0, 0, 5 } }, environment = dawn, background = dawn,
+    models = { { src = "tri.gltf" } } }
+end }
+`)
 	Bin :: struct #packed {
 		pos: [3][3]f32,
 		idx: [3]u16,
@@ -1855,39 +1922,15 @@ test_model_parts_and_sky :: proc(t: ^testing.T) {
   "scenes": [{{"nodes": [0]}}],
   "scene": 0
 }}`, data)
-	model_path, _ := filepath.join({dir, "tri.gltf"}, context.temp_allocator)
+	model_path, _ := filepath.join({f.dir, "tri.gltf"}, context.temp_allocator)
 	testing.expect(t, os.write_entire_file(model_path, transmute([]u8)gltf) == nil)
-	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
-	src := `
-local function near(a, b) return math.abs(a - b) < 1e-4 end
-local info = model_info("tri.gltf")
-local body, tip = info.parts.Body, info.parts.Tip
-assert(near(body.position[2], 2) and near(body.rotation[3], math.pi / 2) and near(body.scale[1], 1))
-assert(near(body.min[1], -0.5) and near(body.max[1], 0.5) and near(body.min[2], 2.5) and near(body.max[2], 3.5))
-assert(near(tip.position[1], 1) and near(tip.rotation[3], 0) and near(tip.min[2], 2.5) and near(tip.center[2], 3))
-local dawn = sky { name = "dawn", sun = { 1, 0.1, 0 }, turbidity = 10, size = 64 }
-assert(dawn == "dawn" and sky { name = "dawn", sun = { 1, 0.1, 0 }, turbidity = 10, size = 64 } == "dawn")
-video { width = 32, height = 32, fps = 10, duration = 0.1, render = function(f)
-  view3d { camera = { position = { 0, 0, 5 } }, environment = dawn, background = dawn,
-    models = { { src = "tri.gltf" } } }
-end }
-`
-	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
-	media: om.Media
-	om.media_init(&media)
-	defer om.media_destroy(&media)
-	testing.expect_value(t, om.media_load_dir(&media, dir), om.Error.None)
-	sh: Shared
-	defer shared_destroy(&sh)
-	s: Script
-	defer unload(&s)
-	testing.expectf(t, load(&s, path, nil, &media, &sh) == nil, "load failed: %s", error_message(s.failure, context.temp_allocator))
-	testing.expect_value(t, len(media.view3d.skies), 1)
-	r: om.Renderer
-	testing.expect_value(t, om.renderer_init(&r, &s.video, &media), om.Error.None)
-	defer om.renderer_destroy(&r)
-	om.render_frame(&r, 0)
-	testing.expectf(t, len(r.ctx.diagnostics) == 0, "diagnostics: %v", r.ctx.diagnostics[:])
+	testing.expect_value(t, om.media_load_dir(&f.media, f.dir), om.Error.None)
+	if !fixture_load(t, &f) {
+		return
+	}
+	testing.expect_value(t, len(f.media.view3d.skies), 1)
+	fixture_frame(t, &f, 0)
+	testing.expectf(t, len(f.r.ctx.diagnostics) == 0, "diagnostics: %v", f.r.ctx.diagnostics[:])
 }
 
 // Each of several groups keeps what it holds, whatever the groups before it
@@ -1896,11 +1939,9 @@ end }
 // (world_space) may ride its group's body.
 @(test)
 test_view3d_groups_items :: proc(t: ^testing.T) {
-	dir, derr := os.make_directory_temp("", "onimite_groups_test_*", context.temp_allocator)
-	testing.expect(t, derr == nil)
-	defer os.remove_all(dir)
-	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
-	src := `
+	f: Fixture
+	defer fixture_destroy(&f)
+	fixture_init(t, &f, `
 local sim = physics3d { duration = 2, gravity = 0, bodies = { { name = "ship", box = 1 } } }
 video { width = 32, height = 32, fps = 10, duration = 0.1, render = function(f)
   view3d { camera = { position = { 0, 0, 10 } },
@@ -1911,23 +1952,14 @@ video { width = 32, height = 32, fps = 10, duration = 0.1, render = function(f)
       { position = { 3, 0, 0 }, meshes = { { geometry = { type = "BoxGeometry" } } } },
     } }
 end }
-`
-	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
-	media: om.Media
-	om.media_init(&media)
-	defer om.media_destroy(&media)
-	sh: Shared
-	defer shared_destroy(&sh)
-	s: Script
-	defer unload(&s)
-	testing.expectf(t, load(&s, path, nil, &media, &sh) == nil, "load failed: %s", error_message(s.failure, context.temp_allocator))
-	r: om.Renderer
-	testing.expect_value(t, om.renderer_init(&r, &s.video, &media), om.Error.None)
-	defer om.renderer_destroy(&r)
-	om.render_frame(&r, 0)
-	testing.expectf(t, len(r.ctx.diagnostics) == 0, "diagnostics: %v", r.ctx.diagnostics[:])
+`)
+	if !fixture_load(t, &f) {
+		return
+	}
+	fixture_frame(t, &f, 0)
+	testing.expectf(t, len(f.r.ctx.diagnostics) == 0, "diagnostics: %v", f.r.ctx.diagnostics[:])
 	found := false
-	for n in r.ctx.tree.nodes {
+	for n in f.r.ctx.tree.nodes {
 		v, ok := n.kind.(om.View3d)
 		if !ok {
 			continue
@@ -1950,11 +1982,9 @@ end }
 // with near 1, far 100 is at far (z - near) / (z (far - near)).
 @(test)
 test_view3d_project_depth :: proc(t: ^testing.T) {
-	dir, derr := os.make_directory_temp("", "onimite_project_test_*", context.temp_allocator)
-	testing.expect(t, derr == nil)
-	defer os.remove_all(dir)
-	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
-	src := `
+	f: Fixture
+	defer fixture_destroy(&f)
+	fixture_init(t, &f, `
 local cam = { position = { 0, 0, 0 }, target = { 0, 0, -1 }, near = 1, far = 100 }
 local a = view3d_project(cam, { 0, 0, -10 }, { width = 100, height = 100 })
 local b = view3d_project(cam, { 0, 0, -50 }, { width = 100, height = 100 })
@@ -1963,16 +1993,8 @@ local want = 100 * (10 - 1) / (10 * (100 - 1))
 assert(math.abs(a.depth - want) < 1e-4, a.depth .. " ~= " .. want)
 assert(math.abs(a.x - 50) < 1e-3 and math.abs(a.y - 50) < 1e-3)
 video { width = 32, height = 32, fps = 10, duration = 0.1 }
-`
-	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
-	media: om.Media
-	om.media_init(&media)
-	defer om.media_destroy(&media)
-	sh: Shared
-	defer shared_destroy(&sh)
-	s: Script
-	defer unload(&s)
-	testing.expectf(t, load(&s, path, nil, &media, &sh) == nil, "load failed: %s", error_message(s.failure, context.temp_allocator))
+`)
+	fixture_load(t, &f)
 }
 
 // A material's projection: its maps by the mesh's uvs (the default) or
@@ -1981,11 +2003,9 @@ video { width = 32, height = 32, fps = 10, duration = 0.1 }
 // invalid_value, naming the ones there are.
 @(test)
 test_view3d_projection :: proc(t: ^testing.T) {
-	dir, derr := os.make_directory_temp("", "onimite_projection_test_*", context.temp_allocator)
-	testing.expect(t, derr == nil)
-	defer os.remove_all(dir)
-	path, _ := filepath.join({dir, "video.lua"}, context.temp_allocator)
-	src := `
+	f: Fixture
+	defer fixture_destroy(&f)
+	fixture_init(t, &f, `
 video { width = 32, height = 32, fps = 10, duration = 0.1, render = function(f)
   view3d { camera = { position = { 0, 0, 5 } }, meshes = {
     { geometry = { type = "BoxGeometry" }, material = { projection = "object", projection_scale = 0.5, projection_sharpness = 6 } },
@@ -1994,27 +2014,18 @@ video { width = 32, height = 32, fps = 10, duration = 0.1, render = function(f)
   } }
   view3d { meshes = { { geometry = { type = "BoxGeometry" }, material = { projection = "cubic" } } } }
 end }
-`
-	testing.expect(t, os.write_entire_file(path, transmute([]u8)src) == nil)
-	media: om.Media
-	om.media_init(&media)
-	defer om.media_destroy(&media)
-	sh: Shared
-	defer shared_destroy(&sh)
-	s: Script
-	defer unload(&s)
-	testing.expectf(t, load(&s, path, nil, &media, &sh) == nil, "load failed: %s", error_message(s.failure, context.temp_allocator))
-	r: om.Renderer
-	testing.expect_value(t, om.renderer_init(&r, &s.video, &media), om.Error.None)
-	defer om.renderer_destroy(&r)
-	om.render_frame(&r, 0)
-	testing.expect_value(t, len(r.ctx.diagnostics), 1)
-	if len(r.ctx.diagnostics) == 1 {
-		d := r.ctx.diagnostics[0]
+`)
+	if !fixture_load(t, &f) {
+		return
+	}
+	fixture_frame(t, &f, 0)
+	testing.expect_value(t, len(f.r.ctx.diagnostics), 1)
+	if len(f.r.ctx.diagnostics) == 1 {
+		d := f.r.ctx.diagnostics[0]
 		testing.expect(t, d.code == .Invalid_Value && d.name == "material projection" && d.a == "cubic")
 	}
 	found := false
-	for n in r.ctx.tree.nodes {
+	for n in f.r.ctx.tree.nodes {
 		v, ok := n.kind.(om.View3d)
 		if !ok || len(v.meshes) != 3 {
 			continue

@@ -56,7 +56,7 @@ local function race(f, lb, gb)
     end
   end
   group({ opacity = 0.9 }, function()
-    text { "wall seconds, 1080p, median of 3 · Ryzen 9 9900X3D + RX 9070 XT · BENCHMARK.md", x = 100, y = 1040,
+    text { string.format("wall seconds, %s · %s · %s · BENCHMARK.md", facts.runs, facts.machine, facts.versions), x = 100, y = 1040,
       font = look.MONO, size = 20, fill = look.DIM }
   end)
 end

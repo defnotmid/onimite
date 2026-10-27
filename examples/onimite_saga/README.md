@@ -33,7 +33,7 @@ any part of it by reading only that part.
 | `look.lua` | palette, type, springs and the parts several scenes share |
 | `fx.lua` | the shaders (backdrops, glitch, dissolve, tunnel, matrix rain) |
 | `sfx.lua` | the sound effects: `sound{}` clips built once; each scene places a track per sound (a key, a pop) on the `sfx` bus |
-| `facts.lua`, `code.lua` | the numbers and code shown on screen |
+| `facts.lua`, `code.lua` | the numbers on screen, picked from `bench/facts.json` (measured on each release by `tools/bench.sh facts` and `setup`), and the code shown |
 
 Pip is drawn by `examples/common/pip.lua`; nothing else comes from
 `examples/common/`. Pip dancing as an alpha clip, `media/transparent.mov`,

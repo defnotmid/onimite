@@ -33,6 +33,7 @@ poly :: proc(L: ^lua.State, s: ^Script, closed: bool) -> c.int {
 	ctx := render_ctx(L, s)
 	lua.L_checktype(L, 1, i32(lua.Type.TABLE))
 	fields_begin(L, 1)
+	leaf_transform(L, ctx)
 	points := read_points(L, 1, ctx)
 	rule := vg.Fill_Rule.Non_Zero
 	if get_str(L, 1, "fill_rule", "") == "evenodd" {

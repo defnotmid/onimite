@@ -217,7 +217,8 @@ render the whole video as routine. When a change is ready:
 
 **Footage and marks.** A video file works wherever a script does: `onimite strip
 /abs/footage/take.mp4 -n 12`, `frame take.mp4 12.5s`, `audio analyze take.mp4`, `timeline take.mp4`
-look through it at its own size and rate (its folder's other files stay unread). To let the
+look through it at its own size and rate (its folder's other files stay unread). A sound file
+does too, as its sound over black: `audio analyze match.mp3` measures a recording alone. To let the
 user point at what they want (where to cut, where a fade should start), open the clip, or the
 script, in the preview and tell them the keys: `[` then `]` mark a range, `P` a moment, Delete
 removes the mark under the playhead. The marks are written beside it (`take.mp4` ->
@@ -319,7 +320,7 @@ with commas.
 
 | command | use it to |
 | --- | --- |
-| `show [PATH] [--at T] [--page N]` | explore the video like a debugger's watch window: the video, then `scenes`, `scene/Race`, `scene/Race/nodes`, `cue/drop`, `bus/sfx`, `track/12`, `clip/x`, `says`, `say/intro` (a spoken line's words and times), `say/intro/3` (one word, and when each track playing it says it on the video), `songs`, `song/score` (a song's sections, parts and automation lanes), `song/score/parts/bass` (every note on the video), `song/score/automation/parts/pad/cutoff` (a lane's points), `instruments` and `instrument/MonoSynth` (the built-in rows, as data to copy), `media` and `media/logo.png` (the files besides sounds), `fonts`, `bodies` and `body/ball` (what `physics{}` and `physics3d{}` simulated: start, end, still moving), `marks` and `mark/2` (what the user marked in the preview), `node/scenes/race.lua:19[2]`; an unknown path lists the ones there are; each has a summary, its fields, its children by path (20 a page) and the script line that made it |
+| `show [PATH] [--at T] [--page N]` | explore the video like a debugger's watch window: the video, then `scenes`, `scene/Race`, `scene/Race/nodes`, `cue/drop`, `bus/sfx`, `track/12`, `clip/x`, `says`, `say/intro` (a spoken line's words and times), `say/intro/3` (one word, and when each track playing it says it on the video), `songs`, `song/score` (a song's sections, parts and automation lanes), `song/score/parts/bass` (every note on the video), `song/score/automation/parts/pad/cutoff` (a lane's points), `instruments` and `instrument/MonoSynth` (the built-in rows, as data to copy), `node_kinds` and `node_kind/Filter` (what an instrument's nodes take), `media` and `media/logo.png` (the files besides sounds), `fonts`, `bodies` and `body/ball` (what `physics{}` and `physics3d{}` simulated: start, end, still moving), `marks` and `mark/2` (what the user marked in the preview), `node/scenes/race.lua:19[2]`; an unknown path lists the ones there are; each has a summary, its fields, its children by path (20 a page) and the script line that made it |
 | `timeline [RANGE]` | scenes (with their cue and the file and line that defines them), audio tracks, cues, songs (sections, tracks); a range lists only what happens in it |
 | `inspect [RANGE] [--every 0.1s \| --all-frames] [--info] [--fail-on error\|warning\|never]` | find problems without looking (exit 2 on failure; `--info` also lists text entirely off canvas). It checks a frame every 0.25 s, each scene's first and last frame and the first frames after every cue and scene start (where a slam overshoots); run it with `--all-frames` once before delivering, since a motion between checked frames goes unseen otherwise |
 | `strip [RANGE] -n N [--columns 4] [--width 480] [-o strip.png]` | flow and motion in one image |
@@ -405,6 +406,15 @@ playing.
   its own Lua state, so state carried from one frame to the next breaks: no counters, no
   accumulating tables, no `math.random` without a per-frame seed (use a hash of the index).
   Caches keyed by input (like a text-layout memo) are fine.
+- Reach for the built-in before writing a helper (each in `references/api.md` or `3d.md`):
+  `noise(x, seed)` (smooth drift, terrain, grain) and `hash(n, seed)` (repeatable randomness);
+  `vec3_*`, `quat_*` (blending rotations) and `mat4_*` (nested transforms, joint chains);
+  `path_at` / `path_tangent` (a smooth path through points); transform tables with `origin`
+  and SVG transform strings (`"rotate(30 960 540)"`), on any node; `instances` (many copies
+  of one mesh); `panels` (2D on a 3D surface) and `bake{}` (an image drawn once: a static
+  texture, a studio's light); `particles`, `physics{}`, `physics3d{}`; `text_width{}` and
+  friends. Porting from three.js or fframes, translate the concept, not the code: their
+  helpers usually have one here.
 - Measure text rather than guess: `text_width{}`, `text_size{}` (the size that fits a width),
   `text_fit{}` (ellipsis), `text_lines{}` (wrapping) work at load and while rendering.
   `inspect` catches anything leaving the canvas; give cards and panels a group `box` and it

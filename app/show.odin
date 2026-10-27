@@ -144,6 +144,7 @@ Show_Kind :: enum u8 {
 	Part,
 	Lane,
 	Instrument,
+	Node_Kind,
 	Node,
 	Media,
 	Font,
@@ -184,6 +185,8 @@ SHOW_PATHS := [?]Show_Path {
 	{"song", "song/NAME[/sections/NAME|/parts/NAME|/automation/PATH]", show_song},
 	{"instruments", "instruments", show_instruments},
 	{"instrument", "instrument/NAME", show_instrument},
+	{"node_kinds", "node_kinds", show_node_kinds},
+	{"node_kind", "node_kind/NAME", show_node_kind},
 	{"media", "media, media/FILE", show_media},
 	{"fonts", "fonts", show_fonts},
 	{"font", "font/FAMILY", show_font},
@@ -987,6 +990,80 @@ show_instrument :: proc(sh: ^Show, name: string) -> Error {
 	sh.res.summary = fmt.tprintf("%s  a built-in row: copy it into `instruments = {{ my_%s = ... }}` and change it, or play it with changes: {{ \"%s\", ... }}", name, strings.to_lower(name, context.temp_allocator), name)
 	sh.res.fields["row"] = v
 	return nil
+}
+
+// The node kinds an instrument row's `nodes` take (odawg's registry, so
+// they never go stale): `node_kind/NAME` lists one's fields.
+@(private = "file")
+show_node_kinds :: proc(sh: ^Show, _: string) -> Error {
+	kinds := odevice.NODES.kinds[:]
+	sh.res.kind = show_kind(.List)
+	sh.res.summary = fmt.tprintf("%d node kinds for an instrument row's nodes (every one also takes gain_db, pan and amp; node_kind/NAME lists a kind's fields)", len(kinds))
+	for k in kinds {
+		names := make([dynamic]string, context.temp_allocator)
+		for f in k.fields {
+			append(&names, f.name)
+		}
+		child(sh, fmt.tprintf("node_kind/%s", k.name), .Node_Kind, strings.join(names[:], ", ", context.temp_allocator))
+	}
+	return nil
+}
+
+// One node kind's fields: each one's unit, its choices, its default and
+// whether a modulator moves it inside a note.
+@(private = "file")
+show_node_kind :: proc(sh: ^Show, name: string) -> Error {
+	for k in odevice.NODES.kinds {
+		if k.name != name {
+			continue
+		}
+		field_value :: proc(f: odevice.Node_Field) -> json.Object {
+			o := make(json.Object, context.temp_allocator)
+			o["name"] = f.name
+			o["unit"] = strings.to_lower(fmt.tprint(f.unit), context.temp_allocator)
+			#partial switch f.unit {
+			case .Choice:
+				choices := make(json.Array, len(f.choices), context.temp_allocator)
+				for c, i in f.choices {
+					choices[i] = c
+				}
+				o["choices"] = choices
+				if int(f.default) < len(f.choices) {
+					o["default"] = f.choices[int(f.default)]
+				}
+			case .Gain:
+				o["default_db"] = 20.0 * math.log10(f64(max(f.default, 1e-9)))
+			case:
+				o["default"] = f64(f.default)
+			}
+			o["moves_in_notes"] = f.per_sample
+			if f.list > 0 {
+				o["list_of_up_to"] = f64(f.list)
+			}
+			return o
+		}
+		fields := make(json.Array, len(k.fields), context.temp_allocator)
+		for f, i in k.fields {
+			fields[i] = field_value(f)
+		}
+		common := make(json.Array, len(odevice.COMMON_FIELDS), context.temp_allocator)
+		for f, i in odevice.COMMON_FIELDS {
+			common[i] = field_value(f)
+		}
+		sh.res.kind = show_kind(.Node_Kind)
+		sh.res.summary = fmt.tprintf("%s: %d fields of its own, then every node's gain_db, pan and amp; inputs %d (-1: one or more)", name, len(k.fields), k.inputs)
+		sh.res.fields["fields"] = fields
+		sh.res.fields["every_node"] = common
+		sh.res.fields["inputs"] = f64(k.inputs)
+		sh.res.fields["reads_the_note"] = k.needs == .Note
+		reserved := make(json.Array, len(odevice.RESERVED_NAMES), context.temp_allocator)
+		for r, i in odevice.RESERVED_NAMES {
+			reserved[i] = r
+		}
+		sh.res.fields["reserved_names"] = reserved
+		return nil
+	}
+	return fail(sh.app, {code = .No_Path, name = fmt.tprintf("node_kind/%s", name), names = {"node_kinds"}})
 }
 
 // The bodies physics{} simulated at load: `body/NAME` (`NAME[k]` when

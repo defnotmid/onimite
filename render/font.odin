@@ -35,7 +35,7 @@ font_load :: proc(ttf: []u8) -> (font: Font, ok: bool) {
 		font_unload(&font)
 		return {}, false
 	}
-	f := &t.fonts.faces[0].font
+	f := vg.font_collection_font(&t.fonts, t.fonts.faces[0].id)
 	m := vg.font_v_metrics(f)
 	height := f32(m.ascent - m.descent)
 	t.em_per_px = vg.font_scale_for_pixel_height(f, 1) / vg.font_scale_for_em(f, 1)

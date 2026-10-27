@@ -17,14 +17,15 @@ onimite inspect examples/why_onimite/video.lua      # what is wrong, by script l
 ```
 
 - **Small.** One binary and the SDL3 library beside it (and Lua's DLL on
-  Windows), 17.3-20.7 MB on disk (a 7.7-8.7 MB download; v0.0.7). Nothing
-  else to install, no build step per video. (`say()`'s voice models are an
+  Windows); [BENCHMARK.md](BENCHMARK.md) gives each archive's size as
+  downloaded and unpacked. Nothing else to install, no build step per
+  video. (`say()`'s voice models are an
   optional 835-866 MB download, made on first use.)
 - **Fast.** Frames are built on every core and drawn on the GPU (Vulkan,
-  Metal), with hardware encoding when there is one. On the 18 fframes
-  examples ported 1:1 it is faster on 16, with 0.4-9.1% of fframes' CPU time
-  and 0.8-26.5% of its memory; fframes wins two
-  ([BENCHMARK.md](BENCHMARK.md)).
+  Metal), with hardware encoding when there is one.
+  [BENCHMARK.md](BENCHMARK.md) races it against every fframes example
+  ported 1:1 on each release: wall time, CPU time and memory, fframes'
+  wins included.
 - **Checkable.** `inspect`, `show`, `frame`, `strip`, `onion`, `audio
   analyze` and `--json` on every command answer "is it right?" without a
   human watching; an MCP server and an agent skill come with it.
@@ -37,10 +38,9 @@ and its crates at hand, use [fframes](https://github.com/dmtrKovalenko/fframes)
 (onimite began by porting its examples and keeps parity with them). If you
 want React and the web platform (HTML, CSS, npm), use
 [Remotion](https://www.remotion.dev). For a TypeScript animation library
-with an editor, use [Motion Canvas](https://motioncanvas.io). What each
-puts on disk before the first frame, measured on Linux: fframes 3.4 GB
-(Rust toolchain, 311 crates, the first build), Remotion 682 MB (Node.js,
-251 packages, Chrome Headless Shell).
+with an editor, use [Motion Canvas](https://motioncanvas.io). What fframes
+and Remotion put on disk before the first frame, measured on Linux, is in
+[BENCHMARK.md](BENCHMARK.md).
 
 onimite is built from sibling Odin projects and Odin's vendor packages:
 
@@ -83,9 +83,12 @@ onimite is built from sibling Odin projects and Odin's vendor packages:
   shaders on oksl's CPU interpreter.
 - **3D** (o3d): `view3d{}` draws a scene described in three.js's terms
   (perspective and orthographic cameras; ambient, hemisphere, point,
-  directional and spot lights with up to 4 PCF shadow maps; tone mapping
-  and fog; box, sphere, plane, cylinder and torus meshes plus per-frame 3D
-  lines, point clouds, wireframe and `instances`; MeshStandardMaterial,
+  directional and spot lights with up to 4 PCF shadow maps; a frame drawn
+  in linear light, tone mapping, fog and depth of field focused on a point;
+  box, sphere, plane, cylinder, torus, rounded box, circle, ring and lathe
+  meshes plus per-frame 3D lines, point clouds, wireframe and `instances`;
+  2D drawn onto surfaces every frame (`panels`) or once (`bake{}`, a studio
+  light too); a mirror plane for reflective floors; MeshStandardMaterial,
   MeshPhysicalMaterial (clear coat, sheen, glass), MeshBasicMaterial,
   MeshToonMaterial with cartoon outlines,
   LineBasicMaterial and PointsMaterial with texture
@@ -460,7 +463,7 @@ Each folder in `examples/` is a `video.lua` with its `media/`.
 | `media_demo` | a synced clip, WebVTT subtitles, an audio spectrum, durations from media |
 | `batch` | a title card per row of `rows.json` / `rows.csv` |
 | `scenes` | scene overlaps (cross-fades) |
-| `fframes/` | all 17 fframes example crates (19 videos) ported 1:1, the benchmark material (media: `examples/fframes/fetch.sh`) |
+| `fframes/` | all 20 fframes example crates (22 videos) ported: each makes the same video, the benchmark material (media: `examples/fframes/fetch.sh`) |
 
 No heavy media is committed. An example that needs some has a `fetch.sh`, run
 once before rendering: `cuts`, `footage`, `suite`, `why_onimite` and
@@ -478,14 +481,13 @@ pinned fframes checkout.
 
 ## Benchmarks
 
-On the 18 fframes examples that render on both sides (1920x1080, Ryzen 9
-9900X3D + RX 9070 XT, fframes' main of 2026-10-12), onimite is faster on
-16, using 0.4-9.1% of fframes' CPU time and 0.8-26.5% of its memory; fframes wins
-`hello_world` and, narrowly, `podcast`, where the hardware encoder is the
-bottleneck. Numbers, method and caveats are in
-[BENCHMARK.md](BENCHMARK.md). The ports of fframes' examples they were
-measured on are in `examples/fframes/`; `examples/fframes/fetch.sh` fetches
-fframes and their media, then `tools/bench.sh all` reproduces the run.
+[BENCHMARK.md](BENCHMARK.md) races onimite against fframes on every
+fframes example, ported 1:1 in `examples/fframes/`, with the method and
+the caveats. Its tables are measured on each release's published binary by
+`tools/bench.sh facts`, which writes them and `bench/facts.json`, the
+numbers the films and the site show; `tools/bench.sh setup` measures what
+fframes and Remotion install. `examples/fframes/fetch.sh` fetches fframes
+and the ports' media first.
 
 [PARITY.md](PARITY.md) maps every fframes feature to onimite.
 

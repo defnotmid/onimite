@@ -291,6 +291,111 @@ l_video_frame :: proc "c" (L: ^lua.State) -> c.int {
 	return 0
 }
 
+// bake{ name, w, h, background, draw = function() ... end } -> name: draws
+// `draw`'s nodes once, at load, into a `w x h` image over `background`
+// (black) and adds it to the media as image `name`, for everything an
+// image's name goes to: image{}, a 3D map (with mipmaps), environment and
+// background, a shader's input. The first load of a render draws it (on the
+// CPU); its other frame builders find it made.
+@(private)
+l_bake :: proc "c" (L: ^lua.State) -> c.int {
+	s := host(L)
+	context = s.odin_context
+	lua.L_checktype(L, 1, i32(lua.Type.TABLE))
+	fields_begin(L, 1)
+	media := measure_media(L, s, "bake")
+	name := strings.clone(get_str(L, 1, "name", ""), context.temp_allocator)
+	w := clamp(int(get_num(L, 1, "w", get_num(L, 1, "width", 512))), 1, 8192)
+	h := clamp(int(get_num(L, 1, "h", get_num(L, 1, "height", 512))), 1, 8192)
+	background := read_color_field(L, 1, "background", om.BLACK)
+	field(L, 1, "draw")
+	if !lua.isfunction(L, -1) {
+		lua.L_error(L, "bake takes draw = function() ... end: its nodes, laid out in its w x h image")
+	}
+	fields_end(L, s, 1, "bake")
+	if name == "" {
+		lua.L_error(L, "bake needs a name: what maps, environment and image{} call it")
+	}
+	sh := s.shared
+	sync.lock(&sh.lock)
+	done := name in sh.baked
+	sync.unlock(&sh.lock)
+	if done {
+		lua.pop(L, 1)
+	} else {
+		// the draw function is unreferenced before any error (L_error skips defers)
+		job := Bake_Job{s = s, ref = lua.L_ref(L, lua.REGISTRYINDEX)}
+		scenes := [1]om.Scene{{name = "bake", duration = om.Frames(1), render = bake_render, user = &job}}
+		v := om.Video{width = w, height = h, fps = 1, background = background, scenes = scenes[:]}
+		r: om.Renderer
+		failure := "no renderer"
+		if om.renderer_init(&r, &v, media) == .None {
+			// the frame's pixels are premultiplied, a media image's straight
+			px := om.straight_alpha(om.render_frame(&r, 0))
+			failure = job.failure
+			if failure == "" && !om.media_add_image_pixels(media, name, px, w, h) {
+				failure = "a media file has this name"
+			}
+			om.renderer_destroy(&r)
+		}
+		lua.L_unref(L, lua.REGISTRYINDEX, job.ref)
+		if failure != "" {
+			lua.L_error(L, "bake %s: %s", strings.clone_to_cstring(name, context.temp_allocator), strings.clone_to_cstring(failure, context.temp_allocator))
+		}
+		sync.lock(&sh.lock)
+		if name not_in sh.baked {
+			sh.baked[strings.clone(name)] = true
+		}
+		sync.unlock(&sh.lock)
+	}
+	lua.pushlstring(L, cstring(raw_data(name)), c.size_t(len(name)))
+	return 1
+}
+
+@(private = "file")
+Bake_Job :: struct {
+	s:       ^Script,
+	ref:     c.int,
+	failure: string,
+}
+
+// The bake's one frame: its draw function, recording into the bake's
+// renderer as a frame's render would.
+@(private = "file")
+bake_render :: proc(f: om.Frame, ctx: ^om.Context) {
+	job := (^Bake_Job)(f.scene.scene.user)
+	s := job.s
+	L := s.L
+	outer := s.ctx
+	s.ctx = ctx
+	defer s.ctx = outer
+	lua.rawgeti(L, lua.REGISTRYINDEX, lua.Integer(job.ref))
+	if lua.pcall(L, 0, 0, 0) != 0 {
+		job.failure = strings.clone(string(lua.tostring(L, -1)), context.temp_allocator)
+		lua.pop(L, 1)
+	}
+}
+
+// audio_info("hit.wav") -> { duration, rate, channels } or nil: a sound of
+// the media (a file, a video's sound by the video's name, `audio_add`'s),
+// its length in seconds and its source's sample rate and channels.
+@(private)
+l_audio_info :: proc "c" (L: ^lua.State) -> c.int {
+	s := host(L)
+	context = s.odin_context
+	media := measure_media(L, s, "audio_info")
+	clip, ok := media.audio[string(lua.L_checkstring(L, 1))]
+	if !ok {
+		lua.pushnil(L)
+		return 1
+	}
+	lua.createtable(L, 0, 3)
+	set_num(L, "duration", om.audio_clip_seconds(clip))
+	set_int(L, "rate", clip.source_rate)
+	set_int(L, "channels", clip.source_channels)
+	return 1
+}
+
 // video_info("clip.mp4") -> { width, height, duration, fps, frames, rotation, audio } or nil
 @(private)
 l_video_info :: proc "c" (L: ^lua.State) -> c.int {

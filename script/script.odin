@@ -155,6 +155,15 @@ video { width = w, height = h, fps = math.max(1, math.floor(i.fps + 0.5)), backg
 scene { NAME, clip = NAME }
 `
 
+// The script an audio file loads as (`onimite audio analyze take.wav`): its
+// sound over black, as long as the sound, 1280 x 720 at 30 fps.
+@(private = "file")
+SOUND_SCRIPT :: `
+local i = audio_info(NAME) or error(NAME .. ": not a sound onimite can read", 0)
+video { width = 1280, height = 720, fps = 30, duration = i.duration, background = "#000",
+  audio = { { NAME } }, render = function(f) end }
+`
+
 // Loads the script. Its `say` lines are all made before it is used: a first
 // pass notes the ones not made yet (a silent stand-in meanwhile), they are
 // synthesized together (say_synthesize), and a second pass reads them all.
@@ -201,9 +210,10 @@ load_pass :: proc(s: ^Script, path: string, args: []string, media: ^om.Media, sh
 	s.slots = make([dynamic]Scene_Slot)
 
 	data: []u8
-	if kind, is_media := om.media_kind_of(path); is_media && kind == .Video {
-		// A video file is a video: itself, at its own size and rate.
-		data = transmute([]u8)strings.concatenate({"local NAME = [==[", filepath.base(path), "]==]", CLIP_SCRIPT})
+	if kind, is_media := om.media_kind_of(path); is_media && (kind == .Video || kind == .Audio) {
+		// A video file is a video: itself, at its own size and rate. An
+		// audio file is its sound over black.
+		data = transmute([]u8)strings.concatenate({"local NAME = [==[", filepath.base(path), "]==]", CLIP_SCRIPT if kind == .Video else SOUND_SCRIPT})
 	} else {
 		err: os.Error
 		data, err = os.read_entire_file(path, context.allocator)
@@ -707,6 +717,7 @@ API := [?]Api_Function {
 	{"physics", l_physics, .Load},
 	{"physics3d", l_physics3d, .Load},
 	{"sky", l_sky, .Load},
+	{"bake", l_bake, .Load},
 	{"audio_add", l_audio_add, .Load},
 	{"captions_load", l_captions_load, .Load},
 	// Nodes and what the frame being built knows.
@@ -731,6 +742,7 @@ API := [?]Api_Function {
 	{"view3d", l_view3d, .Render},
 	{"video_frame", l_video_frame, .Render},
 	{"video_info", l_video_info, .Both},
+	{"audio_info", l_audio_info, .Both},
 	{"model_info", l_model_info, .Both},
 	{"view3d_project", l_view3d_project, .Both},
 	{"subtitle_at", l_subtitle_at, .Render},
@@ -1228,6 +1240,27 @@ l_group :: proc "c" (L: ^lua.State) -> c.int {
 	return 0
 }
 
+// A drawn node's `transform` (SVG's attribute, in any form read_transform
+// reads): the node is drawn in a group with it, ended at the end of the
+// caller's scope.
+@(private, deferred_in_out = leaf_transform_end)
+leaf_transform :: proc(L: ^lua.State, ctx: ^om.Context) -> (grouped: bool) {
+	field(L, 1, "transform")
+	defer lua.pop(L, 1)
+	if !lua.istable(L, -1) && lua.type(L, -1) != .STRING {
+		return false
+	}
+	om.group_begin(ctx, om.Group{transform = read_transform(L, -1)})
+	return true
+}
+
+@(private)
+leaf_transform_end :: proc(L: ^lua.State, ctx: ^om.Context, grouped: bool) {
+	if grouped {
+		om.group_end(ctx)
+	}
+}
+
 // rect{x, y, w, h, rx, fill, stroke, stroke_width, line_cap, line_join, opacity}
 @(private)
 l_rect :: proc "c" (L: ^lua.State) -> c.int {
@@ -1236,6 +1269,7 @@ l_rect :: proc "c" (L: ^lua.State) -> c.int {
 	ctx := render_ctx(L, s)
 	lua.L_checktype(L, 1, i32(lua.Type.TABLE))
 	fields_begin(L, 1)
+	leaf_transform(L, ctx)
 	om.rect(
 		ctx,
 		{
@@ -1259,6 +1293,7 @@ l_circle :: proc "c" (L: ^lua.State) -> c.int {
 	ctx := render_ctx(L, s)
 	lua.L_checktype(L, 1, i32(lua.Type.TABLE))
 	fields_begin(L, 1)
+	leaf_transform(L, ctx)
 	om.circle(
 		ctx,
 		{
@@ -1279,6 +1314,7 @@ l_ellipse :: proc "c" (L: ^lua.State) -> c.int {
 	ctx := render_ctx(L, s)
 	lua.L_checktype(L, 1, i32(lua.Type.TABLE))
 	fields_begin(L, 1)
+	leaf_transform(L, ctx)
 	om.ellipse(
 		ctx,
 		{
@@ -1300,6 +1336,7 @@ l_line :: proc "c" (L: ^lua.State) -> c.int {
 	ctx := render_ctx(L, s)
 	lua.L_checktype(L, 1, i32(lua.Type.TABLE))
 	fields_begin(L, 1)
+	leaf_transform(L, ctx)
 	om.line(
 		ctx,
 		{
@@ -1322,6 +1359,7 @@ l_path :: proc "c" (L: ^lua.State) -> c.int {
 	ctx := render_ctx(L, s)
 	lua.L_checktype(L, 1, i32(lua.Type.TABLE))
 	fields_begin(L, 1)
+	leaf_transform(L, ctx)
 	field(L, 1, "d")
 	asset := (^om.Path_Asset)(lua.touserdata(L, -1)) if lua.type(L, -1) == .LIGHTUSERDATA else nil
 	lua.pop(L, 1)
@@ -1353,6 +1391,7 @@ l_text :: proc "c" (L: ^lua.State) -> c.int {
 	ctx := render_ctx(L, s)
 	lua.L_checktype(L, 1, i32(lua.Type.TABLE))
 	fields_begin(L, 1)
+	leaf_transform(L, ctx)
 	align := om.Text_Align.Left
 	switch get_str(L, 1, "align", "left") {
 	case "center", "middle":
@@ -1399,6 +1438,7 @@ l_image :: proc "c" (L: ^lua.State) -> c.int {
 	ctx := render_ctx(L, s)
 	lua.L_checktype(L, 1, i32(lua.Type.TABLE))
 	fields_begin(L, 1)
+	leaf_transform(L, ctx)
 	om.image(
 		ctx,
 		{

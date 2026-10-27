@@ -48,6 +48,180 @@ function vec3_apply_euler(a, e)
   }
 end
 
+-- Quaternions as { x, y, z, w } lists (three.js's Quaternion): rotations
+-- that blend smoothly (quat_slerp). Each gives a new list.
+-- The rotation of Euler XYZ angles e (radians), as a mesh's `rotation` turns.
+function quat_from_euler(e)
+  local c1, c2, c3 = cos(e[1] / 2), cos(e[2] / 2), cos(e[3] / 2)
+  local s1, s2, s3 = sin(e[1] / 2), sin(e[2] / 2), sin(e[3] / 2)
+  return { s1 * c2 * c3 + c1 * s2 * s3, c1 * s2 * c3 - s1 * c2 * s3, c1 * c2 * s3 + s1 * s2 * c3, c1 * c2 * c3 - s1 * s2 * s3 }
+end
+-- The rotation by `angle` (radians) about `axis`.
+function quat_from_axis_angle(axis, angle)
+  local a, s = vec3_normalize(axis), sin(angle / 2)
+  return { a[1] * s, a[2] * s, a[3] * s, cos(angle / 2) }
+end
+-- The shortest rotation turning direction a onto direction b (both length 1).
+function quat_from_unit_vectors(a, b)
+  local r = vec3_dot(a, b) + 1
+  local q
+  if r < 1e-8 then
+    q = math.abs(a[1]) > math.abs(a[3]) and { -a[2], a[1], 0, 0 } or { 0, -a[3], a[2], 0 }
+  else
+    local c = vec3_cross(a, b)
+    q = { c[1], c[2], c[3], r }
+  end
+  local n = sqrt(q[1] * q[1] + q[2] * q[2] + q[3] * q[3] + q[4] * q[4])
+  return { q[1] / n, q[2] / n, q[3] / n, q[4] / n }
+end
+-- The rotation b, then a (three.js's multiplyQuaternions(a, b)).
+function quat_multiply(a, b)
+  return {
+    a[1] * b[4] + a[4] * b[1] + a[2] * b[3] - a[3] * b[2],
+    a[2] * b[4] + a[4] * b[2] + a[3] * b[1] - a[1] * b[3],
+    a[3] * b[4] + a[4] * b[3] + a[1] * b[2] - a[2] * b[1],
+    a[4] * b[4] - a[1] * b[1] - a[2] * b[2] - a[3] * b[3],
+  }
+end
+-- The rotation a fraction t of the way from a to b, at an even angular speed.
+function quat_slerp(a, b, t)
+  local d = a[1] * b[1] + a[2] * b[2] + a[3] * b[3] + a[4] * b[4]
+  if d < 0 then b, d = { -b[1], -b[2], -b[3], -b[4] }, -d end
+  local ka, kb
+  if d > 0.9995 then
+    ka, kb = 1 - t, t
+  else
+    local th = math.acos(d)
+    ka, kb = sin((1 - t) * th) / sin(th), sin(t * th) / sin(th)
+  end
+  local q = { a[1] * ka + b[1] * kb, a[2] * ka + b[2] * kb, a[3] * ka + b[3] * kb, a[4] * ka + b[4] * kb }
+  local n = sqrt(q[1] * q[1] + q[2] * q[2] + q[3] * q[3] + q[4] * q[4])
+  return { q[1] / n, q[2] / n, q[3] / n, q[4] / n }
+end
+-- Euler XYZ angles (radians) of a rotation matrix's columns m11..m33, as a mesh's `rotation` takes.
+local function euler_xyz(m11, m12, m13, m22, m23, m32, m33)
+  local y = math.asin(math.max(-1, math.min(1, m13)))
+  if math.abs(m13) < 0.9999999 then return { math.atan(-m23, m33), y, math.atan(-m12, m11) } end
+  return { math.atan(m32, m22), y, 0 }
+end
+-- q's Euler XYZ angles (radians), for a mesh's `rotation`.
+function quat_to_euler(q)
+  local x, y, z, w = q[1], q[2], q[3], q[4]
+  return euler_xyz(1 - 2 * (y * y + z * z), 2 * (x * y - w * z), 2 * (x * z + w * y),
+    1 - 2 * (x * x + z * z), 2 * (y * z - w * x), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y))
+end
+-- v turned by q (three.js's Vector3.applyQuaternion).
+function vec3_apply_quat(v, q)
+  local qx, qy, qz, qw = q[1], q[2], q[3], q[4]
+  local tx, ty, tz = 2 * (qy * v[3] - qz * v[2]), 2 * (qz * v[1] - qx * v[3]), 2 * (qx * v[2] - qy * v[1])
+  return { v[1] + qw * tx + qy * tz - qz * ty, v[2] + qw * ty + qz * tx - qx * tz, v[3] + qw * tz + qx * ty - qy * tx }
+end
+
+-- 4x4 transforms as 16-number lists, column by column (three.js's
+-- Matrix4.elements): what a mesh's position, rotation and scale make, and a
+-- group's inside another (mat4_multiply). Each gives a new list.
+function mat4_identity() return { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 } end
+-- The transform of position p, rotation r (Euler XYZ radians, or a
+-- { x, y, z, w } quaternion) and scale s (a number or { x, y, z }), as a mesh's.
+function mat4_compose(p, r, s)
+  local q = (r and #r == 4) and r or quat_from_euler(r or { 0, 0, 0 })
+  s = s or 1
+  local sx, sy, sz = s, s, s
+  if type(s) == "table" then sx, sy, sz = s[1], s[2], s[3] end
+  local x, y, z, w = q[1], q[2], q[3], q[4]
+  local x2, y2, z2 = x + x, y + y, z + z
+  local xx, xy, xz, yy, yz, zz = x * x2, x * y2, x * z2, y * y2, y * z2, z * z2
+  local wx, wy, wz = w * x2, w * y2, w * z2
+  p = p or { 0, 0, 0 }
+  return {
+    (1 - (yy + zz)) * sx, (xy + wz) * sx, (xz - wy) * sx, 0,
+    (xy - wz) * sy, (1 - (xx + zz)) * sy, (yz + wx) * sy, 0,
+    (xz + wy) * sz, (yz - wx) * sz, (1 - (xx + yy)) * sz, 0,
+    p[1], p[2], p[3], 1,
+  }
+end
+-- a times b: b's transform, then a's (a parent's times its child's is the
+-- child's world transform).
+function mat4_multiply(a, b)
+  local m = {}
+  for c = 0, 3 do
+    for r = 1, 4 do
+      m[c * 4 + r] = a[r] * b[c * 4 + 1] + a[4 + r] * b[c * 4 + 2] + a[8 + r] * b[c * 4 + 3] + a[12 + r] * b[c * 4 + 4]
+    end
+  end
+  return m
+end
+-- The transform undoing m (an identity of zeros for a matrix that has none).
+function mat4_invert(m)
+  local n11, n21, n31, n41 = m[1], m[2], m[3], m[4]
+  local n12, n22, n32, n42 = m[5], m[6], m[7], m[8]
+  local n13, n23, n33, n43 = m[9], m[10], m[11], m[12]
+  local n14, n24, n34, n44 = m[13], m[14], m[15], m[16]
+  local t11 = n23 * n34 * n42 - n24 * n33 * n42 + n24 * n32 * n43 - n22 * n34 * n43 - n23 * n32 * n44 + n22 * n33 * n44
+  local t12 = n14 * n33 * n42 - n13 * n34 * n42 - n14 * n32 * n43 + n12 * n34 * n43 + n13 * n32 * n44 - n12 * n33 * n44
+  local t13 = n13 * n24 * n42 - n14 * n23 * n42 + n14 * n22 * n43 - n12 * n24 * n43 - n13 * n22 * n44 + n12 * n23 * n44
+  local t14 = n14 * n23 * n32 - n13 * n24 * n32 - n14 * n22 * n33 + n12 * n24 * n33 + n13 * n22 * n34 - n12 * n23 * n34
+  local det = n11 * t11 + n21 * t12 + n31 * t13 + n41 * t14
+  if det == 0 then return { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } end
+  local d = 1 / det
+  return {
+    t11 * d,
+    (n24 * n33 * n41 - n23 * n34 * n41 - n24 * n31 * n43 + n21 * n34 * n43 + n23 * n31 * n44 - n21 * n33 * n44) * d,
+    (n22 * n34 * n41 - n24 * n32 * n41 + n24 * n31 * n42 - n21 * n34 * n42 - n22 * n31 * n44 + n21 * n32 * n44) * d,
+    (n23 * n32 * n41 - n22 * n33 * n41 - n23 * n31 * n42 + n21 * n33 * n42 + n22 * n31 * n43 - n21 * n32 * n43) * d,
+    t12 * d,
+    (n13 * n34 * n41 - n14 * n33 * n41 + n14 * n31 * n43 - n11 * n34 * n43 - n13 * n31 * n44 + n11 * n33 * n44) * d,
+    (n14 * n32 * n41 - n12 * n34 * n41 - n14 * n31 * n42 + n11 * n34 * n42 + n12 * n31 * n44 - n11 * n32 * n44) * d,
+    (n12 * n33 * n41 - n13 * n32 * n41 + n13 * n31 * n42 - n11 * n33 * n42 - n12 * n31 * n43 + n11 * n32 * n43) * d,
+    t13 * d,
+    (n14 * n23 * n41 - n13 * n24 * n41 - n14 * n21 * n43 + n11 * n24 * n43 + n13 * n21 * n44 - n11 * n23 * n44) * d,
+    (n12 * n24 * n41 - n14 * n22 * n41 + n14 * n21 * n42 - n11 * n24 * n42 - n12 * n21 * n44 + n11 * n22 * n44) * d,
+    (n13 * n22 * n41 - n12 * n23 * n41 - n13 * n21 * n42 + n11 * n23 * n42 + n12 * n21 * n43 - n11 * n22 * n43) * d,
+    t14 * d,
+    (n13 * n24 * n31 - n14 * n23 * n31 + n14 * n21 * n33 - n11 * n24 * n33 - n13 * n21 * n34 + n11 * n23 * n34) * d,
+    (n14 * n22 * n31 - n12 * n24 * n31 - n14 * n21 * n32 + n11 * n24 * n32 + n12 * n21 * n34 - n11 * n22 * n34) * d,
+    (n12 * n23 * n31 - n13 * n22 * n31 + n13 * n21 * n32 - n11 * n23 * n32 - n12 * n21 * n33 + n11 * n22 * n33) * d,
+  }
+end
+-- Point v moved by m (three.js's Vector3.applyMatrix4).
+function vec3_apply_mat4(v, m)
+  local w = 1 / (m[4] * v[1] + m[8] * v[2] + m[12] * v[3] + m[16])
+  return {
+    (m[1] * v[1] + m[5] * v[2] + m[9] * v[3] + m[13]) * w,
+    (m[2] * v[1] + m[6] * v[2] + m[10] * v[3] + m[14]) * w,
+    (m[3] * v[1] + m[7] * v[2] + m[11] * v[3] + m[15]) * w,
+  }
+end
+-- The position, rotation (Euler XYZ radians, for a mesh's `rotation`) and
+-- scale m is made of (three.js's Matrix4.decompose).
+function mat4_decompose(m)
+  local sx = vec3_length({ m[1], m[2], m[3] })
+  local sy, sz = vec3_length({ m[5], m[6], m[7] }), vec3_length({ m[9], m[10], m[11] })
+  local det = m[1] * (m[6] * m[11] - m[10] * m[7]) - m[5] * (m[2] * m[11] - m[10] * m[3]) + m[9] * (m[2] * m[7] - m[6] * m[3])
+  if det < 0 then sx = -sx end
+  local r = euler_xyz(m[1] / sx, m[5] / sy, m[9] / sz, m[6] / sy, m[10] / sz, m[7] / sy, m[11] / sz)
+  return { m[13], m[14], m[15] }, r, { sx, sy, sz }
+end
+-- The rotation whose x, y and z axes are the given directions (three.js's Matrix4.makeBasis).
+function mat4_make_basis(x, y, z)
+  return { x[1], x[2], x[3], 0, y[1], y[2], y[3], 0, z[1], z[2], z[3], 0, 0, 0, 0, 1 }
+end
+-- m's x, y and z axes (with its scale), its first three columns (three.js's
+-- Matrix4.extractBasis): where a joint's frame points.
+function mat4_extract_basis(m) return { m[1], m[2], m[3] }, { m[5], m[6], m[7] }, { m[9], m[10], m[11] } end
+
+-- A new table with a's fields, then b's (and any more) over them: a base table
+-- varied per frame (`merge(SPARKS, { time = f.seconds })`). Shallow: a nested
+-- table is the same table in both.
+function merge(...)
+  local out = {}
+  for i = 1, select("#", ...) do
+    local t = select(i, ...)
+    if t then for k, v in pairs(t) do out[k] = v end end
+  end
+  return out
+end
+
 -- Below a frame at any rate: boundaries computed by adding seconds stay put.
 local EPS = 1e-6
 

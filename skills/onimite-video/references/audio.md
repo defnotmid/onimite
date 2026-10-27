@@ -33,7 +33,7 @@ with the commands below, and ask the user to listen in `onimite preview`.
     the same sound. `examples/voiceover/fetch.sh` is one. Place the files like any clip
     (`{ "match.mp3", start = t, offset = 2.21, stop = t + 1.6 }`): take the part you need
     with `offset`, `stop` and `fade_out` instead of editing the recording. Level each by
-    measurement (`audio analyze --track match.mp3`), and say where it came from in a
+    measurement (`audio analyze match.mp3` alone, `audio analyze --track match.mp3` in the mix), and say where it came from in a
     comment where it's placed.
   - Never commit recordings to a code repository or a skill: keep them out of commits
     (a `.gitignore` in `media/` listing them) and let the script fetch them.
@@ -147,6 +147,8 @@ automation = {
 }
 ```
 
+- A `gain_db` lane adds to the part's own `gain_db` (a lane at 0 is the part's level; at -6,
+  6 dB under it).
 - Paths: `parts/<part>/gain_db`, `/pan`, `/sends/<return or bus>` (dB), an instrument option
   (`cutoff`, `resonance`, ...) or `node/field` (`lp/frequency`), `/effects/<Name or
   index>/<param>`; `returns/<name>/<Effect>/<param>`, `buses/<name>/<Effect>/<param>`,
@@ -287,7 +289,11 @@ instruments = { wobble = {
 
 - Node kinds: `Osc`, `Noise`, `Random`, `Env`, `Decay`, `Ramp`, `Lfo`, `Filter`, `Ladder` (the
   303's diode ladder), `OnePole`, `Difference`, `Drive`, `Slew`, `Map`, `Mix`, `Mul`, `Comb`,
-  `Sampler`, `Clip`; every node also has `gain_db`, `pan` and `amp`.
+  `Sampler`, `Clip` and more; every node also has `gain_db`, `pan` and `amp`. `onimite show
+  video.lua node_kinds` lists every kind with its fields (odawg's own table, so it is never out
+  of date) and `node_kind/Filter` one kind's: each field's unit, choices, default, and whether
+  a modulator moves it inside a note. A node can't be named `velocity`, `accent`, `slide`,
+  `gate` or `key`: those are the note's own sources.
   A field is a number, a choice, a Tone length, or `{ base, by, octaves | ratio | sweep |
   index | amount | depth | at_most }` (or a list of those); `by` is a node or the note's
   `velocity`, `accent`, `slide`, `gate`. The order of the nodes means nothing. A `pulse`
@@ -492,7 +498,7 @@ Track fields:
 | `offset` | seconds into the file to start from |
 | `speed` | file seconds per second, tape-style (pitch moves with it): 0.5 half speed, -1 backwards from `offset`; not on songs (their tempo is their bpm) |
 | `gain_db` | level in dB (0 = as recorded) |
-| `pan` | -1 (left) .. 1 (right) |
+| `pan` | -1 (left) .. 1 (right), as a balance: the far side turned down, the near side kept (a song part's `pan` is equal-power instead: 0 dB at the centre, +3 dB on a hard side) |
 | `fade_in`, `fade_out` | seconds |
 | `curve` | `"linear"` (default) or `"equal_power"` (for crossfades between two tracks) |
 | `crossfade` | a scene's track: fades in over the scene's overlap with the previous scene and out over its overlap with the next, equal power, added to `fade_in` / `fade_out` (a `clip` scene's sound has it) |
@@ -504,7 +510,12 @@ Track fields:
 | `bus` | the bus it is mixed through (below) |
 
 A scene or video length can follow audio: `duration = { audio = "vo.wav" }` or
-`{ audio = "vo.wav", plus = { seconds = 1 } }`.
+`{ audio = "vo.wav", plus = { seconds = 1 } }`. `audio_info("vo.wav")` gives a sound's
+`duration` (seconds), source `rate` and `channels` (nil when the media lacks it), at load too.
+
+A sound file works wherever a script does, as its sound over black: `onimite audio analyze
+match.mp3` measures a recording alone (loudness, true peak, bands), `audio onsets take.wav`
+finds its hits and beat, `preview take.wav` plays it.
 
 ### Timing and levels
 

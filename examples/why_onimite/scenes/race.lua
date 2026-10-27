@@ -2,7 +2,7 @@
 -- video in fframes and in onimite, at their measured relative speeds.
 -- fframes' bars all take two bars of music; onimite' finish on the nearest
 -- eighth of their share, with a DONE. The speedup pops once both are
--- done, in the winner's colour: the last two lanes are fframes' wins.
+-- done, in the winner's colour: fframes' wins, if any, are the last lanes.
 
 local beat = require("beat")
 local ui = require("ui")
@@ -66,10 +66,8 @@ local function render(f, lb)
   end)
   for i, r in ipairs(facts.RACE) do lane(i, r, lb) end
   group({ opacity = progress(lb, 2, 3) }, function()
-    text { "onimite is faster on 16 of 18 comparable examples.",
-      x = 120, y = 990, font = ui.MONO, size = 20, fill = ui.DIM }
-    text { "fframes still wins hello_world and, narrowly, podcast: there the hardware encoder is the bottleneck.",
-      x = 120, y = 1020, font = ui.MONO, size = 20, fill = ui.DIM }
+    text { facts.summary, x = 120, y = 990, font = ui.MONO, size = 20, fill = ui.DIM }
+    text { facts.losses_line, x = 120, y = 1020, font = ui.MONO, size = 20, fill = ui.DIM }
   end)
 end
 

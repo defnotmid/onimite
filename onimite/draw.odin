@@ -509,14 +509,13 @@ draw_group :: proc(r: ^Renderer, i: i32, g: Group) {
 			draw_children(r, i)
 			return
 		}
-		// One leaf child: multiplying its alpha is exact and needs no layer.
+		// One child that paints once: multiplying its alpha is exact and
+		// needs no layer.
 		node := r.ctx.tree.nodes[i]
-		if node.first_child == node.last_child && node.first_child != NO_NODE {
-			if _, is_group := r.ctx.tree.nodes[node.first_child].kind.(Group); !is_group {
-				vg.set_global_alpha(c, vg.state(c).alpha * opacity)
-				draw_children(r, i)
-				return
-			}
+		if node.first_child == node.last_child && node.first_child != NO_NODE && paints_once(r.ctx.tree.nodes[node.first_child].kind) {
+			vg.set_global_alpha(c, vg.state(c).alpha * opacity)
+			draw_children(r, i)
+			return
 		}
 	}
 
@@ -569,6 +568,37 @@ draw_group :: proc(r: ^Renderer, i: i32, g: Group) {
 	}
 	draw_children(r, i)
 	vg.layer_pop(&r.layers, c)
+}
+
+// Whether a node paints once: one fill or one stroke of one shape, an
+// image, a video's frame, a shader, a 3D layer. A group's opacity then
+// multiplies its alpha exactly. An SVG, a Lottie, or a shape both filled and
+// stroked paints several times, and what one paint covers would show
+// through another: such a group is composited as a layer.
+@(private = "file")
+paints_once :: proc "contextless" (k: Node_Kind) -> bool {
+	once :: proc "contextless" (fill: Paint, stroke: Stroke) -> bool {
+		return fill == nil || stroke.paint == nil || stroke.width <= 0
+	}
+	switch n in k {
+	case Rect:
+		return once(n.fill, n.stroke)
+	case Circle:
+		return once(n.fill, n.stroke)
+	case Ellipse:
+		return once(n.fill, n.stroke)
+	case Line:
+		return once(n.fill, n.stroke)
+	case Path:
+		return once(n.fill, n.stroke)
+	case Text:
+		return once(n.fill, n.stroke)
+	case Image, Video_Clip, Shader, View3d:
+		return true
+	case Group, Svg, Lottie:
+		return false
+	}
+	return false
 }
 
 // The blur of group `i` when blurring is all it does and its one child is
@@ -783,7 +813,7 @@ layout_text :: proc(r: ^Renderer, t: Text) -> ^vg.Text_Layout {
 	}
 	l := &r.text
 	fonts := media_text_fonts(r.media, t.font, t.weight, t.italic, t.variations)
-	vg.text_layout(fonts, r.pieces[:], {t.x, t.y, vg.Text_Align(t.align), vg.Text_Baseline(t.baseline), t.line_height}, l)
+	vg.text_layout(fonts, r.pieces[:], {x = t.x, y = t.y, align = vg.Text_Align(t.align), baseline = vg.Text_Baseline(t.baseline), line_height = t.line_height}, l)
 	return l
 }
 

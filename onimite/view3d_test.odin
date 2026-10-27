@@ -25,7 +25,7 @@ render_view3d_scene :: proc(f: Frame, ctx: ^Context) {
 		lights = {{kind = .Ambient, color = {1, 1, 1}, intensity = 0.4}, {kind = .Directional, color = {1, 1, 1}, intensity = 3, position = {1, 3, 2}, cast_shadow = true}},
 		meshes = {
 			{geometry = {.Box, {1.4, 1, 1, 1, 1, 1, 0}}, rotation = {0, 0.3, 0}, scale = {1, 1, 1}, material = box},
-			{geometry = {.Sphere, {0.3, 16, 8, 0, 0, 0, 0}}, position = {1.3, 0.2, 0}, scale = {1, 1, 1}, material = MATERIAL_GREEN_BASIC},
+			{geometry = {.Sphere, {0.3, 16, 8, 0, 2 * math.PI, 0, math.PI}}, position = {1.3, 0.2, 0}, scale = {1, 1, 1}, material = MATERIAL_GREEN_BASIC},
 			{geometry = {.Plane, {8, 8, 1, 1, 0, 0, 0}}, position = {0, -0.5, 0}, rotation = {-math.PI / 2, 0, 0}, scale = {1, 1, 1}, material = MATERIAL_FLOOR},
 		},
 	})
@@ -126,7 +126,7 @@ render_growing :: proc(f: Frame, ctx: ^Context) {
 	view3d(ctx, f, {
 		w = 32, h = 32,
 		camera = o3d.CAMERA_DEFAULT,
-		meshes = {{geometry = {.Sphere, {k, 16, 8, 0, 0, 0, 0}}, scale = {1, 1, 1}, material = MATERIAL_RED}},
+		meshes = {{geometry = {.Sphere, {k, 16, 8, 0, 2 * math.PI, 0, math.PI}}, scale = {1, 1, 1}, material = MATERIAL_RED}},
 	})
 }
 
@@ -136,7 +136,7 @@ render_scaled :: proc(f: Frame, ctx: ^Context) {
 	view3d(ctx, f, {
 		w = 32, h = 32,
 		camera = o3d.CAMERA_DEFAULT,
-		meshes = {{geometry = {.Sphere, {1, 16, 8, 0, 0, 0, 0}}, scale = {k, k, k}, material = MATERIAL_RED}},
+		meshes = {{geometry = {.Sphere, {1, 16, 8, 0, 2 * math.PI, 0, math.PI}}, scale = {k, k, k}, material = MATERIAL_RED}},
 	})
 }
 
@@ -170,18 +170,57 @@ test_view3d_geometry_growth :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(media.view3d.geometries.list), 3)
 }
 
+// A lathe whose profile follows the frame makes a mesh every frame, kept
+// like a primitive's: `geometry_growth` names LatheGeometry once that
+// happens on consecutive frames.
+@(test)
+test_view3d_lathe_growth :: proc(t: ^testing.T) {
+	render_lathe :: proc(f: Frame, ctx: ^Context) {
+		k := 1 + f32(f.index) * 0.1
+		points := make([]o3d.Vec3, 3, context.temp_allocator)
+		points[0], points[1], points[2] = {0.2, -1, 0}, {k, 0, 0}, {0.2, 1, 0}
+		view3d(ctx, f, {
+			w = 32, h = 32,
+			camera = o3d.CAMERA_DEFAULT,
+			meshes = {{path_kind = .Lathe, points = points, geometry = {params = {0 = 12, 2 = 2 * math.PI}}, scale = {1, 1, 1}, material = MATERIAL_RED}},
+		})
+	}
+	@(static) scenes: [1]Scene
+	scenes = [1]Scene{{name = "Vase", duration = Frames(3), render = render_lathe}}
+	v := Video{width = 32, height = 32, fps = 30, background = BLACK, scenes = scenes[:]}
+	media: Media
+	media_init(&media)
+	defer media_destroy(&media)
+	r: Renderer
+	testing.expect_value(t, renderer_init(&r, &v, &media), Error.None)
+	defer renderer_destroy(&r)
+	growth := [3]int{}
+	for f in 0 ..< 3 {
+		diagnostics_clear(&r.ctx)
+		render_frame(&r, f)
+		for d in r.ctx.diagnostics {
+			if d.code == .Geometry_Growth {
+				growth[f] += 1
+				testing.expect_value(t, d.name, "LatheGeometry")
+			}
+		}
+	}
+	testing.expect_value(t, growth, [3]int{0, 1, 1})
+	testing.expect_value(t, len(media.view3d.geometries.list), 3)
+}
+
 // Shapes of fixed parameters that first show up on later frames (a puff,
 // then a plume) are no growth: each makes its one mesh.
 @(test)
 test_view3d_late_shapes_are_not_growth :: proc(t: ^testing.T) {
 	render_late :: proc(f: Frame, ctx: ^Context) {
 		meshes := make([dynamic]Mesh, context.temp_allocator)
-		append(&meshes, Mesh{geometry = {.Sphere, {1, 16, 8, 0, 0, 0, 0}}, scale = {1, 1, 1}, material = MATERIAL_RED})
+		append(&meshes, Mesh{geometry = {.Sphere, {1, 16, 8, 0, 2 * math.PI, 0, math.PI}}, scale = {1, 1, 1}, material = MATERIAL_RED})
 		if f.index >= 2 {
-			append(&meshes, Mesh{geometry = {.Sphere, {2, 16, 8, 0, 0, 0, 0}}, scale = {1, 1, 1}, material = MATERIAL_RED})
+			append(&meshes, Mesh{geometry = {.Sphere, {2, 16, 8, 0, 2 * math.PI, 0, math.PI}}, scale = {1, 1, 1}, material = MATERIAL_RED})
 		}
 		if f.index >= 4 {
-			append(&meshes, Mesh{geometry = {.Sphere, {3, 16, 8, 0, 0, 0, 0}}, scale = {1, 1, 1}, material = MATERIAL_RED})
+			append(&meshes, Mesh{geometry = {.Sphere, {3, 16, 8, 0, 2 * math.PI, 0, math.PI}}, scale = {1, 1, 1}, material = MATERIAL_RED})
 		}
 		view3d(ctx, f, {w = 32, h = 32, camera = o3d.CAMERA_DEFAULT, meshes = meshes[:]})
 	}
@@ -493,7 +532,7 @@ test_view3d_shader_material :: proc(t: ^testing.T) {
 					},
 				},
 				{
-					geometry = {.Sphere, {0.5, 8, 6, 0, 0, 0, 0}},
+					geometry = {.Sphere, {0.5, 8, 6, 0, 2 * math.PI, 0, math.PI}},
 					scale    = {1, 1, 1},
 					shader   = Shader_Material{
 						vertex_shader   = SHADER_VERT,
@@ -726,6 +765,54 @@ test_view3d_labels :: proc(t: ^testing.T) {
 	// the box hides the label behind it; the one in front shows its 10 x 6
 	testing.expect_value(t, blue_on_box, 0)
 	testing.expectf(t, blue >= 40 && blue <= 80, "%d blue pixels", blue)
+}
+
+// A panel on the CPU: a box whose map names a panel shows it upright (red
+// over blue, its white basic material times the panel), and a map naming
+// neither a panel nor a media image reports the missing image, and a panel
+// named as the environment is panel_environment.
+@(test)
+test_view3d_panels :: proc(t: ^testing.T) {
+	render_panel :: proc(f: Frame, ctx: ^Context) {
+		content := shader_content_begin(ctx)
+		rect(ctx, {x = 0, y = 0, w = 16, h = 8, fill = rgb(255, 0, 0)})
+		rect(ctx, {x = 0, y = 8, w = 16, h = 8, fill = rgb(0, 0, 255)})
+		group_end(ctx)
+		panels := make([]View3d_Panel, 1, context.temp_allocator)
+		panels[0] = {name = "screen", w = 16, h = 16, content = content}
+		white := MATERIAL_GREEN_BASIC
+		white.color = {1, 1, 1}
+		meshes := make([]Mesh, 2, context.temp_allocator)
+		meshes[0] = {geometry = {.Box, {1.4, 1.4, 0.1, 1, 1, 1, 0}}, scale = {1, 1, 1}, material = white}
+		meshes[0].maps[.Color] = "screen"
+		meshes[1] = meshes[0]
+		meshes[1].position = {3, 0, 0}
+		meshes[1].maps[.Color] = "nowhere"
+		view3d(ctx, f, {w = 64, h = 48, camera = o3d.CAMERA_DEFAULT, meshes = meshes, panels = panels, environment = "screen"})
+	}
+	@(static) scenes: [1]Scene
+	scenes = [1]Scene{{name = "Panels", duration = Frames(1), render = render_panel}}
+	v := Video{width = 64, height = 48, fps = 30, background = BLACK, scenes = scenes[:]}
+	media: Media
+	media_init(&media)
+	defer media_destroy(&media)
+	r: Renderer
+	testing.expect_value(t, renderer_init(&r, &v, &media), Error.None)
+	defer renderer_destroy(&r)
+	px := render_frame(&r, 0)
+	top, bottom := pixel(px, 64, 32, 19), pixel(px, 64, 32, 29)
+	testing.expectf(t, top.r > 200 && top.g < 40 && top.b < 40, "the panel's top on the box's: %v", top)
+	testing.expectf(t, bottom.b > 200 && bottom.r < 40 && bottom.g < 40, "the panel's bottom on the box's: %v", bottom)
+	missing, environment := 0, 0
+	for d in r.ctx.diagnostics {
+		if d.code == .Missing_Image && d.name == "nowhere" {
+			missing += 1
+		}
+		if d.code == .Panel_Environment && d.name == "screen" {
+			environment += 1
+		}
+	}
+	testing.expectf(t, missing > 0 && environment > 0, "diagnostics: %v", r.ctx.diagnostics[:])
 }
 
 // A view whose background names a colour, not an image, starts every

@@ -1,7 +1,8 @@
 # fframes examples, ported
 
-All 17 examples of [fframes](https://github.com/dmtrKovalenko/fframes)
-(MIT, `LICENSES/fframes-MIT.txt`), ported 1:1 to onimite. They are the
+All 20 examples of [fframes](https://github.com/dmtrKovalenko/fframes)
+(MIT, `LICENSES/fframes-MIT.txt`), ported to onimite: each makes the same
+video (its size, frame rate, frame count, shots and timing). They are the
 material for the parity checks and the benchmark (BENCHMARK.md,
 `tools/bench.sh`). Each folder's README lists what it covers and where it
 deviates.
@@ -21,11 +22,13 @@ same 31 s 220 Hz stand-in for both sides.
 
 | fframes | port |
 | --- | --- |
+| `arm` | `arm` |
 | `audio-announce` | `audio_announce` |
 | `beta` | `beta` |
 | `conference-splash-screen` | `conference_splash_screen` |
 | `fframes-intro` | `fframes_intro` |
 | `hello-world` | `hello_world` |
+| `lottie-launch` | `lottie_launch` |
 | `low-poly-art` | `low_poly_art` |
 | `made-of-motion` | `made_of_motion` |
 | `marketing` | `marketing` |
@@ -36,5 +39,6 @@ same 31 s 220 Hz stand-in for both sides.
 | `shader-mode` | `shader_mode` |
 | `shaders` | `shaders` |
 | `signal-lab` | `signal_lab` |
+| `svg-in-3d` | `svg_in_3d` |
 | `teej-podcast` | `teej_podcast` |
 | `tiktok` | `tiktok` |

@@ -42,6 +42,8 @@ Shared :: struct {
 	values:  map[string]^Shared_Value,
 	// Clips `audio_add` made from a function this render (by name).
 	audio:   map[string]bool,
+	// Images `bake{}` drew this render (by name).
+	baked:   map[string]bool,
 	// Lines `say` spoke (by name): their words and chunks in the arena (no
 	// samples: those are in the media).
 	lines:   map[string]^Said_Line,
@@ -99,6 +101,10 @@ shared_destroy :: proc(sh: ^Shared) {
 		delete(name)
 	}
 	delete(sh.audio)
+	for name in sh.baked {
+		delete(name)
+	}
+	delete(sh.baked)
 	delete(sh.lines)
 	vg.path_destroy(&sh.scratch)
 	sh^ = {}

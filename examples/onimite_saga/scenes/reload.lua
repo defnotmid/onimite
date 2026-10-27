@@ -9,11 +9,13 @@ local snap = look.snap
 
 local SAVES = { 1.5, 3.5, 5.5 }          -- scene-local beats of the three saves
 
-local NAMES = { "tiktok", "audio", "beta", "intro", "shader", "motion" }
 
 local PANEL = { x = 90, y = 190, w = 820, h = 700 }
 
 local CHART = { x = 960, y = 190, w = 870, h = 700 }
+-- Bar height per × of speed-up: 96 px, less if the biggest win would be
+-- taller than 432 px and its label would reach the chart's title.
+local PER_X = math.min(96, 432 / facts.RACE[1][4])
 
 local CODE_Y = 300
 
@@ -82,14 +84,14 @@ local function reload(f, lb, gb)
     local drawn = function()
       for i, r in ipairs(facts.RACE) do
         local p = snap(since * 1.6 - (i - 1) * 0.12 + (saves == 0 and lb * 1.6 - 0.5 or 0))
-        local h = math.max(r[4] * 96 * clamp01(p), 4)
+        local h = math.max(r[4] * PER_X * clamp01(p), 4)
         local x = x0 + (i - 1) * (bw + gap)
         rect { x = x, y = base - h, w = bw, h = h, rx = radius, fill = accent }
         if p > 0.3 then
           text { string.format("%.1f×", r[4]), x = x + bw / 2, y = base - h - 14, align = "center", font = look.DISPLAY,
             size = 54, fill = look.INK, opacity = clamp01((p - 0.3) * 2) }
         end
-        text { NAMES[i], x = x + bw / 2, y = base + 40, align = "center", font = look.MONO, size = 20, fill = look.DIM }
+        text { facts.short(r[1]), x = x + bw / 2, y = base + 40, align = "center", font = look.MONO, size = 20, fill = look.DIM }
       end
     end
     if glow then

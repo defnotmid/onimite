@@ -11,9 +11,9 @@ local W, H = look.W, look.H
 local LAST_WORDS = {
   { "ONE BINARY.", look.INK }, { "ALL YOUR CORES.", look.LEMON }, { "ANY LUA SCRIPT.", look.INK }, { "EVERY FRAME.", look.CYAN },
   { string.format("%.1f× FASTER", facts.RACE[1][4]), look.LEMON },
-  { string.format("%.0f× LESS CPU", facts.CPU.fframes / facts.CPU.onimite), look.INK },
-  { string.format("%.0f× LESS RAM", facts.MEMORY.fframes * 1000 / facts.MEMORY.onimite), look.CYAN },
-  { string.format("%.1f MB", facts.ONIMITE_MB), look.LEMON },
+  { string.format("%.0f× LESS CPU", facts.cpu.ratio), look.INK },
+  { string.format("%.0f× LESS RAM", facts.memory.ratio), look.CYAN },
+  { string.format("%.1f MB", facts.disk_mb), look.LEMON },
   { "NO BROWSER.", look.INK }, { "NO COMPILER.", look.CYAN }, { "NO WAITING.", look.LEMON },
   { "ONE BINARY.", look.PINK },
 }

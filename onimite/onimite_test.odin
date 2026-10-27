@@ -217,6 +217,13 @@ render_test_scene :: proc(f: Frame, ctx: ^Context) {
 		rect(ctx, {x = 180, y = 40, w = 60, h = 60, fill = BLACK})
 	}
 	{
+		// One child that paints twice (filled, then stroked over the fill):
+		// the group fades as a whole, so the fill doesn't show under the
+		// stroke.
+		group(ctx, {opacity = 0.5})
+		rect(ctx, {x = 260, y = 110, w = 40, h = 40, fill = rgb(255, 0, 0), stroke = {paint = rgb(0, 0, 255), width = 16}})
+	}
+	{
 		group(ctx, {transform = translate(0, 100), clip = vg.Rect{0, 0, 50, 50}})
 		circle(ctx, {cx = 50, cy = 25, r = 40, fill = rgb(0, 0, 255)})
 	}
@@ -246,6 +253,8 @@ test_render_frame :: proc(t: ^testing.T) {
 	overlap := at(px, 200, 60)
 	testing.expectf(t, single == overlap, "group opacity: single %v overlap %v", single, overlap)
 	testing.expect(t, single.r > 120 && single.r < 135)
+	stroked := at(px, 264, 130)
+	testing.expectf(t, stroked.r > 115 && stroked.r < 140 && stroked.g > 115 && stroked.g < 140 && stroked.b > 245, "half the stroke over white, no fill under it: %v", stroked)
 	// Clipped circle: inside the clip is blue, outside the clip is white.
 	testing.expect_value(t, at(px, 25, 125), [4]u8{0, 0, 255, 255})
 	testing.expect_value(t, at(px, 70, 125), [4]u8{255, 255, 255, 255})

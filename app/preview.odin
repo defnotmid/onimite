@@ -789,8 +789,9 @@ media_images_release :: proc(pv: ^Preview_State, r: ^render.Renderer) {
 
 @(private)
 default_media_dir :: proc(script_path: string) -> string {
-	// a video file loads as a video of itself: its media is the file alone
-	if kind, ok := om.media_kind_of(script_path); ok && kind == .Video {
+	// a video or audio file loads as a video of itself: its media is the
+	// file alone
+	if kind, ok := om.media_kind_of(script_path); ok && (kind == .Video || kind == .Audio) {
 		return script_path
 	}
 	return filepath.join({filepath.dir(script_path), "media"}, context.temp_allocator) or_else "media"

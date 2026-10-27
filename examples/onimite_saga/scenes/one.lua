@@ -14,7 +14,7 @@ local function one(f, lb, gb)
     look.pop_word("ONE", 110, 440, 330, lb, look.INK, look.DISPLAY, { each = 0.1 })
     look.pop_word("BINARY.", 110, 740, 330, lb - 1, look.LEMON, look.DISPLAY, { each = 0.1 })
   end)
-  local chips = { { string.format("%.1f MB", facts.ONIMITE_MB), look.INK }, { "0 dependencies", look.INK },
+  local chips = { { string.format("%.1f MB", facts.disk_mb), look.INK }, { "0 dependencies", look.INK },
     { "no browser", look.INK }, { "no compiler", look.INK } }
   local x, y = 118, 800
   for i, c in ipairs(chips) do

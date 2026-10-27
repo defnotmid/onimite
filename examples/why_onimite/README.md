@@ -10,15 +10,16 @@ onimite render examples/why_onimite/video.lua -o why_onimite.mp4
 | bars | scene (song sections) | what |
 | --- | --- | --- |
 | 1-4 | Title (`title`, `slam`) | "ONIMITE vs FFRAMES" drawn into a text group that an SkSL shader reads as its `uniform shader` child: glitch slices and colour split, a ripple ring from the slam |
-| 5-8 | Race (`race`) | eight videos rendering side by side at their measured relative speeds, onimite's six biggest wins and fframes' two (hello_world, and narrowly podcast); DONE pops on the beat |
-| 9-12 | Bill (`bill`) | CPU seconds (tiktok) and peak memory (beta), counters ticking on the beat |
-| 13-16 | Shipping (`ship`) | what each installs before the first frame, measured and to scale: fframes' Rust toolchain, its 311 crates (a falling grain each) and the 2.5 GB first build pour into a bin (`physics{}`), onimite's 23.2 MB (the v0.0.26 Linux release unpacked: the binary, libSDL3 and its licences; MiB like the others) is one block; an edit in each |
+| 5-8 | Race (`race`) | eight videos rendering side by side at their measured relative speeds: onimite's biggest wins, then fframes' wins (up to two, its biggest first); DONE pops on the beat |
+| 9-12 | Bill (`bill`) | CPU seconds and peak memory, each on the example where onimite needs the smallest share of fframes', counters ticking on the beat |
+| 13-16 | Shipping (`ship`) | what each installs before the first frame, measured and to scale: fframes' Rust toolchain, its crates (a falling grain each) and its first build pour into a bin (`physics{}`), onimite's Linux release unpacked (the binary, libSDL3 and its licences) is one block; the sizes come from `bench/facts.json`; an edit in each |
 | 17-20 | Built for agents (`agents`) | a real `inspect` session on the saga, replayed: the Bill scene's booms off the beat (`off_beat`), the one number fixed, the re-run clean |
 | 21-24 | Tricks (`tricks`) | `svg{}` bird flapping by id override, ligatures (Instrument Serif "office affluent"), Arabic joining (Noto Sans Arabic), Pip, the mascot, as a ProRes 4444 alpha clip with a glow, dancing on a 3D stage (`view3d{}`: a lit turntable, an arc of bars behind Pip rising in a wave on the beat, the camera swaying) |
 | 25-29 | Outro (`outro`, `tail`) | "One binary. Lua scripts. All your cores." over the soundtrack's spectrum, then the wordmark |
 
-Files: `facts.lua` holds every number on screen with its source
-(BENCHMARK.md "Full run", the measured installs); `track.lua` is the
+Files: `facts.lua` picks every number on screen from `bench/facts.json`,
+which `tools/bench.sh facts` and `setup` measure on each release
+(BENCHMARK.md has the tables); `track.lua` is the
 soundtrack, an odawg `song{}` whose sections are the scenes: UK garage after
 MJ Cole's "Sincere" in G minor, a swung 2-step on the library's 909
 (`machines/909.json`), a sine sub of its own that slides, an electric piano

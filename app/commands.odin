@@ -247,7 +247,7 @@ COMMAND_KINDS := [Command_Kind]Command_Descriptor {
 	.Preview = {
 		help = "opens the window and runs it until it closes (its worker loads the script and media): regs.spec the start frame (resolved on the worker's first load; a bad one warns and starts as without it), .Paused / .No_Loop / .Mute / .Bare / .Fullscreen in regs.flags, regs.count window frames to exit after (0 = never); for measurements, regs.path a PNG of the last window frame and regs.args scripted input (`preview_drive`)",
 		domain = .Script_Inputs, flags = FRONT, args = Preview_Args,
-		about = "a window that plays the video (or a video file) with sound and reloads when the script or media change; the user marks ranges ([ ]) and moments (P) for you there; playback that misses frames renders smaller (down to 25%), paused frames at full size",
+		about = "a window that plays the video (or a video or sound file) with sound and reloads when the script or media change; the user marks ranges ([ ]) and moments (P) for you there; playback that misses frames renders smaller (down to 25%), paused frames at full size",
 		mcp_note = "It opens for the user and the call returns at once; the window stays open (one per script). What the user marks is in the file beside the script or clip (NAME.marks.json): read it with show, path marks.",
 	},
 	.Probe = {

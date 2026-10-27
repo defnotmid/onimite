@@ -132,7 +132,7 @@ Every fframes feature and where onimite stands. ✅ done · 🔨 in progress ·
 
 ## Examples
 
-All 17 fframes examples are ported, for parity checks and the benchmark
+All 20 fframes examples are ported, each making the same video, for parity checks and the benchmark
 (BENCHMARK.md), in `examples/fframes/`. Their media, fonts and shaders are
 fframes' own and not ours to redistribute, so they are not committed:
 `examples/fframes/fetch.sh` copies them (the list is `assets.tsv`) from the

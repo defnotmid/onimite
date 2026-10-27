@@ -25,7 +25,8 @@ uniform float uTime;
 void main() {
   vec3 n = normalize(vNormal);
   float band = vPos.x * 3.0 + vPos.y * 5.0 + vPos.z * 2.0 - uTime * 3.0;
-  vec3 col = 0.5 + 0.5 * cos(6.2831 * (band * 0.25 + vec3(0.0, 0.33, 0.67)));
+  // a palette picked by eye (display colours), as light: a ShaderMaterial writes light
+  vec3 col = pow(0.5 + 0.5 * cos(6.2831 * (band * 0.25 + vec3(0.0, 0.33, 0.67))), vec3(2.2));
   float rim = pow(1.0 - abs(dot(n, vec3(0.0, 0.0, 1.0))), 2.0);
   float l = 0.35 + 0.65 * max(dot(n, normalize(vec3(0.4, 0.9, 0.5))), 0.0);
   gl_FragColor = vec4(col * l + rim * vec3(1.0, 0.9, 1.0) * 0.6, 1.0);

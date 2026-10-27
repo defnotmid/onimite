@@ -6,6 +6,7 @@ local beat = require("beat")
 local score = require("track")
 local ui = require("ui")
 local T = require("timeline")
+local facts = require("facts")
 local snap, soft = beat.snap, beat.soft
 
 local GLITCH = [[
@@ -97,7 +98,7 @@ local function render(f, lb)
   end)
   local note = snap(lb - 8)
   group({ opacity = progress(lb, 8, 8.1), transform = translate(0, (1 - note) * 30) }, function()
-    text { "BENCHMARK.md full run · Ryzen 9 9900X3D + RX 9070 XT · 1920×1080", x = 960, y = 752, align = "center",
+    text { string.format("BENCHMARK.md · %s · %s · %s", facts.versions, facts.machine, facts.runs), x = 960, y = 752, align = "center",
       font = ui.MONO, size = 22, fill = ui.DIM }
   end)
   local tag = snap(lb - 10)

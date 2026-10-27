@@ -1,5 +1,5 @@
 -- Why onimite: a 53 second pitch made with onimite, music included. The
--- numbers on screen come from BENCHMARK.md and the release builds
+-- numbers on screen come from bench/facts.json, measured on each release
 -- (facts.lua); the soundtrack is an odawg song (track.lua), UK garage at
 -- 132 BPM, and the picture follows it: every scene starts on its section,
 -- the picture pumps on the kicks the drums really play, flashes on the

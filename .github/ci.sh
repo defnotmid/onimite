@@ -8,6 +8,7 @@
 #   bash .github/ci.sh songs   # every example song part by part against its parts.json (audio parts --against)
 #   bash .github/ci.sh media   # no heavy audio or video committed under examples/ or skills/
 #   bash .github/ci.sh readmes # no measured loudness figures in example READMEs (they go stale)
+#   bash .github/ci.sh facts   # bench/facts.json measures the latest release; no race figures typed into READMEs
 #
 # ONIMITE_TEST_LDFLAGS (set by .github/actions/setup-toolchain) points the
 # links at CI's SDL3; unset, the system's is used.
@@ -46,6 +47,12 @@ smoke)
 	"build/onimite$exe" render examples/scenes/video.lua 90..105 --software --native -o "$out/fade.mp4"
 	"build/onimite$exe" render examples/scenes/video.lua 90..105 --software --native --threads 1 -o "$out/fade1.mp4"
 	cmp "$out/fade.mp4" "$out/fade1.mp4"
+	# A sound file is a video of itself: audio analyze measures a WAV given
+	# by its bare name from the folder it's in.
+	"build/onimite$exe" audio render examples/scenes/video.lua 0..30 -o "$out/sound.wav"
+	(cd "$out" && "$OLDPWD/build/onimite$exe" audio analyze sound.wav) | grep -q '^integrated'
+	# show lists odawg's node kinds and a kind's fields from its registry.
+	"build/onimite$exe" show examples/scenes/video.lua node_kind/Filter --json | grep -q '"frequency"'
 	# The MCP server starts, answers, serves the guide and renders with
 	# paths relative to its --dir (as the Claude Desktop extension runs it).
 	work="$out/mcp"
@@ -148,8 +155,39 @@ readmes)
 		exit 1
 	fi
 	;;
+facts)
+	# The race against fframes, the release sizes and the installs are
+	# measured on each release by tools/bench.sh facts (and setup) into
+	# bench/facts.json, which BENCHMARK.md's tables, the films (through
+	# bench/facts.lua) and the site show. It measures the latest release:
+	# after one, run tools/bench.sh facts on a quiet machine and commit what
+	# it writes. A README states none of those figures (they went stale): a
+	# line naming fframes or Remotion holds no figure outside `code`.
+	fail=0
+	have=$(python3 -c 'import json; print(json.load(open("bench/facts.json"))["measured"]["onimite"]["tag"])')
+	# The newest tag but one on the commit being checked: a release commit
+	# carries the facts of the release before it (its own come after its tag).
+	head=$(git rev-parse HEAD)
+	latest=$(git ls-remote --tags origin 'v*' | awk -v head="$head" '
+		{ t = $2; sub("refs/tags/", "", t) }
+		t ~ /\^\{\}$/ { sub(/\^\{\}$/, "", t); peeled[t] = $1; next }
+		{ obj[t] = $1 }
+		END { for (t in obj) if ((t in peeled ? peeled[t] : obj[t]) != head) print t }' | sort -V | tail -1)
+	if [ "$have" != "$latest" ]; then
+		echo "bench/facts.json measures $have, the latest release is $latest: run tools/bench.sh facts on a quiet machine and commit what it writes"
+		fail=1
+	fi
+	figure='[0-9]+(\.[0-9]+)? ?(s|ms|MB|GB|MiB|GiB|%|×)([^a-zA-Z]|$)'
+	for f in README.md examples/why_onimite/README.md examples/onimite_saga/README.md; do
+		if sed 's/`[^`]*`//g' "$f" | grep -nE "(fframes|Remotion).*$figure|$figure.*(fframes|Remotion)" | sed "s|^|$f:|" | grep .; then
+			echo "a measured figure beside fframes or Remotion (above): point to BENCHMARK.md, whose tables bench/facts.json fills"
+			fail=1
+		fi
+	done
+	exit $fail
+	;;
 *)
-	echo "usage: bash .github/ci.sh build | test | smoke | songs | media | readmes" >&2
+	echo "usage: bash .github/ci.sh build | test | smoke | songs | media | readmes | facts" >&2
 	exit 2
 	;;
 esac

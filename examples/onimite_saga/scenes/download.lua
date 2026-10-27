@@ -7,7 +7,7 @@ local snap = look.snap
 
 -- ---- the download ----------------------------------------------------------------
 
--- A square per setup (facts.SETUP), its area what the setup puts on disk
+-- A square per setup (facts.setup), its area what the setup puts on disk
 -- before the first frame, in bands for its parts; ours beside them.
 local K = 10.2 -- px per sqrt(MB)
 local BOTTOM = 900
@@ -15,7 +15,7 @@ local BOTTOM = 900
 local SQUARES, BANDS = {}, {}
 do
   local x, t = 100, 0.5
-  for _, setup in ipairs(facts.SETUP) do
+  for _, setup in ipairs(facts.setup) do
     local side = K * math.sqrt(setup.mb)
     local q = { setup = setup, x = x, y = BOTTOM - side, s = side, t0 = t }
     local y = BOTTOM
@@ -32,7 +32,7 @@ do
   end
 end
 
-local ONE_SIDE = K * math.sqrt(facts.ONIMITE_MB)
+local ONE_SIDE = K * math.sqrt(facts.disk_mb)
 
 local function download(f, lb, gb)
   fx.pop(f, 1, "#150a33", "#2a1060", "#4a1c9a", look.kick(gb))
@@ -74,7 +74,7 @@ local function download(f, lb, gb)
     end)
   end
   group({ opacity = progress(lb, 5.5, 6) }, function()
-    text { string.format("%.1f MB", facts.ONIMITE_MB), x = cx, y = 760, align = "center", font = look.DISPLAY, size = 190,
+    text { string.format("%.1f MB", facts.disk_mb), x = cx, y = 760, align = "center", font = look.DISPLAY, size = 190,
       fill = look.O }
     text { "onimite · 0 dependencies", x = cx, y = 810, align = "center", font = look.MONO, size = 26, fill = look.INK }
   end)

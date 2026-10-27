@@ -7,12 +7,12 @@ local snap = look.snap
 
 -- ---- the weight ---------------------------------------------------------------
 
--- What Remotion and fframes need before the first frame (facts.SETUP), as a
+-- What Remotion and fframes need before the first frame (facts.setup), as a
 -- chart: the size on disk, then the dependencies; a bar drops in on each
 -- beat in ROWS, its value counting up as it grows.
 local X, MAXW, BAR_H = 400, 1150, 64
 local function setup(name)
-  for _, s in ipairs(facts.SETUP) do if s.name == name then return s end end
+  for _, s in ipairs(facts.setup) do if s.name == name then return s end end
 end
 local CHARTS = {
   { label = "on disk before the first frame", y = 470, max = 0, value = function(s) return s.mb end,

@@ -523,6 +523,29 @@ put_image :: proc(m: ^Media, name: string, img: Media_Image) {
 	}
 }
 
+// Adds pixels a script drew (`bake{}`: straight RGBA8, `width` x `height`,
+// copied) as image `name`, kept like an image added from bytes (never
+// evicted). The same pixels again change nothing, so every frame builder of
+// a render can repeat it; others replace the image (a preview reload). False
+// when a media file has the name.
+media_add_image_pixels :: proc(m: ^Media, name: string, pixels: []u8, width, height: int) -> bool {
+	{
+		// another builder may be replacing it
+		sync.guard(&m.cache.lock)
+		if old, ok := m.images[name]; ok {
+			if old.path != "" {
+				return false
+			}
+			if old.width == width && old.height == height && slice.equal(old.pixels, pixels) {
+				return true
+			}
+		}
+	}
+	context.allocator = m.cache.allocator
+	put_image(m, name, {pixels = slice.clone(pixels), width = width, height = height})
+	return true
+}
+
 // Adds WebVTT or SRT subtitles (the text is copied): their cues and their
 // words, as captions. False when it doesn't parse.
 media_add_subtitles :: proc(m: ^Media, name, text: string) -> bool {
@@ -651,6 +674,9 @@ media_load_dir :: proc(m: ^Media, dir: string, pool: ^thread.Pool = nil) -> Erro
 	dir, only := dir, ""
 	if os.is_file(dir) {
 		dir, only = filepath.split(dir)
+		if dir == "" {
+			dir = "." // a bare file name: the current folder's
+		}
 	}
 	infos, err := os.read_all_directory_by_path(dir, context.allocator)
 	if err != nil {

@@ -19,7 +19,7 @@ local FF = { x = 1170, w = 480 }              -- the bins: left edge, inner widt
 local ON = { x = 1730, w = 120 }
 local SOLO_X = 120
 
-local fframes, onimite = facts.SETUP[1], facts.ONIMITE_MB
+local fframes, onimite = facts.setup[1], facts.disk_mb
 local TOOLCHAIN, CRATES, BUILD = fframes.parts[1], fframes.parts[2], fframes.parts[3]
 local function side(mb) return math.sqrt(mb * PX2_PER_MB) end
 local GRAIN = side(CRATES[2] / fframes.deps)
@@ -126,7 +126,7 @@ local function bins(f, lb)
     text { string.format("%.1f MB · that's all", onimite), x = ON.x + ON.w / 2, y = 290, align = "center",
       font = ui.MONO, size = 20, fill = ui.O, opacity = progress(lb, DROP_ONIMITE, DROP_ONIMITE + 0.5) }
   end
-  text { "measured: a fresh install, du -sh", x = FF.x - WALL, y = 1010, font = ui.MONO, size = 22, fill = ui.DIM }
+  text { "measured: a fresh install, the sum of its files", x = FF.x - WALL, y = 1010, font = ui.MONO, size = 22, fill = ui.DIM }
 
   for k = GRAINS_AT, GRAINS_END do
     if f.seconds >= poured(k - GRAINS_AT) then

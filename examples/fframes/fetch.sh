@@ -20,3 +20,20 @@ done
 for wav in "$HERE/shader_mode/media/reference-audio.wav" "$FF/examples/shader-mode/dynamic_media/reference-audio.wav"; do
 	[ -f "$wav" ] || ffmpeg -v error -f lavfi -i "sine=frequency=220:duration=31" -ar 48000 -ac 2 "$wav"
 done
+
+# arm's score and effects aren't in fframes' repository either: its arm-soundtrack binary
+# (built by `cargo build --release -p arm-example` in third_party/fframes, which
+# tools/bench.sh facts and visual do) writes them into examples/arm/dynamic_media, and both sides
+# play those files.
+ARM_SOUNDS="$FF/examples/arm/dynamic_media"
+if [ ! -f "$ARM_SOUNDS/music.wav" ]; then
+	if [ -x "$FF/target/release/arm-soundtrack" ]; then
+		( cd "$FF/examples/arm" && "$FF/target/release/arm-soundtrack" >/dev/null )
+	else
+		echo "fetch.sh: arm's sounds need fframes' arm-soundtrack: cd third_party/fframes && cargo build --release -p arm-example, then run fetch.sh again" >&2
+	fi
+fi
+if [ -f "$ARM_SOUNDS/music.wav" ]; then
+	mkdir -p "$HERE/arm/media"
+	cp "$ARM_SOUNDS"/*.wav "$HERE/arm/media/"
+fi

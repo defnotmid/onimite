@@ -10,7 +10,7 @@ local INSTRUMENTS = require("library").INSTRUMENTS
 local facts = require("facts")
 local snap, soft = beat.snap, beat.soft
 
-local CPU, MEM = facts.CPU, facts.MEMORY
+local CPU, MEM = facts.cpu, facts.memory
 
 local function panel(lb, x, appear_at, ticks, ratio_at, p)
   local appear = snap(lb - appear_at)
@@ -42,18 +42,18 @@ local function render(f, lb)
     label = "CPU TIME · " .. CPU.example,
     fframes = function(v) return string.format("%d s", math.floor(CPU.fframes * v + 0.5)) end,
     onimite = function(v) return string.format("%.1f s", CPU.onimite * v) end,
-    share = CPU.onimite / CPU.fframes,
-    ratio = string.format("%d× LESS CPU", math.floor(CPU.fframes / CPU.onimite + 0.5)),
+    share = CPU.share,
+    ratio = string.format("%d× LESS CPU", math.floor(CPU.ratio + 0.5)),
   })
   panel(lb, 980, 7, T.MEMORY_TICKS, T.MEMORY_RATIO, {
     label = "PEAK MEMORY · " .. MEM.example,
     fframes = function(v) return string.format("%d GB", math.floor(MEM.fframes * v + 0.5)) end,
     onimite = function(v) return string.format("%d MB", math.floor(MEM.onimite * v + 0.5)) end,
-    share = MEM.onimite / (MEM.fframes * 1000),
-    ratio = string.format("%d× LESS MEMORY", math.floor(MEM.fframes * 1000 / MEM.onimite + 0.5)),
+    share = MEM.share,
+    ratio = string.format("%d× LESS MEMORY", math.floor(MEM.ratio + 0.5)),
   })
   group({ opacity = progress(lb, 1, 2) }, function()
-    text { "CPU = user + sys, memory = peak RSS · BENCHMARK.md full run, median of 3",
+    text { "CPU = user + sys, memory = peak RSS · BENCHMARK.md, " .. facts.runs,
       x = 120, y = 1010, font = ui.MONO, size = 20, fill = ui.DIM }
   end)
 end
