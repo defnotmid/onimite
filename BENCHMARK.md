@@ -141,11 +141,13 @@ Notes on the pairs:
   shaders in the caches); then every row runs three times, round by round,
   and each number is the median of the three, with the wall time's min and
   max.
-- Every run waits for an idle machine (other processes using under two
-  cores, the GPU under 10% busy) and is run again when other work used more
-  than two cores on average while it ran (the machine's busy CPU time less
+- Every run waits for an idle machine (other processes using under half a
+  core, the GPU under 10% busy) and is run again when other work used more
+  than half a core on average while it ran (the machine's busy CPU time less
   the run's own and the kernel threads'; an idle desktop and its sessions
-  use about one core, another job shows several), or the GPU for more than
+  use a third to two thirds of one, another job shows several: runs kept
+  with other work over half a core came out up to 65% slower than their
+  row's best, under it up to 13%), or the GPU for more than
   a tenth of the run (every other process's GPU engine time, from the
   kernel's per-client counters, `drm-engine-*` in `/proc/<pid>/fdinfo`: a
   GPU-bound render shows there while its CPU stays low). Other work on the

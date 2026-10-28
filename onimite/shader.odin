@@ -4,6 +4,7 @@ import "base:runtime"
 import "core:hash"
 import "core:math"
 import "core:mem/virtual"
+import "core:slice"
 import "core:strings"
 import "core:sync"
 import "core:thread"
@@ -897,7 +898,7 @@ shader_register :: proc(r: ^Renderer, m: ^oksl.Module, cpu: ^^Shader_Cpu) -> (vg
 	return vg.create_program(
 		&r.canvas,
 		{
-			frag_spirv = ([^]u8)(raw_data(m.spirv))[:len(m.spirv) * size_of(u32)],
+			frag_spirv = slice.to_bytes(m.spirv),
 			frag_spirv_entry = oksl.SPIRV_ENTRY,
 			frag_msl = transmute([]u8)m.msl,
 			frag_msl_entry = oksl.MSL_ENTRY,
@@ -1125,14 +1126,14 @@ shader_bands :: proc(b: ^Shader_Band, scratch: ^oksl.Scratch) {
 		}
 		// Pixels the program discards keep the cleared target's values.
 		for row in y ..< y + h {
-			dst := ([^][4]f16)(&b.out[row * b.stride])[:b.width]
+			dst := slice.reinterpret([][4]f16, b.out[row * b.stride:][:b.width * size_of([4]f16)])
 			for x in 0 ..< b.width {
 				b.scratch[row * b.width + x] = {f32(dst[x][0]), f32(dst[x][1]), f32(dst[x][2]), f32(dst[x][3])}
 			}
 		}
 		oksl.run_f32(&b.module.program, b.uniforms, b.width, b.height, b.scratch, scratch, opts)
 		for row in y ..< y + h {
-			dst := ([^][4]f16)(&b.out[row * b.stride])[:b.width]
+			dst := slice.reinterpret([][4]f16, b.out[row * b.stride:][:b.width * size_of([4]f16)])
 			for x in 0 ..< b.width {
 				v := b.scratch[row * b.width + x]
 				dst[x] = {f16(v[0]), f16(v[1]), f16(v[2]), f16(v[3])}

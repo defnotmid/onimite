@@ -43,48 +43,48 @@ jobs:
         with:
           repository: defnotmid/ovg
           path: ovg
-          ref: v0.0.50
+          ref: v0.0.52
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/ocurves
-          # Pinned like ovg and o3d, which keep their paths and shapes in its contour tables (ovg v0.0.50 on v0.0.5; o3d v0.0.44, built on v0.0.4, checked on v0.0.5).
-          ref: v0.0.5
+          # Pinned like ovg and o3d, which keep their paths and shapes in its contour tables (both on v0.0.6: o3d v0.0.45 checked on it).
+          ref: v0.0.6
           path: ocurves
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/oglyph
-          # Pinned like ovg: fonts, font collections, text shaping, bidi and line breaks, which ovg draws through (v0.0.11; ovg v0.0.50 needs it).
-          ref: v0.0.11
+          # Pinned like ovg: fonts, font collections, text shaping, bidi and line breaks, which ovg draws through (v0.0.12; ovg v0.0.52 needs it).
+          ref: v0.0.12
           path: oglyph
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/oksl
-          # Pinned like o3d, whose shaders and onimite's it compiles (v0.0.3; o3d v0.0.44 needs it).
+          # Pinned like o3d, whose shaders and onimite's it compiles (v0.0.3; o3d v0.0.45 needs it).
           ref: v0.0.3
           path: oksl
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/odecs
-          # Pinned like ottis: onimite, ovg v0.0.50, o3d v0.0.44, odawg v0.0.43 and ottis v0.0.8 decode through odecs v0.0.13.
-          ref: v0.0.13
+          # Pinned like ottis: onimite, ovg v0.0.52, o3d v0.0.45, odawg v0.0.47 and ottis v0.0.10 decode through odecs v0.0.16.
+          ref: v0.0.16
           path: odecs
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/ottis
           # Pinned: ottis is released on its own; a new tag is taken on purpose.
-          ref: v0.0.8
+          ref: v0.0.10
           path: ottis
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/o3d
-          # Pinned like ottis: o3d is released on its own (v0.0.44).
-          ref: v0.0.44
+          # Pinned like ottis: o3d is released on its own (v0.0.45).
+          ref: v0.0.45
           path: o3d
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/odawg
-          # Pinned like ottis: odawg is released on its own (v0.0.43).
-          ref: v0.0.43
+          # Pinned like ottis: odawg is released on its own (v0.0.47).
+          ref: v0.0.47
           path: odawg
 
       - uses: ./onimite/.github/actions/setup-toolchain
@@ -98,7 +98,7 @@ jobs:
       - name: Every sibling at a pinned tag
         if: matrix.os == 'ubuntu-latest'
         run: bash onimite/.github/ci.sh pins
-      - name: Benchmark facts measure the latest release
+      - name: Benchmark facts (warns when they measure an older release)
         if: matrix.os == 'ubuntu-latest'
         run: bash onimite/.github/ci.sh facts
       - name: Build
@@ -131,48 +131,48 @@ jobs:
         with:
           repository: defnotmid/ovg
           path: ovg
-          ref: v0.0.50
+          ref: v0.0.52
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/ocurves
-          # Pinned like ovg and o3d, which keep their paths and shapes in its contour tables (ovg v0.0.50 on v0.0.5; o3d v0.0.44, built on v0.0.4, checked on v0.0.5).
-          ref: v0.0.5
+          # Pinned like ovg and o3d, which keep their paths and shapes in its contour tables (both on v0.0.6: o3d v0.0.45 checked on it).
+          ref: v0.0.6
           path: ocurves
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/oglyph
-          # Pinned like ovg: fonts, font collections, text shaping, bidi and line breaks, which ovg draws through (v0.0.11; ovg v0.0.50 needs it).
-          ref: v0.0.11
+          # Pinned like ovg: fonts, font collections, text shaping, bidi and line breaks, which ovg draws through (v0.0.12; ovg v0.0.52 needs it).
+          ref: v0.0.12
           path: oglyph
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/oksl
-          # Pinned like o3d, whose shaders and onimite's it compiles (v0.0.3; o3d v0.0.44 needs it).
+          # Pinned like o3d, whose shaders and onimite's it compiles (v0.0.3; o3d v0.0.45 needs it).
           ref: v0.0.3
           path: oksl
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/odecs
-          # Pinned like ottis: onimite, ovg v0.0.50, o3d v0.0.44, odawg v0.0.43 and ottis v0.0.8 decode through odecs v0.0.13.
-          ref: v0.0.13
+          # Pinned like ottis: onimite, ovg v0.0.52, o3d v0.0.45, odawg v0.0.47 and ottis v0.0.10 decode through odecs v0.0.16.
+          ref: v0.0.16
           path: odecs
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/ottis
           # Pinned: ottis is released on its own; a new tag is taken on purpose.
-          ref: v0.0.8
+          ref: v0.0.10
           path: ottis
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/o3d
-          # Pinned like ottis: o3d is released on its own (v0.0.44).
-          ref: v0.0.44
+          # Pinned like ottis: o3d is released on its own (v0.0.45).
+          ref: v0.0.45
           path: o3d
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/odawg
-          # Pinned like ottis: odawg is released on its own (v0.0.43).
-          ref: v0.0.43
+          # Pinned like ottis: odawg is released on its own (v0.0.47).
+          ref: v0.0.47
           path: odawg
 
       - uses: ./onimite/.github/actions/setup-toolchain

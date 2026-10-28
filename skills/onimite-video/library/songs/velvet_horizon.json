@@ -352,7 +352,7 @@
     "bass": {
       "instrument": "layered_bass",
       "gain_db": 2.5,
-      "sidechain": { "name": "drums/kick", "depth": 0.68, "release": 0.11 },
+      "sidechain": { "name": "drums/kick", "depth_db": -9.9, "release": 0.11 },
       "play": [
         {
           "name": "verse",
@@ -400,7 +400,7 @@
         { "name": "EQ3", "low": -4.0, "mid": -2.5, "high": 1.0, "low_frequency": 200, "high_frequency": 3500 }
       ],
       "sends": { "hall": -9 },
-      "sidechain": { "name": "drums/kick", "depth": 0.52, "release": 0.16 },
+      "sidechain": { "name": "drums/kick", "depth_db": -6.4, "release": 0.16 },
       "play": [
         { "name": "intro", "chords": { "voicing": "spread" }, "octave": 3, "velocity": 0.5 },
         { "name": "verse", "chords": { "voicing": "open" }, "octave": 3, "velocity": 0.55 },
@@ -421,7 +421,7 @@
         { "name": "Chorus", "frequency": 0.65, "delay_time": 0.004, "depth": 0.45, "wet": 0.3 }
       ],
       "sends": { "hall": -13, "room": -14 },
-      "sidechain": { "name": "drums/kick", "depth": 0.45, "release": 0.12 },
+      "sidechain": { "name": "drums/kick", "depth_db": -5.2, "release": 0.12 },
       "play": [
         {
           "name": "intro",
@@ -470,7 +470,7 @@
       "gain_db": 5.5,
       "pan": 0.25,
       "sends": { "echo": -10, "hall": -14 },
-      "sidechain": { "name": "drums/kick", "depth": 0.35, "release": 0.1 },
+      "sidechain": { "name": "drums/kick", "depth_db": -3.7, "release": 0.1 },
       "play": [
         {
           "name": "verse@4m..verse",
@@ -506,7 +506,7 @@
       "gain_db": -2.0,
       "pan": -0.15,
       "sends": { "hall": -11 },
-      "sidechain": { "name": "drums/kick", "depth": 0.45, "release": 0.12 },
+      "sidechain": { "name": "drums/kick", "depth_db": -5.2, "release": 0.12 },
       "play": [
         {
           "name": "build",

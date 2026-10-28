@@ -77,7 +77,7 @@ return song { "score", key = "F# minor", bpm = 112, seed = 33,
       { "lockup", degrees = "1 1 1 1 1 1 5 1", subdivision = "8n", octave = 2, velocity = 0.8, humanize = 0.004 },
     } },
     -- the synth heartbeat, its filter opening over the liftoff
-    pulse = { instrument = { "pulse" }, gain_db = 12, sidechain = { "drums/kick", depth = 0.4 }, play = {
+    pulse = { instrument = { "pulse" }, gain_db = 12, sidechain = { "drums/kick", depth_db = -4.4 }, play = {
       { "ignition..kaleido", degrees = "1 1 8 1 1 1 8 1", subdivision = "8n", octave = 2, velocity = 0.8, humanize = 0.002 },
       { "lockup", degrees = "1 1 8 1 1 1 8 1", subdivision = "8n", octave = 2, velocity = 0.9, humanize = 0.002 },
     } },

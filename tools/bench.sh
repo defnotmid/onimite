@@ -213,12 +213,12 @@ for p in os.listdir("/proc"):
         print(p + ":" + cid, ns)'
 }
 
-wait_idle() { # until other processes use under two cores and the GPU is under 10% busy
+wait_idle() { # until other processes use under half a core and the GPU is under 10% busy
   local b0 b1 gpu waited=0 tck; tck="$(getconf CLK_TCK)"
   while :; do
     b0="$(cpu_ticks | awk '{print $1 - $2}')"; sleep 1; b1="$(cpu_ticks | awk '{print $1 - $2}')"
     gpu="$(cat /sys/class/drm/card*/device/gpu_busy_percent 2>/dev/null | sort -n | tail -1)"
-    [ $(( b1 - b0 )) -lt $(( 2 * tck )) ] && [ "${gpu:-0}" -lt 10 ] && return
+    [ $(( 2 * (b1 - b0) )) -lt "$tck" ] && [ "${gpu:-0}" -lt 10 ] && return
     [ $(( waited % 30 )) -ne 0 ] || echo "   waiting for an idle machine: $(( (b1 - b0) * 10 / tck ))/10 cores busy, GPU ${gpu:-?}%" >&2
     waited=$(( waited + 1 ))
   done
@@ -239,8 +239,9 @@ fact_run() { # id impl round outfile cmd...  -> a row of $OUT/facts/runs.tsv
     others="$(echo "$t0 $(cpu_ticks) $(getconf CLK_TCK) $res" | awk '{o = (($3 - $1) - ($4 - $2)) / $5 - $7 - $8; printf "%.2f", o < 0 ? 0 : o}')"
     # Other work's GPU seconds: every client's engine time since, the run's own aside (it has exited).
     gpu="$(gpu_clients | awk 'NR == FNR {a[$1] = $2; next} {d = $2 - a[$1]; if (d > 0) s += d} END {printf "%.2f", s / 1e9}' "$OUT/facts/gpu0" -)"
-    # Failed (wall 0), or others used under two cores and the GPU under a tenth of the run, on average: keep it.
-    echo "$res $others $gpu" | awk '{exit !($1 == 0 || ($6 < 2 * $1 && $7 < 0.1 * $1))}' && break
+    # Failed (wall 0), or others used under half a core and the GPU under a tenth of the run, on average: keep it.
+    # Over half a core, a sub-second GPU-bound render ran up to 65% slow (v0.0.63's first run).
+    echo "$res $others $gpu" | awk '{exit !($1 == 0 || ($6 < 0.5 * $1 && $7 < 0.1 * $1))}' && break
     echo "   $id ($impl) overlapped ${others} s of other work's CPU, ${gpu} s of its GPU: again" >&2
   done
   note="$(grep -oE 'checked [0-9]+ frames' "$OUT/facts/log" | grep -oE '[0-9]+' | head -1 || true)"

@@ -728,7 +728,7 @@ show_song :: proc(sh: ^Show, rest: string) -> Error {
 				continue
 			}
 			found = true
-			child(sh, fmt.tprintf("song/%s/parts/%s", name, item), .Part, fmt.tprintf("%s  %s  %d notes  %+.1f dB  pan %.2f", osong.style_name(g, tr.style), g.labels[tr.instrument], osong.track_note_count(g, t), tr.gain_db, tr.pan))
+			child(sh, fmt.tprintf("song/%s/parts/%s", name, item), .Part, fmt.tprintf("%s  %s  %d notes  %+.1f dB  pan %.2f", osong.style_name(g, tr.style), g.labels[tr.instrument], osong.track_note_count(g, t), f64(obase.gain_to_db(tr.gain)), tr.pan))
 			for i in tr.notes.first ..< tr.notes.first + tr.notes.count {
 				if g.notes.kind[i] != .Attack {
 					continue // made at compose (a release trigger's, a keyswitch)
@@ -750,7 +750,7 @@ show_song :: proc(sh: ^Show, rest: string) -> Error {
 			sh.res.kind = show_kind(.Lane)
 			sh.res.summary = fmt.tprintf("%s/%s: %s (score.automation(\"%s\", t) reads it)", name, item, lane_summary(g, a), item)
 			for p in g.automation_points[a.points.first:a.points.first + a.points.count] {
-				t := g.start + f64(p.at) / f64(obase.RATE)
+				t := f64(g.start) + f64(p.at) / f64(obase.RATE)
 				append(&sh.children, Show_Child{fmt.tprintf("%.3fs", t), "point", fmt.tprintf("%g  %s", p.value, osong.AUTOMATION_CURVE_NAMES[p.curve])})
 			}
 			return nil
@@ -770,7 +770,7 @@ lane_summary :: proc(g: ^osong.Song, a: osong.Automation) -> string {
 		return "no points"
 	}
 	first, last := pts[0], pts[len(pts) - 1]
-	return fmt.tprintf("%d points  %g at %.3fs .. %g at %.3fs", len(pts), first.value, g.start + f64(first.at) / f64(obase.RATE), last.value, g.start + f64(last.at) / f64(obase.RATE))
+	return fmt.tprintf("%d points  %g at %.3fs .. %g at %.3fs", len(pts), first.value, f64(g.start) + f64(first.at) / f64(obase.RATE), last.value, f64(g.start) + f64(last.at) / f64(obase.RATE))
 }
 
 // ---- media, fonts, physics bodies --------------------------------------------------------

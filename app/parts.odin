@@ -164,7 +164,7 @@ song_parts :: proc(x: script.Script_Song) -> Song_Parts {
 			row.lufs = math.round(l.integrated * 10) / 10
 		}
 		if rd.part_peaks[i] > 0 {
-			row.peak_db = math.round(obase.gain_to_db(f64(rd.part_peaks[i])) * 10) / 10
+			row.peak_db = math.round(f64(obase.gain_to_db(obase.Gain(rd.part_peaks[i]))) * 10) / 10
 		}
 		// its played notes in time order (not the ones made at compose: a
 		// release trigger's, a keyswitch), named as odawg names them
@@ -181,7 +181,7 @@ song_parts :: proc(x: script.Script_Song) -> Song_Parts {
 				if g.notes.kind[k] != .Attack {
 					continue
 				}
-				append(&notes, Timed{g.notes.time[k], osong.note_name(g, g.notes.pad[k], g.notes.pitch[k])})
+				append(&notes, Timed{f64(g.notes.time[k]), osong.note_name(g, g.notes.pad[k], g.notes.pitch[k])})
 			}
 		}
 		slice.stable_sort_by(notes[:], proc(a, b: Timed) -> bool {return a.time < b.time})

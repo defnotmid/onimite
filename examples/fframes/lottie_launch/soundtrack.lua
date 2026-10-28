@@ -259,7 +259,7 @@ INSTRUMENTS.kit = { pads = {
   clap = { instrument = "clap", key = CLAP, gain_db = db(0.55) },
   hat = { instrument = "hat", key = HAT, gain_db = db(0.22) },
 } }
-local SIDECHAIN = { source = "drums/" .. name(KICK), depth = 0.7, release = 1 / 9 }
+local SIDECHAIN = { source = "drums/" .. name(KICK), depth_db = -10.5, release = 1 / 9 }
 local function part(name, instrument, role, gain_db, extra)
   return merge({ instrument = instrument, role = role, gain_db = gain_db,
     play = { { "music", events = parts[name] } } }, extra)

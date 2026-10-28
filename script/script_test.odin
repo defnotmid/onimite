@@ -5,6 +5,7 @@ import "core:encoding/json"
 import "core:fmt"
 import "core:math"
 import "core:math/linalg"
+import "core:mem"
 import "core:os"
 import "core:path/filepath"
 import "core:slice"
@@ -1913,7 +1914,7 @@ end }
 		_:   u16,
 	}
 	b := Bin{pos = {{-0.5, -0.5, 0}, {0.5, -0.5, 0}, {0, 0.5, 0}}, idx = {0, 1, 2}}
-	data, _ := base64.encode(([^]u8)(&b)[:size_of(Bin)], allocator = context.temp_allocator)
+	data, _ := base64.encode(mem.ptr_to_bytes(&b), allocator = context.temp_allocator)
 	gltf := fmt.tprintf(`{{
   "asset": {{"version": "2.0"}},
   "buffers": [{{"uri": "data:application/octet-stream;base64,%s", "byteLength": 44}}],

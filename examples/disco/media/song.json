@@ -226,7 +226,7 @@
       "role": "bass",
       "instrument": "bassline",
       "to": "loop",
-      "sidechain": { "source": "drums/kick", "depth": 0.8, "release": 0.2 },
+      "sidechain": { "source": "drums/kick", "depth_db": -14, "release": 0.2 },
       "gain_db": 12.5,
       "play": [
         { "range": "intro..groove", "subdivision": "16n", "velocity": 0.85, "humanize": 0.003,
@@ -246,7 +246,7 @@
       "role": "comp",
       "instrument": { "name": "emily/emily_clean.sfz", "ampeg_release": 0.05 },
       "to": "loop",
-      "sidechain": { "source": "drums/kick", "depth": 0.8, "release": 0.2 },
+      "sidechain": { "source": "drums/kick", "depth_db": -14, "release": 0.2 },
       "gain_db": 4,
       "pan": -0.3,
       "sends": { "room": -14 },
@@ -263,7 +263,7 @@
       "role": "comp",
       "instrument": "stabs",
       "to": "loop",
-      "sidechain": { "source": "drums/kick", "depth": 0.8, "release": 0.2 },
+      "sidechain": { "source": "drums/kick", "depth_db": -14, "release": 0.2 },
       "gain_db": -6,
       "pan": 0.2,
       "sends": { "room": -12 },
@@ -281,7 +281,7 @@
       "role": "pad",
       "instrument": "silk",
       "to": "loop",
-      "sidechain": { "source": "drums/kick", "depth": 0.8, "release": 0.2 },
+      "sidechain": { "source": "drums/kick", "depth_db": -14, "release": 0.2 },
       "gain_db": -0.5,
       "sends": { "hall": -10 },
       "play": [
@@ -292,7 +292,7 @@
     "talk": {
       "role": "melody",
       "instrument": "talk",
-      "sidechain": { "source": "drums/kick", "depth": 0.35, "release": 0.2 },
+      "sidechain": { "source": "drums/kick", "depth_db": -3.7, "release": 0.2 },
       "gain_db": -13,
       "sends": { "hall": -14, "echo": -16 },
       "play": [
@@ -307,7 +307,7 @@
     "violins": {
       "role": "counter",
       "instrument": { "name": "vsco/ViolinEnsSusVib.sfz", "ampeg_attack": 0.08, "ampeg_release": 0.5 },
-      "sidechain": { "source": "drums/kick", "depth": 0.35, "release": 0.16 },
+      "sidechain": { "source": "drums/kick", "depth_db": -3.7, "release": 0.16 },
       "gain_db": 15,
       "pan": 0.3,
       "sends": { "hall": -8 },
@@ -320,7 +320,7 @@
     "arp": {
       "role": "counter",
       "instrument": { "name": "pluck", "decay": 0.25 },
-      "sidechain": { "source": "drums/kick", "depth": 0.6, "release": 0.2 },
+      "sidechain": { "source": "drums/kick", "depth_db": -8, "release": 0.2 },
       "gain_db": 6,
       "pan": 0.25,
       "sends": { "echo": -12, "hall": -16 },

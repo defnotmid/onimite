@@ -17,7 +17,7 @@ local M = {}
 -- The TR-909's circuits: the build, the K-pop acts and the tape stop.
 local MACHINE = { LIB .. "machines/909.json", tone = 0.55 }
 -- What ducks under the kick: the stabs, the arp, the hook.
-local DUCK = { "drums/kick", depth = 0.55, release = 0.18 }
+local DUCK = { "drums/kick", depth_db = -6.9, release = 0.18 }
 
 -- VS Chamber Orchestra 2's own SFZ files, fetched on first use and pinned
 -- (media/pins/vsco.pins).

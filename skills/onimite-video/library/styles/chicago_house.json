@@ -66,7 +66,7 @@
       "octave": 2,
       "gain_db": -4,
       "room_db": 0,
-      "sidechain": { "name": "drums/kick", "depth": 0.6, "release": 0.09 },
+      "sidechain": { "name": "drums/kick", "depth_db": -8, "release": 0.09 },
       "play": [
         {
           "energy": [0.45, 1],
@@ -91,7 +91,7 @@
       "octave": 4,
       "gain_db": -10,
       "room_db": -3,
-      "sidechain": { "name": "drums/kick", "depth": 0.4 },
+      "sidechain": { "name": "drums/kick", "depth_db": -4.4 },
       "sends": { "room": -10, "echo": -16 },
       "play": [
         {
@@ -118,7 +118,7 @@
       "gain_db": -10.3,
       "room_db": -3,
       "pan": -0.12,
-      "sidechain": { "name": "drums/kick", "depth": 0.3 },
+      "sidechain": { "name": "drums/kick", "depth_db": -3.1 },
       "sends": { "hall": -12 },
       "play": [
         {

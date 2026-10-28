@@ -211,7 +211,8 @@ trumpet and cellos from VS Chamber Orchestra 2.
 
   Keep the kit in one `drums` part: a kick, hats and claps split into parts
   are each judged as a whole kit. To pump the others under its kick, give
-  each `sidechain = { "drums/kick", depth = 0.6 }` (the kick's notes) rather
+  each `sidechain = { "drums/kick", depth_db = -8 }` (the kick's notes; the level the dip
+  reaches, `-math.huge` for silence) rather
   than a compressor listening to a kick-only part. When `role_balance` says
   no one change fits, it names a per-section lane on `parts/X/gain_db`; a
   lane holds its first point's value before that point too, so start it at

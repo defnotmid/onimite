@@ -110,7 +110,7 @@ return song { "score", instruments = instruments, key = "G minor", bpm = 132, se
     } },
     -- the sub: the roots, pushed across the bar, sliding up into the fifth
     -- and back
-    bass = { role = "bass", instrument = "sub", gain_db = 2.5, sidechain = { "drums/kick", depth = 0.3 }, play = {
+    bass = { role = "bass", instrument = "sub", gain_db = 2.5, sidechain = { "drums/kick", depth_db = -3.1 }, play = {
       { "slam..bill", degrees = "1 - - . . . 1~ 5 - . 1 . . 7 . .", subdivision = "16n", octave = 1, velocity = 0.85 },
       { "agents", degrees = "1 - - . . . 1~ 5 - . 1 . . 7 . .", subdivision = "16n", octave = 1, velocity = 0.85 },
       { "tricks@3m..", degrees = "1 - - - - - - - 5 - - - 7 - - -", subdivision = "16n", octave = 1, velocity = 0.8 },
@@ -118,7 +118,7 @@ return song { "score", instruments = instruments, key = "G minor", bpm = 132, se
       { "tail", degrees = "1", subdivision = "1m", octave = 1, velocity = 0.6 },
     } },
     -- speed garage's bass for shipping
-    warp = { role = "bass", instrument = "warp", gain_db = 0, sidechain = { "drums/kick", depth = 0.4 }, play = {
+    warp = { role = "bass", instrument = "warp", gain_db = 0, sidechain = { "drums/kick", depth_db = -4.4 }, play = {
       { "ship", degrees = "1 - - 1 - - 1 - 8~ 1 - - 5 - 7 -", subdivision = "16n", octave = 1, velocity = 0.85 },
     } },
     -- the electric piano: jazz ninths stabbed off the beat, a chord to
@@ -137,7 +137,7 @@ return song { "score", instruments = instruments, key = "G minor", bpm = 132, se
     } },
     -- the hook: four bars on the upright and the pluck, through a dotted
     -- echo, for the agents and the last drop
-    hook = { role = "melody", instrument = "hook", gain_db = -3, sidechain = { "drums/kick", depth = 0.2 }, sends = { echo = -16, room = -14 }, play = {
+    hook = { role = "melody", instrument = "hook", gain_db = -3, sidechain = { "drums/kick", depth_db = -1.9 }, sends = { echo = -16, room = -14 }, play = {
       { "agents", subdivision = "16n", humanize = 0.004,
         notes = "D5 . . F5! . . A5 . . G5 . F5 . D5 . . | Eb5 . . G5! . . Bb5 . . G5 . F5 . Eb5 . . | C5 . . Eb5! . . G5 . . Eb5 . C5 . Bb4 . . | A4 . . C5! . . D5 . . F#5 . . A5 - G5 ." },
       { "outro", subdivision = "16n", humanize = 0.004, velocity = 0.9,

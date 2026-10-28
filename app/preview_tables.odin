@@ -773,8 +773,8 @@ placed_lane :: proc(x: ^Timeline_Build, ks: []int, part: i32, name: string) -> i
 			zero := p.start - p.file_start
 			for sp in orender.sounding_from_song(&p.song.song, part) {
 				// whole render buckets: the stretch's view of them
-				first := int(sp[0] * om.MIX_RATE) / om.SONG_BUCKET
-				last := (int(math.ceil(sp[1] * om.MIX_RATE)) + om.SONG_BUCKET - 1) / om.SONG_BUCKET
+				first := int(f64(sp[0]) * om.MIX_RATE) / om.SONG_BUCKET
+				last := (int(math.ceil(f64(sp[1]) * om.MIX_RATE)) + om.SONG_BUCKET - 1) / om.SONG_BUCKET
 				a, z := zero + first * om.SONG_BUCKET, zero + last * om.SONG_BUCKET
 				start, end := max(a, p.start), min(z, p.end)
 				if end <= start {

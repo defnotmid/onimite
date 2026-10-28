@@ -5,6 +5,7 @@ import "core:mem/virtual"
 import "core:slice"
 import "core:strings"
 import "core:sync"
+import obase "deps:odawg/base"
 import odevice "deps:odawg/device"
 import odsp "deps:odawg/dsp"
 import orender "deps:odawg/render"
@@ -175,7 +176,7 @@ placed_audio_update :: proc(p: ^Placed_Audio, v: ^Video, t: Timeline, m: ^Media)
 			if song == nil || !song.ok {
 				continue
 			}
-			length = int(math.ceil((song.song.duration + song.tail) * MIX_RATE))
+			length = int(math.ceil((f64(song.song.duration) + song.tail) * MIX_RATE))
 		}
 		start, stop, has_stop, ok := track_times(tr, t, v.fps, m)
 		if !ok {
@@ -306,24 +307,24 @@ mix_init :: proc(mx: ^Mix, placed: []Placed_Track, opts: Mix_Options, samples :=
 			c := osong.Clip {
 				name     = tr.src,
 				set      = set,
-				start    = f64(p.start) / MIX_RATE,
-				stop     = f64(p.end) / MIX_RATE,
-				offset   = f64(p.file_start) / MIX_RATE,
-				gain_db  = f64(tr.gain_db),
-				fade_in  = f64(tr.fade_in),
-				fade_out = f64(tr.fade_out),
+				start    = obase.Seconds(f64(p.start) / MIX_RATE),
+				stop     = obase.Seconds(f64(p.end) / MIX_RATE),
+				offset   = obase.Seconds(f64(p.file_start) / MIX_RATE),
+				gain     = obase.db_to_gain(obase.Db(tr.gain_db)),
+				fade_in  = obase.Seconds(f64(tr.fade_in)),
+				fade_out = obase.Seconds(f64(tr.fade_out)),
 				curve    = odevice.Curve(tr.curve),
 				ducked   = tr.ducked,
 			}
-			c.duck = {f64(d.depth_db), f64(d.attack), f64(d.hold), f64(d.release), f64(d.merge_gap)}
+			c.duck = {obase.db_to_gain(obase.Db(d.depth_db)), obase.Seconds(f64(d.attack)), obase.Seconds(f64(d.hold)), obase.Seconds(f64(d.release)), obase.Seconds(f64(d.merge_gap))}
 			ti := osong.append_clip(&mx.song, c)
 			mx.song.tracks[ti].muted = p.muted
 		} else if p.song != nil {
 			// song time 0 on the video, let through the track's span
 			at := f64(p.start - p.file_start) / MIX_RATE
-			window := osong.Window{f64(p.start) / MIX_RATE, f64(p.end) / MIX_RATE, f64(tr.fade_in), f64(tr.fade_out), odevice.Curve(tr.curve)}
+			window := osong.Window{obase.Seconds(f64(p.start) / MIX_RATE), obase.Seconds(f64(p.end) / MIX_RATE), obase.Seconds(f64(tr.fade_in)), obase.Seconds(f64(tr.fade_out)), odevice.Curve(tr.curve)}
 			duck := tr.ducked ? sidechain_from_ducking(tr.duck) : osong.Sidechain{}
-			mx.placements[i] = osong.append_song(&mx.song, &p.song.song, at, tr.src, f64(tr.gain_db), window, duck)
+			mx.placements[i] = osong.append_song(&mx.song, &p.song.song, obase.Seconds(at), tr.src, obase.db_to_gain(obase.Db(tr.gain_db)), window, duck)
 			heard := strings.concatenate({tr.src, "/", p.part}, context.temp_allocator)
 			for &t in mx.song.tracks[first:] {
 				t.muted = p.muted || (p.part != "" && mx.song.parts[t.part] != heard)
@@ -341,14 +342,14 @@ mix_init :: proc(mx: ^Mix, placed: []Placed_Track, opts: Mix_Options, samples :=
 			c := osong.Clip {
 				name     = tr.src,
 				set      = set,
-				start    = f64(p.start) / MIX_RATE,
-				stop     = f64(p.end) / MIX_RATE,
-				offset   = f64(p.file_start) / MIX_RATE,
+				start    = obase.Seconds(f64(p.start) / MIX_RATE),
+				stop     = obase.Seconds(f64(p.end) / MIX_RATE),
+				offset   = obase.Seconds(f64(p.file_start) / MIX_RATE),
 				rate     = f64(track_speed(tr)),
-				gain_db  = f64(tr.gain_db),
+				gain     = obase.db_to_gain(obase.Db(tr.gain_db)),
 				pan      = f64(tr.pan),
-				fade_in  = f64(tr.fade_in),
-				fade_out = f64(tr.fade_out),
+				fade_in  = obase.Seconds(f64(tr.fade_in)),
+				fade_out = obase.Seconds(f64(tr.fade_out)),
 				curve    = odevice.Curve(tr.curve),
 				// a mono file plays as is
 				mono     = tr.mono && p.clip.source_channels >= 2,
@@ -356,7 +357,7 @@ mix_init :: proc(mx: ^Mix, placed: []Placed_Track, opts: Mix_Options, samples :=
 				ducked   = tr.ducked,
 				effects  = tr.effects,
 			}
-			c.duck = {f64(d.depth_db), f64(d.attack), f64(d.hold), f64(d.release), f64(d.merge_gap)}
+			c.duck = {obase.db_to_gain(obase.Db(d.depth_db)), obase.Seconds(f64(d.attack)), obase.Seconds(f64(d.hold)), obase.Seconds(f64(d.release)), obase.Seconds(f64(d.merge_gap))}
 			ti := osong.append_clip(&mx.song, c)
 			mx.song.tracks[ti].muted = p.muted
 		}
@@ -369,11 +370,11 @@ mix_init :: proc(mx: ^Mix, placed: []Placed_Track, opts: Mix_Options, samples :=
 		}
 		for q in placed {
 			if q.track.bus == p.song.song.room_from {
-				append(&mx.song.room, osong.Room_Span{mx.placements[i], f64(q.start) / MIX_RATE, f64(q.end) / MIX_RATE})
+				append(&mx.song.room, osong.Room_Span{mx.placements[i], obase.Seconds(f64(q.start) / MIX_RATE), obase.Seconds(f64(q.end) / MIX_RATE)})
 			}
 		}
 	}
-	mx.song.master_gain_db = f64(opts.master_gain_db)
+	mx.song.master_gain = obase.db_to_gain(obase.Db(opts.master_gain_db))
 	if !opts.no_limiter {
 		p := odevice.params_from_kind(.Limiter)
 		p[.Threshold] = opts.ceiling_db if opts.ceiling_db != 0 else LIMITER_CEILING
@@ -397,7 +398,7 @@ mix_destroy :: proc(mx: ^Mix) {
 @(private = "file")
 sidechain_from_ducking :: proc(duck: Ducking) -> osong.Sidechain {
 	d := ducking_resolved(duck)
-	return {mode = .Spans, depth = f64(d.depth_db), attack = f64(d.attack), hold = f64(d.hold), release = f64(d.release), merge = f64(d.merge_gap)}
+	return {mode = .Spans, floor = obase.db_to_gain(obase.Db(d.depth_db)), attack = obase.Seconds(f64(d.attack)), hold = obase.Seconds(f64(d.hold)), release = obase.Seconds(f64(d.release)), merge = obase.Seconds(f64(d.merge_gap))}
 }
 
 // The master as odawg measures it, in onimite's terms.
@@ -416,7 +417,7 @@ mix_render :: proc(mx: ^Mix, from, to: int, pool: ^common.Work_Pool = nil, alloc
 	if n == 0 {
 		return
 	}
-	got := orender.export_song(&mx.song, {from = f64(from) / MIX_RATE, to = f64(to) / MIX_RATE, pool = pool}, {&out, proc(data: rawptr, at: i64, l, r: []f32, stems: [][2][]f32) {
+	got := orender.export_song(&mx.song, {from = obase.Seconds(f64(from) / MIX_RATE), to = obase.Seconds(f64(to) / MIX_RATE), pool = pool}, {&out, proc(data: rawptr, at: i64, l, r: []f32, stems: [][2][]f32) {
 		out := (^[]f32)(data)^
 		for i in 0 ..< len(l) {
 			k := 2 * (int(at) + i)
@@ -425,7 +426,7 @@ mix_render :: proc(mx: ^Mix, from, to: int, pool: ^common.Work_Pool = nil, alloc
 			}
 		}
 	}})
-	if mx.song.master.count > 0 || mx.song.master_gain_db != 0 {
+	if mx.song.master.count > 0 || mx.song.master_gain != 1 {
 		stats = mix_stats(got)
 	}
 	return

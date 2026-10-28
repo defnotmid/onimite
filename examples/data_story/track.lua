@@ -99,7 +99,7 @@ return function(months, crops)
         { "donut..outro", steps = { kick = { "x.....x.x.......", "x.....x...x..x.." } }, velocity = 0.75 },
       } },
       -- the bass: long notes, a push into the bar's second half
-      bass = { instrument = { "deep" }, gain_db = -10, sidechain = { "thump/kick", depth = 0.35 }, play = {
+      bass = { instrument = { "deep" }, gain_db = -10, sidechain = { "thump/kick", depth_db = -3.7 }, play = {
         { "bars..outro", degrees = "1 - - - - - 1 - 5 - - - - - 7 -", subdivision = "16n", octave = 2, velocity = 0.8, humanize = 0.003 },
         { "tail", degrees = "1", subdivision = "1m", octave = 2, velocity = 0.7 },
       } },

@@ -41,7 +41,7 @@
       "octave": 4,
       "gain_db": -7,
       "room_db": -3,
-      "sidechain": { "name": "drums/kick", "depth": 0.5 },
+      "sidechain": { "name": "drums/kick", "depth_db": -6 },
       "sends": { "hall": -14 },
       "play": [ { "energy": [0.6, 1], "chords": { "rhythm": "x.....x.....x..." }, "duration": "8n" } ]
     },

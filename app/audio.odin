@@ -8,6 +8,7 @@ import "core:strings"
 import wav "deps:odecs/audio/wav"
 import oanalyze "deps:odawg/analyze"
 import orender "deps:odawg/render"
+import obase "deps:odawg/base"
 import osong "deps:odawg/song"
 import common "deps:odecs/common"
 import om "../onimite"
@@ -593,15 +594,15 @@ audio_at :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 			if p.song != nil {
 				t := at.file_seconds
 				sa: Song_At
-				if place, inside := osong.place_from_seconds(&p.song.song, t); inside {
+				if place, inside := osong.place_from_seconds(&p.song.song, obase.Seconds(t)); inside {
 					sa.section, sa.bar, sa.beat = place.name, place.bar + 1, place.beat + 1
 				}
 				notes := make([dynamic]Note_At, context.temp_allocator)
-				for n in osong.notes_at(&p.song.song, t) {
+				for n in osong.notes_at(&p.song.song, obase.Seconds(t)) {
 					if p.part != "" && n.part != p.part {
 						continue
 					}
-					append(&notes, Note_At{fmt.tprintf("%s/%s", tr.src, n.part), n.note, f64(p.start - p.file_start) / om.MIX_RATE + n.time, f64(n.velocity), n.held})
+					append(&notes, Note_At{fmt.tprintf("%s/%s", tr.src, n.part), n.note, f64(p.start - p.file_start) / om.MIX_RATE + f64(n.time), f64(n.velocity), n.held})
 				}
 				sa.notes = notes[:]
 				at.song = sa

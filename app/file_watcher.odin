@@ -1,6 +1,7 @@
 package onimite_app
 
 import "core:hash"
+import "core:mem"
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
@@ -108,7 +109,7 @@ file_watcher_loop :: proc(w: ^File_Watcher) {
 hash_file :: proc(fi: os.File_Info, h: u64) -> u64 {
 	res := hash.fnv64a(transmute([]u8)fi.fullpath, h)
 	stamp := [2]i64{fi.size, time.to_unix_nanoseconds(fi.modification_time)}
-	return hash.fnv64a(([^]u8)(&stamp)[:size_of(stamp)], res)
+	return hash.fnv64a(mem.ptr_to_bytes(&stamp), res)
 }
 
 // A fingerprint of every file under `dir` (names, sizes and modification

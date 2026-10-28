@@ -188,8 +188,11 @@ facts)
 	# bench/facts.json, which BENCHMARK.md's tables, the films (through
 	# bench/facts.lua) and the site show. It measures the latest release:
 	# after one, run tools/bench.sh facts on a quiet machine and commit what
-	# it writes. A README states none of those figures (they went stale): a
-	# line naming fframes or Remotion holds no figure outside `code`.
+	# it writes. A quiet machine isn't always at hand, so a release can go
+	# before its numbers: CI warns until they land, and BENCHMARK.md says
+	# which release they measure. A README states none of those figures (they
+	# went stale): a line naming fframes or Remotion holds no figure outside
+	# `code`, and that fails.
 	fail=0
 	have=$(python3 -c 'import json; print(json.load(open("bench/facts.json"))["measured"]["onimite"]["tag"])')
 	# The newest tag but one on the commit being checked: a release commit
@@ -201,8 +204,7 @@ facts)
 		{ obj[t] = $1 }
 		END { for (t in obj) if ((t in peeled ? peeled[t] : obj[t]) != head) print t }' | sort -V | tail -1)
 	if [ "$have" != "$latest" ]; then
-		echo "bench/facts.json measures $have, the latest release is $latest: run tools/bench.sh facts on a quiet machine and commit what it writes"
-		fail=1
+		echo "::warning::bench/facts.json measures $have, the latest release is $latest: run tools/bench.sh facts on a quiet machine and commit what it writes"
 	fi
 	figure='[0-9]+(\.[0-9]+)? ?(s|ms|MB|GB|MiB|GiB|%|×)([^a-zA-Z]|$)'
 	for f in README.md examples/why_onimite/README.md examples/onimite_saga/README.md; do

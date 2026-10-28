@@ -7,6 +7,7 @@ import "core:strings"
 import om "../onimite"
 import oanalyze "deps:odawg/analyze"
 import orender "deps:odawg/render"
+import obase "deps:odawg/base"
 import osong "deps:odawg/song"
 import script "../script"
 
@@ -481,8 +482,8 @@ off_beat_check :: proc(app: ^App_State, r: ^om.Renderer) -> []om.Diagnostic {
 			if sample < sp.start || sample >= sp.end {
 				continue
 			}
-			ok: bool
-			off, period, ok = osong.off_grid(&sp.song.song, t - f64(sp.start - sp.file_start) / om.MIX_RATE)
+			o, beat, ok := osong.off_grid(&sp.song.song, obase.Seconds(t - f64(sp.start - sp.file_start) / om.MIX_RATE))
+			off, period = f64(o), f64(beat)
 			over_song = true
 			if !ok {
 				period = 0

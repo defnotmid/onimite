@@ -4,6 +4,7 @@ import "core:c"
 import "core:fmt"
 import "core:math"
 import "core:mem/virtual"
+import "core:slice"
 import "core:strings"
 import "core:sync"
 import "deps:o3d"
@@ -753,7 +754,7 @@ attach_shape2d :: proc(L: ^lua.State, s: ^Script, label: string, body_id: b2.Bod
 			pts := shapes.points[first[0]:last[0] + last[1]]
 			clear(&tris)
 			o3d.triangulate_shape(&shapes, si, &tris)
-			convex_pieces(pts, ([^][3]u32)(raw_data(tris))[:len(tris) / 3], b2.MAX_POLYGON_VERTICES, &pieces, &starts)
+			convex_pieces(pts, slice.reinterpret([][3]u32, tris[:]), b2.MAX_POLYGON_VERTICES, &pieces, &starts)
 			for k in 0 ..< len(starts) - 1 {
 				corners: [b2.MAX_POLYGON_VERTICES]b2.Vec2
 				run := pieces[starts[k]:starts[k + 1]]

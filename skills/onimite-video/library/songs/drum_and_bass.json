@@ -63,7 +63,7 @@
       "instrument": { "name": "pad", "attack": 1.2 },
       "gain_db": 4.7,
       "sends": { "hall": -8 },
-      "sidechain": { "name": "drums/kick", "depth": 0.45, "release": 0.18 },
+      "sidechain": { "name": "drums/kick", "depth_db": -5.2, "release": 0.18 },
       "play": [
         { "name": "intro..outro", "chords": { "voicing": "spread" }, "octave": 3, "velocity": 0.6 }
       ]

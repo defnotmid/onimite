@@ -164,7 +164,8 @@ automation = {
 - Filters, oscillators, gains, pans and sends move inside held notes; a value a note reads as
   it starts (an envelope's time) takes the lane's value then.
 - The picture reads a lane with `score.automation(path, f)`, the function the engine plays,
-  so light that follows a sweep stays on it. `show video.lua song/score` lists the lanes;
+  so light that follows a sweep stays on it. A level's lane (`gain_db`, a send, `master/gain_db`)
+  reads in dB, as it is written (silence is `-math.huge`). `show video.lua song/score` lists the lanes;
   `song/score/automation/parts/pad/cutoff` shows one's points on the video clock.
 
 A `notes` or `degrees` play entry's `vary` changes each repeat of its pattern in turn

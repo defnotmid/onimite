@@ -78,7 +78,7 @@ return song { "score", key = "C minor", bpm = 118, seed = 23,
     } },
     -- the sub: the root on a dotted push, ducking under every kick
     sub = { instrument = { "Synth", oscillator = { type = "sine" }, envelope = { attack = 0.005, decay = 0.2, sustain = 0.8, release = 0.08 } },
-      gain_db = 0, sidechain = { "drums/kick", depth = 0.7 },
+      gain_db = 0, sidechain = { "drums/kick", depth_db = -10.5 },
       play = { { "groove", notes = "C2 - - . . . C2 - . . C2 . . . G1 .", subdivision = "16n", velocity = 0.8, humanize = 0.003 },
                { "finale", notes = "C2 - - . . . C2 - . . C2 . . . Bb1 .", subdivision = "16n", velocity = 0.85, humanize = 0.003 } } },
     -- the stab: the off-beat chord, mostly echo; sparse in the intro, a

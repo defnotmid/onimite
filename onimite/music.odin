@@ -308,7 +308,7 @@ media_song_put :: proc(m: ^Media, name: string, v: json.Value, key: u64) -> (sc:
 			sc.ok = osong.song_from_spec(&sc.spec, &sc.song, &mu.bank)
 			append(&sc.findings, ..sc.song.findings[:])
 			if sc.ok {
-				sc.tail = orender.tail_from_song(&sc.song)
+				sc.tail = f64(orender.tail_from_song(&sc.song))
 				sc.needs = make([dynamic]odevice.Sample_Need)
 				osong.sample_needs(&sc.song, &sc.needs)
 				sc.loaded = len(sc.needs) == 0
@@ -788,7 +788,7 @@ song_table_fill_rows :: proc(sc: ^Song_Clip, st: ^Song_Table, first, last: int) 
 	work: Pool_Work
 	pool_work_init(&work, sc.music.pool)
 	defer pool_work_destroy(&work)
-	orender.export_into(&sc.song, {from = f64(from) / MIX_RATE, to = f64(to) / MIX_RATE, pool = &work.work_pool}, {l, r})
+	orender.export_into(&sc.song, {from = obase.Seconds(f64(from) / MIX_RATE), to = obase.Seconds(f64(to) / MIX_RATE), pool = &work.work_pool}, {l, r})
 	for step in lo ..= hi {
 		out := orender.table_row(t, step)
 		start := orender.row_start(t, step)
@@ -870,7 +870,7 @@ next_song :: proc(mu: ^Music) -> (best: ^Song_Clip) {
 		if !rd.wanted || rd.taken || sync.atomic_load(&rd.left) == 0 {
 			continue
 		}
-		a := int(math.round(sc.song.start * MIX_RATE))
+		a := int(math.round(f64(sc.song.start) * MIX_RATE))
 		z := a + rd.frames
 		d := focus < a ? a - focus : (focus >= z ? focus - z + 1 : 0)
 		if d < nearest {

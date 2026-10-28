@@ -4,6 +4,7 @@ import "core:encoding/base64"
 import "core:fmt"
 import "core:log"
 import "core:math"
+import "core:mem"
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
@@ -361,7 +362,7 @@ test_gltf :: proc() -> string {
 		trans = {{-1, 0, 0}, {1, 0, 0}},
 		dpos  = {{0.8, 0, 0}, {0.8, 0, 0}, {0.8, 0, 0}},
 	}
-	data, _ := base64.encode(([^]u8)(&b)[:size_of(Bin)], allocator = context.temp_allocator)
+	data, _ := base64.encode(mem.ptr_to_bytes(&b), allocator = context.temp_allocator)
 	return fmt.tprintf(`{{
   "asset": {{"version": "2.0"}},
   "buffers": [{{"uri": "data:application/octet-stream;base64,%s", "byteLength": 148}}],

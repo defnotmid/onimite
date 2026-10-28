@@ -515,8 +515,8 @@ made only at the edge.
 
 ## Not yet
 
-WebM and alpha video output (odecs has no VP9 / AV1 / ProRes encoder; such
-clips work as inputs).
+WebM and alpha video output (odecs writes VP9 and HEVC with alpha, but its WebM
+has no sound yet; such clips work as inputs).
 
 ## License
 

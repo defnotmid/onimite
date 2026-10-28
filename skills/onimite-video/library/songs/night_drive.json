@@ -50,7 +50,7 @@
       "instrument": "pad",
       "gain_db": -1.3,
       "sends": { "hall": -10 },
-      "sidechain": { "name": "drums/kick", "depth": 0.5, "release": 0.16 },
+      "sidechain": { "name": "drums/kick", "depth_db": -6, "release": 0.16 },
       "play": [
         { "name": "intro", "chords": { "voicing": "open" }, "octave": 3, "velocity": 0.45 },
         { "name": "verse", "chords": { "voicing": "open" }, "octave": 3, "velocity": 0.5 },
@@ -76,7 +76,7 @@
       "instrument": "pluck",
       "gain_db": -5.2,
       "sends": { "echo": -12, "hall": -18 },
-      "sidechain": { "name": "drums/kick", "depth": 0.35, "release": 0.1 },
+      "sidechain": { "name": "drums/kick", "depth_db": -3.7, "release": 0.1 },
       "play": [
         { "name": "verse", "arpeggio": { "pattern": "up", "interval": "16n", "octaves": 2 }, "octave": 4, "velocity": 0.6, "humanize": 0.002 },
         { "name": "build", "arpeggio": { "pattern": "upDown", "interval": "16n", "octaves": 2 }, "octave": 4, "velocity": 0.7 },
@@ -86,7 +86,7 @@
     "bass": {
       "instrument": "bass",
       "gain_db": 3.8,
-      "sidechain": { "name": "drums/kick", "depth": 0.6, "release": 0.12 },
+      "sidechain": { "name": "drums/kick", "depth_db": -8, "release": 0.12 },
       "play": [
         { "name": "verse", "degrees": "1 . 1 1 . 1 . 8", "subdivision": "8n", "duration": "16n", "octave": 2, "velocity": 0.6 },
         { "name": "build", "degrees": "1 1 1 1 1 1 1 1", "subdivision": "8n", "duration": "16n", "octave": 2, "velocity": 0.7 },
@@ -109,7 +109,7 @@
       "instrument": "stab",
       "gain_db": -8.7,
       "sends": { "hall": -14 },
-      "sidechain": { "name": "drums/kick", "depth": 0.5, "release": 0.1 },
+      "sidechain": { "name": "drums/kick", "depth_db": -6, "release": 0.1 },
       "play": [
         { "name": "drop", "chords": { "voicing": "close", "rhythm": "..x...x...x..x.x" }, "duration": "16n", "octave": 4, "velocity": 0.75 },
         { "name": "drop2", "chords": { "voicing": "close", "rhythm": "..x...x...x..x.x" }, "duration": "16n", "octave": 4, "velocity": 0.8 }

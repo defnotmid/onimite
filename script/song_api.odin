@@ -7,6 +7,7 @@ import "core:math"
 import "core:strconv"
 import "core:strings"
 import om "../onimite"
+import obase "deps:odawg/base"
 import osong "deps:odawg/song"
 import ospec "deps:odawg/spec"
 import otempo "deps:odawg/tempo"
@@ -411,11 +412,11 @@ compose :: proc(L: ^lua.State, s: ^Script, name: string, v: json.Value, sound: b
 		}
 		for sec in sc.song.sections {
 			check(L, s, name, sec.name)
-			add_cue(L, s, sec.name, sc.song.start + sec.start, "", at)
+			add_cue(L, s, sec.name, f64(sc.song.start + sec.start), "", at)
 		}
 		for mk in sc.song.markers {
 			check(L, s, name, mk.name)
-			add_cue(L, s, mk.name, sc.song.start + mk.seconds, "", at)
+			add_cue(L, s, mk.name, f64(sc.song.start + mk.seconds), "", at)
 		}
 	}
 	append(&s.songs, Script_Song{strings.clone(name), sc, key, sound, strings.clone(at)})
@@ -521,14 +522,14 @@ video_seconds_arg :: proc(L: ^lua.State, idx: c.int, fn: cstring) -> f64 {
 @(private = "file")
 position_arg :: proc(L: ^lua.State, sc: ^om.Song_Clip, idx: c.int, fn: cstring) -> f64 {
 	if lua.isnumber(L, idx) {
-		return otempo.seconds_from_beat(&sc.song.tempo, f64(lua.tonumber(L, idx)))
+		return f64(otempo.seconds_from_beat(&sc.song.tempo, f64(lua.tonumber(L, idx))))
 	}
 	text := string(lua.L_checkstring(L, idx))
 	t, ok := osong.seconds_from_position(&sc.song, text)
 	if !ok {
 		lua.L_error(L, "%s: %s is not a position of song %s (%s)", fn, lua.tostring(L, idx), strings.clone_to_cstring(sc.name, context.temp_allocator), strings.clone_to_cstring(song_names(sc), context.temp_allocator))
 	}
-	return t
+	return f64(t)
 }
 
 // The names a position can start from, for errors.
@@ -552,7 +553,7 @@ l_song_time :: proc "c" (L: ^lua.State) -> c.int {
 	s := host(L)
 	context = s.odin_context
 	sc := song_of(L)
-	lua.pushnumber(L, lua.Number(sc.song.start + position_arg(L, sc, 1, "time")))
+	lua.pushnumber(L, lua.Number(f64(sc.song.start) + position_arg(L, sc, 1, "time")))
 	return 1
 }
 
@@ -565,8 +566,8 @@ l_song_automation :: proc "c" (L: ^lua.State) -> c.int {
 	context = s.odin_context
 	sc := song_of(L)
 	path := string(lua.L_checkstring(L, 1))
-	t := video_seconds_arg(L, 2, "automation") - sc.song.start
-	v, ok := osong.automation_at(&sc.song, path, t)
+	t := video_seconds_arg(L, 2, "automation") - f64(sc.song.start)
+	v, ok := osong.automation_at(&sc.song, path, obase.Seconds(t))
 	if !ok {
 		b := strings.builder_make(context.temp_allocator)
 		for a, i in sc.song.automation {
@@ -578,7 +579,17 @@ l_song_automation :: proc "c" (L: ^lua.State) -> c.int {
 		lanes := strings.to_string(b) if strings.builder_len(b) > 0 else "it has none"
 		lua.L_error(L, "automation: song %s has no lane %s (%s)", strings.clone_to_cstring(sc.name, context.temp_allocator), strings.clone_to_cstring(path, context.temp_allocator), strings.clone_to_cstring(lanes, context.temp_allocator))
 	}
-	lua.pushnumber(L, lua.Number(v))
+	// a level's lane is kept as a gain: the script reads it in dB, as it was written
+	out := f64(v)
+	for a in sc.song.automation {
+		if a.path == path {
+			if osong.AUTOMATION_LEVELS[a.kind] {
+				out = f64(obase.gain_to_db(obase.Gain(v)))
+			}
+			break
+		}
+	}
+	lua.pushnumber(L, lua.Number(out))
 	return 1
 }
 
@@ -588,8 +599,8 @@ l_song_beat :: proc "c" (L: ^lua.State) -> c.int {
 	s := host(L)
 	context = s.odin_context
 	sc := song_of(L)
-	t := video_seconds_arg(L, 1, "beat") - sc.song.start
-	lua.pushnumber(L, lua.Number(otempo.beat_from_seconds(&sc.song.tempo, t)))
+	t := video_seconds_arg(L, 1, "beat") - f64(sc.song.start)
+	lua.pushnumber(L, lua.Number(otempo.beat_from_seconds(&sc.song.tempo, obase.Seconds(t))))
 	return 1
 }
 
@@ -601,7 +612,7 @@ l_song_bar :: proc "c" (L: ^lua.State) -> c.int {
 	context = s.odin_context
 	sc := song_of(L)
 	g := &sc.song
-	b := otempo.beat_from_seconds(&g.tempo, video_seconds_arg(L, 1, "bar") - g.start)
+	b := otempo.beat_from_seconds(&g.tempo, obase.Seconds(video_seconds_arg(L, 1, "bar") - f64(g.start)))
 	bars := 0.0
 	if len(g.sections) > 0 && b >= 0 {
 		i := osong.section_from_beat(g, b)
@@ -628,7 +639,7 @@ l_song_seconds :: proc "c" (L: ^lua.State) -> c.int {
 	switch {
 	case lua.isnoneornil(L, 2):
 	case lua.type(L, 2) == .NUMBER:
-		from = otempo.beat_from_seconds(&g.tempo, f64(lua.tonumber(L, 2)) - g.start)
+		from = otempo.beat_from_seconds(&g.tempo, obase.Seconds(f64(lua.tonumber(L, 2)) - f64(g.start)))
 	case:
 		ok: bool
 		if from, ok = osong.beat_from_position(g, string(lua.L_checkstring(L, 2))); !ok {
@@ -660,7 +671,7 @@ l_song_frame :: proc "c" (L: ^lua.State) -> c.int {
 	s := host(L)
 	context = s.odin_context
 	sc := song_of(L)
-	t := sc.song.start + position_arg(L, sc, 1, "frame")
+	t := f64(sc.song.start) + position_arg(L, sc, 1, "frame")
 	fps := f64(lua.L_optnumber(L, 2, lua.Number(s.video.fps)))
 	if fps <= 0 {
 		lua.L_error(L, "frame: give the fps (or call video{} first)")
@@ -714,18 +725,18 @@ l_song_pulse :: proc "c" (L: ^lua.State) -> c.int {
 	context = s.odin_context
 	sc := song_of(L)
 	g := &sc.song
-	t := video_seconds_arg(L, 1, "pulse") - g.start
+	t := video_seconds_arg(L, 1, "pulse") - f64(g.start)
 	if lua.istable(L, 2) {
 		f := filter_arg(L, s, 2, "pulse")
 		decay := f64(get_num(L, 2, "decay", 8))
-		v := osong.pulse_from_seconds(g, t, f, decay)
+		v := osong.pulse_from_seconds(g, obase.Seconds(t), f, decay)
 		if v == 0 {
 			filtered_notes(L, s, sc, f, "pulse") // nothing to pulse on: say so
 		}
 		lua.pushnumber(L, lua.Number(v))
 		return 1
 	}
-	x := otempo.beat_from_seconds(&g.tempo, t)
+	x := otempo.beat_from_seconds(&g.tempo, obase.Seconds(t))
 	sharp := f64(lua.L_optnumber(L, 2, 8))
 	v := 0.0 if x < 0 else math.exp(-(x - math.floor(x)) * sharp)
 	lua.pushnumber(L, lua.Number(v))
@@ -739,7 +750,7 @@ l_song_section :: proc "c" (L: ^lua.State) -> c.int {
 	s := host(L)
 	context = s.odin_context
 	sc := song_of(L)
-	p, inside := osong.place_from_seconds(&sc.song, video_seconds_arg(L, 1, "section") - sc.song.start)
+	p, inside := osong.place_from_seconds(&sc.song, obase.Seconds(video_seconds_arg(L, 1, "section") - f64(sc.song.start)))
 	if !inside {
 		lua.pushnil(L)
 		return 1
@@ -770,10 +781,10 @@ l_song_hits :: proc "c" (L: ^lua.State) -> c.int {
 	last := math.inf_f64(-1)
 	for i in notes {
 		t := sc.song.notes.time[i]
-		if t - last < 0.5e-3 {
+		if f64(t) - last < 0.5e-3 {
 			continue
 		}
-		last = t
+		last = f64(t)
 		k += 1
 		lua.pushnumber(L, lua.Number(sc.song.start + t))
 		lua.rawseti(L, -2, lua.Integer(k))
@@ -831,10 +842,10 @@ l_song_note :: proc "c" (L: ^lua.State) -> c.int {
 	}
 	at := 0.0
 	if !lua.isnoneornil(L, 2) {
-		at = lua.type(L, 2) == .NUMBER ? f64(lua.tonumber(L, 2)) - g.start : position_arg(L, sc, 2, "note")
+		at = lua.type(L, 2) == .NUMBER ? f64(lua.tonumber(L, 2)) - f64(g.start) : position_arg(L, sc, 2, "note")
 	}
 	octave := int(lua.L_optinteger(L, 3, 5))
-	chord := osong.chord_from_beat(g, otempo.beat_from_seconds(&g.tempo, at))
+	chord := osong.chord_from_beat(g, otempo.beat_from_seconds(&g.tempo, obase.Seconds(at)))
 	midi := otheory.pitch_from_degree(g.key, chord, degree, octave)
 	name := otheory.string_from_pitch(midi)
 	lua.pushlstring(L, cstring(raw_data(name)), c.size_t(len(name)))
@@ -847,9 +858,9 @@ l_song_snap :: proc "c" (L: ^lua.State) -> c.int {
 	s := host(L)
 	context = s.odin_context
 	sc := song_of(L)
-	t := video_seconds_arg(L, 1, "snap") - sc.song.start
+	t := video_seconds_arg(L, 1, "snap") - f64(sc.song.start)
 	grid := string(lua.L_optstring(L, 2, "8n"))
-	snapped, ok := osong.seconds_snapped(&sc.song, t, grid)
+	snapped, ok := osong.seconds_snapped(&sc.song, obase.Seconds(t), grid)
 	if !ok {
 		lua.L_error(L, "snap: %s is not a grid (\"8n\", \"4n\", \"1m\")", lua.tostring(L, 2))
 	}

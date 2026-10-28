@@ -65,7 +65,7 @@
       "octave": 2,
       "gain_db": -2,
       "room_db": -3,
-      "sidechain": { "name": "drums/kick", "depth": 0.35, "release": 0.06 },
+      "sidechain": { "name": "drums/kick", "depth_db": -3.7, "release": 0.06 },
       "sends": { "echo": -18, "room": -14 },
       "play": [
         {

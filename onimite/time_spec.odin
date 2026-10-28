@@ -118,13 +118,13 @@ song_position :: proc(m: ^Media, name: string, at: f64, offset: string) -> (seco
 	for sc in media_songs(m) {
 		anchor := ""
 		for sec in sc.song.sections {
-			if equal_fold(sec.name, name) && abs(sc.song.start + sec.start - at) < 1e-6 {
+			if equal_fold(sec.name, name) && abs(f64(sc.song.start) + f64(sec.start) - at) < 1e-6 {
 				anchor = sec.name
 				break
 			}
 		}
 		for mk in sc.song.markers {
-			if anchor == "" && equal_fold(mk.name, name) && abs(sc.song.start + mk.seconds - at) < 1e-6 {
+			if anchor == "" && equal_fold(mk.name, name) && abs(f64(sc.song.start) + f64(mk.seconds) - at) < 1e-6 {
 				anchor = mk.name
 			}
 		}
@@ -133,7 +133,7 @@ song_position :: proc(m: ^Media, name: string, at: f64, offset: string) -> (seco
 		}
 		text := strings.concatenate({anchor, "@", strings.trim_space(offset)}, context.temp_allocator)
 		t := osong.seconds_from_position(&sc.song, text) or_return
-		return sc.song.start + t, true
+		return f64(sc.song.start + t), true
 	}
 	return 0, false
 }

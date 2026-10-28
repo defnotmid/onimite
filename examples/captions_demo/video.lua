@@ -50,7 +50,7 @@ local score = song { "score", key = "Eb major", bpm = 96, seed = 21, swing = 0.1
       { "box..pop", notes = "Bb4 . G4 Bb4 . Eb5 . Bb4 G4 . Bb4 . D5 . Bb4 . | G4 . Eb4 G4 . C5 . G4 Eb4 . G4 . Bb4 . G4 .", subdivision = "16n",
         velocity = 0.6, humanize = 0.005, vary = { {}, { thin = 0.2 } } },
     } },
-    bass = { instrument = { "lowend" }, gain_db = -9, sidechain = { "drums/kick", depth = 0.25 }, play = {
+    bass = { instrument = { "lowend" }, gain_db = -9, sidechain = { "drums/kick", depth_db = -2.5 }, play = {
       { "box..pop", degrees = "1 - . 1 . . 5 . 6 - . 5 . 3 . 1", subdivision = "16n", octave = 2, velocity = 0.8, humanize = 0.003 },
     } },
     keys = { instrument = { "keys", brightness = 0.5 }, gain_db = -3, sends = { room = -10 }, play = {

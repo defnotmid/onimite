@@ -39,7 +39,7 @@ term_media_seconds :: proc(t: Time_Term, m: ^Media) -> (f64, bool) {
 		}
 		// a song lasts to the end of its last section
 		if sc := media_song(m, t.name); sc != nil && sc.ok {
-			return sc.song.duration, true
+			return f64(sc.song.duration), true
 		}
 		return 0, false
 	case .Video:

@@ -29,7 +29,7 @@
       "octave": 2,
       "gain_db": -6,
       "room_db": 0,
-      "sidechain": { "name": "drums/kick", "depth": 0.5 },
+      "sidechain": { "name": "drums/kick", "depth_db": -6 },
       "play": [ { "energy": [0.4, 1], "degrees": "1 8 1 8 1 8 1 8", "subdivision": "8n", "duration": "16n" } ]
     },
     "pad": {

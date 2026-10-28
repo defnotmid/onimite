@@ -9,6 +9,7 @@ import "core:strings"
 import "core:testing"
 import "core:thread"
 import "core:time"
+import obase "deps:odawg/base"
 import orender "deps:odawg/render"
 
 // A clip of constant level placed with gain, balance, an offset, fades and
@@ -187,8 +188,8 @@ test_song_tables_are_render :: proc(t: ^testing.T) {
 	testing.expect(t, err == nil)
 	sc, _ := media_song_put(&m, "s", v, value_key(v))
 	testing.expect(t, sc.ok)
-	frames := int(math.ceil((sc.song.duration + sc.tail) * MIX_RATE))
-	whole := orender.output_from_song(&sc.song, {to = f64(frames) / MIX_RATE}, context.temp_allocator)
+	frames := int(math.ceil((f64(sc.song.duration) + sc.tail) * MIX_RATE))
+	whole := orender.output_from_song(&sc.song, {to = obase.Seconds(f64(frames) / MIX_RATE)}, context.temp_allocator)
 	clip := Audio_Clip{samples = make([]f32, 2 * whole.frames, context.temp_allocator), frames = whole.frames, source_rate = MIX_RATE, source_channels = 2}
 	for i in 0 ..< whole.frames {
 		clip.samples[2 * i], clip.samples[2 * i + 1] = whole.left[i], whole.right[i]
