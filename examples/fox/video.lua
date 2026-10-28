@@ -4,15 +4,19 @@
 -- clips, then Run again under a ShaderMaterial override on the whole model.
 video { width = 1280, height = 720, fps = 60, background = "#14161c", motion_blur = { shutter = 180 } }
 
--- Iridescent stripes that flow along the body, plus a breathing swell along
--- the normals (on the skinned pose).
+-- Iridescent stripes that flow along the body, plus a breathing swell (on the
+-- skinned pose): each vertex pushed out from low in the body by a wave that
+-- runs along it. By position alone, not along the normals: the fox is
+-- flat-shaded, its faces sharing corners but not normals, and pushing each
+-- along its own face's normal would part them.
 local TRIP_VERT = [[
 varying vec3 vNormal;
 varying vec3 vPos;
 uniform float uTime;
+const vec3 MIDDLE = vec3(0.0, 15.0, -10.0);   // in the model's units: feet at 0, nose to tail along z
 void main() {
   vNormal = normalize(normalMatrix * normal);
-  vec3 p = position + normal * (1.5 + 1.5 * sin(uTime * 4.0 + position.z * 0.08));
+  vec3 p = position + (position - MIDDLE) * (0.02 + 0.02 * sin(uTime * 4.0 + position.z * 0.08));
   vPos = (modelMatrix * vec4(p, 1.0)).xyz;
   gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
 }
