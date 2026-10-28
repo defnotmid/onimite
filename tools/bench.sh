@@ -157,7 +157,7 @@ example_rows() { # FACT_ROWS of every example in $SRC, id example:<name>
     echo "example:$name|_OUT_/ex_$name.mp4|render examples/$d/video.lua --qp 22 --set $args -o _OUT_/ex_$name.mp4"
   done
 }
-FACT_COLS='id\timpl\trun\twall_s\tuser_s\tsys_s\trss_kb\tbytes\tframes\tduration_s\twidth\theight\tfps\tothers_cpu_s\tredone\tdate\tnote'
+FACT_COLS='id\timpl\trun\twall_s\tuser_s\tsys_s\trss_kb\tbytes\tframes\tduration_s\twidth\theight\tfps\tothers_cpu_s\tothers_gpu_s\tredone\tdate\tnote'
 
 finfo() { # "frames duration width height fps" of a video, tab separated; blanks when it isn't one
   ffprobe -v error -select_streams v:0 -count_packets -of default=nw=1 \
@@ -188,6 +188,31 @@ c = open("/proc/stat").readline().split()
 print(int(c[1]) + int(c[2]) + int(c[3]), k)'
 }
 
+gpu_clients() { # "pid:client ns" for every GPU client of this user's processes: its engines' busy time (DRM fdinfo drm-engine-*)
+  python3 -I -c '
+import os
+for p in os.listdir("/proc"):
+    if not p.isdigit():
+        continue
+    seen = set()
+    try:
+        fds = os.listdir("/proc/" + p + "/fdinfo")
+    except OSError:
+        continue
+    for fd in fds:
+        try:
+            lines = open("/proc/" + p + "/fdinfo/" + fd).read().splitlines()
+        except OSError:
+            continue
+        f = dict(l.split(":", 1) for l in lines if ":" in l)
+        cid = f.get("drm-client-id", "").strip()
+        if not cid or cid in seen:
+            continue
+        seen.add(cid)
+        ns = sum(int(v.split()[0]) for k, v in f.items() if k.startswith("drm-engine-") and v.split())
+        print(p + ":" + cid, ns)'
+}
+
 wait_idle() { # until other processes use under two cores and the GPU is under 10% busy
   local b0 b1 gpu waited=0 tck; tck="$(getconf CLK_TCK)"
   while :; do
@@ -200,22 +225,27 @@ wait_idle() { # until other processes use under two cores and the GPU is under 1
 }
 
 fact_run() { # id impl round outfile cmd...  -> a row of $OUT/facts/runs.tsv
-  local id="$1" impl="$2" r="$3" out="$4" res others t0 note="" redone=-1; shift 4
+  local id="$1" impl="$2" r="$3" out="$4" res others gpu t0 note="" redone=-1; shift 4
   while :; do
     redone=$(( redone + 1 ))
     wait_idle
+    # A GPU idle for half a minute takes about 0.1 s to wake: every run starts on a woken one.
+    [ -z "${WAKE:-}" ] || ( cd "$SRC" && $WAKE >/dev/null 2>&1 ) || true
     rm -f "$OUT/facts/log"
     t0="$(cpu_ticks)"
+    gpu_clients > "$OUT/facts/gpu0"
     res=$(KEEP_LOG="$OUT/facts/log" run_one "$out" "$@")
     # Other work's CPU seconds during the run: the machine's busy time, less the kernel threads' and the run's own.
     others="$(echo "$t0 $(cpu_ticks) $(getconf CLK_TCK) $res" | awk '{o = (($3 - $1) - ($4 - $2)) / $5 - $7 - $8; printf "%.2f", o < 0 ? 0 : o}')"
-    # Failed (wall 0), or others used under two cores on average: keep it.
-    echo "$res $others" | awk '{exit !($1 == 0 || $6 < 2 * $1)}' && break
-    echo "   $id ($impl) overlapped ${others} s of other work: again" >&2
+    # Other work's GPU seconds: every client's engine time since, the run's own aside (it has exited).
+    gpu="$(gpu_clients | awk 'NR == FNR {a[$1] = $2; next} {d = $2 - a[$1]; if (d > 0) s += d} END {printf "%.2f", s / 1e9}' "$OUT/facts/gpu0" -)"
+    # Failed (wall 0), or others used under two cores and the GPU under a tenth of the run, on average: keep it.
+    echo "$res $others $gpu" | awk '{exit !($1 == 0 || ($6 < 2 * $1 && $7 < 0.1 * $1))}' && break
+    echo "   $id ($impl) overlapped ${others} s of other work's CPU, ${gpu} s of its GPU: again" >&2
   done
   note="$(grep -oE 'checked [0-9]+ frames' "$OUT/facts/log" | grep -oE '[0-9]+' | head -1 || true)"
-  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$id" "$impl" "$r" "$(echo $res | tr ' ' '\t')" "$(finfo "$out")" \
-    "$others" "$redone" "$(date +%F)" "$note" >> "$OUT/facts/runs.tsv"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$id" "$impl" "$r" "$(echo $res | tr ' ' '\t')" "$(finfo "$out")" \
+    "$others" "$gpu" "$redone" "$(date +%F)" "$note" >> "$OUT/facts/runs.tsv"
 }
 
 do_facts() {
@@ -245,6 +275,7 @@ do_facts() {
     git -C "$ROOT" archive "$tag" examples bench skills | tar -x -C "$SRC"
   fi
   mkdir -p "$OUT/facts/race" "$OUT/facts/frame"
+  WAKE="$oni frame examples/scenes/video.lua 0 -o $OUT/facts/wake.png"
   printf "$FACT_COLS\n" > "$OUT/facts/runs.tsv"
   : > "$OUT/ffmpeg_from_source"
   local -a rows=("${FACT_ROWS[@]}")
@@ -416,6 +447,7 @@ facts = {
                     "ffmpeg_from_source": source_built},
         "kept": max(int(r["run"]) for r in rows),
         "others_cpu_s_max": max(float(r["others_cpu_s"]) for r in timed) if timed else 0,
+        "others_gpu_s_max": max(float(r.get("others_gpu_s") or 0) for r in timed) if timed else 0,
         "redone": sum(int(r["redone"]) for r in rows),
     },
     "install": install,
