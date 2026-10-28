@@ -232,8 +232,9 @@ fact_run() { # id impl round outfile cmd...  -> a row of $OUT/facts/runs.tsv
     # A GPU idle for half a minute takes about 0.1 s to wake: every run starts on a woken one.
     [ -z "${WAKE:-}" ] || ( cd "$SRC" && $WAKE >/dev/null 2>&1 ) || true
     rm -f "$OUT/facts/log"
-    t0="$(cpu_ticks)"
     gpu_clients > "$OUT/facts/gpu0"
+    # after the scan, which is this script's own work (it read every process's fdinfo)
+    t0="$(cpu_ticks)"
     res=$(KEEP_LOG="$OUT/facts/log" run_one "$out" "$@")
     # Other work's CPU seconds during the run: the machine's busy time, less the kernel threads' and the run's own.
     others="$(echo "$t0 $(cpu_ticks) $(getconf CLK_TCK) $res" | awk '{o = (($3 - $1) - ($4 - $2)) / $5 - $7 - $8; printf "%.2f", o < 0 ? 0 : o}')"
