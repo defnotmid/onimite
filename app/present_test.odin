@@ -106,8 +106,8 @@ test_present_keys :: proc(t: ^testing.T) {
 }
 
 // A render's chapters: one per stop a presentation makes (a scene that
-// flows on joins the next one's), on the rendered range's clock; none for
-// a single one.
+// flows on joins the next one's, named after the scene it stops on), on the
+// rendered range's clock; none for a single one.
 @(test)
 test_render_chapters :: proc(t: ^testing.T) {
 	a := om.Scene{name = "Intro"}
@@ -125,7 +125,7 @@ test_render_chapters :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(whole), 3)
 	if len(whole) == 3 {
 		testing.expect_value(t, whole[0].title, "Intro")
-		testing.expect_value(t, whole[1].title, "Build")
+		testing.expect_value(t, whole[1].title, "Built")
 		testing.expect_value(t, whole[1].start, 1.0)
 		testing.expect_value(t, whole[2].title, "End")
 		testing.expect_value(t, whole[2].start, 3.0)
@@ -133,7 +133,7 @@ test_render_chapters :: proc(t: ^testing.T) {
 	part := render_chapters(&tl, 10, 15, 40)
 	testing.expect_value(t, len(part), 2)
 	if len(part) == 2 {
-		testing.expect_value(t, part[0].title, "Build")
+		testing.expect_value(t, part[0].title, "Built")
 		testing.expect_value(t, part[0].start, 0.0)
 		testing.expect_value(t, part[1].start, 1.5)
 	}

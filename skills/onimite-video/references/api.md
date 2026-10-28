@@ -72,8 +72,8 @@ scene { "Main", duration = 5, overlap = { previous = 0.5 },
   pauses during a hold; a looping hold's plays again. A scene that animates its own exit
   near its end plays that exit while held: leave by a `transition` instead (it waits for the
   click), or hold it `"freeze"`.
-  Renders play straight through, and carry one chapter per stop, named after its first
-  scene (players list them).
+  Renders play straight through, and carry one chapter per stop, named after the scene it
+  stops on (players list them).
 - The frame `f`: `index`, `seconds` (scene-relative inside a scene), `global_index`,
   `global_seconds`, `fps`, `width`, `height`, and `scene` inside a scene. Functions about the
   thing you are in (`animate(f, ...)`, clips, Lottie, shaders, captions) read `f.seconds`;

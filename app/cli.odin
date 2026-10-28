@@ -812,13 +812,17 @@ render_text :: proc(res: Render_Result) -> string {
 
 // The chapters of frames [start, end) (encode.Options.chapters): one for
 // each stop a presentation makes, the scenes that flow on (Hold.Flow) in
-// the chapter of the one they flow into, named after its first scene, on
-// the range's clock (the one under way at `start` at 0). None for one.
+// the chapter of the one they flow into, named after the scene it stops on,
+// on the range's clock (the one under way at `start` at 0). None for one.
 @(private)
 render_chapters :: proc(t: ^om.Timeline, fps, start, end: int) -> []enc.Chapter {
 	chapters := make([dynamic]enc.Chapter, context.temp_allocator)
 	opens := true
 	for info in t.scenes {
+		if !opens && info.start_frame < end && len(chapters) > 0 {
+			// flowed into: the chapter is named after where it stops
+			chapters[len(chapters) - 1].title = info.scene.name
+		}
 		if opens && info.start_frame < end {
 			c := enc.Chapter{start = f64(max(info.start_frame - start, 0)) / f64(fps), title = info.scene.name}
 			// one under way at `start`, or starting with the one before, takes its place
