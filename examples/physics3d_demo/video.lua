@@ -10,6 +10,7 @@
 --     examples/physics3d_demo/fetch.sh
 --     onimite render examples/physics3d_demo/video.lua -o physics3d_demo.mp4
 video {
+  motion_blur = { shutter = 180 },
   width = 1280,
   height = 720,
   fps = 60,

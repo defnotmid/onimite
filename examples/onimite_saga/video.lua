@@ -28,7 +28,7 @@ local FLASH_STRENGTH = { one = 0.7, montage = 0.55 }
 cue("flash", score.hits(FLASH), { hit = "score" })
 
 video {
-  width = look.W, height = look.H, fps = look.FPS, background = look.VOID, duration = score.duration,
+  width = look.W, height = look.H, fps = look.FPS, background = look.VOID, duration = score.duration, motion_blur = { shutter = 180 },
   audio = { { "score", bus = "music", fade_out = 0.2 } },
   -- the score and the sound effects (each scene places its own, sfx.lua)
   buses = { music = { gain_db = 0 }, sfx = { gain_db = -3 } },

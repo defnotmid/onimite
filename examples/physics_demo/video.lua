@@ -16,7 +16,7 @@ local TILE, GAP = 118, 10
 local BALL = 46
 local COLORS = { "#38bdf8", "#f472b6", "#facc15", "#4ade80", "#a78bfa", "#fb923c", "#f87171" }
 
-video { width = W, height = H, fps = 60, background = "#0f172a",
+video { width = W, height = H, fps = 60, background = "#0f172a", motion_blur = { shutter = 180 },
   master_gain_db = 7 } -- the impacts at about -14 LUFS
 
 local sim = shared("drop", function()

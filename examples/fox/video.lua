@@ -2,7 +2,7 @@
 -- (media/Fox.glb; model CC0 by PixelMannen, rigging and animations CC-BY 4.0
 -- by @tomkranis, from github.com/KhronosGroup/glTF-Sample-Assets). Its three
 -- clips, then Run again under a ShaderMaterial override on the whole model.
-video { width = 1280, height = 720, fps = 60, background = "#14161c" }
+video { width = 1280, height = 720, fps = 60, background = "#14161c", motion_blur = { shutter = 180 } }
 
 -- Iridescent stripes that flow along the body, plus a breathing swell along
 -- the normals (on the skinned pose).

@@ -68,6 +68,10 @@ Video :: struct {
 	// The master bus: its gain before the limiter (fframes'
 	// audio_mix.master_gain_db) and the limiter's ceiling, or none.
 	mix:           Mix_Options,
+	// Motion blur: how long the shutter is open, in degrees of a frame (180:
+	// half the frame's time, centred on its moment); 0, the default, is
+	// none. 3D views blur what moves in them over the shutter (motion.odin).
+	shutter:       f32,
 	user:          rawptr,
 }
 

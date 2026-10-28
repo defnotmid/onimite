@@ -906,10 +906,23 @@ video_render_to :: proc(app: ^App_State, regs: Command_Regs, fa: mem.Allocator) 
 	shared: vg.Shared_Images
 	vg.shared_images_init(&shared, backend)
 	players := make([]om.Frame_Player, len(builders.builders))
+	// Motion blur on the CPU: the players blur each frame as they draw it,
+	// one at a time, with one blur.
+	blur: om.Frame_Blur
+	blur_gpu: om.Frame_Blur_Gpu
+	defer om.frame_blur_destroy(&blur)
+	defer if blur_gpu.color != nil {
+		om.frame_blur_gpu_destroy(&app.gpu3d, &blur_gpu)
+	}
 	for &p in players {
 		om.frame_player_init(&p, backend, &app.media, &shared)
 		if !r.is_software {
 			p.gpu3d = &app.gpu3d
+			if r.video.shutter > 0 {
+				p.blur_gpu, p.blur_size = &blur_gpu, {r.width, r.height}
+			}
+		} else if r.video.shutter > 0 {
+			p.software, p.blur, p.blur_pool = &sw, &blur, pool
 		}
 	}
 	png_jobs: []Png_Job

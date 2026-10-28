@@ -983,6 +983,17 @@ l_video :: proc "c" (L: ^lua.State) -> c.int {
 		v.mix.no_limiter = true
 	}
 	lua.pop(L, 1)
+	// `motion_blur = { shutter = 180 }`: the shutter's angle, in degrees of a frame.
+	field(L, 1, "motion_blur")
+	if lua.istable(L, -1) {
+		blur_fields := fields_push(L, -1)
+		v.shutter = get_num(L, -1, "shutter", 180)
+		fields_pop(L, s, -1, "motion_blur", blur_fields)
+		if v.shutter <= 0 || v.shutter > 360 {
+			lua.L_error(L, "video: motion_blur.shutter is an angle in degrees, above 0 and up to 360")
+		}
+	}
+	lua.pop(L, 1)
 	field(L, 1, "render")
 	if lua.isfunction(L, -1) {
 		s.video_render = lua.L_ref(L, lua.REGISTRYINDEX)

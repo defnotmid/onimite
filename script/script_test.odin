@@ -1685,7 +1685,7 @@ video { width = 64, height = 48, fps = 10, duration = 0.1, background = "#000000
 	fixture_load(t, &f)
 }
 
-// o3d v0.0.38-39's: the reflector and a material's reflection and
+// o3d v0.0.38-39's: the reflector and a surface showing it, a material's
 // environment intensity, a lens focused on a point, the keyed
 // RoundedBox, Circle and Ring geometries, a partial sphere, and a lathe made
 // once however many frames draw it.
@@ -1698,7 +1698,7 @@ video { width = 64, height = 48, fps = 10, duration = 0.3, background = "#000000
   view3d { camera = { position = { 0, 0, 5 }, f_stop = 2.8, focus = { 0, 0, 1 } },
     reflector = { point = { 0, 0, 0 }, normal = { 0, 1, 0 }, scale = 0.25 }, background = rgba(0, 128, 255, 1),
     meshes = {
-      { geometry = { type = "PlaneGeometry" }, material = { reflection = 0.7, environment_intensity = 0.9 } },
+      { geometry = { type = "PlaneGeometry" }, material = { reflector = true, environment_intensity = 0.9 } },
       { geometry = { type = "RoundedBoxGeometry", radius = 0.2, segments = 3 } },
       { geometry = { type = "CircleGeometry", radius = 0.5 } },
       { geometry = { type = "RingGeometry", inner_radius = 0.2 } },
@@ -1725,7 +1725,7 @@ end }
 		}
 		found = true
 		testing.expect_value(t, v.reflector.scale, 0.25)
-		testing.expect_value(t, v.meshes[0].material.reflection, 0.7)
+		testing.expect(t, .Reflector in v.meshes[0].material.flags)
 		testing.expect_value(t, v.meshes[0].material.env_intensity, 0.9)
 		testing.expect_value(t, v.camera.focus, 4) // the point's distance along the camera's axis
 		testing.expect_value(t, v.camera.f_stop, 2.8)
@@ -2081,7 +2081,7 @@ end }
 		return
 	}
 	r := fixture_renderer(t, &f)
-	shift := om.motion_shift(60)
+	shift := om.motion_shift(&f.script.video)
 	m := &r.motion
 
 	// Frame 60, 1 s: root, the new circle, the rect, the group, its circle,
@@ -2115,3 +2115,72 @@ end }
 	testing.expect_value(t, len(r.ctx.diagnostics), 0)
 }
 
+
+// motion_blur: a box that is still for a second, then moves 60 units a
+// second. Still, its frame is the same with the shutter open; moving, the
+// shutter streaks it (its frame changes).
+@(test)
+test_motion_blur :: proc(t: ^testing.T) {
+	f: Fixture
+	defer fixture_destroy(&f)
+	fixture_init(t, &f, `
+video { width = 96, height = 64, fps = 30, duration = 2, background = "#000000", motion_blur = { shutter = 180 },
+  render = function(f)
+    local x = f.seconds < 1 and 0 or (f.seconds - 1) * 60
+    view3d { camera = { position = { 0, 0, 6 } }, meshes = {
+      { geometry = { type = "BoxGeometry" }, position = { x, 0, 0 }, material = { type = "MeshBasicMaterial", color = "#ffffff" } },
+    } }
+  end }
+`)
+	if !fixture_load(t, &f) {
+		return
+	}
+	testing.expect_value(t, f.script.video.shutter, 180)
+	differs :: proc(t: ^testing.T, f: ^Fixture, frame: int) -> int {
+		f.script.video.shutter = 180
+		blurred := slice.clone(fixture_frame(t, f, frame), context.temp_allocator)
+		f.script.video.shutter = 0
+		sharp := fixture_frame(t, f, frame)
+		n := 0
+		for b, i in blurred {
+			n += int(b != sharp[i])
+		}
+		return n
+	}
+	testing.expect_value(t, differs(t, &f, 10), 0)
+	testing.expectf(t, differs(t, &f, 31) > 0, "a moving box isn't streaked")
+}
+
+// motion_blur in 2D: a rect sliding 900 px a second streaks along its way
+// (the pixel ahead of where it is drawn takes some of it), a still circle
+// in front of it stays sharp, and a still frame is what it is without.
+@(test)
+test_motion_blur_2d :: proc(t: ^testing.T) {
+	f: Fixture
+	defer fixture_destroy(&f)
+	fixture_init(t, &f, `
+video { width = 160, height = 200, fps = 30, duration = 1, background = "#000000", motion_blur = { shutter = 180 },
+  render = function(f)
+    local x = f.seconds < 0.5 and 20 or 20 + 900 * (f.seconds - 0.5)
+    rect { x = x, y = 80, w = 40, h = 40, fill = "#ffffff" }
+    circle { cx = 140, cy = 100, r = 10, fill = "#ff0000" }
+  end }
+`)
+	if !fixture_load(t, &f) {
+		return
+	}
+	at :: proc(px: []u8, x, y: int) -> [4]u8 {
+		return {px[4 * (y * 160 + x)], px[4 * (y * 160 + x) + 1], px[4 * (y * 160 + x) + 2], px[4 * (y * 160 + x) + 3]}
+	}
+	still_blurred := slice.clone(fixture_frame(t, &f, 5), context.temp_allocator)
+	f.script.video.shutter = 0
+	testing.expect(t, slice.equal(still_blurred, fixture_frame(t, &f, 5)))
+	// Frame 17: the rect's left edge at 20 + 900 * (17 / 30 - 0.5) = 80, its
+	// opening 7.5 px back: the streak reaches left of 80 (under the cap, 4%
+	// of the height: 8 px).
+	sharp := slice.clone(fixture_frame(t, &f, 17), context.temp_allocator)
+	f.script.video.shutter = 180
+	blurred := fixture_frame(t, &f, 17)
+	testing.expectf(t, at(sharp, 76, 100).r == 0 && at(blurred, 76, 100).r > 0, "no streak behind the rect: %v %v", at(sharp, 76, 100), at(blurred, 76, 100))
+	testing.expectf(t, at(blurred, 140, 100) == at(sharp, 140, 100), "the still circle moved: %v %v", at(blurred, 140, 100), at(sharp, 140, 100))
+}

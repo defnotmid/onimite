@@ -187,7 +187,7 @@ end
 L.STRIPS = mat("#ffffff", 0.5, 0, { emissive = "#fff4e6", emissive_intensity = 0 })
 function L.build(rack_z)
   local out = {}
-  out[#out + 1] = flat(60, 60, 0, 0, 0, { type = "MeshStandardMaterial", roughness = 1, reflection = 0.85,
+  out[#out + 1] = flat(60, 60, 0, 0, 0, { type = "MeshStandardMaterial", roughness = 1, reflector = true,
     environment_intensity = 0.9,
     map = "concrete", normal_map = "concrete_n", roughness_map = "concrete_orm", ao_map = "concrete_orm",
     projection = "world", projection_scale = 1 / 2.4, projection_sharpness = 8 })

@@ -1,7 +1,9 @@
 package onimite
 
+import "core:thread"
 import "deps:o3d"
 import vg "deps:ovg"
+import vgsdl "deps:ovg/sdlgpu"
 
 // Frames built on one thread and drawn on another: a recording renderer
 // (`renderer_init(..., recording = true)`) runs the render procs and records
@@ -63,7 +65,7 @@ record_frame :: proc(r: ^Renderer, index: int, out: ^Frame_Record) {
 	assert(r.recording)
 	frame_record_clear_diagnostics(out)
 	out.sim_count = 0
-	build_frame(r, index)
+	build_frame_shown(r, index)
 	feedback_catch_up(r, index, out)
 	draw_frame(r)
 	out.feedback = r.shader_state.feedback.drew
@@ -121,6 +123,16 @@ Frame_Player :: struct {
 	shown:  [dynamic]int,
 	// Software players: the frame converted on the CPU before its upload.
 	rgba:   [dynamic]u8,
+	// Motion blur on the CPU (set by the owner when the video's shutter is
+	// open): the backend the player draws on, the blur its players share
+	// (they play one frame at a time) and the pool it runs on.
+	software:  ^vg.Software_Backend,
+	blur:      ^Frame_Blur,
+	blur_pool: ^thread.Pool,
+	// The same on the GPU: the blur the players share and the frame's size
+	// (on `gpu3d`'s device, the backend's).
+	blur_gpu:  ^Frame_Blur_Gpu,
+	blur_size: [2]u32,
 }
 
 // `shared` holds the media images every player of a render shares.
@@ -167,6 +179,15 @@ play_frame_images :: proc(p: ^Frame_Player, f: ^Frame_Record) {
 // The second half of `play_frame`: draws the record with the backend.
 play_frame_draw :: proc(p: ^Frame_Player, f: ^Frame_Record, output: vg.Render_Output = 0) {
 	vg.player_render(&p.player, &f.canvas, output)
+	if p.blur != nil && p.software != nil {
+		frame_blur_software(p.blur, p.software, p.blur_pool)
+	}
+	if p.blur_gpu != nil && p.gpu3d != nil {
+		out := (^vgsdl.Output)(uintptr(output))
+		if err := frame_blur_gpu(p.gpu3d, p.blur_gpu, (^vgsdl.SDL_Backend)(p.player.backend.data), out.texture if out != nil else nil, p.blur_size); err != nil {
+			append(&f.diagnostics, Diagnostic{severity = .Error, code = .View3d_Render, frame = f.frame, o3d = err})
+		}
+	}
 	if f.view3d_locked {
 		f.view3d_locked = false
 		if err := view3d_gpu_done(&p.media.view3d, f.view3d.list[:f.view3d.count]); err != nil {

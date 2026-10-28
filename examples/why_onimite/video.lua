@@ -83,7 +83,7 @@ local function hud(f)
 end
 
 video {
-  width = 1920, height = 1080, fps = FPS, background = ui.BG, duration = score.duration,
+  width = 1920, height = 1080, fps = FPS, background = ui.BG, duration = score.duration, motion_blur = { shutter = 180 },
   buses = { music = {}, sfx = { gain_db = 0 } },
   audio = { { "score", bus = "music", fade_out = 0.5 } },
   -- the song mixes near -21 LUFS: lifted to about -15 under the limiter

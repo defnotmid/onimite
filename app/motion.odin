@@ -44,7 +44,7 @@ motion_at :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 	defer app.script.node_sources_on = false
 	b := strings.builder_make(context.temp_allocator)
 	for f, k in frames {
-		om.build_motion(r, f, om.motion_shift(fps))
+		om.build_motion(r, f, om.motion_shift(r.video))
 		moving := make([dynamic]Motion_Draw, context.temp_allocator)
 		appears := make([dynamic]Motion_Draw, context.temp_allocator)
 		still := 0

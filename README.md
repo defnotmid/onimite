@@ -98,6 +98,10 @@ onimite is built from sibling Odin projects and Odin's vendor packages:
   targets and punctual lights, posed at a time of their animations with
   optional `morphs` and `material` overrides) into a box
   composited like any layer, on the GPU or, the same picture, on the CPU.
+- **Motion blur**: `motion_blur = { shutter = 180 }` opens a camera's
+  shutter on every frame: what moves streaks along its motion, 2D draws and
+  3D views alike (meshes, models, particles, the camera), on the GPU and the
+  CPU, in renders and the preview; `onimite motion` shows the speeds.
 - **Physics**: rigid bodies simulated once at load and sampled per frame,
   in 2D (`physics{}`, Box2D) and 3D for `view3d{}` (`physics3d{}`, Box3D):
   shapes, joints, kicks, kinematic movers, and impacts as times for sounds.

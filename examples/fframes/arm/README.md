@@ -27,8 +27,9 @@ and copies the WAVs into `media/`; the film places them at the story's events.
   lens (its camera's `focus` and `f_stop`) keeps sharp what the original racks focus on.
 
 What differs from fframes: the throw is Box3D's, so the letter lands on its face and the
-robot picks it up from behind; the letters' slots follow Inter's kerning; there is no
-motion blur on the swing (the original renders three moments of a half-open shutter); the
+robot picks it up from behind; the letters' slots follow Inter's kerning; the swing's
+motion blur is onimite's `motion_blur` with the original's half-open shutter (the original
+averages three moments of it); the
 dust moves with the beam and the sparks are dots rather than bright streaks; the bins on
 the shelves take onimite's `hash`.
 

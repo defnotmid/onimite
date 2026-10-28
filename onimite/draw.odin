@@ -8,6 +8,7 @@ import "deps:o3d"
 import common "deps:odecs/common"
 import "deps:oksl"
 import vg "deps:ovg"
+import vgsdl "deps:ovg/sdlgpu"
 import vglottie "deps:ovg/lottie"
 import vgsvg "deps:ovg/svg"
 
@@ -48,8 +49,11 @@ Renderer :: struct {
 	cpu:       ^Cpu_Drawing,
 	own_cpu:   Cpu_Drawing,
 	arena:     virtual.Arena,
-	// The frame's motion when built with `build_motion` (motion.odin).
+	// The frame's motion when built with `build_motion`, and what blurs a
+	// frame drawn on the CPU by it (motion.odin).
 	motion:    Motion,
+	blur:      Frame_Blur,
+	blur_gpu:  Frame_Blur_Gpu,
 	// Canvas images of media images by name (`media_image_id`), and the
 	// media's eviction count they were last checked against.
 	images:    map[string]Canvas_Image,
@@ -195,6 +199,10 @@ renderer_destroy :: proc(r: ^Renderer) {
 	timeline_destroy(&r.timeline)
 	virtual.arena_destroy(&r.arena)
 	motion_destroy(&r.motion)
+	frame_blur_destroy(&r.blur)
+	if r.blur_gpu.color != nil {
+		frame_blur_gpu_destroy(r.gpu3d, &r.blur_gpu)
+	}
 	r^ = {}
 }
 
@@ -206,13 +214,22 @@ renderer_destroy :: proc(r: ^Renderer) {
 render_frame :: proc(r: ^Renderer, index: int, output: vg.Render_Output = 0, readback := true) -> []u8 {
 	assert(!r.recording, "a recording renderer records frames (record_frame)")
 	media_evict(r.media)
-	build_frame(r, index)
+	build_frame_shown(r, index)
 	feedback_catch_up(r, index)
 	draw_frame(r)
 	r.software.pool = software_pool(r)
 	flush_frame(r, output)
 	if r.is_software {
+		if r.video.shutter > 0 {
+			frame_blur_software(&r.blur, &r.software, r.pool)
+		}
 		return r.software.pixels
+	}
+	if r.video.shutter > 0 && r.gpu3d != nil {
+		out := (^vgsdl.Output)(uintptr(output))
+		if err := frame_blur_gpu(r.gpu3d, &r.blur_gpu, (^vgsdl.SDL_Backend)(r.canvas.backend.data), out.texture if out != nil else nil, {r.width, r.height}); err != nil {
+			report(&r.ctx, .Error, {code = .View3d_Render, o3d = err})
+		}
 	}
 	if !readback {
 		return nil
@@ -251,6 +268,9 @@ build_frame_at :: proc(r: ^Renderer, index: int, shift: f64, arena: ^virtual.Are
 // output scale.
 draw_frame :: proc(r: ^Renderer) {
 	c := &r.canvas
+	// Motion blur: the frame keeps each draw's motion (set_motion in
+	// draw_node), the screen's from its start (set_size).
+	vg.canvas_motion_blur(c, r.video.shutter > 0)
 	vg.set_size(c, r.width, r.height)
 	vg.reset(c)
 	vg.clear_rect(c, 0, 0, r.width, r.height, r.video.background)
@@ -402,6 +422,9 @@ draw_node :: proc(r: ^Renderer, i: i32) {
 	node := r.ctx.tree.nodes[i]
 	if _, is_group := node.kind.(Group); !is_group {
 		check_box(r, i)
+		if r.video.shutter > 0 {
+			vg.set_motion(&r.canvas, motion_opened(r, int(i)))
+		}
 	}
 	switch n in node.kind {
 	case Group:

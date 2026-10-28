@@ -26,6 +26,7 @@ video {
   audio = { { "music.mp3", start = 0, gain_db = -10, fade_out = 2 } },  -- see audio.md
   master_gain_db = 0,                        -- master bus gain before the limiter
   limiter = { ceiling_db = -1 },             -- default -1 dBFS; `limiter = false` turns it off
+  motion_blur = { shutter = 180 },           -- optional: the shutter's angle in degrees (3d.md, "Motion blur")
   render = function(f)                       -- optional video-level pass
     rect { x = 0, y = 0, w = f.width, h = f.height, fill = "#0b0d12" }
     render_scenes(f)                         -- draws the active scene(s)
@@ -149,6 +150,30 @@ transform = rotate(-90) }`): the node is drawn in a group with it.
 Transform tables also take `skew_x` / `skew_y` for `skew = {x, y}`. Transforms animate
 component-wise (matrices too). Scale or rotate about a point with the
 origin arguments rather than translating by hand.
+
+### Motion blur
+
+`video { ..., motion_blur = { shutter = 180 } }` opens a camera's shutter on every frame for
+`shutter` degrees of the frame's time (180: half of it, centred on the frame's moment; at
+most 360). Each frame is built a second time at the shutter's opening, the clock read `shutter
+/ 2` degrees earlier (`f.seconds`, `animate`, `physics_at`, a view's physics), and each draw is
+paired with itself there, as `onimite motion` pairs them (by its place among its siblings,
+kind and content first, then kind). What moved streaks along its motion over the whole
+shutter; what stayed still stays sharp, and a frame where nothing moves is what it is
+without the shutter. A still draw in front of a moving one stays sharp over its streak.
+
+- 2D: a draw's motion is its transforms' and its box's (a rect sliding, a group turning, a
+  text growing), a group with `opacity`, a clip or a mask fades or cuts its content's streaks
+  with it, and a filter's halo (a blur, a drop shadow) streaks only where its content does.
+  The 2D frame is blurred as it is blended (as browsers blend 2D): a streak over half a
+  pixel's time is half its opacity.
+- What a draw shows inside it doesn't streak by itself: an image's or video's picture, an
+  SVG's or Lottie's own animation, a shader's (sample time across the shutter in it), a
+  path's points changing (a morph); they streak by their node's motion.
+- 3D views blur what moves in them (3d.md, "Motion blur"), in their own light.
+- Anything moved by `f.index` doesn't move within a frame: animate from `f.seconds`.
+- Streaks are capped at 4% of the frame's height either side. The blur runs on the GPU and with
+  `--software`, in renders and in the preview; it costs the frame's second build and one pass.
 
 ## Composition helpers (standard library)
 

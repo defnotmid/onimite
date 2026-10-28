@@ -386,7 +386,7 @@ media_add_font :: proc(m: ^Media, data: []u8) -> bool {
 }
 
 // The faces of the media's font files (not the built-in ones).
-media_font_faces :: proc(m: ^Media) -> []vg.Font_Face {
+media_font_faces :: proc(m: ^Media) -> []^vg.Font_Face {
 	return m.fonts.faces[:len(m.fonts.faces) - m.builtin_faces]
 }
 

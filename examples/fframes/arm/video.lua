@@ -316,6 +316,8 @@ end
 
 video { width = W, height = H, fps = FPS, duration = { frames = math.floor(DURATION * FPS + 1e-4) },
   background = "#000000", audio = tracks, master_gain_db = 6.5, limiter = { ceiling_db = -1.3 },
+  -- the original renders three moments of a half-open shutter: the same shutter, blurred
+  motion_blur = { shutter = 180 },
   render = function(f)
     local c = moment(f.seconds)
     marker(f.seconds, c)

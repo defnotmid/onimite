@@ -65,7 +65,7 @@ l_view3d :: proc "c" (L: ^lua.State) -> c.int {
 	}
 	lua.pop(L, 1)
 	// three.js's Reflector: the plane through `point` facing `normal`, which
-	// materials with `reflection` mirror; `scale` its resolution (0.1..1).
+	// materials with `reflector = true` show; `scale` its resolution (0.1..1).
 	field(L, 1, "reflector")
 	if lua.istable(L, -1) {
 		rt := lua.absindex(L, -1)
@@ -707,7 +707,10 @@ read_material :: proc(L: ^lua.State, s: ^Script, t: c.int, default_type: string,
 		return
 	}
 	m.metalness = get_num(L, t, "metalness", m.metalness)
-	m.reflection = clamp(get_num(L, t, "reflection", 0), 0, 1)
+	// a surface of the view's `reflector`: it shows the mirrored scene
+	if get_bool(L, t, "reflector", false) {
+		m.flags += {.Reflector}
+	}
 	m.env_intensity = max(get_num(L, t, "environment_intensity", 1), 0.0001)
 	m.roughness = get_num(L, t, "roughness", m.roughness)
 	m.emissive = read_color3(L, t, "emissive", m.emissive)

@@ -46,7 +46,7 @@ View3d :: struct {
 	// Textures drawn each frame, named: a map, a ShaderMaterial sampler or a
 	// particle sprite naming one shows it.
 	panels:                []View3d_Panel,
-	// The plane materials with `reflection` mirror (three.js's Reflector;
+	// The plane materials with `reflector = true` show (three.js's Reflector;
 	// a zero normal: none).
 	reflector:             o3d.Reflector,
 	// Media images: the equirectangular environment lighting the scene
@@ -67,6 +67,9 @@ View3d :: struct {
 	// clip stream its use was given (by media name).
 	clock_index:           int,
 	clock_fps:             int,
+	// Frame.shift of the build that drew it: what rides a physics body is
+	// placed at the build's own moment.
+	clock_shift:           f64,
 	video_streams:         []View3d_Video_Stream,
 }
 
@@ -487,7 +490,7 @@ view3d :: proc(ctx: ^Context, f: Frame, v: View3d) {
 	v.environment = strings.clone(v.environment, arena)
 	v.background = strings.clone(v.background, arena)
 	v.scene_index = f.scene.index if f.scene != nil else -1
-	v.clock_index, v.clock_fps = f.index, f.fps
+	v.clock_index, v.clock_fps, v.clock_shift = f.index, f.fps, f.shift
 	v.video_streams = view3d_video_streams(ctx, v, arena)
 	tree_add(&ctx.tree, v)
 }
@@ -1029,6 +1032,10 @@ View3d_State :: struct {
 	// tables a model's `nodes` / `materials` fill for its draw.
 	pose:     o3d.Model_Pose,
 	parts:    o3d.Model_Parts,
+	// The same at the shutter's opening (motion blur): where models are posed
+	// then, and their parts' transforms then.
+	opened_pose:  o3d.Model_Pose,
+	opened_parts: o3d.Model_Parts,
 	// The panels of the view being filled in, by name: what a name finds
 	// before the media's images.
 	panels:   [dynamic]View3d_Panel_Texture,
@@ -1075,6 +1082,8 @@ SHAPED_TYPES := [Shaped_Kind]string {
 view3d_state_destroy :: proc(s: ^View3d_State) {
 	o3d.model_pose_destroy(&s.pose)
 	o3d.model_parts_destroy(&s.parts)
+	o3d.model_pose_destroy(&s.opened_pose)
+	o3d.model_parts_destroy(&s.opened_parts)
 	view3d_jobs_destroy(&s.jobs)
 	delete(s.drawn)
 	delete(s.panels)
@@ -1132,8 +1141,13 @@ draw_view3d :: proc(r: ^Renderer, n: View3d) {
 			append(&s.panels, p)
 		}
 	}
+	// With the shutter open, the same view at the shutter's opening.
+	opened: ^View3d
+	if i := int(r.ctx.node) - 1; r.video.shutter > 0 && i >= 0 && i < len(r.motion.pair) && r.motion.pair[i] != NO_NODE {
+		opened = &r.motion.tree.nodes[r.motion.pair[i]].kind.(View3d)
+	}
 	sync.shared_lock(&v.lock)
-	view3d_scene(r, n, &job.scene, {int(pw), int(ph)}, labels)
+	view3d_scene(r, n, &job.scene, {int(pw), int(ph)}, labels, opened)
 	job.scene.depth = vg.image_id_valid(job.depth_image)
 	sync.shared_unlock(&v.lock)
 	if r.gpu3d == nil {
@@ -1187,13 +1201,34 @@ view3d_videos :: proc(r: ^Renderer, n: View3d, job: ^View3d_Job) {
 // reporting the media it names that is missing or does not decode and any
 // ShaderMaterial problems.
 @(private = "file")
-view3d_scene :: proc(r: ^Renderer, n: View3d, scene: ^o3d.Scene, size: [2]int, labels: []View3d_Label_Sprite = nil) {
+view3d_scene :: proc(r: ^Renderer, n: View3d, scene: ^o3d.Scene, size: [2]int, labels: []View3d_Label_Sprite = nil, opened: ^View3d = nil) {
 	v := &r.media.view3d
 	o3d.scene_clear(scene)
 	scene.camera = n.camera
 	scene.reflector = n.reflector
 	// the view's clock, for what rides a physics body
-	now := f32(n.clock_index) / f32(max(n.clock_fps, 1))
+	now := view3d_clock(n)
+	// Motion blur: the shutter's time, and the camera at its opening. A
+	// mesh is the one at its place in the list at the opening, when the
+	// list has as many and that one is made the same way.
+	paired: []Mesh
+	paired_models: []Model_Pose
+	opened_now: f32
+	if r.video.shutter > 0 {
+		// particles smear by their own velocity over it
+		scene.camera.shutter = r.video.shutter / 360 / f32(r.video.fps)
+	}
+	if o := opened; o != nil {
+		c := o.camera
+		scene.camera.opened = o3d.Camera_Pose{c.position, c.target, c.up, c.fov, c.height}
+		if len(o.meshes) == len(n.meshes) {
+			paired = o.meshes
+		}
+		if len(o.models) == len(n.models) {
+			paired_models = o.models
+		}
+		opened_now = view3d_clock(o^)
+	}
 	append(&scene.lights, ..n.lights)
 	// Meshes attached to a model's part draw after the models.
 	attached := make([dynamic]int, context.temp_allocator)
@@ -1202,7 +1237,12 @@ view3d_scene :: proc(r: ^Renderer, n: View3d, scene: ^o3d.Scene, size: [2]int, l
 			append(&attached, i)
 			continue
 		}
+		first := len(scene.draws)
 		view3d_mesh(r, scene, mesh, attach_frame(1, mesh.attach, mesh.group, now) * o3d.compose(mesh.position, mesh.rotation, mesh.scale))
+		if i < len(paired) && same_mesh(mesh, paired[i]) {
+			p := paired[i]
+			view3d_mesh_opened(scene, first, p, attach_frame(1, p.attach, p.group, opened_now) * o3d.compose(p.position, p.rotation, p.scale))
+		}
 	}
 	// Where attached meshes and models ride: their part's world, read right
 	// after the model it belongs to is posed.
@@ -1220,6 +1260,16 @@ view3d_scene :: proc(r: ^Renderer, n: View3d, scene: ^o3d.Scene, size: [2]int, l
 		m = 1
 	}
 	for &m in emitter_on {
+		m = 1
+	}
+	// What attached meshes and models ride at the opening (the current
+	// world unless their model is paired).
+	mesh_on_opened := make([]o3d.Mat4, len(n.meshes), context.temp_allocator)
+	model_on_opened := make([]o3d.Mat4, len(n.models), context.temp_allocator)
+	for &m in mesh_on_opened {
+		m = 1
+	}
+	for &m in model_on_opened {
 		m = 1
 	}
 	for pose, mi in n.models {
@@ -1289,15 +1339,29 @@ view3d_scene :: proc(r: ^Renderer, n: View3d, scene: ^o3d.Scene, size: [2]int, l
 			whole = view3d_material(r, scene, over.material, over.maps, over.shader)
 			override = &whole
 		}
-		o3d.gltf_draw(scene, model, attach_frame(model_on[mi], pose.attach, pose.group, now) * o3d.compose(pose.position, pose.rotation, pose.scale), anim, pose.time, pose.loop, pose.flags, &r.view3d.pose, override, morphs = pose.morphs, outline_width = pose.outline_width, outline_color = pose.outline_color, parts = parts)
+		// The model at the shutter's opening: the one at its place then, of the same file.
+		opening: Maybe(o3d.Gltf_Opening)
+		if mi < len(paired_models) && paired_models[mi].src == pose.src {
+			p := paired_models[mi]
+			opening = o3d.Gltf_Opening {
+				transform = attach_frame(model_on_opened[mi], p.attach, p.group, opened_now) * o3d.compose(p.position, p.rotation, p.scale),
+				time      = p.time,
+				morphs    = p.morphs,
+				parts     = view3d_opened_parts(r, model, p),
+				pose      = &r.view3d.opened_pose,
+			}
+		}
+		o3d.gltf_draw(scene, model, attach_frame(model_on[mi], pose.attach, pose.group, now) * o3d.compose(pose.position, pose.rotation, pose.scale), anim, pose.time, pose.loop, pose.flags, &r.view3d.pose, override, morphs = pose.morphs, outline_width = pose.outline_width, outline_color = pose.outline_color, parts = parts, opened = opening)
 		for mesh, k in n.meshes {
 			if mesh.attach.model == mi + 1 {
 				mesh_on[k] = view3d_attach_world(r, model, pose.src, mesh.attach.node)
+				mesh_on_opened[k] = view3d_attach_world(r, model, pose.src, mesh.attach.node, &r.view3d.opened_pose) if opening != nil else mesh_on[k]
 			}
 		}
 		for other, k in n.models[mi + 1:] {
 			if other.attach.model == mi + 1 {
 				model_on[mi + 1 + k] = view3d_attach_world(r, model, pose.src, other.attach.node)
+				model_on_opened[mi + 1 + k] = view3d_attach_world(r, model, pose.src, other.attach.node, &r.view3d.opened_pose) if opening != nil else model_on[mi + 1 + k]
 			}
 		}
 		for e, k in n.particles {
@@ -1349,7 +1413,12 @@ view3d_scene :: proc(r: ^Renderer, n: View3d, scene: ^o3d.Scene, size: [2]int, l
 		if mesh.attach.model > len(n.models) {
 			report(&r.ctx, .Error, {code = .Attach_Target, name = "mesh", n = i64(mesh.attach.model)})
 		}
+		first := len(scene.draws)
 		view3d_mesh(r, scene, mesh, attach_frame(mesh_on[i], mesh.attach, mesh.group, now) * o3d.compose(mesh.position, mesh.rotation, mesh.scale))
+		if i < len(paired) && same_mesh(mesh, paired[i]) {
+			p := paired[i]
+			view3d_mesh_opened(scene, first, p, attach_frame(mesh_on_opened[i], p.attach, p.group, opened_now) * o3d.compose(p.position, p.rotation, p.scale))
+		}
 	}
 	scene.environment = view3d_texture(r, n.environment)
 	for p in r.view3d.panels {
@@ -1369,6 +1438,40 @@ view3d_scene :: proc(r: ^Renderer, n: View3d, scene: ^o3d.Scene, size: [2]int, l
 	scene.tone_mapping = n.tone_mapping
 	scene.tone_mapping_exposure = n.tone_mapping_exposure
 	scene.fog = n.fog
+}
+
+// A view's clock in seconds (its build's moment).
+@(private = "file")
+view3d_clock :: proc(n: View3d) -> f32 {
+	return f32(n.clock_index) / f32(max(n.clock_fps, 1)) + f32(n.clock_shift)
+}
+
+// Whether `a` and `b` are made the same way (geometry, outline, path, and
+// instance count), so that one is the other at another moment.
+@(private = "file")
+same_mesh :: proc(a, b: Mesh) -> bool {
+	return a.geometry == b.geometry && a.outline.kind == b.outline.kind && a.outline.asset == b.outline.asset &&
+		a.path_kind == b.path_kind && len(a.instances) == len(b.instances) && a.attach == b.attach
+}
+
+// The draws from `first` on, made from one mesh, at the shutter's opening:
+// `p`, the mesh then, at `transform`, its instances and a ShaderMaterial's
+// uniforms.
+@(private = "file")
+view3d_mesh_opened :: proc(scene: ^o3d.Scene, first: int, p: Mesh, transform: o3d.Mat4) {
+	instances: o3d.Instance_Range
+	if len(p.instances) > 0 {
+		instances = o3d.scene_instances(scene, p.instances)
+	}
+	uniforms: o3d.Uniform_Range
+	if sh, ok := p.shader.?; ok && len(sh.uniforms) > 0 {
+		uniforms = o3d.scene_uniforms(scene, ..sh.uniforms)
+	}
+	for di in first ..< len(scene.draws) {
+		o3d.scene_set_draw_opened(scene, di, transform)
+		o3d.scene_set_draw_opened_instances(scene, di, instances)
+		o3d.scene_set_draw_opened_uniforms(scene, di, uniforms)
+	}
 }
 
 // Draws `mesh` at `transform` (its own position, rotation and scale, on
@@ -1522,16 +1625,20 @@ particle_rows :: proc(e: Particle_Emitter, world: o3d.Mat4, births: []Particle_B
 			dv[k] = e.velocity_spread[k] * (2 * random(e.seed, b.i, k + 3) - 1)
 		}
 		local, v := e.position + off, e.velocity + dv
-		at: o3d.Vec3
+		// where it is, and how fast it flies (what a motion blur smears it by)
+		at, flying: o3d.Vec3
 		if behind {
 			pose, velocity := e.attach.track.sample(e.attach.track.data, e.attach.track.body, b.at)
 			born := g * pose
 			from := (born * o3d.Vec4{local.x, local.y, local.z, 1}).xyz
 			moving := (born * o3d.Vec4{v.x, v.y, v.z, 0}).xyz + (g * o3d.Vec4{velocity.x, velocity.y, velocity.z, 0}).xyz
 			at = from + moving * age + e.gravity * (0.5 * age * age)
+			flying = moving + e.gravity * age
 		} else {
 			q := local + v * age + e.gravity * (0.5 * age * age)
 			at = (world * o3d.Vec4{q.x, q.y, q.z, 1}).xyz
+			dq := v + e.gravity * age
+			flying = (world * o3d.Vec4{dq.x, dq.y, dq.z, 0}).xyz
 		}
 		size := e.size[0] + (e.size[1] - e.size[0]) * u
 		p = {
@@ -1539,21 +1646,45 @@ particle_rows :: proc(e: Particle_Emitter, world: o3d.Mat4, births: []Particle_B
 			size     = {size, size},
 			color    = e.color[0] + (e.color[1] - e.color[0]) * u,
 			rotation = random(e.seed, b.i, 6) * 2 * math.PI + e.spin * age,
+			velocity = flying,
 		}
 	}
 	return rows
 }
 
-// The world of node `node` of `model` as just posed: what attaches to it
+// The world of node `node` of `model` as just posed (in `pose`: the
+// renderer's own, or its pose at the shutter's opening): what attaches to it
 // rides on it (the identity, reported, when the model has no such node).
 @(private = "file")
-view3d_attach_world :: proc(r: ^Renderer, model: ^o3d.Model, src, node: string) -> o3d.Mat4 {
+view3d_attach_world :: proc(r: ^Renderer, model: ^o3d.Model, src, node: string, pose: ^o3d.Model_Pose = nil) -> o3d.Mat4 {
 	id := o3d.model_node(model, node)
 	if id == 0 {
-		report(&r.ctx, .Error, {code = .Missing_Model_Part, name = src, a = "node", b = node})
+		if pose == nil {
+			report(&r.ctx, .Error, {code = .Missing_Model_Part, name = src, a = "node", b = node})
+		}
 		return 1
 	}
-	return o3d.model_node_world(model, id, &r.view3d.pose)
+	return o3d.model_node_world(model, id, pose if pose != nil else &r.view3d.pose)
+}
+
+// The part transforms of model pose `p` at the shutter's opening, in the
+// renderer's opened part table (nil when it moves no part).
+@(private = "file")
+view3d_opened_parts :: proc(r: ^Renderer, model: ^o3d.Model, p: Model_Pose) -> ^o3d.Model_Parts {
+	parts: ^o3d.Model_Parts
+	for part in p.parts {
+		if part.of != .Node {
+			continue
+		}
+		if id := o3d.model_node(model, part.name); id != 0 {
+			if parts == nil {
+				parts = &r.view3d.opened_parts
+				o3d.model_parts_init(parts, model)
+			}
+			parts.transforms[id - 1] = part.transform
+		}
+	}
+	return parts
 }
 
 // Resolves a material's textures or ShaderMaterial (reporting compile and

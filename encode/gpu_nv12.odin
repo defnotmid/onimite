@@ -115,7 +115,7 @@ gpu_nv12_init :: proc(g: ^GPU_NV12, device: ^sdl.GPUDevice, width, height: int) 
 	for &s in g.slots {
 		s.buffer = sdl.CreateGPUBuffer(device, {usage = {.COMPUTE_STORAGE_WRITE}, size = u32(g.size)})
 		s.transfer = sdl.CreateGPUTransferBuffer(device, {usage = .DOWNLOAD, size = u32(g.size)})
-		s.target = sdl.CreateGPUTexture(device, {type = .D2, format = .R8G8B8A8_UNORM, usage = {.COLOR_TARGET, .COMPUTE_STORAGE_READ}, width = u32(width), height = u32(height), layer_count_or_depth = 1, num_levels = 1})
+		s.target = sdl.CreateGPUTexture(device, {type = .D2, format = .R8G8B8A8_UNORM, usage = {.COLOR_TARGET, .COMPUTE_STORAGE_READ, .SAMPLER}, width = u32(width), height = u32(height), layer_count_or_depth = 1, num_levels = 1})
 		ok &&= s.transfer != nil && s.target != nil && s.buffer != nil
 	}
 	if !ok {

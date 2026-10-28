@@ -47,8 +47,11 @@ Shared :: struct {
 	// Lines `say` spoke (by name): their words and chunks in the arena (no
 	// samples: those are in the media).
 	lines:   map[string]^Said_Line,
-	// Parse scratch (used under the lock).
+	// Parse scratch, and what building the assets' shapes needs, kept warm
+	// across them (used under the lock): without it each build would take
+	// its scratch from the temp allocator, which a load never frees.
 	scratch: vg.Path,
+	shapes:  vg.Shape_Scratch,
 }
 
 // A Lua value as flat rows: tables in breadth-first order, each one's
@@ -107,6 +110,7 @@ shared_destroy :: proc(sh: ^Shared) {
 	delete(sh.baked)
 	delete(sh.lines)
 	vg.path_destroy(&sh.scratch)
+	vg.shape_scratch_destroy(&sh.shapes)
 	sh^ = {}
 }
 
@@ -133,7 +137,7 @@ shared_path :: proc(sh: ^Shared, d: string) -> ^om.Path_Asset {
 shared_asset_make :: proc(sh: ^Shared, p: ^vg.Path, rule: vg.Fill_Rule) -> ^om.Path_Asset {
 	alloc := virtual.arena_allocator(&sh.arena)
 	a := path_asset_copy(p, rule, alloc)
-	a.shape, _ = vg.shape_from_path(p, alloc)
+	a.shape, _ = vg.shape_from_path(p, alloc, scratch = &sh.shapes)
 	return a
 }
 

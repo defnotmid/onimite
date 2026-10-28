@@ -4,6 +4,8 @@ import "core:hash"
 import "core:math/linalg"
 import "core:mem/virtual"
 import "core:reflect"
+import "core:thread"
+import "deps:o3d"
 import vg "deps:ovg"
 
 // The frame's motion over the shutter (the motion table). Frame k is built
@@ -26,8 +28,11 @@ Motion :: struct {
 	arena:  virtual.Arena,
 	// Seconds from the middle back to the opening (< 0).
 	shift:  f64,
-	// Per node of `ctx.tree`.
+	// Per node of `ctx.tree`: whether it is paired, its draw at the
+	// opening (an index in `tree`; NO_NODE when unpaired) and its
+	// placements at both moments.
 	state:  [dynamic]Motion_State,
+	pair:   [dynamic]i32,
 	opened: [dynamic]vg.Transform2D,
 	middle: [dynamic]vg.Transform2D,
 }
@@ -44,15 +49,27 @@ motion_destroy :: proc(m: ^Motion) {
 	tree_destroy(&m.tree)
 	virtual.arena_destroy(&m.arena)
 	delete(m.state)
+	delete(m.pair)
 	delete(m.opened)
 	delete(m.middle)
 	m^ = {}
 }
 
-// Where the opening is measured when the video sets no shutter: half of a
-// 180° shutter (a quarter frame) before the frame's moment.
-motion_shift :: proc "contextless" (fps: int) -> f64 {
-	return -0.25 / f64(fps)
+// Where the opening is: half the video's shutter before the frame's moment,
+// or half of a 180° one (a quarter frame) when it sets none.
+motion_shift :: proc "contextless" (v: ^Video) -> f64 {
+	angle := v.shutter if v.shutter > 0 else 180
+	return -f64(angle) / 360 / 2 / f64(v.fps)
+}
+
+// Builds frame `index` to be drawn: with its motion when the video's shutter
+// is open (motion blur), else as `build_frame`.
+build_frame_shown :: proc(r: ^Renderer, index: int) {
+	if r.video.shutter > 0 {
+		build_motion(r, index, motion_shift(r.video))
+	} else {
+		build_frame(r, index)
+	}
 }
 
 // Builds frame `index`, as `build_frame`, and its motion: the frame again
@@ -70,10 +87,14 @@ build_motion :: proc(r: ^Renderer, index: int, shift: f64) {
 	m.shift = shift
 	n := len(r.ctx.tree.nodes)
 	resize(&m.state, n)
+	resize(&m.pair, n)
 	resize(&m.opened, n)
 	resize(&m.middle, n)
 	for &s in m.state {
 		s = .None
+	}
+	for &k in m.pair {
+		k = NO_NODE
 	}
 	if len(m.tree.nodes) > 0 {
 		motion_pair_children(r, 0, 0, vg.TRANSFORM_IDENTITY, vg.TRANSFORM_IDENTITY)
@@ -96,6 +117,65 @@ motion_speed :: proc(r: ^Renderer, i: int) -> (speed: f32, direction: Vec2) {
 	direction = (vg.transform_point(m.middle[i], 0.5, 0.5) - vg.transform_point(m.opened[i], 0.5, 0.5)) * per_frame
 	return
 }
+
+// How draw `i` moved over the shutter, as vg.set_motion takes it: what maps
+// a point of it at the middle to where it was at the opening, in the
+// frame's pixels (the identity when it isn't paired: it doesn't move).
+motion_opened :: proc(r: ^Renderer, i: int) -> vg.Transform2D {
+	m := &r.motion
+	if i >= len(m.state) || m.state[i] != .Paired {
+		return vg.TRANSFORM_IDENTITY
+	}
+	s := vg.transform_scaling(r.scale, r.scale)
+	mid := vg.transform_multiply(m.middle[i], s)
+	open := vg.transform_multiply(m.opened[i], s)
+	return vg.transform_multiply(vg.transform_inverse(mid), open)
+}
+
+// What blurring a 2D frame by its motion needs on the CPU, kept by whoever
+// draws frames there (a renderer, or a render's players, which draw one at
+// a time): o3d's tile tables and the frame as light (`color`) and blurred.
+Frame_Blur :: struct {
+	tables:     o3d.Motion_Tables,
+	color, out: [dynamic][4]f32,
+}
+
+frame_blur_destroy :: proc(b: ^Frame_Blur) {
+	o3d.motion_tables_destroy(&b.tables)
+	delete(b.color)
+	delete(b.out)
+	b^ = {}
+}
+
+// Blurs the software backend's last frame (premultiplied RGBA8) by the
+// motion its draws left (o3d's reconstruction filter, the pass a 3D view
+// blurs with): nothing when it kept none. The frame is blurred as it is
+// blended, as ovg composites 2D, so a streak over half a pixel's time is
+// half its opacity, as a draw at half opacity is.
+frame_blur_software :: proc(b: ^Frame_Blur, sw: ^vg.Software_Backend, pool: ^thread.Pool) {
+	velocity, nearness := vg.software_backend_velocity(sw)
+	w, h := int(sw.width), int(sw.height)
+	if len(velocity) < w * h || w * h == 0 {
+		return
+	}
+	resize(&b.color, w * h)
+	resize(&b.out, w * h)
+	px := sw.pixels
+	for &c, k in b.color {
+		c = {f32(px[4 * k]), f32(px[4 * k + 1]), f32(px[4 * k + 2]), f32(px[4 * k + 3])} / 255
+	}
+	params := o3d.Motion_Blur{max_blur = o3d.MOTION_MAX_BLUR * f32(h), depth_scale = FRAME_BLUR_DEPTH_SCALE}
+	o3d.motion_blur(&b.tables, b.color[:], velocity, nearness, w, h, params, b.out[:], pool)
+	for c, k in b.out {
+		for j in 0 ..< 4 {
+			px[4 * k + j] = u8(clamp(c[j] * 255 + 0.5, 0, 255))
+		}
+	}
+}
+
+// A 2D frame's nearness rises by one surface per draw (vg.set_motion):
+// draws half a step apart are one surface.
+FRAME_BLUR_DEPTH_SCALE :: 0.5
 
 // Where a drawn node is in its parent's space: an affine from a reference
 // shape. The unit square onto its box (rects, circles, ellipses, images,
@@ -174,6 +254,7 @@ motion_pair :: proc(r: ^Renderer, mid, open: i32, wm, wo: vg.Transform2D) {
 		return
 	}
 	m.state[mid] = .Paired
+	m.pair[mid] = open
 	m.middle[mid] = pm
 	m.opened[mid] = vg.transform_multiply(motion_placement(r, &r.motion.tree.nodes[open].kind), wo)
 }

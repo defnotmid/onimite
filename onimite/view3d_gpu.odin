@@ -48,17 +48,8 @@ view3d_gpu_destroy :: proc(g: ^View3d_Gpu) {
 // `view3d_gpu_done`, after the frame is drawn (`locked`: false when the
 // GPU can't render).
 view3d_gpu_prepare :: proc(g: ^View3d_Gpu, v: ^View3d_Media, jobs: []^View3d_Job) -> (err: o3d.Error, locked: bool) {
-	switch g.state {
-	case .Untried:
-		if g.failure = o3d_gpu.init(&g.gpu, g.device); g.failure != nil {
-			o3d_gpu.destroy(&g.gpu)
-			g.state = .Failed
-			return g.failure, false
-		}
-		g.state = .Ready
-	case .Failed:
+	if !view3d_gpu_ready(g) {
 		return g.failure, false
-	case .Ready:
 	}
 	locked = true
 	sync.shared_lock(&v.lock)
@@ -156,4 +147,89 @@ view3d_job_run_software :: proc(job: ^View3d_Job, images: ^vg.Image_Store) {
 			o3d.depth_image(job.scene.camera, o3d.software_depth(sw), w, h, job.far, slice.reinterpret([]f16, out)[:w * h * 4])
 		}
 	}
+}
+
+// Sets up o3d on the device on first use; false when it can't (`failure`).
+@(private)
+view3d_gpu_ready :: proc(g: ^View3d_Gpu) -> bool {
+	switch g.state {
+	case .Untried:
+		if g.failure = o3d_gpu.init(&g.gpu, g.device); g.failure != nil {
+			o3d_gpu.destroy(&g.gpu)
+			g.state = .Failed
+			return false
+		}
+		g.state = .Ready
+	case .Failed:
+		return false
+	case .Ready:
+	}
+	return true
+}
+
+// What blurring a frame drawn on the GPU by its motion needs, kept by
+// whoever draws frames there (a renderer, or a render's players, one frame
+// at a time): o3d's tables, and the frame as light and blurred
+// (LIGHT_FORMAT) at its size.
+Frame_Blur_Gpu :: struct {
+	tables:     o3d_gpu.Motion_Tables,
+	color, out: ^sdl.GPUTexture,
+	size:       [2]u32,
+}
+
+frame_blur_gpu_destroy :: proc(g: ^View3d_Gpu, b: ^Frame_Blur_Gpu) {
+	if g != nil && g.state == .Ready {
+		o3d_gpu.motion_tables_destroy(&g.gpu, &b.tables)
+	}
+	for t in ([]^sdl.GPUTexture{b.color, b.out}) {
+		if t != nil {
+			sdl.ReleaseGPUTexture(g.device, t)
+		}
+	}
+	b^ = {}
+}
+
+// Blurs the frame ovg's backend `vgb` just drew into `target` (`size`
+// pixels; nil: its own screen) by the motion its draws left, with o3d's
+// pass (the one a 3D view blurs with), after the frame on the same device:
+// the frame copied out as it is blended (as frame_blur_software takes it),
+// blurred, and copied back. Nothing when it kept none.
+frame_blur_gpu :: proc(g: ^View3d_Gpu, b: ^Frame_Blur_Gpu, vgb: ^vgsdl.SDL_Backend, target: ^sdl.GPUTexture, size: [2]u32) -> o3d.Error {
+	velocity, nearness := vgsdl.velocity_textures(vgb)
+	target := target if target != nil else vgsdl.offscreen_texture(vgb)
+	if velocity == nil || target == nil || size.x == 0 || size.y == 0 {
+		return nil
+	}
+	if !view3d_gpu_ready(g) {
+		return g.failure
+	}
+	if b.size != size || b.color == nil {
+		for t in ([]^sdl.GPUTexture{b.color, b.out}) {
+			if t != nil {
+				sdl.ReleaseGPUTexture(g.device, t)
+			}
+		}
+		info := sdl.GPUTextureCreateInfo{type = .D2, format = o3d_gpu.LIGHT_FORMAT, usage = {.SAMPLER, .COLOR_TARGET}, width = size.x, height = size.y, layer_count_or_depth = 1, num_levels = 1}
+		b.color, b.out, b.size = sdl.CreateGPUTexture(g.device, info), sdl.CreateGPUTexture(g.device, info), size
+		if b.color == nil || b.out == nil {
+			return .Device
+		}
+	}
+	blit :: proc(cmd: ^sdl.GPUCommandBuffer, from, to: ^sdl.GPUTexture, size: [2]u32) {
+		sdl.BlitGPUTexture(cmd, {source = {texture = from, w = size.x, h = size.y}, destination = {texture = to, w = size.x, h = size.y}, filter = .NEAREST})
+	}
+	cmd := sdl.AcquireGPUCommandBuffer(g.device)
+	if cmd == nil {
+		return .Device
+	}
+	blit(cmd, target, b.color, size)
+	params := o3d.Motion_Blur{max_blur = o3d.MOTION_MAX_BLUR * f32(size.y), depth_scale = FRAME_BLUR_DEPTH_SCALE}
+	err := o3d_gpu.record_motion_blur(&g.gpu, &b.tables, cmd, b.color, velocity, nearness, b.out, size.x, size.y, params)
+	if err == nil {
+		blit(cmd, b.out, target, size)
+	}
+	if !sdl.SubmitGPUCommandBuffer(cmd) && err == nil {
+		err = .Device
+	}
+	return err
 }
