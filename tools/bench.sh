@@ -6,6 +6,7 @@
 #   tools/bench.sh facts BINARY    the same on a local build -> $OUT/facts.json and the tables printed; bench/ is left alone
 #   tools/bench.sh setup           what fframes and Remotion install before their first frame -> bench/facts.json
 #   tools/bench.sh visual          the same frames from both sides (VSPECS): PSNR/SSIM and montages in $OUT
+#   tools/bench.sh md              BENCHMARK.md's tables again from bench/facts.json
 #
 # Env: RUNS (3), OUT (.work/bench), OF (visual's onimite: build/onimite), BENCH_ONLY (substring filter on pair and
 #      example names), BENCH_FFRAMES=1 (measure fframes' side again), BENCH_ROWS (facts: the rows to measure again,
@@ -389,8 +390,8 @@ old_race = {r["name"]: r for r in old.get("race", {}).get("rows", [])}
 partial = bench_rows.split()
 old_on = old.get("measured", {}).get("onimite", {})
 old_tag = old_on.get("tag")
-if partial and old.get("measured", {}).get("fframes", {}).get("machine") != ffhere.split("|", 1)[1]:
-    sys.exit("BENCH_ROWS keeps rows measured on this machine only; bench/facts.json's were measured on another")
+if partial and (old_ff.get("machine") != ffhere.split("|", 1)[1] or old_ff.get("commit") != ffcommit):
+    sys.exit("BENCH_ROWS keeps rows measured on this machine against the same fframes commit only; bench/facts.json's weren't")
 def kept(f):
     return f if not f or "tag" in f else dict(f, tag=old_tag)
 rows = list(csv.DictReader(open(f"{out}/runs.tsv"), delimiter="\t"))
@@ -437,7 +438,8 @@ race.sort(key=lambda r: order.get(r["name"], len(order)))
 sp = [r["speedup"] for r in race if "speedup" in r]
 best = max((r for r in race if "speedup" in r), key=lambda r: r["speedup"], default=None)
 # crates built with FFmpeg from source: this run's builds, and those of the reused rows
-source_built = sorted(set(built_from_source.split()) | (set(old_ff.get("ffmpeg_from_source", [])) & reused))
+source_built = sorted(set(built_from_source.split()) | (set(old_ff.get("ffmpeg_from_source", [])) & reused)
+                     | (set(old_ff.get("ffmpeg_from_source", [])) if partial else set()))
 
 install, sums = [], {}
 for path in sorted(glob.glob(f"{rel}/onimite-{tag}-*")) if rel else []:
@@ -468,9 +470,10 @@ facts = {
         "fframes": {"tag": fftag or None, "commit": ffcommit, "machine": f"{cpu}|{gpu}|{mesa}", "measured": dates(ff_dates),
                     "ffmpeg_from_source": source_built},
         "kept": max(int(r["run"]) for r in rows),
-        "others_cpu_s_max": max(float(r["others_cpu_s"]) for r in timed) if timed else 0,
-        "others_gpu_s_max": max(float(r.get("others_gpu_s") or 0) for r in timed) if timed else 0,
-        "redone": sum(int(r["redone"]) for r in rows),
+        # over the runs behind every figure: a partial run's, and those of the run its kept rows are from
+        "others_cpu_s_max": max([float(r["others_cpu_s"]) for r in timed] + ([old["measured"].get("others_cpu_s_max", 0)] if partial else []), default=0),
+        "others_gpu_s_max": max([float(r.get("others_gpu_s") or 0) for r in timed] + ([old["measured"].get("others_gpu_s_max", 0)] if partial else []), default=0),
+        "redone": sum(int(r["redone"]) for r in rows) + (old["measured"].get("redone", 0) if partial else 0),
     },
     "install": install,
     "race": {"examples": old["race"]["examples"] if partial else len({c for _, c in pairs}), "compared": len(sp), "onimite_faster": sum(1 for x in sp if x > 1),
@@ -634,6 +637,7 @@ EOF
 
 case "${1:-}" in
   facts) do_facts "${2:-}" ;;
+  md) facts_md "$ROOT/bench/facts.json" "$ROOT/BENCHMARK.md" ;; # the tables again from bench/facts.json
   setup) do_setup ;;
   visual) do_visual ;;
   *) sed -n '2,12p' "$0"; exit 2 ;;

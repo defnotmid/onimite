@@ -3,11 +3,11 @@
   "date": "2026-10-28",
   "machine": {"cpu": "AMD Ryzen 9 9900X3D 12-Core Processor", "gpu": "AMD Radeon RX 9070 XT", "mesa": "26.2.5", "os": "Linux 7.2.8-9-omarchy", "ram_bytes": 132596125696},
   "onimite": {"tag": "v0.0.69", "archive_sha256": "80e6d6e27e6779a1e3ade0163b6b1578b2b0918ba0045dd758eea35ab062e5d5", "examples": "v0.0.69", "examples_changed": false, "measured": "2026-10-28", "measured_again": ["arm", "example:fox", "example:graph_paper", "example:onimite_saga", "example:physics3d_demo", "example:suite", "example:talk", "example:three_d", "example:why_onimite", "saga_frame", "saga_inspect", "saga_inspect_all", "svg_in_3d"], "rest_from": "v0.0.68"},
-  "fframes": {"tag": "v1.3.0", "commit": "69174f0187b5d8e92329246898f70250b59f08f2", "machine": "AMD Ryzen 9 9900X3D 12-Core Processor|AMD Radeon RX 9070 XT|26.2.5", "measured": "2026-10-27", "ffmpeg_from_source": []},
+  "fframes": {"tag": "v1.3.0", "commit": "69174f0187b5d8e92329246898f70250b59f08f2", "machine": "AMD Ryzen 9 9900X3D 12-Core Processor|AMD Radeon RX 9070 XT|26.2.5", "measured": "2026-10-27", "ffmpeg_from_source": ["arm-example", "conference-splash-screen-example", "fframes-intro", "motion-graphics-example", "neon-triangle-example", "podcast-example", "shader-mode", "shaders-example", "signal-lab", "teej_podcast_example"]},
   "kept": 3,
-  "others_cpu_s_max": 0.12,
-  "others_gpu_s_max": 0.0,
-  "redone": 1
+  "others_cpu_s_max": 19.95,
+  "others_gpu_s_max": 0.57,
+  "redone": 70
  },
  "install": [
   {"target": "linux-x86_64", "archive": "onimite-v0.0.69-linux-x86_64.tar.gz", "download_bytes": 11786475, "unpacked_bytes": 29103737},
