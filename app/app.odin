@@ -268,7 +268,7 @@ command_apply :: proc(app: ^App_State, row: Command_Row) -> Error {
 		return preview_open(app, regs)
 	case .Update:
 		return update_run(app, regs)
-	case .Playback_Toggle, .Playback_Set, .Frame_Set, .Frame_Step, .Frame_Start, .Seconds_Step, .Scene_Step, .Script_Reload, .Script_Open, .File_Dialog, .Loop_Toggle, .Loop_Set, .Mute_Toggle, .Mute_Set, .Volume_Set, .Volume_Step, .Bookmark_Toggle, .Mark_In, .Mark_Out, .Mark_Point, .Mark_Delete, .Timeline_Zoom, .Timeline_Fit, .Timeline_Pan, .Timeline_Follow, .Timeline_Toggle, .Timeline_Row_Toggle, .Video_Zoom, .Video_Pan, .Video_Fit, .Fullscreen_Toggle, .Cursor_Hover, .Dismiss, .Watch_Show, .Watch_Section_Set, .View_Scroll, .View_Filter, .Problem_Step, .Quit:
+	case .Playback_Toggle, .Playback_Set, .Frame_Set, .Frame_Step, .Frame_Start, .Seconds_Step, .Scene_Step, .Present_Next, .Present_Previous, .Blackout_Toggle, .Script_Reload, .Script_Open, .File_Dialog, .Loop_Toggle, .Loop_Set, .Mute_Toggle, .Mute_Set, .Volume_Set, .Volume_Step, .Bookmark_Toggle, .Mark_In, .Mark_Out, .Mark_Point, .Mark_Delete, .Timeline_Zoom, .Timeline_Fit, .Timeline_Pan, .Timeline_Follow, .Timeline_Toggle, .Timeline_Row_Toggle, .Video_Zoom, .Video_Pan, .Video_Fit, .Fullscreen_Toggle, .Cursor_Hover, .Dismiss, .Watch_Show, .Watch_Section_Set, .View_Scroll, .View_Filter, .Problem_Step, .Quit:
 		preview_apply(app, row.kind, regs)
 	case .Panel_Split, .Panel_Close, .Panel_Resize, .View_Open, .View_Close, .View_Select, .View_Move, .Lister_Open, .Lister_Filter, .Lister_Close:
 		workspace_apply(&app.preview.workspace, row.kind, regs)

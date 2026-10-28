@@ -62,6 +62,18 @@ scene { "Main", duration = 5, overlap = { previous = 0.5 },
   starts 0.5 s before the previous one ends and runs `duration + 0.5` s. To land scene `i`
   on cue `c[i]` after a 0.5 s transition, use `duration = c[i+1] - c[i]` and
   `overlap = { previous = 0.5 }`. Check with `timeline`.
+- `hold` is what a presentation (`preview --present`) does at the scene's end, where it
+  waits for the presenter's click: `"alive"` (the default) keeps the scene's clock running
+  past its last frame, so what has arrived stays and what moves (a `loop`, a spinning
+  model, particles, a shader) keeps moving; `"loop"` plays the scene again from its start (alone, without the transition into it);
+  `"freeze"` holds its last frame still; `false` plays straight on into the next scene (a
+  build that shouldn't wait). The stop is where the next scene comes in (its overlap): the
+  click plays the transition, and a held scene leaves from where the hold left it. Sound
+  pauses during a hold; a looping hold's plays again. A scene that animates its own exit
+  near its end plays that exit while held: leave by a `transition` instead (it waits for the
+  click), or hold it `"freeze"`.
+  Renders play straight through, and carry one chapter per stop, named after its first
+  scene (players list them).
 - The frame `f`: `index`, `seconds` (scene-relative inside a scene), `global_index`,
   `global_seconds`, `fps`, `width`, `height`, and `scene` inside a scene. Functions about the
   thing you are in (`animate(f, ...)`, clips, Lottie, shaders, captions) read `f.seconds`;

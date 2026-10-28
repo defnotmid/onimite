@@ -43,8 +43,22 @@ Scene :: struct {
 	// Where the script defines it ("scenes/race.lua:42"), for tools that
 	// point an agent at the code.
 	source:   string,
+	// What `preview --present` does at the scene's end (`hold` in scripts).
+	// Renders play straight through.
+	hold:     Hold,
 	// Free for the video's own state.
 	user:     rawptr,
+}
+
+// A presentation waits at each scene's end for the presenter's click
+// (where its next overlap would begin), the scene still running on (Alive:
+// what has arrived stays, what moves keeps moving), playing again from its
+// start (Loop) or still (Freeze); a Flow scene plays straight into the next.
+Hold :: enum u8 {
+	Alive,
+	Loop,
+	Freeze,
+	Flow,
 }
 
 Video :: struct {

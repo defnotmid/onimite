@@ -209,6 +209,7 @@ Preview_Args :: struct {
 	mute:                 bool   `flag:"Mute" about:"no sound"`,
 	no_loop:              bool   `flag:"No_Loop" about:"stop at the end"`,
 	bare:                 bool   `flag:"Bare" about:"the video alone (no controls, panels or timeline), played once, then the window closes; Escape closes it sooner"`,
+	present:              bool   `flag:"Present" about:"a presentation: the video alone, fullscreen, waiting at each scene's end (its hold) for Right, Space, Page Down or a click; Left or Page Up back a scene, B black, P pause, Escape closes"`,
 	fullscreen:           bool   `flag:"Fullscreen" about:"open fullscreen (F toggles)"`,
 	exit_after:           int    `mcp:"-" reg:"count" arg:"N" about:"close after N window frames"`,
 	using script_options: Script_Options `shared:""`,

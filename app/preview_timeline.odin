@@ -370,7 +370,7 @@ segments :: proc(app: ^App_State) -> []Preview_Scene {
 		return scenes
 	}
 	whole := make([]Preview_Scene, 1, context.temp_allocator)
-	whole[0] = {{}, 0, preview_duration(app)}
+	whole[0] = {{}, 0, preview_duration(app), .Alive}
 	return whole
 }
 

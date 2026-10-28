@@ -67,6 +67,8 @@ Preview_Scene :: struct {
 	name:        Text_Span,
 	start_frame: int,
 	end_frame:   int,
+	// what a presentation does at its end
+	hold:        om.Hold,
 }
 
 // The loaded video's size, rate and length, and its scenes in order (all
@@ -101,7 +103,7 @@ preview_timeline_build :: proc(t: ^Preview_Timeline, v: ^om.Video, tl: ^om.Timel
 	}
 	t.width, t.height, t.fps, t.frames = v.width, v.height, v.fps, tl.duration_frames
 	for s in tl.scenes {
-		append(&t.scenes, Preview_Scene{text_push(&t.text, s.scene.name), s.start_frame, s.end_frame})
+		append(&t.scenes, Preview_Scene{text_push(&t.text, s.scene.name), s.start_frame, s.end_frame, s.scene.hold})
 	}
 }
 

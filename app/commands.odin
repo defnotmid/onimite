@@ -49,6 +49,9 @@ Command_Kind :: enum u8 {
 	Frame_Start,
 	Seconds_Step,
 	Scene_Step,
+	Present_Next,
+	Present_Previous,
+	Blackout_Toggle,
 	Script_Reload,
 	Script_Open,
 	File_Dialog,
@@ -172,7 +175,7 @@ COMMAND_KINDS := [Command_Kind]Command_Descriptor {
 	.Render = {
 		help = "regs.spec a range, regs.path the output (.mp4, or a directory for PNGs), regs.option codec (0 H.264, 1 H.265), regs.count qp (0 default), .Native / .Draft in regs.flags",
 		domain = .Script, flags = FRONT, args = Render_Args,
-		about = "the video to a file (.mp4 with the audio mix, or a directory of PNGs)",
+		about = "the video to a file (.mp4 with the audio mix and a chapter per scene, or a directory of PNGs)",
 	},
 	.Frame = {
 		help = "regs.spec comma-separated frame specs, regs.path the output directory, .Svg in regs.flags: an SVG next to every PNG",
@@ -289,6 +292,9 @@ COMMAND_KINDS := [Command_Kind]Command_Descriptor {
 	.Frame_Start = {help = "to the bookmark when there is one and the playhead isn't on it, else the first frame", domain = .Preview},
 	.Seconds_Step = {help = "regs.scalar seconds, signed", domain = .Preview},
 	.Scene_Step = {help = "regs.count scenes, signed: to the start of the next / previous scene", domain = .Preview},
+	.Present_Next = {help = "a presentation (--present): from a held scene on to the next (its transition plays); while one plays, to its end, held", domain = .Preview},
+	.Present_Previous = {help = "a presentation: back to the end of the scene before, held", domain = .Preview},
+	.Blackout_Toggle = {help = "a presentation: the screen black, and back", domain = .Preview},
 	.Script_Reload = {help = "re-run the script (and its media when regs.flag); a failing edit keeps the last good one", domain = .Preview},
 	.Script_Open = {help = "regs.path another script (dropped on the window or picked): the preview switches to it", domain = .Preview, needs = {.Path}},
 	.File_Dialog = {help = "the open-file dialog for another script", domain = .Preview},
@@ -391,6 +397,7 @@ Command_Flag :: enum u8 {
 	Paused, // preview: open paused
 	No_Loop, // preview: stop at the end
 	Bare, // preview: the video alone, played once
+	Present, // preview: a presentation, waiting at each scene's end
 	Fullscreen, // preview: open fullscreen
 	Mute, // preview: no sound
 	No_Media, // script load: skip the media (the preview's worker loads it)

@@ -181,6 +181,7 @@ The examples in the onimite repository are working patterns to read and borrow f
 | `examples/media_demo` | `video_frame` clip with its sound, WebVTT `subtitle_at`, `audio_spectrum` bars, durations from media |
 | `examples/batch` | data-driven title card: `props` with defaults, `--batch rows.json` / `rows.csv`, `--props`, `--set` |
 | `examples/scenes` | scene structure and overlaps |
+| `examples/talk` | a talk for `preview --present`: scenes as slides held at their ends (`hold`: alive by default, a 3D slide that keeps turning; `"loop"`; `false` for a card that plays on), builds as scenes that redraw what came before in place; rendered, the recorded talk with a chapter per slide |
 
 The examples are not in the release download. Read them at the release you have, so they
 match its API: `onimite --version` prints the tag (`v0.1.0`; `dev` for a source build: use
@@ -329,8 +330,8 @@ with commas.
 | `frame SPECS [-o frames] [--svg]` | full-size PNGs; `--svg` also writes each frame's node tree as SVG to read positions, text and colours |
 | `onion RANGE [-n 6] [-o onion.png]` | a movement's trajectory and easing |
 | `motion SPECS` | how fast each thing moves at a moment: its speed in video pixels a frame where it moves most, its centre's direction, the script line that drew it, and what appears within the shutter. It builds the frame again at the shutter's opening (the video's `motion_blur` shutter, or a quarter frame earlier: a 180° one) and pairs each draw with itself there by its place among its siblings (kind and content first, then kind: a counter whose text changes is the same text); a draw that wasn't there doesn't move and is listed as appearing. Speeds come from the clock (`f.seconds`, `animate`, `physics_at`): anything moved by `f.index` reads as still, and nothing moves on the first frame of the video or a scene. A path's points changing (a morph) doesn't count as motion, only its groups' transforms; a 3D view moves as a box |
-| `preview [AT] [--paused] [--no-loop] [--mute] [--bare] [--fullscreen] [--exit-after N]` | real-time window with sound and hot reload, for the user (`--bare`: the video alone, no controls, panels or timeline, played once, then the window closes, Escape sooner; `--fullscreen`: open fullscreen; both together play a script full screen like a screensaver; `--exit-after N`: close after N window frames). Playback that misses frames steps down to 75, 50, 35 or 25% of the window's size (a step that doesn't help is undone: the script isn't limited by pixels) and back up once it keeps up; the status line shows the size; a paused frame renders at full size, so judge detail paused. The window opens before the script loads (it loads once, in the window): a script that fails shows its error there until an edit fixes it, and an `AT` that names nothing warns and starts as without it |
-| `render [RANGE] [-o out.mp4 \| dir] [--draft] [--h265] [--qp N] [--native] [--slices N]` | encode the video or a part, or write PNGs |
+| `preview [AT] [--paused] [--no-loop] [--mute] [--bare] [--fullscreen] [--present] [--exit-after N]` | real-time window with sound and hot reload, for the user (`--bare`: the video alone, no controls, panels or timeline, played once, then the window closes, Escape sooner; `--fullscreen`: open fullscreen; both together play a script full screen like a screensaver; `--present`: a presentation, bare and fullscreen, playing each scene and waiting at its end (`scene{ hold = ... }`) for Right, Space, Page Down or a click (clickers send these), Left, Page Up or a right click back a scene, B black, P pause, Escape closes; `--exit-after N`: close after N window frames). Playback that misses frames steps down to 75, 50, 35 or 25% of the window's size (a step that doesn't help is undone: the script isn't limited by pixels) and back up once it keeps up; the status line shows the size; a paused frame renders at full size, so judge detail paused. The window opens before the script loads (it loads once, in the window): a script that fails shows its error there until an edit fixes it, and an `AT` that names nothing warns and starts as without it |
+| `render [RANGE] [-o out.mp4 \| dir] [--draft] [--h265] [--qp N] [--native] [--slices N]` | encode the video or a part (an MP4 carries a chapter per scene, or per slide when scenes `hold = false` into the next), or write PNGs |
 | `render --batch rows.json\|rows.csv [-o out/{name}.mp4] [--rows a..b \| --only N]` | one video per data row, the row as `props` |
 | `snapshot SPECS [--update] [--dir _frame_snapshots] [--threshold 16] [--max-diff 0.001]` | compare frames with approved PNGs; writes `.actual.png`/`.diff.png`, exit 2 on a difference; a PNG of another size (another `--scale`) is the error `snapshot_size` |
 | `audio analyze [RANGE] [--waveform w.png]` | loudness (LUFS, LRA), true peak, clipping, silence, per scene |
@@ -500,6 +501,11 @@ The short version of `references/design.md`:
 - Elements enter with a spring or ease-out over 300-600 ms and leave faster (200-300 ms,
   ease-in). Related items stagger by 60-120 ms. Give 1-2 s to read after motion settles; keep
   a little ambient motion in holds; never move everything at once.
+- A talk is a video whose scenes are its slides: `preview --present` plays each scene and
+  waits at its end for the presenter (a held scene keeps moving: `hold = "alive"`, the
+  default; or `"loop"`, `"freeze"`; `hold = false` plays on, for a build inside a slide).
+  Builds are scenes too: the next one draws what came before in place and brings in the
+  new part. The same script renders the recorded talk, with a chapter per slide.
 - Cross-fade scenes with `overlap = { previous = 0.4 }` (added to the scene's duration),
   give the entering scene `transition = { "wipe", duration = 0.5, easing = ease_in_out }`
   (fade, slide, wipe, clock_wipe, zoom, glitch; the previous scene leaves by it), or carry an

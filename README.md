@@ -271,7 +271,7 @@ document with `--json`) and exit codes (1 on failure, 2 for inspect and
 snapshot failures and usage errors). `onimite --help` lists every option.
 
 ```sh
-onimite render   video.lua [range] -o out.mp4 [--draft]   # the video (+ AAC mix), or PNGs into a directory
+onimite render   video.lua [range] -o out.mp4 [--draft]   # the video (+ AAC mix, a chapter per scene), or PNGs into a directory
 onimite video.lua                                         # the same: render is the default
 onimite render   video.lua --batch rows.json -o out/{name}.mp4   # one video per row (or rows.csv)
 onimite frame    video.lua Intro@1s,50%,end -o frames [--svg]  # PNGs of single frames, with their problems (-o shot.png: one)
@@ -291,8 +291,9 @@ onimite audio analyze video.lua [range] [--waveform w.png] # LUFS, LRA, true pea
 onimite audio at      video.lua 3.1s,6.2s                 # what plays: file position, level, ducking, a song's notes
 onimite audio onsets  video.lua [range] [--min 0.1]       # where sounds start, and the beat
                                                           # (audio commands: --track FILE hears one track, --track score/bass a song's part)
-onimite preview  video.lua [at] [--paused] [--no-loop] [--mute] [--bare] [--fullscreen]
+onimite preview  video.lua [at] [--paused] [--no-loop] [--mute] [--bare] [--fullscreen] [--present]
                                                           # --bare: the video alone, played once, then the window closes
+                                                          # --present: a presentation, waiting at each scene's end for a click
 onimite update   [--check]                                # replace this release with the latest (--check: only say)
 ```
 
@@ -469,6 +470,7 @@ Each folder in `examples/` is a `video.lua` with its `media/`.
 | `media_demo` | a synced clip, WebVTT subtitles, an audio spectrum, durations from media |
 | `batch` | a title card per row of `rows.json` / `rows.csv` |
 | `scenes` | scene overlaps (cross-fades) |
+| `talk` | a talk: `preview --present` holds each slide (a scene) until the next click, still moving; builds, a looping slide, a card that plays on |
 | `fframes/` | all 20 fframes example crates (22 videos) ported: each makes the same video, the benchmark material (media: `examples/fframes/fetch.sh`) |
 
 No heavy media is committed. An example that needs some has a `fetch.sh`, run

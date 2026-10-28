@@ -123,7 +123,13 @@ Options :: struct {
 	// The application's task pool (borrowed; nil codes slices on the
 	// encoder thread alone).
 	pool:           ^thread.Pool,
+	// Chapters the file carries (players list them): the first at 0, starts
+	// rising, each before the end. Copied at `open`.
+	chapters:       []Chapter,
 }
+
+// A chapter: where it starts (seconds) and its title.
+Chapter :: video.Chapter
 
 // The native encoder's H.264 slices by default (odecs' own default).
 NATIVE_SLICES :: 4
@@ -199,6 +205,7 @@ open :: proc(e: ^Encoder, path: string, width, height, fps: int, opts: Options =
 	cfg.preference = .Native if opts.software else .Automatic
 	cfg.ultrafast = opts.ultrafast
 	cfg.alpha = .Premultiplied
+	cfg.chapters = opts.chapters
 	om.pool_work_init(&e.work, opts.pool)
 	// A frame has at most one slice per macroblock row.
 	slices := opts.slices if opts.slices > 0 else NATIVE_SLICES

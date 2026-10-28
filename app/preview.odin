@@ -107,6 +107,25 @@ Preview_State :: struct {
 	// shown), played once; the end of the video or Escape closes the window.
 	bare:               bool,
 	bare_area:          Workspace_Rect,
+	// --present: bare and fullscreen, waiting at each scene's end (its hold,
+	// Preview_Scene) for the presenter. Playing toward the stop `toward`
+	// (scene `toward_scene`, once `aimed`: kept, so a clock steered back a
+	// frame toward the sound can't land on the stop just left), `holding`
+	// there (or looping the scene, Hold.Loop), the held scene's clock run on
+	// `hold_time` seconds past it (Hold.Alive; `hold_paused` stops it), and
+	// once moved on, the scenes up to `carry_through` still `carry` seconds
+	// ahead (the held one leaves from where it was); the screen black while
+	// `blackout`.
+	present:            bool,
+	aimed:              bool,
+	toward:             int,
+	toward_scene:       int,
+	holding:            bool,
+	hold_paused:        bool,
+	hold_time:          f64,
+	carry:              f64,
+	carry_through:      int,
+	blackout:           bool,
 	quit:               bool,
 	// File_Dialog asked for the open-file dialog (the loop opens it).
 	file_dialog:        bool,
@@ -116,6 +135,8 @@ Preview_State :: struct {
 	watcher:            File_Watcher,
 	// Requests to the worker: what was last asked, and the reload generation.
 	asked_frame:        int,
+	asked_hold:         f64,
+	asked_through:      int,
 	asked_scale:        f32,
 	asked_reload:       u64,
 	reload_gen:         u64,
@@ -290,6 +311,9 @@ preview_open :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 	pv.fullscreen = .Fullscreen in regs.flags
 	if .Bare in regs.flags {
 		pv.bare, pv.loop = true, false
+	}
+	if .Present in regs.flags {
+		pv.present, pv.bare, pv.fullscreen, pv.loop = true, true, true, false
 	}
 	// The worker loads the script (the start frame resolved with it).
 	pv.script_path = strings.clone(app.script_path)
@@ -554,6 +578,7 @@ preview_report :: proc(app: ^App_State) {
 // warning or error (45), "close" closes the Watch (50), "hover" moves the
 // mouse down and up the Watch's rows (from 10). The lister, as
 // keys and typing reach it (`preview_drive_lister`): "goto" and "openview".
+// A presentation: "present_next" moves on every 240 window frames from 300.
 @(private)
 preview_drive :: proc(app: ^App_State, s: ^ui.State, drive: string, frames: int) {
 	c := &app.commands
@@ -575,6 +600,9 @@ preview_drive :: proc(app: ^App_State, s: ^ui.State, drive: string, frames: int)
 	}
 	if frames % 60 == 30 && strings.contains(drive, "fullscreen") {
 		command_push(c, .Fullscreen_Toggle, {})
+	}
+	if frames >= 300 && frames % 240 == 60 && strings.contains(drive, "present_next") {
+		command_push(c, .Present_Next, {})
 	}
 	preview_drive_workspace(app, drive, frames)
 	preview_drive_lister(app, s, drive, frames)
@@ -864,7 +892,12 @@ preview_apply :: proc(app: ^App_State, kind: Command_Kind, regs: Command_Regs) {
 	pv := &app.preview
 	#partial switch kind {
 	case .Playback_Toggle:
-		if !pv.playing && !pv.loop && pv.frame >= preview_duration(app) - 1 {
+		if pv.present && pv.holding && !pv.playing {
+			// a held scene: its clock stops and runs on
+			pv.hold_paused = !pv.hold_paused
+			break
+		}
+		if !pv.playing && !pv.loop && !pv.present && pv.frame >= preview_duration(app) - 1 {
 			preview_seek(app, 0)
 		}
 		pv.playing = !pv.playing
@@ -897,12 +930,68 @@ preview_apply :: proc(app: ^App_State, kind: Command_Kind, regs: Command_Regs) {
 	case .Scene_Step:
 		pv.detached = false
 		preview_seek(app, scene_step_target(app, regs.count))
+	case .Present_Next:
+		stop, scene := present_stop(app, pv.frame)
+		switch {
+		case scene < 0:
+		case !pv.holding && !pv.playing:
+			// paused (opened --paused, or P): play on
+			pv.playing = true
+		case !pv.holding:
+			// playing: on to the end it is playing toward
+			present_hold(app, stop, scene)
+		case pv.frame < stop && pv.timeline.scenes[scene].hold != .Loop:
+			// held before the first scene's end (back at the start): play it
+			pv.holding, pv.playing, pv.aimed, pv.carry = false, true, false, 0
+		case stop + 1 < preview_duration(app):
+			// on: the transition and the next scene, from the held frame (the
+			// sound paused there), or from the stop when looping the scene;
+			// the held scene leaves from where the hold left it (a looping
+			// one from where its loop was)
+			#partial switch pv.timeline.scenes[scene].hold {
+			case .Alive:
+				pv.carry = pv.hold_time
+			case .Loop:
+				pv.carry = f64(pv.frame - stop) / f64(preview_fps(app))
+			case:
+				pv.carry = 0
+			}
+			pv.carry_through = stop
+			pv.holding, pv.hold_time, pv.hold_paused, pv.playing = false, 0, false, true
+			if pv.frame != stop {
+				preview_seek(app, stop + 1)
+			}
+			pv.toward, pv.toward_scene = present_stop(app, stop + 1)
+			pv.aimed = true
+		}
+		preview_sync_audio(app)
+	case .Present_Previous:
+		// back to the end of the scene before the one showing (past those
+		// that flow on), held; before the first, its start, still
+		_, scene := present_stop(app, pv.frame)
+		first := max(scene, 0)
+		for first > 0 && pv.timeline.scenes[first - 1].hold == .Flow {
+			first -= 1
+		}
+		if first > 0 {
+			stop, before := present_stop(app, pv.timeline.scenes[first].start_frame - 1)
+			present_hold(app, stop, before)
+		} else {
+			pv.playing, pv.holding, pv.hold_time, pv.hold_paused, pv.aimed = false, true, 0, true, false
+			preview_seek(app, 0)
+		}
+		pv.carry = 0
+		preview_sync_audio(app)
+	case .Blackout_Toggle:
+		pv.blackout = !pv.blackout
 	case .Script_Open:
 		preview_switch_script(app, regs.path)
 	case .File_Dialog:
 		pv.file_dialog = true
 	case .Script_Reload:
-		// The worker reloads; the UI keeps showing the last frame meanwhile.
+		// The worker reloads; the UI keeps showing the last frame meanwhile
+		// (a presentation aims again at the new timeline's stops).
+		pv.aimed = false
 		pv.reload_gen += 1
 		pv.reload_media |= regs.flag
 		pv.asked_frame = -1
@@ -1128,6 +1217,75 @@ scene_step_target :: proc(app: ^App_State, steps: int) -> int {
 	return target
 }
 
+// Where a presentation holds for the scene showing at `frame`: the last
+// frame before the next scene comes in (where its overlap, the transition,
+// begins), past scenes that flow on (Hold.Flow), and the scene whose hold
+// it is; the video's last frame for the last. Scene -1 before the timeline
+// is known.
+@(private)
+present_stop :: proc(app: ^App_State, frame: int) -> (stop: int, scene: int) {
+	pv := &app.preview
+	scenes := pv.timeline.scenes[:]
+	last := preview_duration(app) - 1
+	if len(scenes) == 0 {
+		return last, -1
+	}
+	scene = 0
+	for s, i in scenes {
+		if s.start_frame <= frame {
+			scene = i
+		}
+	}
+	for {
+		stop = last
+		if scene + 1 < len(scenes) {
+			stop = min(scenes[scene].end_frame, scenes[scene + 1].start_frame) - 1
+		}
+		if scene + 1 >= len(scenes) || (scenes[scene].hold != .Flow && stop >= frame) {
+			return
+		}
+		scene += 1
+	}
+}
+
+// Holds at `stop`, scene `scene`'s end: running on, still, or (Hold.Loop)
+// playing the scene again from its start until the presenter moves on.
+@(private)
+present_hold :: proc(app: ^App_State, stop, scene: int) {
+	pv := &app.preview
+	pv.holding, pv.hold_time, pv.hold_paused = true, 0, false
+	pv.toward, pv.toward_scene, pv.aimed = stop, scene, true
+	if scene >= 0 && pv.timeline.scenes[scene].hold == .Loop {
+		pv.playing = true
+		preview_seek(app, pv.timeline.scenes[scene].start_frame)
+	} else {
+		pv.playing = false
+		preview_seek(app, stop)
+	}
+	preview_sync_audio(app)
+}
+
+// After playback moved on from `from`: holds where it reached the stop it
+// is playing toward (that of the scene at `from` until one is aimed at).
+@(private)
+present_reach :: proc(app: ^App_State, from: int) {
+	pv := &app.preview
+	if !pv.aimed {
+		pv.toward, pv.toward_scene = present_stop(app, from)
+		pv.aimed = pv.toward_scene >= 0
+	}
+	if pv.aimed && pv.frame >= pv.toward {
+		present_hold(app, pv.toward, pv.toward_scene)
+	}
+}
+
+// The hold of the scene a presentation is held in.
+@(private)
+present_scene_hold :: proc(app: ^App_State) -> om.Hold {
+	_, scene := present_stop(app, app.preview.frame)
+	return app.preview.timeline.scenes[scene].hold if scene >= 0 else .Freeze
+}
+
 // Shows the Watch on `section`: the open one, else a new one beside the
 // video (WATCH_WIDTH wide), else in the focused panel.
 @(private)
@@ -1288,8 +1446,15 @@ CLOCK_STEER :: 0.1
 @(private)
 preview_playback_advance :: proc(app: ^App_State, dt: f64) {
 	pv := &app.preview
+	if pv.present && pv.holding && !pv.playing && !pv.hold_paused {
+		pv.hold_time += dt
+	}
 	if !pv.playing || pv.scrubbing || pv.sounds_loading || pv.timeline.frames <= 0 {
 		return
+	}
+	from := pv.frame
+	defer if pv.present {
+		present_reach(app, from)
 	}
 	fps := f64(preview_fps(app))
 	total := f64(preview_duration(app)) / fps
@@ -1319,7 +1484,7 @@ preview_playback_advance :: proc(app: ^App_State, dt: f64) {
 			// The audio stopped at the end (not looping).
 			pv.playing = false
 			pv.clock = total - 1 / fps
-			pv.quit ||= pv.bare
+			pv.quit ||= pv.bare && !pv.present
 		}
 	} else {
 		pv.clock += dt
@@ -1329,7 +1494,7 @@ preview_playback_advance :: proc(app: ^App_State, dt: f64) {
 			} else {
 				pv.clock = total - 1 / fps
 				pv.playing = false
-				pv.quit ||= pv.bare
+				pv.quit ||= pv.bare && !pv.present
 			}
 		}
 	}
@@ -1569,15 +1734,33 @@ preview_request :: proc(app: ^App_State, p: ^platform.Platform) {
 		// Quantized, so a window drag doesn't rebuild the renderer every pixel.
 		scale = clamp(math.ceil(fit * 32) / 32, 1.0 / 32, 2)
 	}
-	if pv.asked_frame == pv.frame && pv.asked_scale == scale && pv.reload_gen == pv.asked_reload {
+	// a presentation's hold: the held scene runs on past its last frame, and
+	// leaves from there (Hold.Alive); a looping one plays on its last frame,
+	// alone (no previous scene coming in), its clock going round from its
+	// start with the sound (Hold.Loop)
+	frame, hold, through := pv.frame, 0.0, 0
+	if pv.present {
+		switch {
+		case pv.holding && !pv.playing && present_scene_hold(app) == .Alive:
+			hold, through = pv.hold_time, pv.frame
+		case pv.holding && pv.playing:
+			frame = pv.toward
+			hold, through = f64(pv.frame - pv.toward) / f64(preview_fps(app)), pv.toward
+		case:
+			hold, through = pv.carry, pv.carry_through
+		}
+	}
+	if pv.asked_frame == frame && pv.asked_hold == hold && pv.asked_through == through && pv.asked_scale == scale && pv.reload_gen == pv.asked_reload {
 		return
 	}
 	sync.mutex_lock(&mb.mutex)
-	mb.request = {frame = pv.frame, scale = scale, reload = pv.reload_gen, reload_media = pv.reload_media, asked = time.tick_now()}
+	mb.request = {frame = frame, hold = hold, hold_through = through, scale = scale, reload = pv.reload_gen, reload_media = pv.reload_media, asked = time.tick_now()}
 	mb.request_seq += 1
 	sync.cond_signal(&mb.cond)
 	sync.mutex_unlock(&mb.mutex)
-	pv.asked_frame = pv.frame
+	pv.asked_frame = frame
+	pv.asked_hold = hold
+	pv.asked_through = through
 	pv.asked_scale = scale
 	pv.asked_reload = pv.reload_gen
 	pv.reload_media = false
@@ -1735,7 +1918,7 @@ preview_views :: proc(app: ^App_State, s: ^ui.State, p: ^platform.Platform) {
 @(private = "file")
 video_draw :: proc(s: ^ui.State, box: ^ui.Box, data: rawptr) {
 	pv := (^Preview_State)(data)
-	if !render.image_loaded(&pv.video_image) {
+	if !render.image_loaded(&pv.video_image) || pv.blackout {
 		return
 	}
 	w := box.rect.max.x - box.rect.min.x
@@ -1786,7 +1969,10 @@ video_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32, area: Workspace_Rect
 		}
 	}
 	if ui.clicked(sig) && !pv.video_drag_moved {
-		command_push(c, .Playback_Toggle)
+		command_push(c, .Present_Next if pv.present else .Playback_Toggle)
+	}
+	if pv.present && ui.right_clicked(sig) {
+		command_push(c, .Present_Previous)
 	}
 	if pv.loading || !render.image_loaded(&pv.video_image) {
 		label := "Rendering the first frame…"

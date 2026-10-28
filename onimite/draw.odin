@@ -52,6 +52,12 @@ Renderer :: struct {
 	// The frame's motion when built with `build_motion`, and what blurs a
 	// frame drawn on the CPU by it (motion.odin).
 	motion:    Motion,
+	// A presentation's hold (Hold.Alive): the scenes that start at or before
+	// frame `held_through` run `clock_offset` seconds ahead, so the held scene
+	// keeps moving on its last frame and leaves (its transition) from where
+	// the hold left it; the scenes after start on their own clock.
+	clock_offset: f64,
+	held_through: int,
 	blur:      Frame_Blur,
 	blur_gpu:  Frame_Blur_Gpu,
 	// Canvas images of media images by name (`media_image_id`), and the
@@ -252,12 +258,15 @@ build_frame_at :: proc(r: ^Renderer, index: int, shift: f64, arena: ^virtual.Are
 	tree_reset(&r.ctx.tree, virtual.arena_allocator(arena))
 	// The shutter never opens before the video starts.
 	f := Frame{index = index, global_index = index, fps = r.video.fps, shift = max(shift, -f64(index) / f64(r.video.fps))}
+	r.ctx.hold_offset, r.ctx.held_through = r.clock_offset, r.held_through
 	r.ctx.frame = f
 	clear(&r.ctx.shader_uses)
 	clear(&r.ctx.clip_uses)
 	clear(&r.ctx.scene_starts)
 	r.ctx.audio_pending = 0
 	if r.video.render != nil {
+		// one render for the whole video: the hold runs it all on
+		f.shift += r.clock_offset
 		r.video.render(f, &r.ctx)
 	} else {
 		render_scenes(f, &r.ctx)

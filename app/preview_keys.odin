@@ -79,6 +79,26 @@ PREVIEW_KEYS := [?]Key_Binding {
 	{key = .Escape, modal = true, kind = .Dismiss},
 }
 
+// A presentation's keys (--present), in place of the preview's: on and
+// back as presentation clickers send them, black, pause.
+@(rodata)
+PRESENT_KEYS := [?]Key_Binding {
+	{key = .Right, kind = .Present_Next},
+	{key = .Space, kind = .Present_Next},
+	{key = .Page_Down, kind = .Present_Next},
+	{key = .Down, kind = .Present_Next},
+	{key = .Enter, kind = .Present_Next},
+	{key = .Left, kind = .Present_Previous},
+	{key = .Page_Up, kind = .Present_Previous},
+	{key = .Up, kind = .Present_Previous},
+	{key = .Backspace, kind = .Present_Previous},
+	{key = .B, kind = .Blackout_Toggle},
+	{key = .P, kind = .Playback_Toggle},
+	{key = .F, kind = .Fullscreen_Toggle},
+	{key = .Q, kind = .Quit},
+	{key = .Escape, modal = true, kind = .Dismiss},
+}
+
 // Pushes the rows of the keys that went down this window frame (the
 // window's key actions); `modal`: the lister is up.
 preview_keys :: proc(app: ^App_State, actions: []ui.Action_Row, modal: bool) {
@@ -89,7 +109,7 @@ preview_keys :: proc(app: ^App_State, actions: []ui.Action_Row, modal: bool) {
 		if a.kind != .Key || a.consumed {
 			continue
 		}
-		for b in PREVIEW_KEYS {
+		for b in (PRESENT_KEYS[:] if app.preview.present else PREVIEW_KEYS[:]) {
 			if b.key == a.key && (b.modal || !modal) && (b.repeat || !a.repeat) && held(b.ctrl, a.control) && held(b.shift, a.shift) {
 				command_push(&app.commands, b.kind, b.regs)
 				a.consumed = true

@@ -9,6 +9,7 @@ import "core:mem"
 import "core:os"
 import "core:path/filepath"
 import "core:slice"
+import "core:strings"
 import "core:testing"
 import "deps:o3d"
 import om "../onimite"
@@ -323,6 +324,52 @@ scene { "C", duration = 1, overlap = { previous = 0.25 }, transition = { "wipe",
 	testing.expect_value(t, len(f.script.video.scenes), 3)
 	testing.expect_value(t, f.script.video.scenes[1].overlap.previous, 0.5)
 	testing.expect_value(t, f.script.video.scenes[2].overlap.previous, 0.25)
+}
+
+// `hold`: what a presentation does at each scene's end (the default is
+// alive); a held scene's clock runs on past its last frame (clock_offset);
+// any other value is an error naming the choices.
+@(test)
+test_scene_hold :: proc(t: ^testing.T) {
+	f: Fixture
+	defer fixture_destroy(&f)
+	fixture_init(t, &f, `
+video { width = 64, height = 36, fps = 10, background = "#000000" }
+scene { "A", duration = 1, render = function(f) rect { x = 0, y = 0, w = f.seconds * 20, h = 36, fill = "#ffffff" } end }
+scene { "B", duration = 1, hold = "loop" }
+scene { "C", duration = 1, hold = "freeze" }
+scene { "D", duration = 1, hold = false }
+scene { "E", duration = 1, hold = true }
+`)
+	if !fixture_load(t, &f) {
+		return
+	}
+	holds := [?]om.Hold{.Alive, .Loop, .Freeze, .Flow, .Alive}
+	for h, i in holds {
+		testing.expect_value(t, f.script.video.scenes[i].hold, h)
+	}
+	// A's last frame (0.9 s: 18 px lit) held 1 s on: 38 px
+	lit :: proc(px: []u8) -> (n: int) {
+		for x in 0 ..< 64 {
+			n += 1 if px[x * 4] > 128 else 0
+		}
+		return
+	}
+	r := fixture_renderer(t, &f)
+	testing.expect_value(t, lit(fixture_frame(t, &f, 9)), 18)
+	r.clock_offset, r.held_through = 1, 9
+	testing.expect_value(t, lit(fixture_frame(t, &f, 9)), 38)
+	// a scene starting after the held frame runs on its own clock
+	r.held_through = -1
+	testing.expect_value(t, lit(fixture_frame(t, &f, 9)), 18)
+	r.clock_offset, r.held_through = 0, 0
+
+	bad: Fixture
+	defer fixture_destroy(&bad)
+	fixture_init(t, &bad, `scene { "A", duration = 1, hold = "wait" }`)
+	failed := load(&bad.script, bad.path, nil, &bad.media, &bad.shared) != nil
+	testing.expect(t, failed)
+	testing.expect(t, strings.contains(error_message(bad.script.failure, context.temp_allocator), `hold is "alive", "loop", "freeze" or false`))
 }
 
 // `props`: JSON objects merged in order (objects to tables, arrays from 1,

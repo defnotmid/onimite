@@ -57,6 +57,10 @@ Load_Phase :: enum u8 {
 // What the UI asks for.
 Render_Request :: struct {
 	frame:        int,
+	// a presentation's hold: the scenes starting at or before frame
+	// `hold_through` run `hold` seconds ahead (Renderer.clock_offset)
+	hold:         f64,
+	hold_through: int,
 	scale:        f32,
 	// Bumped by Script_Reload; the worker reloads when it differs from the
 	// generation it loaded.
@@ -1082,7 +1086,9 @@ worker_render :: proc(w: ^Render_Worker, req: Render_Request) {
 		s.size = size
 	}
 	began := time.tick_now()
+	r.clock_offset, r.held_through = req.hold, req.hold_through
 	frame := draw_into(w, r, w.gpu_ok, req.frame, s.texture)
+	r.clock_offset, r.held_through = 0, 0
 	ms := time.duration_milliseconds(time.tick_since(began))
 	w.last_request = req
 	w.last_ms = ms

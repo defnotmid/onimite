@@ -34,6 +34,9 @@ Context :: struct {
 	// The first node of each scene `render_scenes` built this frame, in
 	// order (cleared by `build_frame`): which scene drew a node.
 	scene_starts: [dynamic]i32,
+	// The renderer's hold for this build (Renderer.clock_offset, held_through).
+	hold_offset:  f64,
+	held_through: int,
 	// The node being drawn, index + 1 (0 outside drawing): `report` puts it
 	// on what it reports.
 	node:         i32,
@@ -60,8 +63,10 @@ render_scenes :: proc(f: Frame, ctx: ^Context) {
 			fps          = f.fps,
 			scene        = &info,
 		}
-		// The shutter never opens before the scene starts.
-		sf.shift = max(f.shift, -f64(sf.index) / f64(f.fps))
+		// A presentation's hold runs the scenes up to the held one on; the
+		// shutter never opens before the scene starts.
+		held := ctx.hold_offset if info.start_frame <= ctx.held_through else 0
+		sf.shift = max(f.shift + held, -f64(sf.index) / f64(f.fps))
 		append(&ctx.scene_starts, i32(len(ctx.tree.nodes)))
 		info.scene.render(sf, ctx)
 	}

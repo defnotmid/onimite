@@ -1012,6 +1012,29 @@ l_scene :: proc "c" (L: ^lua.State) -> c.int {
 	lua.L_checktype(L, 1, i32(lua.Type.TABLE))
 	fields_begin(L, 1)
 	sc: om.Scene
+	// `hold`: what a presentation does at the scene's end (om.Hold): "alive"
+	// (true, the default), "loop", "freeze", or false to play on into the
+	// next scene. Read before anything is cloned, so its error leaks nothing.
+	field(L, 1, "hold")
+	#partial switch lua.type(L, -1) {
+	case .NIL:
+	case .BOOLEAN:
+		sc.hold = .Alive if lua.toboolean(L, -1) else .Flow
+	case .STRING:
+		switch string(lua.tostring(L, -1)) {
+		case "alive":
+			sc.hold = .Alive
+		case "loop":
+			sc.hold = .Loop
+		case "freeze":
+			sc.hold = .Freeze
+		case:
+			lua.L_error(L, "scene: hold is \"alive\", \"loop\", \"freeze\" or false (play on into the next scene), not \"%s\"", lua.tostring(L, -1))
+		}
+	case:
+		lua.L_error(L, "scene: hold is \"alive\", \"loop\", \"freeze\" or false (play on into the next scene)")
+	}
+	lua.pop(L, 1)
 	lua.rawgeti(L, 1, 1)
 	if lua.type(L, -1) != .STRING {
 		field(L, 1, "name")
