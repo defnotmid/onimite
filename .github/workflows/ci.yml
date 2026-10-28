@@ -47,8 +47,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/ocurves
-          # Pinned like ovg and o3d, which keep their paths and shapes in its contour tables (both on v0.0.6: o3d v0.0.45 checked on it).
-          ref: v0.0.6
+          # Pinned like ovg and o3d, which keep their paths and shapes in its contour tables (v0.0.8, v0.0.6's code with a demo: ovg v0.0.52 and o3d v0.0.45 were checked on v0.0.6).
+          ref: v0.0.8
           path: ocurves
       - uses: actions/checkout@v4
         with:
@@ -65,14 +65,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/odecs
-          # Pinned like ottis: onimite, ovg v0.0.52, o3d v0.0.45, odawg v0.0.47 and ottis v0.0.10 decode through odecs v0.0.16.
+          # Pinned like ottis: onimite, ovg v0.0.52, o3d v0.0.45, odawg v0.0.47 and ottis v0.0.11 decode through odecs v0.0.16.
           ref: v0.0.16
           path: odecs
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/ottis
           # Pinned: ottis is released on its own; a new tag is taken on purpose.
-          ref: v0.0.10
+          ref: v0.0.11
           path: ottis
       - uses: actions/checkout@v4
         with:
@@ -135,8 +135,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/ocurves
-          # Pinned like ovg and o3d, which keep their paths and shapes in its contour tables (both on v0.0.6: o3d v0.0.45 checked on it).
-          ref: v0.0.6
+          # Pinned like ovg and o3d, which keep their paths and shapes in its contour tables (v0.0.8, v0.0.6's code with a demo: ovg v0.0.52 and o3d v0.0.45 were checked on v0.0.6).
+          ref: v0.0.8
           path: ocurves
       - uses: actions/checkout@v4
         with:
@@ -153,14 +153,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/odecs
-          # Pinned like ottis: onimite, ovg v0.0.52, o3d v0.0.45, odawg v0.0.47 and ottis v0.0.10 decode through odecs v0.0.16.
+          # Pinned like ottis: onimite, ovg v0.0.52, o3d v0.0.45, odawg v0.0.47 and ottis v0.0.11 decode through odecs v0.0.16.
           ref: v0.0.16
           path: odecs
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/ottis
           # Pinned: ottis is released on its own; a new tag is taken on purpose.
-          ref: v0.0.10
+          ref: v0.0.11
           path: ottis
       - uses: actions/checkout@v4
         with:
