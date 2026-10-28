@@ -143,7 +143,6 @@ Diagnostic_Code :: enum u8 {
 	Physics_Overlap,
 	Physics_Outline_Gaps,
 	// 3D outline geometry.
-	Extrude_Folded,
 	// The same for `physics3d{}`: metres, the world's bounds.
 	Physics3d_Offscreen,
 	Physics3d_Overlap,
@@ -261,7 +260,6 @@ DIAGNOSTIC_TEXT := [Diagnostic_Code]string {
 	.Physics_Unsettled         = "{where}: physics body {q:body} is still moving at {s:time}s, the end of the simulation: later frames hold it there mid-motion (simulate longer)",
 	.Physics_Offscreen         = "{where}: physics body {q:body} leaves the canvas at {s:time}s and does not come back",
 	.Physics_Overlap           = "{where}: physics body {q:body} starts {r:depth}px inside {q:with} at {s:time}s, so they fly apart (move it or give it room)",
-	.Extrude_Folded            = "an ExtrudeGeometry's bevel folds {r:w} of its outline's contours over themselves: its faces get holes and its walls turn inside out (keep an inward bevel_offset, or bevel_size around a hole, under half the outline's thinnest part)",
 	.Physics_Outline_Gaps      = "{where}: physics body {q:body} collides with only {r:w}% of its outline: pieces too thin or small for Box2D (under 0.5 px across) are left out, and other bodies pass through there (draw the outline larger or with thicker parts)",
 	.Physics3d_Offscreen       = "{where}: physics3d body {q:body} leaves the world's bounds at {s:time}s and does not come back (widen the simulation's bounds, or leaves = true on the body)",
 	.Physics3d_Overlap         = "{where}: physics3d body {q:body} starts {r:depth} cm inside {q:with} at {s:time}s, so they fly apart (move it or give it room)",
@@ -352,7 +350,6 @@ DIAGNOSTIC_KEY := [Diagnostic_Code]string {
 	.Physics_Offscreen         = "physics_offscreen:{where}:{body}",
 	.Physics_Overlap           = "physics_overlap:{where}:{body}:{with}",
 	.Physics_Outline_Gaps      = "physics_outline_gaps:{where}:{body}",
-	.Extrude_Folded            = "extrude_folded",
 	.Physics3d_Offscreen       = "physics3d_offscreen:{where}:{body}",
 	.Physics3d_Overlap         = "physics3d_overlap:{where}:{body}:{with}",
 	.Off_Beat                  = "off_beat:{where}",

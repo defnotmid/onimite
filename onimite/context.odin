@@ -60,6 +60,8 @@ render_scenes :: proc(f: Frame, ctx: ^Context) {
 			fps          = f.fps,
 			scene        = &info,
 		}
+		// The shutter never opens before the scene starts.
+		sf.shift = max(f.shift, -f64(sf.index) / f64(f.fps))
 		append(&ctx.scene_starts, i32(len(ctx.tree.nodes)))
 		info.scene.render(sf, ctx)
 	}

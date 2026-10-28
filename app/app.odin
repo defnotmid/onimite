@@ -240,6 +240,8 @@ command_apply :: proc(app: ^App_State, row: Command_Row) -> Error {
 		return strip_export(app, regs)
 	case .Onion:
 		return onion_export(app, regs)
+	case .Motion:
+		return motion_at(app, regs)
 	case .Snapshot:
 		return snapshot_check(app, regs)
 	case .Inspect:

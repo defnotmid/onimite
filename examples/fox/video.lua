@@ -26,7 +26,7 @@ void main() {
   vec3 n = normalize(vNormal);
   float band = vPos.x * 3.0 + vPos.y * 5.0 + vPos.z * 2.0 - uTime * 3.0;
   // a palette picked by eye (display colours), as light: a ShaderMaterial writes light
-  vec3 col = pow(0.5 + 0.5 * cos(6.2831 * (band * 0.25 + vec3(0.0, 0.33, 0.67))), vec3(2.2));
+  vec3 col = sRGBTransferEOTF(vec4(0.5 + 0.5 * cos(6.2831 * (band * 0.25 + vec3(0.0, 0.33, 0.67))), 1.0)).rgb;
   float rim = pow(1.0 - abs(dot(n, vec3(0.0, 0.0, 1.0))), 2.0);
   float l = 0.35 + 0.65 * max(dot(n, normalize(vec3(0.4, 0.9, 0.5))), 0.0);
   gl_FragColor = vec4(col * l + rim * vec3(1.0, 0.9, 1.0) * 0.6, 1.0);
@@ -54,7 +54,7 @@ local function fox(f, label, clip, shader)
     lights = {
       { type = "HemisphereLight", color = "#e6ecff", ground_color = "#3a2f2a", intensity = 1.2 },
       { type = "DirectionalLight", color = "#fff1dc", intensity = 2.8, position = { 3, 6, 2 },
-        cast_shadow = true, shadow = { map_size = 2048, height = 6, bias = -0.0005, normal_bias = 0.02 } },
+        cast_shadow = true, shadow = { map_size = 2048 } },
     },
     meshes = {
       { geometry = { type = "CylinderGeometry", radius_top = 3, radius_bottom = 3, height = 0.1, radial_segments = 64 },

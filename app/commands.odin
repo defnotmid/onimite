@@ -18,6 +18,7 @@ Command_Kind :: enum u8 {
 	Frame,
 	Strip,
 	Onion,
+	Motion,
 	Snapshot,
 	Show,
 	Timeline,
@@ -190,6 +191,12 @@ COMMAND_KINDS := [Command_Kind]Command_Descriptor {
 		domain = .Script, flags = FRONT, needs = {.Spec}, args = Onion_Args, missing = "a range", images = .Output,
 		about = "frames blended into one image, later ones stronger: motion at a glance",
 		mcp_note = "The PNG comes back as an image.",
+	},
+	.Motion = {
+		help = "regs.spec frame specs",
+		domain = .Script, flags = FRONT, needs = {.Spec}, args = Motion_Args, missing = "at least one time spec",
+		about = "how fast what is drawn moves at the given times: each thing's speed in video pixels a frame where it moves most and its centre's direction, with the script line that drew it, and what appears within the shutter",
+		mcp_note = "Speeds are measured over the opening half of a 180° shutter (a quarter frame before the frame).",
 	},
 	.Snapshot = {
 		help = "regs.spec frame specs, regs.path the snapshot directory, regs.threshold, regs.ratio, .Update in regs.flags",

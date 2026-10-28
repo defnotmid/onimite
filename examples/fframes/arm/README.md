@@ -24,13 +24,12 @@ and copies the WAVs into `media/`; the film places them at the story's events.
 - **The performance** (`story.lua`) is a list of keys with the original's easings; the
   throw is `physics3d{}`, whose contacts place the clatters, sparks and camera shake.
 - The beam is 16 additive cones, the dust and sparks are particle emitters, and each shot's
-  `depth_of_field` keeps sharp what the original racks focus on.
+  lens (its camera's `focus` and `f_stop`) keeps sharp what the original racks focus on.
 
 What differs from fframes: the throw is Box3D's, so the letter lands on its face and the
 robot picks it up from behind; the letters' slots follow Inter's kerning; there is no
 motion blur on the swing (the original renders three moments of a half-open shutter); the
 dust moves with the beam and the sparks are dots rather than bright streaks; the bins on
-the shelves take onimite's `hash`. `inspect` reports `extrude_folded` on the 3D letters: o3d
-insets their outlines for the bevel without a miter limit, so acute corners fold.
+the shelves take onimite's `hash`.
 
 Fonts: Inter and IBM Plex Mono, SIL Open Font License.

@@ -66,30 +66,6 @@ l_view3d :: proc "c" (L: ^lua.State) -> c.int {
 	lua.pop(L, 1)
 	// three.js's Reflector: the plane through `point` facing `normal`, which
 	// materials with `reflection` mirror; `scale` its resolution (0.1..1).
-	// Depth of field: `focus` a distance along the camera's axis, or a point
-	// to keep sharp (its distance along that axis); `blur` and `max_blur`
-	// shares of the frame's height.
-	field(L, 1, "depth_of_field")
-	if lua.istable(L, -1) {
-		dt := lua.absindex(L, -1)
-		outer := fields_push(L, dt)
-		d := o3d.Depth_Of_Field{blur = get_num(L, dt, "blur", 0.02), max_blur = get_num(L, dt, "max_blur", 0)}
-		field(L, dt, "focus")
-		if lua.istable(L, -1) {
-			p := read_vec3(L, dt, "focus", {})
-			axis := linalg.normalize0(v.camera.target - v.camera.position)
-			d.focus = linalg.dot(p - v.camera.position, axis)
-		} else {
-			d.focus = f32(lua.tonumber(L, -1))
-		}
-		lua.pop(L, 1)
-		if d.focus <= 0 {
-			lua.L_error(L, "depth_of_field needs focus = a distance in front of the camera, or a point in front of it")
-		}
-		v.depth_of_field = d
-		fields_pop(L, s, dt, "depth_of_field", outer)
-	}
-	lua.pop(L, 1)
 	field(L, 1, "reflector")
 	if lua.istable(L, -1) {
 		rt := lua.absindex(L, -1)
@@ -215,6 +191,23 @@ read_camera :: proc(L: ^lua.State, s: ^Script, t: c.int) -> (cam: o3d.Camera) {
 	cam.up = read_vec3(L, t, "up", cam.up)
 	cam.near = get_num(L, t, "near", cam.near)
 	cam.far = get_num(L, t, "far", cam.far)
+	// The lens, as a physical camera's (perspective only): the aperture's
+	// f-number (0, a pinhole: all sharp), what is in focus (a distance along
+	// the camera's axis in metres, or a point: its distance along it) and
+	// the film's height in millimetres (0: 24, 35 mm film's).
+	cam.f_stop = get_num(L, t, "f_stop", 0)
+	cam.film_height = get_num(L, t, "film_height", 0)
+	field(L, t, "focus")
+	if lua.istable(L, -1) {
+		p := read_vec3(L, t, "focus", {})
+		cam.focus = linalg.dot(p - cam.position, linalg.normalize0(cam.target - cam.position))
+	} else if lua.isnumber(L, -1) {
+		cam.focus = f32(lua.tonumber(L, -1))
+	}
+	lua.pop(L, 1)
+	if cam.f_stop > 0 && cam.focus <= 0 {
+		lua.L_error(L, "camera: f_stop needs focus = a distance in front of the camera, or a point in front of it")
+	}
 	return
 }
 
@@ -456,6 +449,8 @@ read_geometry :: proc(L: ^lua.State, s: ^Script, t: c.int, m: ^om.Mesh) -> (ok: 
 		m.outline.asset = (^om.Path_Asset)(lua.touserdata(L, -1))
 		lua.pop(L, 1)
 		m.outline.kind = .Shape
+		// Points each curve of the outline takes (three.js's curveSegments).
+		m.outline.curve_segments = max(int(get_num(L, t, "curve_segments", 12)), 1)
 		if name == "ExtrudeGeometry" {
 			d := o3d.EXTRUDE_DEFAULT
 			m.outline.kind = .Extrude
@@ -467,6 +462,7 @@ read_geometry :: proc(L: ^lua.State, s: ^Script, t: c.int, m: ^om.Mesh) -> (ok: 
 				bevel_size      = get_num(L, t, "bevel_size", d.bevel_size),
 				bevel_offset    = get_num(L, t, "bevel_offset", d.bevel_offset),
 				bevel_segments  = max(int(get_num(L, t, "bevel_segments", f32(d.bevel_segments))), 0),
+				miter_limit     = get_num(L, t, "miter_limit", d.miter_limit),
 				crease_angle    = get_num(L, t, "crease_angle", d.crease_angle),
 			}
 		}

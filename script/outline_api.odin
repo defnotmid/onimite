@@ -46,16 +46,22 @@ shared_path_asset :: proc(sh: ^Shared, p: ^vg.Path, rule: vg.Fill_Rule) -> ^om.P
 // A path's content hash, by its geometry and fill rule.
 @(private)
 path_key :: proc(p: ^vg.Path, rule: vg.Fill_Rule) -> u64 {
-	return hash.fnv64a(slice.to_bytes(p.verbs[:])) ~ hash.fnv64a(slice.to_bytes(p.coords[:])) * 31 ~ u64(rule)
+	h := hash.fnv64a(slice.to_bytes(p.pts[:])) ~ hash.fnv64a(slice.to_bytes(p.kinds[:])) * 31
+	// The rows by their fields (their padding isn't content).
+	for ct in p.contours {
+		h = (h ~ u64(ct.segs) << 1 ~ u64(ct.closed)) * 1099511628211
+	}
+	return h ~ u64(rule)
 }
 
 @(private)
 path_asset_copy :: proc(p: ^vg.Path, rule: vg.Fill_Rule, alloc := context.allocator) -> ^om.Path_Asset {
 	a := new(om.Path_Asset, alloc)
-	a.verbs = make([]vg.Verb, len(p.verbs), alloc)
-	a.coords = make([]vg.Vec2, len(p.coords), alloc)
-	copy(a.verbs, p.verbs[:])
-	copy(a.coords, p.coords[:])
+	vg.path_init(&a.path, alloc)
+	reserve(&a.path.pts, len(p.pts))
+	reserve(&a.path.kinds, len(p.kinds))
+	reserve(&a.path.contours, len(p.contours))
+	vg.path_append(&a.path, p)
 	a.fill_rule = rule
 	a.key = path_key(p, rule)
 	return a
@@ -109,11 +115,7 @@ l_outline :: proc "c" (L: ^lua.State) -> c.int {
 		// document's width x height.
 		_, pic := om.fit_box(get_num(L, 1, "x", 0), get_num(L, 1, "y", 0), get_num(L, 1, "w", get_num(L, 1, "width", 0)),
 			get_num(L, 1, "h", get_num(L, 1, "height", 0)), doc.width, doc.height, read_fit(L, 1), read_align(L, 1))
-		k := [2]f32{pic.w / doc.width, pic.h / doc.height}
-		append(&p.verbs, ..raw.verbs[:])
-		for v in raw.coords {
-			append(&p.coords, vg.Vec2{pic.x, pic.y} + v * k)
-		}
+		vg.path_append(&p, &raw, {pic.w / doc.width, 0, 0, pic.h / doc.height, pic.x, pic.y})
 		om.media_svg_release(a, owned)
 	case has_field(L, 1, "d"):
 		d := get_str(L, 1, "d", "")
@@ -184,16 +186,9 @@ l_morph :: proc "c" (L: ^lua.State) -> c.int {
 		lua.pushlightuserdata(L, m)
 		return 1
 	}
-	pa, pb: vg.Path
-	vg.path_init(&pa, context.temp_allocator)
-	vg.path_init(&pb, context.temp_allocator)
-	append(&pa.verbs, ..a.verbs)
-	append(&pa.coords, ..a.coords)
-	append(&pb.verbs, ..b.verbs)
-	append(&pb.coords, ..b.coords)
 	scratch: vg.Path_Morph
 	defer vg.path_morph_destroy(&scratch)
-	vg.path_morph_prepare(&scratch, &pa, &pb, a.fill_rule, b.fill_rule)
+	vg.path_morph_prepare(&scratch, &a.path, &b.path, a.fill_rule, b.fill_rule)
 	// Kept: the ends and the contours (the scratch is dropped).
 	alloc := virtual.arena_allocator(&sh.arena)
 	m := new(Shared_Morph, alloc)
@@ -291,19 +286,10 @@ l_outline_divide :: proc "c" (L: ^lua.State) -> c.int {
 	lua.createtable(L, c.int(len(faces)), 0)
 	piece: vg.Path
 	vg.path_init(&piece, context.temp_allocator)
-	// the faces fill `out` back to back: their coordinates follow in order
-	first := 0
 	for f, i in faces {
-		verbs := out.verbs[f.start:][:f.count]
-		count := 0
-		for v in verbs {
-			count += vg.verb_num_coords(v)
-		}
-		clear(&piece.verbs)
-		clear(&piece.coords)
-		append(&piece.verbs, ..verbs)
-		append(&piece.coords, ..out.coords[first:][:count])
-		first += count
+		// each face is a range of `out`'s contours
+		vg.path_reset(&piece)
+		vg.path_append_contours(&piece, &out, int(f.start), int(f.count))
 		lua.createtable(L, 0, 2)
 		lua.pushlightuserdata(L, outline_result(s, &piece))
 		lua.setfield(L, -2, "outline")
@@ -344,11 +330,7 @@ bool_operands :: proc(L: ^lua.State, what: cstring) -> []vg.Bool_Operand {
 	}
 	operands := make([]vg.Bool_Operand, len(assets), context.temp_allocator)
 	for a, i in assets {
-		p := new(vg.Path, context.temp_allocator)
-		vg.path_init(p, context.temp_allocator)
-		append(&p.verbs, ..a.verbs)
-		append(&p.coords, ..a.coords)
-		operands[i] = {p, a.fill_rule}
+		operands[i] = {&a.path, a.fill_rule}
 	}
 	return operands
 }

@@ -231,15 +231,14 @@ Path :: struct {
 // paths a script builds at load: every frame builder of a render shares
 // one (read-only), and drawing copies it instead of parsing text.
 Path_Asset :: struct {
-	verbs:     []vg.Verb,
-	coords:    []vg.Vec2,
+	path:      vg.Path,
 	// How it fills when path{} doesn't say (an outline of an even-odd SVG).
 	fill_rule: vg.Fill_Rule,
 	// Its content's hash: what geometry made from it is kept by (3D
 	// extrusions outlive a script's handles across preview reloads).
 	key:       u64,
 	// Its fill as a shape, built once at load (a path made while drawing a
-	// frame has none: it is filled from `verbs`); empty when it fills
+	// frame has none: it is filled from `path`); empty when it fills
 	// nothing.
 	shape:     vg.Shape,
 }

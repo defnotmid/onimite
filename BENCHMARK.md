@@ -133,7 +133,10 @@ Notes on the pairs:
   render -o out.mp4` from its example's directory, where it finds its media.
 - onimite: the release's Linux binary, downloaded from GitHub and checked
   against the release's SHA256SUMS and `--version`, never a local build;
-  `onimite render examples/fframes/<example>/video.lua -o out.mp4`.
+  `onimite render examples/fframes/<example>/video.lua -o out.mp4`, on the
+  release's own scripts (its tag's `examples`, `bench` and `skills`,
+  exported, with the fetched media linked in), whatever the working tree
+  holds.
 - A warm-up renders each example's first second on both sides (media and
   shaders in the caches); then every row runs three times, round by round,
   and each number is the median of the three, with the wall time's min and

@@ -181,7 +181,7 @@ scene {
           intensity = 3.2,
           position = { 6, 10, 7 },
           cast_shadow = true,
-          shadow = { map_size = 1024, bias = -0.001 },
+          shadow = { map_size = 1024 },
         },
       },
       meshes = {
@@ -357,7 +357,7 @@ scene {
       lights = {
         { type = "HemisphereLight", color = "#dceeff", ground_color = "#1e293b", intensity = 0.7 },
         { type = "DirectionalLight", color = "#fff7ed", intensity = 3.2, position = { 4, 9, 6 },
-          cast_shadow = true, shadow = { map_size = 2048, bias = -0.001 } },
+          cast_shadow = true, shadow = { map_size = 2048 } },
       },
       meshes = meshes,
     }
@@ -456,7 +456,7 @@ scene {
       lights = {
         { type = "HemisphereLight", color = "#dceeff", ground_color = "#1e293b", intensity = 0.7 },
         { type = "DirectionalLight", color = "#fff7ed", intensity = 3.2, position = { 6, 9, 3 },
-          cast_shadow = true, shadow = { map_size = 2048, bias = -0.001 } },
+          cast_shadow = true, shadow = { map_size = 2048 } },
       },
       meshes = meshes,
     }

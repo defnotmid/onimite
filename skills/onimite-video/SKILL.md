@@ -250,6 +250,8 @@ After every change:
    them, for type, alignment and contrast. An offset past its scene's end is an error.
 5. `onimite onion video.lua "Intro@0..Intro@1s" -n 6 -o onion.png`: frames blended (later
    ones stronger) to show a movement's path, easing, overshoot and stagger.
+   `onimite motion video.lua Intro@0.4s` gives the numbers: how fast each thing moves at that
+   moment, in video pixels a frame, with the line that drew it.
 6. Sound: `onimite audio analyze video.lua` (LUFS, true peak, clipping, silence, per scene
    and per second), `onimite audio onsets video.lua` (where sounds start, the beat) and
    `onimite audio at video.lua 3.1s` (what plays at an event). See `references/audio.md`.
@@ -326,6 +328,7 @@ with commas.
 | `strip [RANGE] -n N [--columns 4] [--width 480] [-o strip.png]` | flow and motion in one image |
 | `frame SPECS [-o frames] [--svg]` | full-size PNGs; `--svg` also writes each frame's node tree as SVG to read positions, text and colours |
 | `onion RANGE [-n 6] [-o onion.png]` | a movement's trajectory and easing |
+| `motion SPECS` | how fast each thing moves at a moment: its speed in video pixels a frame where it moves most, its centre's direction, the script line that drew it, and what appears within the shutter. It builds the frame again a quarter frame earlier (the opening of a 180° shutter) and pairs each draw with itself there by its place among its siblings (kind and content first, then kind: a counter whose text changes is the same text); a draw that wasn't there doesn't move and is listed as appearing. Speeds come from the clock (`f.seconds`, `animate`, `physics_at`): anything moved by `f.index` reads as still, and nothing moves on the first frame of the video or a scene. A path's points changing (a morph) doesn't count as motion, only its groups' transforms; a 3D view moves as a box |
 | `preview [AT] [--paused] [--no-loop] [--mute] [--bare] [--fullscreen] [--exit-after N]` | real-time window with sound and hot reload, for the user (`--bare`: the video alone, no controls, panels or timeline, played once, then the window closes, Escape sooner; `--fullscreen`: open fullscreen; both together play a script full screen like a screensaver; `--exit-after N`: close after N window frames). Playback that misses frames steps down to 75, 50, 35 or 25% of the window's size (a step that doesn't help is undone: the script isn't limited by pixels) and back up once it keeps up; the status line shows the size; a paused frame renders at full size, so judge detail paused. The window opens before the script loads (it loads once, in the window): a script that fails shows its error there until an edit fixes it, and an `AT` that names nothing warns and starts as without it |
 | `render [RANGE] [-o out.mp4 \| dir] [--draft] [--h265] [--qp N] [--native] [--slices N]` | encode the video or a part, or write PNGs |
 | `render --batch rows.json\|rows.csv [-o out/{name}.mp4] [--rows a..b \| --only N]` | one video per data row, the row as `props` |
@@ -357,7 +360,7 @@ build looks for a newer release as it starts (`--update-check false` or
 tell the user, and run `update` when they agree (in Claude Desktop the extension's "Check
 for updates" setting turns the check off). `guide`
 returns this skill and its references, built into the binary. Tools: `render`, `frame`, `strip`,
-`onion`, `snapshot`, `show`, `timeline`, `inspect`, `audio_render`, `audio_analyze`,
+`onion`, `motion`, `snapshot`, `show`, `timeline`, `inspect`, `audio_render`, `audio_analyze`,
 `audio_at`, `audio_onsets`, `audio_parts`, `audio_pin`, `probe`, `update` (the server keeps running the old version
 until the app restarts), and `preview`, which opens the window for the user and
 returns at once (one window per script; it reloads on save, so open it once and keep

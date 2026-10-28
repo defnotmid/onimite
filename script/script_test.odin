@@ -47,14 +47,20 @@ fixture_load :: proc(t: ^testing.T, f: ^Fixture, into: ^Script = nil, loc := #ca
 	return ok
 }
 
-// Frame `i` of the fixture's script, rendered.
+// The fixture's renderer, made on first use.
 @(private = "file")
-fixture_frame :: proc(t: ^testing.T, f: ^Fixture, i: int, loc := #caller_location) -> []u8 {
+fixture_renderer :: proc(t: ^testing.T, f: ^Fixture, loc := #caller_location) -> ^om.Renderer {
 	if !f.rendering {
 		testing.expect_value(t, om.renderer_init(&f.r, &f.script.video, &f.media), om.Error.None, loc = loc)
 		f.rendering = true
 	}
-	return om.render_frame(&f.r, i)
+	return &f.r
+}
+
+// Frame `i` of the fixture's script, rendered.
+@(private = "file")
+fixture_frame :: proc(t: ^testing.T, f: ^Fixture, i: int, loc := #caller_location) -> []u8 {
+	return om.render_frame(fixture_renderer(t, f, loc), i)
 }
 
 @(private = "file")
@@ -133,7 +139,10 @@ video { width = built and 100 or 200, height = 90, fps = 30, duration = 1 }
 	testing.expect_value(t, f.script.video.width, 200)
 	testing.expect_value(t, len(f.shared.paths), 1)
 	for _, a in f.shared.paths {
-		testing.expect_value(t, len(a.verbs), 4)
+		// one closed contour: two lines and the line closing it
+		testing.expect_value(t, len(a.path.contours), 1)
+		testing.expect_value(t, len(a.path.kinds), 3)
+		testing.expect(t, a.path.contours[0].closed)
 	}
 }
 
@@ -1131,8 +1140,8 @@ end }
 // Outlines: path data, text and an SVG element as path handles with their
 // bounds; a morph's ends are its outlines; a ring-shaped outline body (a
 // hole) rests at its height and collides with all of itself; extruded
-// outlines draw, and a bevel deeper than the outline's teeth is reported
-// (extrude_folded).
+// outlines draw, a bevel deeper than the outline's teeth too (the skeleton
+// offset closes them up instead of folding).
 @(test)
 test_outline_api :: proc(t: ^testing.T) {
 	f: Fixture
@@ -1209,11 +1218,9 @@ end }
 	}
 	testing.expect_value(t, len(f.script.load_problems), 0)
 	fixture_frame(t, &f, 0)
-	folded := false
 	for d in f.r.ctx.diagnostics {
-		folded ||= d.code == .Extrude_Folded
+		testing.expectf(t, d.severity == .Info, "%v", d.code)
 	}
-	testing.expect(t, folded)
 }
 
 // ShapeGeometry draws from its curves (an exact shape) unless its material
@@ -1679,7 +1686,7 @@ video { width = 64, height = 48, fps = 10, duration = 0.1, background = "#000000
 }
 
 // o3d v0.0.38-39's: the reflector and a material's reflection and
-// environment intensity, depth of field focused on a point, the keyed
+// environment intensity, a lens focused on a point, the keyed
 // RoundedBox, Circle and Ring geometries, a partial sphere, and a lathe made
 // once however many frames draw it.
 @(test)
@@ -1688,8 +1695,8 @@ test_view3d_reflector_geometries :: proc(t: ^testing.T) {
 	defer fixture_destroy(&f)
 	fixture_init(t, &f, `
 video { width = 64, height = 48, fps = 10, duration = 0.3, background = "#000000", render = function(f)
-  view3d { camera = { position = { 0, 0, 5 } }, reflector = { point = { 0, 0, 0 }, normal = { 0, 1, 0 }, scale = 0.25 },
-    depth_of_field = { focus = { 0, 0, 1 }, blur = 0.03 }, background = rgba(0, 128, 255, 1),
+  view3d { camera = { position = { 0, 0, 5 }, f_stop = 2.8, focus = { 0, 0, 1 } },
+    reflector = { point = { 0, 0, 0 }, normal = { 0, 1, 0 }, scale = 0.25 }, background = rgba(0, 128, 255, 1),
     meshes = {
       { geometry = { type = "PlaneGeometry" }, material = { reflection = 0.7, environment_intensity = 0.9 } },
       { geometry = { type = "RoundedBoxGeometry", radius = 0.2, segments = 3 } },
@@ -1699,6 +1706,7 @@ video { width = 64, height = 48, fps = 10, duration = 0.3, background = "#000000
       { geometry = { type = "LatheGeometry", points = { { 0.2, 0 }, { 0.4, 0.5 }, { 0.1, 1 } } } },
     } }
   assert(not pcall(view3d, { meshes = { { geometry = { type = "LatheGeometry", points = { { 1, 0 } } } } } }))
+  assert(not pcall(view3d, { camera = { f_stop = 2 } }))  -- an aperture needs a focus
 end }
 `)
 	if !fixture_load(t, &f) {
@@ -1719,8 +1727,8 @@ end }
 		testing.expect_value(t, v.reflector.scale, 0.25)
 		testing.expect_value(t, v.meshes[0].material.reflection, 0.7)
 		testing.expect_value(t, v.meshes[0].material.env_intensity, 0.9)
-		testing.expect_value(t, v.depth_of_field.focus, 4) // the point's distance along the camera's axis
-		testing.expect_value(t, v.depth_of_field.blur, 0.03)
+		testing.expect_value(t, v.camera.focus, 4) // the point's distance along the camera's axis
+		testing.expect_value(t, v.camera.f_stop, 2.8)
 		testing.expect_value(t, v.background, "rgba(0, 128, 255, 1)") // a colour table, not dropped
 		testing.expect_value(t, v.meshes[1].geometry.kind, o3d.Primitive.Rounded_Box)
 		testing.expect_value(t, v.meshes[4].geometry.params[4], f32(math.PI))
@@ -2039,3 +2047,71 @@ end }
 	}
 	testing.expect(t, found)
 }
+
+// The motion table pairs each draw of a frame with itself at the shutter's
+// opening: a rect moved by the clock moves as fast as the clock says, a
+// circle turned by its group moves along its turn, a text whose string
+// changes is still the same text, a circle that appears within the shutter
+// is unpaired without unpairing the rest, a rect moved by the frame index
+// doesn't move within the frame, nothing moves on the first frame of the
+// video or of a scene, and the opening's build reports nothing of its own.
+@(test)
+test_motion_table :: proc(t: ^testing.T) {
+	f: Fixture
+	defer fixture_destroy(&f)
+	fixture_init(t, &f, `
+video { width = 640, height = 360, fps = 60 }
+scene { "A", duration = 2, render = function(f)
+  local t = f.seconds
+  if t >= 1 then circle { cx = 50, cy = 300, r = 5 } end
+  rect { x = 100 + 240 * t, y = 50, w = 40, h = 40 }
+  group({ transform = rotate(90 * t, 320, 180) }, function()
+    circle { cx = 420, cy = 180, r = 10 }
+  end)
+  text { text = string.format("%d", math.floor(t * 100)), x = 300 + 60 * t, y = 330, size = 24 }
+  rect { x = f.index * 2, y = 200, w = 10, h = 10 }
+end }
+scene { "B", duration = 1, render = function(f)
+  rect { x = 100 + 240 * f.seconds, y = 50, w = 40, h = 40 }
+  -- only at the opening: what it reports isn't the frame's
+  if f.seconds < f.index / f.fps then rect { x = 0, y = 0, w = 1, h = 1, fill = "nope" } end
+end }
+`)
+	if !fixture_load(t, &f) {
+		return
+	}
+	r := fixture_renderer(t, &f)
+	shift := om.motion_shift(60)
+	m := &r.motion
+
+	// Frame 60, 1 s: root, the new circle, the rect, the group, its circle,
+	// the text, the rect moved by the index.
+	om.build_motion(r, 60, shift)
+	testing.expect_value(t, len(m.state), 7)
+	testing.expect_value(t, m.state[0], om.Motion_State.None)
+	testing.expect_value(t, m.state[1], om.Motion_State.Unpaired)
+	testing.expect_value(t, m.state[3], om.Motion_State.None)
+	speed, dir := om.motion_speed(r, 2)
+	testing.expectf(t, abs(speed - 4) < 1e-3 && abs(dir.x - 4) < 1e-3 && abs(dir.y) < 1e-3, "rect: %v %v", speed, dir)
+	// 90° a second at 100 px from the turn's centre: 100 * (pi / 2) / 60 a frame.
+	_, dir = om.motion_speed(r, 4)
+	testing.expectf(t, abs(linalg.length(dir) - 100 * math.PI / 2 / 60) < 1e-2, "turning circle: %v", dir)
+	speed, _ = om.motion_speed(r, 5)
+	testing.expectf(t, m.state[5] == .Paired && abs(speed - 1) < 1e-3, "text: %v %v", m.state[5], speed)
+	speed, _ = om.motion_speed(r, 6)
+	testing.expectf(t, m.state[6] == .Paired && speed == 0, "index rect: %v %v", m.state[6], speed)
+
+	// The first frame of the video and of scene B: nothing moves.
+	for frame in ([2]int{0, 120}) {
+		om.build_motion(r, frame, shift)
+		for state, i in m.state {
+			speed, _ = om.motion_speed(r, i)
+			testing.expectf(t, state != .Paired || speed == 0, "frame %d node %d: %v", frame, i, speed)
+		}
+	}
+	om.build_motion(r, 121, shift)
+	speed, _ = om.motion_speed(r, 1)
+	testing.expectf(t, abs(speed - 4) < 1e-3, "scene B's second frame: %v", speed)
+	testing.expect_value(t, len(r.ctx.diagnostics), 0)
+}
+

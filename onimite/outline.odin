@@ -2,6 +2,7 @@ package onimite
 
 import "core:math"
 import "deps:o3d"
+import cv "deps:ocurves"
 import vg "deps:ovg"
 
 // The outline flattened into `out`, curves split about every `segment`
@@ -10,76 +11,66 @@ import vg "deps:ovg"
 // units: the path is scaled to suit first.)
 outline_flatten :: proc(a: ^Path_Asset, out: ^vg.Flat_Path, segment: f32 = 0) {
 	lo, hi := [2]f32{max(f32), max(f32)}, [2]f32{-max(f32), -max(f32)}
-	for v in a.coords {
+	for v in a.path.pts {
 		lo, hi = {min(lo.x, v.x), min(lo.y, v.y)}, {max(hi.x, v.x), max(hi.y, v.y)}
 	}
 	span := max(hi.x - lo.x, hi.y - lo.y)
 	seg: f32 = 1.5
 	if segment > 0 {
 		seg = segment
-	} else if span > 0 && len(a.coords) > 0 {
+	} else if span > 0 && len(a.path.pts) > 0 {
 		seg = span * 1.5 / 2000
 	}
-	vg.path_flatten_verbs(a.verbs, a.coords, out, seg)
+	vg.path_flatten(&a.path, out, seg)
 }
 
-// The outline's curves as an o3d path, temp allocated; `flip_y` for 3D (y
-// up), where text then reads upright. ovg's solid/hole marks are left out:
-// the curves fill by their own winding, as path{} draws them.
-outline_path :: proc(a: ^Path_Asset, flip_y: bool) -> o3d.Path {
-	p: o3d.Path
-	p.segments = make([dynamic]o3d.Path_Segment, 0, len(a.verbs), context.temp_allocator)
-	fy: f32 = -1 if flip_y else 1
-	at := 0
-	for verb in a.verbs {
-		c := a.coords[at:]
-		switch verb {
-		case .Move_To:
-			o3d.path_move_to(&p, {c[0].x, fy * c[0].y})
-		case .Line_To:
-			o3d.path_line_to(&p, {c[0].x, fy * c[0].y})
-		case .Bezier_To:
-			o3d.path_bezier_curve_to(&p, {c[0].x, fy * c[0].y}, {c[1].x, fy * c[1].y}, {c[2].x, fy * c[2].y})
-		case .Close:
-			o3d.path_close(&p)
-		case .Solid, .Hole:
-		}
-		at += vg.verb_num_coords(verb)
-	}
-	return p
+// The outline's contours appended to `c`; `flip_y` for 3D (y up), where
+// text then reads upright.
+outline_contours :: proc(a: ^Path_Asset, c: ^cv.Contours, flip_y: bool) {
+	vg.path_append(c, &a.path, {1, 0, 0, -1, 0, 0} if flip_y else vg.TRANSFORM_IDENTITY)
 }
 
-// The outline as o3d shapes (outer contours with their holes), temp
-// allocated; `flip_y` for 3D (y up), where text then reads upright.
-// `simplify` > 0 drops points within that distance of the line through their
-// neighbours (Douglas-Peucker): physics wants corners with a real turn.
-outline_shapes :: proc(a: ^Path_Asset, flip_y: bool, segment: f32 = 0, simplify: f32 = 0) -> []o3d.Shape {
-	flat: vg.Flat_Path
-	vg.flat_path_init(&flat, context.temp_allocator)
-	outline_flatten(a, &flat, segment)
-	pts := make([]o3d.Vec2, len(flat.points), context.temp_allocator)
-	for v, i in flat.points {
-		pts[i] = {v.x, -v.y if flip_y else v.y}
-	}
-	contours := make([dynamic][]o3d.Vec2, 0, len(flat.contours), context.temp_allocator)
-	for ct in flat.contours {
-		ring := pts[ct.first:][:ct.count]
-		// Without the closing point (a copy of the first): triangulators
-		// drop it, and a hole's indices would then be off by one.
-		if len(ring) > 1 && ring[0] == ring[len(ring) - 1] {
-			ring = ring[:len(ring) - 1]
-		}
-		if simplify > 0 {
-			ring = simplify_ring(ring, simplify)
-		}
-		if len(ring) >= 3 {
-			append(&contours, ring)
-		}
-	}
-	rule := o3d.Fill_Rule.Even_Odd if a.fill_rule == .Even_Odd else o3d.Fill_Rule.Nonzero
-	return o3d.shapes_from_contours(contours[:], rule, context.temp_allocator)
+// The outline as o3d shapes, written over `s`: what its fill rule fills, as
+// outlines with their holes, each curve taking `curve_segments` points (as
+// three.js flattens it); `flip_y` for 3D (y up).
+outline_shapes :: proc(a: ^Path_Asset, s: ^o3d.Shapes, flip_y: bool, curve_segments := 12) -> cv.Bool_Error {
+	c: cv.Contours
+	cv.contours_init(&c, context.temp_allocator)
+	outline_contours(a, &c, flip_y)
+	return o3d.shapes_from_contours(s, &c, a.fill_rule, curve_segments)
 }
 
+// Drops the points of `s`'s rings within `tol` of the simplified ring
+// (`simplify_ring`), and the rings and shapes left without area: physics
+// wants corners with a real turn.
+shapes_simplify :: proc(s: ^o3d.Shapes, tol: f32) {
+	points := make([dynamic]o3d.Vec2, 0, len(s.points), context.temp_allocator)
+	rings := make([dynamic][2]u32, 0, len(s.rings), context.temp_allocator)
+	shapes := make([dynamic][2]u32, 0, len(s.shapes), context.temp_allocator)
+	for sh in s.shapes {
+		first := len(rings)
+		for k in sh[0] ..< sh[0] + sh[1] {
+			ring := simplify_ring(o3d.shapes_ring(s, int(k)), tol)
+			if len(ring) < 3 {
+				if k == sh[0] {
+					break // the outline has no area: nor has the shape
+				}
+				continue
+			}
+			append(&rings, [2]u32{u32(len(points)), u32(len(ring))})
+			append(&points, ..ring)
+		}
+		if len(rings) > first {
+			append(&shapes, [2]u32{u32(first), u32(len(rings) - first)})
+		}
+	}
+	clear(&s.points)
+	clear(&s.rings)
+	clear(&s.shapes)
+	append(&s.points, ..points[:])
+	append(&s.rings, ..rings[:])
+	append(&s.shapes, ..shapes[:])
+}
 
 // A closed ring with the points within `tol` of the simplified outline left
 // out (Douglas-Peucker from the point farthest from the first), temp

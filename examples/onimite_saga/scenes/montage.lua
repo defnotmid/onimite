@@ -65,7 +65,7 @@ CARDS[3] = { "3D", "three.js terms: lights, shadows, GLSL", 4, look.NIGHT, look.
     lights = {
       { type = "HemisphereLight", color = "#f1e9ff", ground_color = look.NIGHT, intensity = 1.1 },
       { type = "DirectionalLight", intensity = 2.8, position = { 3, 7, 4 }, cast_shadow = true,
-        shadow = { map_size = 1024, height = 7, bias = -0.0005, normal_bias = 0.02 } },
+        shadow = { map_size = 1024 } },
     },
     meshes = {
       { geometry = { type = "CylinderGeometry", radius_top = 2.6, radius_bottom = 2.6, height = 0.2, radial_segments = 96 },

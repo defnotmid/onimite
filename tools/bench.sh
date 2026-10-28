@@ -137,7 +137,7 @@ do_visual() {
 # ---- facts: the numbers the films and the site quote, measured on a published release ----
 # The race (PAIRS), FACT_ROWS, every example (as the site renders its cards) and the release's archives;
 # BENCHMARK.md's Method says how each is measured. $OUT/facts/runs.tsv has every run.
-FACT_ROWS=( # id | output to count (_OUT_ is $OUT/facts) | onimite's arguments, scripts relative to $ROOT
+FACT_ROWS=( # id | output to count (_OUT_ is $OUT/facts) | onimite's arguments, scripts relative to $SRC
   "saga_frame|_OUT_/frame/3000.png|frame examples/onimite_saga/video.lua 3000 -o _OUT_/frame"
   "saga_inspect|_OUT_/none|inspect examples/onimite_saga/video.lua"
   "saga_inspect_all|_OUT_/none|inspect examples/onimite_saga/video.lua --all-frames"
@@ -146,9 +146,9 @@ FACT_ROWS=( # id | output to count (_OUT_ is $OUT/facts) | onimite's arguments, 
 EXAMPLE_SETS=( # name | example | its --set: the variants the site shows a card for, beside each example's default
   "social_clip_kit_16x9|social_clip_kit|format=16x9"
 )
-example_rows() { # FACT_ROWS of every example, id example:<name>
+example_rows() { # FACT_ROWS of every example in $SRC, id example:<name>
   local d name row
-  for d in "$ROOT"/examples/*/video.lua; do
+  for d in "$SRC"/examples/*/video.lua; do
     name="$(basename "$(dirname "$d")")"
     echo "example:$name|_OUT_/ex_$name.mp4|render examples/$name/video.lua --qp 22 -o _OUT_/ex_$name.mp4"
   done
@@ -236,6 +236,14 @@ do_facts() {
     "$oni" --version | grep -qF "$tag" || { echo "$oni doesn't say it is $tag" >&2; exit 1; }
     dest="$ROOT/bench/facts.json"; md="$ROOT/BENCHMARK.md"
   fi
+  # The scripts timed: a release's own (its tree's examples, bench and skills, which they read, with
+  # the fetched media linked in below), or the working tree's for a build.
+  SRC="$ROOT"
+  if [ -n "$rel" ]; then
+    SRC="$OUT/src/$tag"
+    rm -rf "${SRC:?}"; mkdir -p "$SRC"
+    git -C "$ROOT" archive "$tag" examples bench skills | tar -x -C "$SRC"
+  fi
   mkdir -p "$OUT/facts/race" "$OUT/facts/frame"
   printf "$FACT_COLS\n" > "$OUT/facts/runs.tsv"
   : > "$OUT/ffmpeg_from_source"
@@ -262,6 +270,7 @@ EOF
   done < <(pair_sel)
   build_fframes $(for name in "${!fresh[@]}"; do pair_sel | awk -F'|' -v n="$name" '$1 == n {print $2}'; done | sort -u)
   fetch_media
+  [ "$SRC" = "$ROOT" ] || ( cd "$ROOT" && git ls-files -z -o -i --exclude-standard -- examples | xargs -0 -r cp -l --parents -t "$SRC" )
   echo "== warm-up (fframes measured for: ${!fresh[*]})" >&2
   while IFS='|' read -r name crate bin fargs script oenv; do
     [ -z "${failed[$name]:-}" ] || continue
@@ -271,7 +280,7 @@ EOF
       printf "%s\tfframes\t1\t0\t0\t0\t0\t0\t\t\t\t\t\t\t0\t%s\tfails\n" "$name" "$(date +%F)" >> "$OUT/facts/runs.tsv"
       continue
     fi
-    ( cd "$ROOT" && env $oenv "$oni" render "$ROOT/$script" 0s..1s -o "$OUT/facts/warm.mp4" >/dev/null 2>&1 ) || true
+    ( cd "$SRC" && env $oenv "$oni" render "$SRC/$script" 0s..1s -o "$OUT/facts/warm.mp4" >/dev/null 2>&1 ) || true
   done < <(pair_sel)
   local -a w
   for row in "${rows[@]}"; do
@@ -279,7 +288,7 @@ EOF
     read -r -a w <<< "${args//_OUT_/$OUT/facts}"
     # a render warms on its first second, unless it names its own range
     [ "${w[0]}" != render ] || [[ "${w[2]}" == *..* ]] || w=(render "${w[1]}" 0s..1s "${w[@]:2}")
-    ( cd "$ROOT" && "$oni" "${w[@]}" >/dev/null 2>&1 ) || true
+    ( cd "$SRC" && "$oni" "${w[@]}" >/dev/null 2>&1 ) || true
   done
   for r in $(seq 1 "${RUNS:-3}"); do
     echo "== round $r" >&2
@@ -290,11 +299,11 @@ EOF
         RUN_DIR="$(exdir "$crate")" fact_run "$name" fframes "$r" "$out" "$FFBIN/$bin" render $fargs -o "$out"
       fi
       out="$OUT/facts/race/${name}_onimite.mp4"
-      RUN_DIR="$ROOT" fact_run "$name" onimite "$r" "$out" env $oenv "$oni" render "$ROOT/$script" -o "$out"
+      RUN_DIR="$SRC" fact_run "$name" onimite "$r" "$out" env $oenv "$oni" render "$SRC/$script" -o "$out"
     done < <(pair_sel)
     for row in "${rows[@]}"; do
       IFS='|' read -r id out args <<< "$row"
-      RUN_DIR="$ROOT" fact_run "$id" onimite "$r" "${out//_OUT_/$OUT/facts}" "$oni" ${args//_OUT_/$OUT/facts}
+      RUN_DIR="$SRC" fact_run "$id" onimite "$r" "${out//_OUT_/$OUT/facts}" "$oni" ${args//_OUT_/$OUT/facts}
     done
   done
   printf 'pair\tpsnr_db\tssim\n' > "$OUT/facts/quality.tsv"
@@ -321,10 +330,14 @@ open(sys.argv[1], "w").write(s + "\n")' "$1"
 }
 
 facts_write() { # dest tag release-dir fframes-provenance: facts.json from $OUT/facts' runs and bench/facts.json's reused fframes rows
-  local changed=0
-  [ -z "$(git -C "$ROOT" status --porcelain -- examples)" ] || changed=1
+  # A release's scripts are its tag's; a build's are the working tree's, changed or not.
+  local examples="$2" changed=0
+  if [ -z "$3" ]; then
+    examples="$(git -C "$ROOT" describe --tags --always HEAD)"
+    [ -z "$(git -C "$ROOT" status --porcelain -- examples)" ] || changed=1
+  fi
   python3 -I - "$ROOT" "$OUT/facts" "$2" "$3" "$4" "$(git -C "$FF" describe --tags --exact-match 2>/dev/null || true)" \
-    "$(git -C "$ROOT" describe --tags --always HEAD)" "$changed" "$(uname -sr)" \
+    "$examples" "$changed" "$(uname -sr)" \
     "$(awk '/MemTotal/ {print $2 * 1024}' /proc/meminfo)" "$(printf '%s\n' "${FACT_ROWS[@]}" | cut -d'|' -f1)" \
     "$(pair_sel | awk -F'|' '{print $1 ":" $2}')" "$(cat "$OUT/ffmpeg_from_source")" <<'EOF' | facts_save "$1"
 import sys, csv, json, os, re, glob, datetime, statistics as st, tarfile, zipfile

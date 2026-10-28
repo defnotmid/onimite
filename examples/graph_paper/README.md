@@ -32,8 +32,8 @@ How it's made:
   shrink away).
 - **Lift**: `ExtrudeGeometry` of the 3D outlines with `side_material` for the
   walls; `bevel_offset = -bevel_size` keeps each solid as big as its page
-  shape, and the marks' bevel stays under half a pixel (deeper folds them:
-  `extrude_folded`). The scene starts on the page: a camera straight on at
+  shape, and the marks' bevel stays under half a pixel (deeper closes their
+  pixels up). The scene starts on the page: a camera straight on at
   1 unit = 100 px, each solid sunk so its front face is on the paper, the 3D
   layer fading in under the 2D shapes, which then dissolve.
 - **Fill**: `physics{}` bodies with `outline = shape` (convex pieces of each

@@ -573,9 +573,9 @@ push_frame :: proc(s: ^Script, f: om.Frame) {
 	set_int(L, "global_index", f.global_index)
 	set_int(L, "fps", f.fps)
 	// In double precision: Lua sums and compares these.
-	lua.pushnumber(L, lua.Number(f.index) / lua.Number(f.fps))
+	lua.pushnumber(L, lua.Number(f.index) / lua.Number(f.fps) + lua.Number(f.shift))
 	lua.setfield(L, -2, "seconds")
-	lua.pushnumber(L, lua.Number(f.global_index) / lua.Number(f.fps))
+	lua.pushnumber(L, lua.Number(f.global_index) / lua.Number(f.fps) + lua.Number(f.shift))
 	lua.setfield(L, -2, "global_seconds")
 	set_int(L, "width", s.video.width)
 	set_int(L, "height", s.video.height)
@@ -1543,7 +1543,7 @@ animate_impl :: proc(L: ^lua.State, s: ^Script, looped: bool) -> c.int {
 	}
 	// Video time minus the animation's clock: where tagged keys start on
 	// the video (any clock running at the video's rate).
-	clock_offset := f64(s.frame.global_index) / f64(max(s.frame.fps, 1)) - f64(t)
+	clock_offset := f64(s.frame.global_index) / f64(max(s.frame.fps, 1)) + s.frame.shift - f64(t)
 	n := int(lua.rawlen(L, 2))
 	if n == 0 {
 		lua.pushnil(L)

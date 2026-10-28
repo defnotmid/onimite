@@ -108,7 +108,7 @@ local function stage(lb)
     lights = {
       { type = "HemisphereLight", color = "#cfd6ff", ground_color = "#151131", intensity = 0.9 },
       { type = "DirectionalLight", color = "#ffffff", intensity = 2.4, position = { 1.5, 6, 3 }, cast_shadow = true,
-        shadow = { map_size = 1024, height = 6, bias = -0.0005, normal_bias = 0.02 } },
+        shadow = { map_size = 1024 } },
     },
     meshes = meshes,
   }

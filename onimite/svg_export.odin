@@ -6,6 +6,7 @@ import "core:os"
 import "core:path/filepath"
 import "core:strconv"
 import "core:strings"
+import cv "deps:ocurves"
 import vg "deps:ovg"
 import odimg "deps:odecs/image"
 
@@ -147,7 +148,7 @@ export_node :: proc(e: ^Svg_Export, i: i32, m: vg.Transform2D) {
 		} else if n.asset != nil {
 			p := &e.r.bbox_path
 			vg.path_reset(p)
-			vg.path_append(p, n.asset.verbs, n.asset.coords)
+			vg.path_append(p, &n.asset.path)
 			path_data(e)
 		} else {
 			strings.write_string(b, "<path")
@@ -664,30 +665,31 @@ path_data :: proc(e: ^Svg_Export) {
 	b := e.b
 	p := &e.r.bbox_path
 	strings.write_string(b, `<path d="`)
-	k := 0
-	for v in p.verbs {
-		n := 0
-		switch v {
-		case .Move_To:
-			strings.write_byte(b, 'M')
-			n = 1
-		case .Line_To:
-			strings.write_byte(b, 'L')
-			n = 1
-		case .Bezier_To:
-			strings.write_byte(b, 'C')
-			n = 3
-		case .Close:
+	point :: proc(b: ^strings.Builder, q: vg.Vec2) {
+		num(b, q.x)
+		strings.write_byte(b, ' ')
+		num(b, q.y)
+		strings.write_byte(b, ' ')
+	}
+	// Each contour: its start, its segments, Z when closed.
+	for ct, i in p.contours {
+		strings.write_byte(b, 'M')
+		point(b, p.pts[ct.start])
+		it := cv.contour_segments(p, i)
+		for s in cv.segments_next(&it) {
+			if s.kind == .Line {
+				strings.write_byte(b, 'L')
+				point(b, s.p[3])
+			} else {
+				strings.write_byte(b, 'C')
+				point(b, s.p[1])
+				point(b, s.p[2])
+				point(b, s.p[3])
+			}
+		}
+		if ct.closed {
 			strings.write_byte(b, 'Z')
-		case .Solid, .Hole:
 		}
-		for q in p.coords[k:][:n] {
-			num(b, q.x)
-			strings.write_byte(b, ' ')
-			num(b, q.y)
-			strings.write_byte(b, ' ')
-		}
-		k += n
 	}
 	strings.write_byte(b, '"')
 }

@@ -83,7 +83,7 @@ video { width = W, height = H, fps = 60, background = "#101218", duration = 6,
       lights = {
         { type = "HemisphereLight", color = "#dbe6ff", ground_color = "#3b3034", intensity = 0.8 },
         { type = "DirectionalLight", color = "#fff1dc", intensity = 2.6, position = { 4, 7, 3 },
-          cast_shadow = true, shadow = { map_size = 1024, height = 9, bias = -0.0005, normal_bias = 0.02 } },
+          cast_shadow = true, shadow = { map_size = 1024 } },
         { type = "PointLight", color = "#ff7a3d", intensity = 5, position = { -1.2, 1.4, 1.6 }, distance = 6 },
       },
       meshes = {

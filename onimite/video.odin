@@ -79,10 +79,15 @@ Frame :: struct {
 	fps:          int,
 	// The scene being rendered, or nil at video level.
 	scene:        ^Scene_Info,
+	// Seconds from the frame's moment to the moment this build shows: 0, or
+	// the shutter's opening (< 0) when the frame is built a second time for
+	// its motion (motion.odin). Times read from the clock add it; `index`
+	// stays the frame's.
+	shift:        f64,
 }
 
 frame_seconds :: #force_inline proc "contextless" (f: Frame) -> f32 {
-	return f32(f.index) / f32(f.fps)
+	return f32(f.index) / f32(f.fps) + f32(f.shift)
 }
 
 // The frame on screen at `seconds` (frame k shows [k, k + 1) / fps), which

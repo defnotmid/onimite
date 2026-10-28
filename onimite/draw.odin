@@ -48,6 +48,8 @@ Renderer :: struct {
 	cpu:       ^Cpu_Drawing,
 	own_cpu:   Cpu_Drawing,
 	arena:     virtual.Arena,
+	// The frame's motion when built with `build_motion` (motion.odin).
+	motion:    Motion,
 	// Canvas images of media images by name (`media_image_id`), and the
 	// media's eviction count they were last checked against.
 	images:    map[string]Canvas_Image,
@@ -192,6 +194,7 @@ renderer_destroy :: proc(r: ^Renderer) {
 	lottie_cache_destroy(&r.ctx.lotties)
 	timeline_destroy(&r.timeline)
 	virtual.arena_destroy(&r.arena)
+	motion_destroy(&r.motion)
 	r^ = {}
 }
 
@@ -221,9 +224,17 @@ render_frame :: proc(r: ^Renderer, index: int, output: vg.Render_Output = 0, rea
 
 // Runs the render procs for frame `index` into `r.ctx.tree`.
 build_frame :: proc(r: ^Renderer, index: int) {
-	free_all(virtual.arena_allocator(&r.arena))
-	tree_reset(&r.ctx.tree, virtual.arena_allocator(&r.arena))
-	f := Frame{index = index, global_index = index, fps = r.video.fps}
+	build_frame_at(r, index, 0, &r.arena)
+}
+
+// `build_frame` at `shift` seconds from the frame's moment (Frame.shift),
+// the tree in `arena`.
+@(private)
+build_frame_at :: proc(r: ^Renderer, index: int, shift: f64, arena: ^virtual.Arena) {
+	free_all(virtual.arena_allocator(arena))
+	tree_reset(&r.ctx.tree, virtual.arena_allocator(arena))
+	// The shutter never opens before the video starts.
+	f := Frame{index = index, global_index = index, fps = r.video.fps, shift = max(shift, -f64(index) / f64(r.video.fps))}
 	r.ctx.frame = f
 	clear(&r.ctx.shader_uses)
 	clear(&r.ctx.clip_uses)
@@ -435,7 +446,7 @@ draw_node :: proc(r: ^Renderer, i: i32) {
 				vg.path_close(p)
 			}
 		} else if n.asset != nil {
-			vg.path_append(p, n.asset.verbs, n.asset.coords)
+			vg.path_append(p, &n.asset.path)
 		} else if !vg.path_svg(p, n.d) {
 			report(&r.ctx, .Error, {code = .Invalid_Path, a = n.d})
 		}
@@ -979,11 +990,11 @@ draw_image :: proc(r: ^Renderer, n: Image) {
 // paint units.
 @(private = "file")
 path_box :: proc(p: ^vg.Path) -> vg.Rect {
-	if len(p.coords) == 0 {
+	if len(p.pts) == 0 {
 		return {}
 	}
-	lo, hi := p.coords[0], p.coords[0]
-	for q in p.coords[1:] {
+	lo, hi := p.pts[0], p.pts[0]
+	for q in p.pts[1:] {
 		lo = {min(lo.x, q.x), min(lo.y, q.y)}
 		hi = {max(hi.x, q.x), max(hi.y, q.y)}
 	}
@@ -1031,20 +1042,31 @@ node_frame_box :: proc(r: ^Renderer, i: i32) -> vg.Rect {
 // w < 0 when it has none.
 @(private)
 node_bbox :: proc(r: ^Renderer, i: i32) -> vg.Rect {
+	n, is_group := r.ctx.tree.nodes[i].kind.(Group)
+	if !is_group {
+		return leaf_bbox(r, &r.ctx.tree.nodes[i].kind)
+	}
+	if n.is_mask || n.is_pattern {
+		return {0, 0, -1, -1}
+	}
+	b := children_bbox(r, i)
+	if t, ok := n.transform.?; ok && b.w >= 0 {
+		b = rect_transform(b, transform_matrix(t))
+	}
+	return b
+}
+
+// A drawn node's box in its parent's coordinates, as `node_bbox` (a group
+// has none here).
+@(private)
+leaf_bbox :: proc(r: ^Renderer, kind: ^Node_Kind) -> vg.Rect {
 	EMPTY :: vg.Rect{0, 0, -1, -1}
 	box :: proc(x0, y0, x1, y1: f32) -> vg.Rect {
 		return {min(x0, x1), min(y0, y1), abs(x1 - x0), abs(y1 - y0)}
 	}
-	switch n in r.ctx.tree.nodes[i].kind {
+	switch n in kind^ {
 	case Group:
-		if n.is_mask || n.is_pattern {
-			return EMPTY
-		}
-		b := children_bbox(r, i)
-		if t, ok := n.transform.?; ok && b.w >= 0 {
-			b = rect_transform(b, transform_matrix(t))
-		}
-		return b
+		return EMPTY
 	case Rect:
 		return {n.x, n.y, n.w, n.h}
 	case Circle:
@@ -1061,11 +1083,11 @@ node_bbox :: proc(r: ^Renderer, i: i32) -> vg.Rect {
 				vg.path_line_to(p, q.x, q.y)
 			}
 		} else if n.asset != nil {
-			vg.path_append(p, n.asset.verbs, n.asset.coords)
+			vg.path_append(p, &n.asset.path)
 		} else {
 			vg.path_svg(p, n.d)
 		}
-		return path_box(p) if len(p.coords) > 0 else EMPTY
+		return path_box(p) if len(p.pts) > 0 else EMPTY
 	case Text:
 		if n.text == "" && len(n.spans) == 0 {
 			return EMPTY

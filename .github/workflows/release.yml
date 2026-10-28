@@ -55,8 +55,7 @@ jobs:
     env:
       NAME: onimite-${{ github.ref_name }}-${{ matrix.target }}
     steps:
-      # oksl is taken from its default branch at release time; the other
-      # siblings at their pinned tags.
+      # Every sibling at its pinned tag (ci.sh pins checks it).
       - uses: actions/checkout@v4
         with:
           path: onimite
@@ -64,21 +63,29 @@ jobs:
         with:
           repository: defnotmid/ovg
           path: ovg
-          ref: v0.0.42
+          ref: v0.0.46
+      - uses: actions/checkout@v4
+        with:
+          repository: defnotmid/ocurves
+          # Pinned like ovg and o3d, which keep their paths and shapes in its contour tables (both on v0.0.4).
+          ref: v0.0.4
+          path: ocurves
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/oglyph
-          # Pinned like ovg: fonts, font collections, text shaping, bidi and line breaks, which ovg draws through (v0.0.10; ovg v0.0.42 needs it).
+          # Pinned like ovg: fonts, font collections, text shaping, bidi and line breaks, which ovg draws through (v0.0.10; ovg v0.0.46 needs it).
           ref: v0.0.10
           path: oglyph
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/oksl
+          # Pinned like o3d, whose shaders and onimite's it compiles (v0.0.2).
+          ref: v0.0.2
           path: oksl
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/odecs
-          # Pinned like ottis: onimite, ovg v0.0.42, o3d v0.0.39, odawg v0.0.43 and ottis v0.0.8 decode through odecs v0.0.13.
+          # Pinned like ottis: onimite, ovg v0.0.46, o3d v0.0.41, odawg v0.0.43 and ottis v0.0.8 decode through odecs v0.0.13.
           ref: v0.0.13
           path: odecs
       - uses: actions/checkout@v4
@@ -90,8 +97,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/o3d
-          # Pinned like ottis: o3d is released on its own (v0.0.39).
-          ref: v0.0.39
+          # Pinned like ottis: o3d is released on its own (v0.0.41).
+          ref: v0.0.41
           path: o3d
       - uses: actions/checkout@v4
         with:
@@ -104,7 +111,7 @@ jobs:
 
       - name: Record sibling revisions
         run: |
-          for r in ovg oksl odecs ottis o3d odawg; do
+          for r in ovg oglyph ocurves oksl odecs ottis o3d odawg; do
             echo "$r $(git -C "$r" rev-parse HEAD)"
           done
 

@@ -26,9 +26,9 @@ onimite inspect examples/why_onimite/video.lua      # what is wrong, by script l
   [BENCHMARK.md](BENCHMARK.md) races it against every fframes example
   ported 1:1 on each release: wall time, CPU time and memory, fframes'
   wins included.
-- **Checkable.** `inspect`, `show`, `frame`, `strip`, `onion`, `audio
-  analyze` and `--json` on every command answer "is it right?" without a
-  human watching; an MCP server and an agent skill come with it.
+- **Checkable.** `inspect`, `show`, `frame`, `strip`, `onion`, `motion`,
+  `audio analyze` and `--json` on every command answer "is it right?"
+  without a human watching; an MCP server and an agent skill come with it.
 
 ### When to use something else
 
@@ -82,9 +82,10 @@ onimite is built from sibling Odin projects and Odin's vendor packages:
   clips and groups of nodes bind as inputs. The software backend runs the same
   shaders on oksl's CPU interpreter.
 - **3D** (o3d): `view3d{}` draws a scene described in three.js's terms
-  (perspective and orthographic cameras; ambient, hemisphere, point,
-  directional and spot lights with up to 4 PCF shadow maps; a frame drawn
-  in linear light, tone mapping, fog and depth of field focused on a point;
+  (perspective cameras with a physical lens, f-stop and focus on a point,
+  and orthographic ones; ambient, hemisphere, point, directional and spot
+  lights with up to 4 PCF shadow maps fitted to the view; a frame drawn in
+  linear light, tone mapping and fog;
   box, sphere, plane, cylinder, torus, rounded box, circle, ring and lathe
   meshes plus per-frame 3D lines, point clouds, wireframe and `instances`;
   2D drawn onto surfaces every frame (`panels`) or once (`bake{}`, a studio
@@ -272,6 +273,7 @@ onimite render   video.lua --batch rows.json -o out/{name}.mp4   # one video per
 onimite frame    video.lua Intro@1s,50%,end -o frames [--svg]  # PNGs of single frames, with their problems (-o shot.png: one)
 onimite strip    video.lua [range] -n 12 --columns 4 --width 480 -o strip.png
 onimite onion    video.lua Intro@0..Intro@1s -n 6 -o onion.png   # frames blended, later ones stronger
+onimite motion   video.lua Intro@0.4s,2s                  # how fast each thing moves, px a frame, and the line that drew it
 onimite snapshot video.lua 1s,Intro@end [--update] [--dir _frame_snapshots]
 onimite timeline video.lua [range]                        # scenes (cue, source line), audio tracks, cues, songs
 onimite mcp                                               # every command as MCP tools on stdio (preview opens the window)

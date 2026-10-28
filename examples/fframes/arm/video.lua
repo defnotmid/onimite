@@ -103,11 +103,11 @@ local function lagged(t, point)
   return sc(s, 0.2)
 end
 local function tip(q) return (mat4_decompose(A.tip(q))) end
--- a camera and its depth of field: sharp at `focus` (a point or a distance), `blur` px at the
--- far end
-local function cam(fov, position, target, focus, blur)
-  return { type = "PerspectiveCamera", fov = fov, near = 0.05, far = 500, position = position, target = target },
-    { focus = focus, blur = blur / H }
+-- a camera through a lens: sharp at `focus` (a point or a distance), at `f_stop` (the lab is a
+-- miniature, so its shallow focus is a wide aperture)
+local function cam(fov, position, target, focus, f_stop)
+  return { type = "PerspectiveCamera", fov = fov, near = 0.05, far = 500, position = position, target = target,
+    focus = focus, f_stop = f_stop }
 end
 local function orbit(target, d, az, el)
   az, el = math.rad(az), math.rad(el)
@@ -133,38 +133,37 @@ local function camera(t)
     -- hello: a low camera at the front right; the robot looks into this lens
     local x, e = progress(t, 0, beats.work), lagged(t, A.eye)
     local position = add(S.HELLO, { 0.25 * (1 - x), 0.05 * x, 0.35 * (1 - x) })
-    return cam(30, position, vec3_lerp(e, { 0, 0.9, 0.6 }, 0.35), e, 5)
+    return cam(30, position, vec3_lerp(e, { 0, 0.9, 0.6 }, 0.35), e, 1.7)
   elseif t < R_START then
     -- work: a slow orbit that follows the gripper
     local x, p = progress(t, beats.work, R_START), lagged(t, tip)
     local target = vec3_lerp({ 0, 0.75, 0.2 }, p, 0.25)
-    return cam(32, orbit(target, 5.4 - 0.4 * x, -42 + 24 * x, 13), target, p, 8)
+    return cam(32, orbit(target, 5.4 - 0.4 * x, -42 + 24 * x, 13), target, p, 0.9)
   elseif t < SHOW_OFF then
     -- low at the word when the r arrives
     local target = { -0.35, 0.33, WORD_Z }
-    return cam(30, { 1.35, 0.42, 3.15 }, target, target, 12)
+    return cam(30, { 1.35, 0.42, 3.15 }, target, target, 1.5)
   elseif t < REACTION then
     -- wide for the swing and the throw, shaken by the hits
     local x = progress(t, SHOW_OFF, REACTION)
-    local c, focus = cam(36, { 3.7 - 0.3 * x, 1.75, 4.4 - 0.3 * x }, { -0.25, 0.75, 0.25 }, 5.6, 5)
-    return shake(c, t), focus
+    return shake(cam(36, { 3.7 - 0.3 * x, 1.75, 4.4 - 0.3 * x }, { -0.25, 0.75, 0.25 }, 5.6, 1.1), t)
   elseif t < beats.recover then
     -- close on the eye; the robot looks into the lens
     local e = lagged(t, A.eye)
-    return cam(28, S.GUILTY, vec3_lerp(e, { -0.2, 0.6, 0.6 }, 0.15), e, 14)
+    return cam(28, S.GUILTY, vec3_lerp(e, { -0.2, 0.6, 0.6 }, 0.15), e, 1.8)
   elseif t < beats.finish then
     -- low near the fallen letter while the robot moves over carefully
     local letter = mat4_decompose(S.world(story, la, t))
     local target = vec3_lerp(letter, lagged(t, tip), 0.4)
-    return cam(34, { 2.9, 0.75, 2.9 }, add(target, { 0, 0.1, 0 }), target, 9)
+    return cam(34, { 2.9, 0.75, 2.9 }, add(target, { 0, 0.1, 0 }), target, 1.2)
   elseif t < LAST + 0.3 then
     -- high and wide for the fast work
     local x = progress(t, beats.finish, LAST + 0.3)
-    return cam(32, orbit({ 0, 0.55, 0.35 }, 6.4, 28 - 18 * x, 24 - 4 * x), { 0, 0.55, 0.35 }, 6.4, 4)
+    return cam(32, orbit({ 0, 0.55, 0.35 }, 6.4, 28 - 18 * x, 24 - 4 * x), { 0, 0.55, 0.35 }, 6.4, 1.6)
   end
   -- the word, with the robot behind it as it bows
   local x = smoothstep(LAST + 0.3, beats["end"], t)
-  return cam(30, add(S.FINAL, { 0, -0.05 * x, -0.5 * x }), { 0, 0.92, 0.55 }, S.FINAL[3] - WORD_Z - 0.5 * x, 6)
+  return cam(30, add(S.FINAL, { 0, -0.05 * x, -0.5 * x }), { 0, 0.92, 0.55 }, S.FINAL[3] - WORD_Z - 0.5 * x, 1.3)
 end
 
 -- ------------------------------------------------------------------ a moment: the scene at t
@@ -173,7 +172,7 @@ end
 local function moment(t)
   local q, gap = S.sample(t)
   local level = lights(t)
-  local c, dof = camera(t)
+  local c = camera(t)
   local world = A.joints_world(q)
   local booting = smoothstep(beats.wake, beats.wake + 0.5, t)
   -- the eye flickers when it comes on; it glows up to 7
@@ -240,7 +239,6 @@ local function moment(t)
   local view = { x = 0, y = 0, w = W, h = H, camera = c, background = air,
     fog = { type = "FogExp2", color = air, density = 0.045 },
     tone_mapping = "neutral", tone_mapping_exposure = 0.92, bloom = { threshold = 0.95, intensity = 0.4, radius = 24 },
-    depth_of_field = dof,
     environment = L.STUDIO, environment_intensity = L.STUDIO_PEAK * 0.6 * math.max(level, 0.04), reflector = L.REFLECTOR,
     lights = lamps, meshes = meshes, groups = placed, particles = sparks }
   view3d(view)

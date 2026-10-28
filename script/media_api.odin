@@ -563,7 +563,7 @@ l_caption_words :: proc "c" (L: ^lua.State) -> c.int {
 	s := host(L)
 	context = s.odin_context
 	render_ctx(L, s)
-	seconds := f32(s.frame.index) / f32(max(s.frame.fps, 1))
+	seconds := f32(s.frame.index) / f32(max(s.frame.fps, 1)) + f32(s.frame.shift)
 	if !lua.isnoneornil(L, 1) {
 		_, _, seconds = frame_clock(L, 1)
 	}

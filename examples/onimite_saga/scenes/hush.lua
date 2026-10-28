@@ -4,6 +4,22 @@ local score = require("music.score")
 local facts = require("facts")
 local W = look.W
 
+-- fframes' wins, as rows that fit the frame (however many the benchmark finds)
+local LOSS_ROWS = {}
+do
+  local row = ""
+  for _, r in ipairs(facts.losses) do
+    local t = string.format("%s: %.2f s against %.2f s", r.name, r.fframes, r.onimite)
+    local longer = row == "" and t or row .. " · " .. t
+    if row ~= "" and text_width { longer, font = look.MONO, size = 26 } > W - 160 then
+      LOSS_ROWS[#LOSS_ROWS + 1], row = row, t
+    else
+      row = longer
+    end
+  end
+  if row ~= "" then LOSS_ROWS[#LOSS_ROWS + 1] = row end
+end
+
 -- ---- the hush -------------------------------------------------------------------
 
 local function hush(f, lb, gb)
@@ -23,12 +39,8 @@ local function hush(f, lb, gb)
   end
   line("We're not perfect.", 0.3, 300)
   if #facts.losses > 0 then
-    local times = {}
-    for i, r in ipairs(facts.losses) do
-      times[i] = string.format("%s: %.2f s against %.2f s", r.name, r.fframes, r.onimite)
-    end
     line(facts.losses_line, 2, 450)
-    sub(table.concat(times, " · "), 2.7, 505)
+    for k, row in ipairs(LOSS_ROWS) do sub(row, 2.7, 505 + (k - 1) * 36) end
   else
     local r = facts.CLOSEST
     line("fframes comes closest on " .. r.name .. ".", 2, 450)

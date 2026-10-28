@@ -245,7 +245,7 @@ function L.lights(level)
   local air = mix_color("#0c1220", "#bfc3c7", level, "linear")
   return {
     { type = "DirectionalLight", color = "#fff6ea", intensity = 2.4 * level, position = { 1.8, 7, 4 },
-      target = { 0, 0.5, 0.2 }, cast_shadow = true, shadow = { map_size = 3072, height = 7.5, bias = -0.0003 } },
+      target = { 0, 0.5, 0.2 }, cast_shadow = true, shadow = { map_size = 3072 } },
     { type = "DirectionalLight", color = "#cfe0ff", intensity = 0.6 * level, position = { -4, 3, -2 } },
     { type = "HemisphereLight", color = "#f2f4f6", ground_color = "#8a8680", intensity = level + 0.25 },
   }, air

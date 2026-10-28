@@ -737,21 +737,23 @@ attach_shape2d :: proc(L: ^lua.State, s: ^Script, label: string, body_id: b2.Bod
 		tris, pieces, starts: [dynamic]u32
 		tris.allocator, pieces.allocator, starts.allocator = context.temp_allocator, context.temp_allocator, context.temp_allocator
 		area_in, area_made: f64
-		// Flattened about every 2 px and simplified to 1 px: Box2D drops
-		// corners within 0.5 px of a line, so curves need a real turn.
-		for sh in om.outline_shapes(a, false, segment = 2, simplify = 1) {
-			area_in += abs(f64(o3d.shape_area(sh.contour)))
-			for h in sh.holes {
-				area_in -= abs(f64(o3d.shape_area(h)))
+		// Simplified to 1 px: Box2D drops corners within 0.5 px of a line, so
+		// curves need a real turn.
+		shapes: o3d.Shapes
+		defer o3d.shapes_destroy(&shapes)
+		_ = om.outline_shapes(a, &shapes, false)
+		om.shapes_simplify(&shapes, 1)
+		for sh, si in shapes.shapes {
+			for k in sh[0] ..< sh[0] + sh[1] {
+				area := abs(f64(o3d.shape_area(o3d.shapes_ring(&shapes, int(k)))))
+				area_in += area if k == sh[0] else -area
 			}
-			pts := make([dynamic][2]f32, 0, len(sh.contour), context.temp_allocator)
-			append(&pts, ..sh.contour)
-			for h in sh.holes {
-				append(&pts, ..h)
-			}
+			// The shape's rings are one run of points, as its triangles count them.
+			first, last := shapes.rings[sh[0]], shapes.rings[sh[0] + sh[1] - 1]
+			pts := shapes.points[first[0]:last[0] + last[1]]
 			clear(&tris)
-			o3d.triangulate_shape(sh.contour, sh.holes, &tris)
-			convex_pieces(pts[:], ([^][3]u32)(raw_data(tris))[:len(tris) / 3], b2.MAX_POLYGON_VERTICES, &pieces, &starts)
+			o3d.triangulate_shape(&shapes, si, &tris)
+			convex_pieces(pts, ([^][3]u32)(raw_data(tris))[:len(tris) / 3], b2.MAX_POLYGON_VERTICES, &pieces, &starts)
 			for k in 0 ..< len(starts) - 1 {
 				corners: [b2.MAX_POLYGON_VERTICES]b2.Vec2
 				run := pieces[starts[k]:starts[k + 1]]

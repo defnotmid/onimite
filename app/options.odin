@@ -116,6 +116,12 @@ Onion_Args :: struct {
 	using script_options: Script_Options `shared:""`,
 }
 
+Motion_Args :: struct {
+	using script_arg:     Script_Arg,
+	using specs_arg:      Specs_Arg,
+	using script_options: Script_Options `shared:""`,
+}
+
 Snapshot_Args :: struct {
 	using script_arg:     Script_Arg,
 	using specs_arg:      Specs_Arg,

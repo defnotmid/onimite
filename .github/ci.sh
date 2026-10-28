@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # What CI runs (.github/workflows/ci.yml), from an onimite checkout with ovg,
-# oglyph, oksl, odecs, ottis, o3d and odawg beside it; runnable locally too:
+# oglyph, ocurves, oksl, odecs, ottis, o3d and odawg beside it; runnable locally too:
 #
 #   bash .github/ci.sh build   # build/onimite, -o:speed, version v0.0.0-ci (it can update)
 #   bash .github/ci.sh test    # odin test, every package that has tests
@@ -9,6 +9,7 @@
 #   bash .github/ci.sh media   # no heavy audio or video committed under examples/ or skills/
 #   bash .github/ci.sh readmes # no measured loudness figures in example READMEs (they go stale)
 #   bash .github/ci.sh facts   # bench/facts.json measures the latest release; no race figures typed into READMEs
+#   bash .github/ci.sh pins    # every sibling checkout names a tag, the same one in both workflows
 #
 # ONIMITE_TEST_LDFLAGS (set by .github/actions/setup-toolchain) points the
 # links at CI's SDL3; unset, the system's is used.
@@ -51,6 +52,9 @@ smoke)
 	# by its bare name from the folder it's in.
 	"build/onimite$exe" audio render examples/scenes/video.lua 0..30 -o "$out/sound.wav"
 	(cd "$out" && "$OLDPWD/build/onimite$exe" audio analyze sound.wav) | grep -q '^integrated'
+	# motion pairs each draw with itself a quarter frame earlier: the
+	# Middle title's card slides up as it enters, named by its line.
+	"build/onimite$exe" motion examples/scenes/video.lua Middle@0.1s --software | grep -q 'px a frame.*rect  video.lua:12'
 	# show lists odawg's node kinds and a kind's fields from its registry.
 	"build/onimite$exe" show examples/scenes/video.lua node_kind/Filter --json | grep -q '"frequency"'
 	# The MCP server starts, answers, serves the guide and renders with
@@ -117,6 +121,29 @@ songs)
 		echo "::endgroup::"
 	done
 	exit $fail
+	;;
+pins)
+	# A checkout without a ref takes a sibling's moving default branch (oksl's
+	# did until v0.0.62): every sibling is at a tag, the same in CI as in the
+	# release.
+	awk '
+		function flush() {
+			if (repo != "") {
+				if (ref == "") {
+					print file ": " repo " has no ref"; bad = 1
+				} else if ((repo in pin) && pin[repo] != ref) {
+					print file ": " repo " at " ref ", elsewhere at " pin[repo]; bad = 1
+				} else {
+					pin[repo] = ref
+				}
+			}
+			repo = ""; ref = ""
+		}
+		FNR == 1 || /^ *- (uses|name|run):/ { flush() }
+		/^ *repository: defnotmid\// { file = FILENAME; repo = $0; sub(/.*defnotmid\//, "", repo) }
+		/^ *ref: / { ref = $0; sub(/.*ref: */, "", ref) }
+		END { flush(); exit bad }
+	' .github/workflows/ci.yml .github/workflows/release.yml
 	;;
 media)
 	# No heavy media in the repository: an audio or video file over 256 KB

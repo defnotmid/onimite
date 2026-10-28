@@ -10,6 +10,7 @@ import "core:strings"
 import "core:sync"
 import "core:thread"
 import "deps:o3d"
+import cv "deps:ocurves"
 import "deps:oksl"
 import vg "deps:ovg"
 
@@ -48,8 +49,6 @@ View3d :: struct {
 	// The plane materials with `reflection` mirror (three.js's Reflector;
 	// a zero normal: none).
 	reflector:             o3d.Reflector,
-	// What is sharp and how much the rest blurs (BokehPass; blur 0: none).
-	depth_of_field:        o3d.Depth_Of_Field,
 	// Media images: the equirectangular environment lighting the scene
 	// and the background behind it ("" for none), and their strengths.
 	environment:           string,
@@ -285,16 +284,19 @@ Outline_Kind :: enum u8 {
 // upright in 3D. Built once per outline content and options
 // (`View3d_Media.outlines`).
 Outline_Geometry :: struct {
-	kind:    Outline_Kind,
-	asset:   ^Path_Asset,
-	options: o3d.Extrude_Options,
+	kind:           Outline_Kind,
+	asset:          ^Path_Asset,
+	options:        o3d.Extrude_Options,
+	// Points each curve takes when the outline is made shapes (not exact).
+	curve_segments: int,
 }
 
 @(private)
 Outline_Key :: struct {
-	key:     u64,
-	kind:    Outline_Kind,
-	options: o3d.Extrude_Options,
+	key:            u64,
+	kind:           Outline_Kind,
+	options:        o3d.Extrude_Options,
+	curve_segments: int,
 }
 
 // A material's texture maps, by their three.js names (`TEXTURE_MAPS`).
@@ -754,27 +756,31 @@ view3d_make_geometry :: proc(m: ^Media, n: View3d) -> (made: bit_set[o3d.Primiti
 				continue
 			}
 			if o.kind == .Exact {
-				path := outline_path(o.asset, true)
+				c: cv.Contours
+				cv.contours_init(&c, context.temp_allocator)
+				outline_contours(o.asset, &c, true)
 				sync.guard(&v.lock)
 				if key in v.outlines {
 					continue
 				}
-				rule := o3d.Fill_Rule.Even_Odd if o.asset.fill_rule == .Even_Odd else o3d.Fill_Rule.Nonzero
-				g := o3d.exact_shape_geometry(&v.geometries, &path, rule)
+				g := o3d.exact_shape_geometry(&v.geometries, &c, o.asset.fill_rule)
 				v.outlines[key] = {geometry = g, caps = g, sides = g}
 				made_shaped += {.Shape}
 				continue
 			}
-			shapes := outline_shapes(o.asset, true)
+			// An outline ocurves can't fill (non-finite points) makes no shapes.
+			shapes: o3d.Shapes
+			defer o3d.shapes_destroy(&shapes)
+			_ = outline_shapes(o.asset, &shapes, true, o.curve_segments)
 			sync.guard(&v.lock)
 			if key in v.outlines {
 				continue
 			}
 			if o.kind == .Shape {
-				g := o3d.shape_geometry(&v.geometries, shapes)
+				g := o3d.shape_geometry(&v.geometries, &shapes)
 				v.outlines[key] = {geometry = g, caps = g, sides = g}
 			} else {
-				v.outlines[key] = o3d.extrude_geometry(&v.geometries, shapes, o.options)
+				v.outlines[key] = o3d.extrude_geometry(&v.geometries, &shapes, o.options)
 			}
 			made_shaped += {.Extrude if o.kind == .Extrude else .Shape}
 			continue
@@ -829,7 +835,7 @@ lathe_key :: proc(mesh: Mesh) -> u64 {
 
 @(private = "file")
 outline_key :: proc "contextless" (o: Outline_Geometry) -> Outline_Key {
-	return {o.asset.key, o.kind, o.options if o.kind == .Extrude else {}}
+	return {o.asset.key, o.kind, o.options if o.kind == .Extrude else {}, o.curve_segments if o.kind != .Exact else 0}
 }
 
 // Makes the textures of the media images node `n` names that the tables
@@ -1186,7 +1192,6 @@ view3d_scene :: proc(r: ^Renderer, n: View3d, scene: ^o3d.Scene, size: [2]int, l
 	o3d.scene_clear(scene)
 	scene.camera = n.camera
 	scene.reflector = n.reflector
-	scene.depth_of_field = n.depth_of_field
 	// the view's clock, for what rides a physics body
 	now := f32(n.clock_index) / f32(max(n.clock_fps, 1))
 	append(&scene.lights, ..n.lights)
@@ -1381,9 +1386,6 @@ view3d_mesh :: proc(r: ^Renderer, scene: ^o3d.Scene, mesh: Mesh, transform: o3d.
 		if mesh.outline.kind != .None {
 			ex := v.outlines[outline_key(mesh.outline)]
 			geo_id = ex.geometry
-			if ex.folded > 0 {
-				report(&r.ctx, .Warning, {code = .Extrude_Folded, w = f32(ex.folded)})
-			}
 			if side, ok := mesh.side_material.?; ok {
 				// Caps in the material, walls and bevels in the side one.
 				geo_id = ex.caps
