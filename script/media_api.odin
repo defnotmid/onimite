@@ -330,6 +330,7 @@ l_bake :: proc "c" (L: ^lua.State) -> c.int {
 		r: om.Renderer
 		failure := "no renderer"
 		if om.renderer_init(&r, &v, media) == .None {
+			r.pool = s.pool
 			// the frame's pixels are premultiplied, a media image's straight
 			px := om.straight_alpha(om.render_frame(&r, 0))
 			failure = job.failure

@@ -338,7 +338,7 @@ script_reload :: proc(app: ^App_State, row: string) -> Error {
 	// The main load synthesizes the spoken lines the store lacks (the
 	// preview's too, before its window opens); frame builders and the
 	// preview's worker read them from the store.
-	loaded := script.load(&app.script, app.script_path, app.script_args, &app.media, nil, props[:])
+	loaded := script.load(&app.script, app.script_path, app.script_args, &app.media, nil, props[:], app.pool)
 	if loaded != nil {
 		return fail(app, {code = .Script, script = app.script.failure})
 	}

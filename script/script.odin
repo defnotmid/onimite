@@ -18,6 +18,7 @@ import "core:path/filepath"
 import "core:slice"
 import "core:strconv"
 import "core:strings"
+import "core:thread"
 import om "../onimite"
 import "../speech"
 import vg "deps:ovg"
@@ -35,6 +36,9 @@ Script :: struct {
 	// The frame that render call got (a scene's own, or the video's).
 	frame:        om.Frame,
 	odin_context: runtime.Context,
+	// Borrowed for what the load draws (`bake{}`): its bands and shaders in
+	// parallel; nil draws them on the loading thread.
+	pool:         ^thread.Pool,
 	// Why the last load failed.
 	failure:      Failure,
 	// Script arguments (`--set key=value` and positionals), owned; exposed
@@ -167,7 +171,7 @@ video { width = 1280, height = 720, fps = 30, duration = i.duration, background 
 // Loads the script. Its `say` lines are all made before it is used: a first
 // pass notes the ones not made yet (a silent stand-in meanwhile), they are
 // synthesized together (say_synthesize), and a second pass reads them all.
-load :: proc(s: ^Script, path: string, args: []string = nil, media: ^om.Media = nil, shared: ^Shared = nil, props: []string = nil) -> Error {
+load :: proc(s: ^Script, path: string, args: []string = nil, media: ^om.Media = nil, shared: ^Shared = nil, props: []string = nil, pool: ^thread.Pool = nil) -> Error {
 	// A load that synthesized lines lets go of the engine when it ends (the
 	// lines own their memory; the next miss starts it again). Loads that
 	// only read lines (frame builders, clip builds) never touch it.
@@ -177,24 +181,25 @@ load :: proc(s: ^Script, path: string, args: []string = nil, media: ^om.Media = 
 	}
 	defer say_made_clear(s)
 	s.say_defer = true
-	err := load_pass(s, path, args, media, shared, props)
+	err := load_pass(s, path, args, media, shared, props, pool)
 	s.say_defer = false
 	if err != nil || len(s.say_misses) == 0 {
 		say_misses_clear(s)
 		return err
 	}
 	say_synthesize(s)
-	return load_pass(s, path, args, media, shared, props)
+	return load_pass(s, path, args, media, shared, props, pool)
 }
 
 @(private = "file")
-load_pass :: proc(s: ^Script, path: string, args: []string, media: ^om.Media, shared: ^Shared, props: []string) -> Error {
+load_pass :: proc(s: ^Script, path: string, args: []string, media: ^om.Media, shared: ^Shared, props: []string, pool: ^thread.Pool) -> Error {
 	// what the load carries from pass to pass
 	spoke, say_defer, say_made := s.spoke, s.say_defer, s.say_made
 	unload(s)
 	s.spoke, s.say_defer, s.say_made = spoke, say_defer, say_made
 	s.odin_context = context
 	s.media = media
+	s.pool = pool
 	s.shared = shared if shared != nil else &s.own_shared
 	s.path = strings.clone(path)
 	s.args = make([]string, len(args))

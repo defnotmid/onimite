@@ -803,7 +803,7 @@ worker_load :: proc(w: ^Render_Worker, reload_media: bool) {
 	}
 	next := new(script.Script)
 	// Lines an edit added are synthesized by the load.
-	loaded := script.load(next, w.script_path, w.script_args, media, nil, w.script_props)
+	loaded := script.load(next, w.script_path, w.script_args, media, nil, w.script_props, w.pool)
 	if loaded != nil {
 		// The Watch's problems and the video show it.
 		delete(w.load_error)

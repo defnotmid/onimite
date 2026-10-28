@@ -227,7 +227,7 @@ clip_job_build :: proc(j: ^Clip_Job) -> bool {
 			om.media_load_dir(&j.media, b.media_dir)
 		}
 		j.script = new(script.Script)
-		j.loaded = script.load(j.script, b.script_path, b.args, &j.media, b.shared, b.props) == nil
+		j.loaded = script.load(j.script, b.script_path, b.args, &j.media, b.shared, b.props, b.pool) == nil
 	}
 	slot := &b.slots[i]
 	if !j.loaded {
