@@ -8,7 +8,9 @@
 #   tools/bench.sh visual          the same frames from both sides (VSPECS): PSNR/SSIM and montages in $OUT
 #
 # Env: RUNS (3), OUT (.work/bench), OF (visual's onimite: build/onimite), BENCH_ONLY (substring filter on pair and
-#      example names), BENCH_FFRAMES=1 (measure fframes' side again).
+#      example names), BENCH_FFRAMES=1 (measure fframes' side again), BENCH_ROWS (facts: the rows to measure again,
+#      race names, FACT_ROWS ids and example:NAME; every other row is kept from bench/facts.json with the release
+#      that measured it, when that was this machine: what a release changed, measured without the rest).
 # Needs: cargo, ffmpeg/ffprobe, python3, /usr/bin/time (GNU); facts: gh; setup: curl, docker.
 set -euo pipefail
 
@@ -59,7 +61,8 @@ for p in conference low_poly_art beta marketing podcast tiktok teej_podcast audi
 done
 
 mkdir -p "$OUT/work"
-pair_sel() { local p; for p in "${PAIRS[@]}"; do [[ -z "${BENCH_ONLY:-}" || "${p%%|*}" == *"$BENCH_ONLY"* ]] && echo "$p"; done; return 0; }
+pair_sel() { local p; for p in "${PAIRS[@]}"; do [[ -z "${BENCH_ONLY:-}" || "${p%%|*}" == *"$BENCH_ONLY"* ]] && row_sel "${p%%|*}" && echo "$p"; done; return 0; }
+row_sel() { [ -z "${BENCH_ROWS:-}" ] || [[ " $BENCH_ROWS " == *" $1 "* ]]; } # in BENCH_ROWS (all when unset)
 
 # Each example crate alone, as a user builds it (together, cargo would merge their features). A crate whose
 # prebuilt FFmpeg doesn't link against this machine's x264 is built again with FFmpeg from source
@@ -280,8 +283,9 @@ do_facts() {
   WAKE="$oni frame examples/scenes/video.lua 0 -o $OUT/facts/wake.png"
   printf "$FACT_COLS\n" > "$OUT/facts/runs.tsv"
   : > "$OUT/ffmpeg_from_source"
-  local -a rows=("${FACT_ROWS[@]}")
-  mapfile -t -O "${#rows[@]}" rows < <(example_rows | awk -F'|' -v o="${BENCH_ONLY:-}" 'o == "" || index($1, o)')
+  local -a rows=() all=("${FACT_ROWS[@]}")
+  mapfile -t -O "${#all[@]}" all < <(example_rows | awk -F'|' -v o="${BENCH_ONLY:-}" 'o == "" || index($1, o)')
+  for row in "${all[@]}"; do row_sel "${row%%|*}" && rows+=("$row"); done
   sh "$ROOT/third_party/fetch.sh" >/dev/null
   # fframes' rows: reused from bench/facts.json when they were measured at this commit on this machine.
   here="$(git -C "$FF" rev-parse HEAD)|$(machine)"
@@ -370,16 +374,25 @@ facts_write() { # dest tag release-dir fframes-provenance: facts.json from $OUT/
     [ -z "$(git -C "$ROOT" status --porcelain -- examples)" ] || changed=1
   fi
   python3 -I - "$ROOT" "$OUT/facts" "$2" "$3" "$4" "$(git -C "$FF" describe --tags --exact-match 2>/dev/null || true)" \
-    "$examples" "$changed" "$(uname -sr)" \
+    "$examples" "$changed" "$(uname -sr)" "${BENCH_ROWS:-}" \
     "$(awk '/MemTotal/ {print $2 * 1024}' /proc/meminfo)" "$(printf '%s\n' "${FACT_ROWS[@]}" | cut -d'|' -f1)" \
     "$(pair_sel | awk -F'|' '{print $1 ":" $2}')" "$(cat "$OUT/ffmpeg_from_source")" <<'EOF' | facts_save "$1"
 import sys, csv, json, os, re, glob, datetime, statistics as st, tarfile, zipfile
-root, out, tag, rel, ffhere, fftag, examples, changed, osname, ram, ids, pairs, built_from_source = sys.argv[1:]
+root, out, tag, rel, ffhere, fftag, examples, changed, osname, bench_rows, ram, ids, pairs, built_from_source = sys.argv[1:]
 ffcommit, cpu, gpu, mesa = ffhere.split("|")
 path = f"{root}/bench/facts.json"
 old = json.load(open(path)) if os.path.exists(path) else {}
 old_ff = old.get("measured", {}).get("fframes", {})
 old_race = {r["name"]: r for r in old.get("race", {}).get("rows", [])}
+# BENCH_ROWS: the rows not measured again are kept, each with the release that measured it, from a run on this
+# machine only (a row measured elsewhere can't stand beside these)
+partial = bench_rows.split()
+old_on = old.get("measured", {}).get("onimite", {})
+old_tag = old_on.get("tag")
+if partial and old.get("measured", {}).get("fframes", {}).get("machine") != ffhere.split("|", 1)[1]:
+    sys.exit("BENCH_ROWS keeps rows measured on this machine only; bench/facts.json's were measured on another")
+def kept(f):
+    return f if not f or "tag" in f else dict(f, tag=old_tag)
 rows = list(csv.DictReader(open(f"{out}/runs.tsv"), delimiter="\t"))
 quality = {q["pair"]: q for q in csv.DictReader(open(f"{out}/quality.tsv"), delimiter="\t")}
 pairs = [p.split(":") for p in pairs.split()]
@@ -391,7 +404,7 @@ def fact(id, impl):
     if not rs: return None
     if len(ok) < len(rs): return {"failed": len(rs) - len(ok), "runs": len(rs)}
     wall = [float(r["wall_s"]) for r in ok]
-    f = {"wall_s": r3(st.median(wall)), "wall_min_s": r3(min(wall)), "wall_max_s": r3(max(wall)),
+    f = {"tag": tag, "wall_s": r3(st.median(wall)), "wall_min_s": r3(min(wall)), "wall_max_s": r3(max(wall)),
          "cpu_s": r3(st.median(float(r["user_s"]) + float(r["sys_s"]) for r in ok)),
          "rss_bytes": int(st.median(int(r["rss_kb"]) for r in ok)) * 1024}
     v = ok[0]
@@ -402,6 +415,8 @@ def fact(id, impl):
 
 # fframes' side: this run's, or the rows bench/facts.json had at the same commit on this machine
 race, reused = [], set()
+for name in ([] if not partial else [n for n in old_race if n not in partial]):
+    race.append(dict(old_race[name], onimite=kept(old_race[name].get("onimite"))))
 for name, crate in pairs:
     a = fact(name, "fframes")
     if a is None:
@@ -417,6 +432,8 @@ for name, crate in pairs:
     if q and q["psnr_db"] and q["ssim"]:
         row["psnr_db"], row["ssim"] = (99.0 if q["psnr_db"] == "inf" else round(float(q["psnr_db"]), 1)), round(float(q["ssim"]), 4)
     race.append(row)
+order = {r["name"]: i for i, r in enumerate(old.get("race", {}).get("rows", []))}
+race.sort(key=lambda r: order.get(r["name"], len(order)))
 sp = [r["speedup"] for r in race if "speedup" in r]
 best = max((r for r in race if "speedup" in r), key=lambda r: r["speedup"], default=None)
 # crates built with FFmpeg from source: this run's builds, and those of the reused rows
@@ -444,7 +461,10 @@ facts = {
         "date": datetime.date.today().isoformat(),
         "machine": {"cpu": cpu, "gpu": gpu, "mesa": mesa, "os": osname, "ram_bytes": int(ram)},
         "onimite": {"tag": tag, "archive_sha256": sums.get(f"onimite-{tag}-linux-x86_64.tar.gz"), "examples": examples,
-                    "examples_changed": changed == "1", "measured": dates(r["date"] for r in rows if r["impl"] == "onimite")},
+                    "examples_changed": changed == "1",
+                    "measured": dates([r["date"] for r in rows if r["impl"] == "onimite"] + ((old.get("measured", {}).get("onimite", {}).get("measured") or "").split("..") if partial else [])),
+                    **({"measured_again": sorted(set(partial) | (set(old_on.get("measured_again", [])) if old_tag == tag else set())),
+                        "rest_from": old_on.get("rest_from", old_tag) if old_tag == tag else old_tag} if partial else {})},
         "fframes": {"tag": fftag or None, "commit": ffcommit, "machine": f"{cpu}|{gpu}|{mesa}", "measured": dates(ff_dates),
                     "ffmpeg_from_source": source_built},
         "kept": max(int(r["run"]) for r in rows),
@@ -453,11 +473,12 @@ facts = {
         "redone": sum(int(r["redone"]) for r in rows),
     },
     "install": install,
-    "race": {"examples": len({c for _, c in pairs}), "compared": len(sp), "onimite_faster": sum(1 for x in sp if x > 1),
+    "race": {"examples": old["race"]["examples"] if partial else len({c for _, c in pairs}), "compared": len(sp), "onimite_faster": sum(1 for x in sp if x > 1),
              "median_speedup": round(st.median(sp), 2) if sp else None,
              "best": best and {"name": best["name"], "speedup": best["speedup"]}, "rows": race},
-    "onimite": {id: fact(id, "onimite") for id in ids.split()},
-    "examples": {r["id"].split(":", 1)[1]: fact(r["id"], "onimite") for r in rows if r["id"].startswith("example:")},
+    "onimite": {id: fact(id, "onimite") or kept(old.get("onimite", {}).get(id)) for id in ids.split()},
+    "examples": dict({k: kept(v) for k, v in old.get("examples", {}).items()} if partial else {},
+                     **{r["id"].split(":", 1)[1]: fact(r["id"], "onimite") for r in rows if r["id"].startswith("example:")}),
     "setup": old.get("setup", []),
 }
 print(json.dumps(facts))
@@ -476,7 +497,9 @@ m = facts["measured"]
 race = facts["race"]["rows"]
 install = facts["install"]
 o, ff, mc = m["onimite"], m["fframes"], m["machine"]
-out = [f"onimite {o['tag']} ({'the release binary' if o['archive_sha256'] else 'a local build'}, measured {o['measured']}; the scripts at {o['examples']}{', changed' if o['examples_changed'] else ''}) "
+again = o.get("measured_again")
+out = [f"onimite {o['tag']} ({'the release binary' if o['archive_sha256'] else 'a local build'}, measured {o['measured']}; the scripts at {o['examples']}{', changed' if o['examples_changed'] else ''}"
+       + (f"; measured again with it: {', '.join(r.replace('example:', '') for r in again)}, the other rows {o['rest_from']}'s, as each row's tag says" if again else "") + ") "
        f"against fframes {ff['tag'] or ff['commit'][:7]} (measured {ff['measured']}), on {mc['cpu']}, {mc['gpu'] or 'GPU unknown'}, Mesa {mc['mesa'] or 'unknown'}, "
        f"{mc['os']}: the median of {m['kept']} runs after a warm-up (wall / CPU / peak RSS). Each run waited for an idle machine; "
        f"{m['redone']} that overlapped other work were run again. Generated by `tools/bench.sh facts` from `bench/facts.json`."
