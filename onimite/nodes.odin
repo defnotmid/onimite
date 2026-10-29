@@ -180,6 +180,10 @@ Group :: struct {
 	// out (a card's text, a grid outgrowing its panel). `box_name` names it.
 	box:       Maybe(vg.Rect),
 	box_name:  string,
+	// The script function that draws the children (its chunk and first
+	// line), 0 for a group the engine makes: motion blur pairs a group only
+	// with one the same function draws (motion.odin).
+	drawn_by:  u64,
 }
 
 // How a shape is painted: its fill (with SVG fill-opacity), its stroke,

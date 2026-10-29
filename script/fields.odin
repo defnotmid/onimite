@@ -233,6 +233,13 @@ caller_where_via :: proc(L: ^lua.State) -> (at, via: string) {
 report_warning :: proc(L: ^lua.State, s: ^Script, d: om.Diagnostic, severity := om.Severity.Warning) {
 	d := d
 	d.name = caller_where(L)
+	report_problem(s, d, severity)
+}
+
+// Reports a problem about the script line `d.name` names, as
+// report_warning does.
+@(private)
+report_problem :: proc(s: ^Script, d: om.Diagnostic, severity := om.Severity.Warning) {
 	if s.ctx != nil {
 		for e in s.ctx.diagnostics {
 			if same_problem(e, d) {

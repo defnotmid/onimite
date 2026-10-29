@@ -14,8 +14,10 @@ import vg "deps:ovg"
 // the middle is paired with its draw at the opening by its place in the
 // tree: the children of paired groups are matched from both ends while their
 // kind and content (a text's string, an image's file) agree, then, among
-// those left, from both ends while their kind does. Anything else wasn't
-// drawn at the other moment: it doesn't move. The
+// those left, from both ends while their kind does. A group's kind includes
+// the script function that draws it (Group.drawn_by): a group that appears
+// among its siblings can't take the place of one another function draws.
+// Anything else wasn't drawn at the other moment: it doesn't move. The
 // shutter never opens before the video or a scene starts.
 //
 // The table keeps the paired states, not a velocity: per node of the
@@ -207,7 +209,8 @@ motion_placement :: proc(r: ^Renderer, kind: ^Node_Kind) -> vg.Transform2D {
 // Pairs the children of group `mid` (in `ctx.tree`) with those of `open`
 // (in the opening's tree), the groups' transforms so far `wm` and `wo`:
 // from both ends while kind and content agree, then, in what is left, from
-// both ends while the kind does (a text whose string changed).
+// both ends while the kind does (a text whose string changed; a group drawn
+// by the same function).
 @(private = "file")
 motion_pair_children :: proc(r: ^Renderer, mid, open: i32, wm, wo: vg.Transform2D) {
 	a := child_list(&r.ctx.tree, mid)
@@ -288,20 +291,22 @@ child_list :: proc(t: ^Tree, parent: i32) -> []i32 {
 
 
 // Whether node `a` of the middle and `b` of the opening are the same draw:
-// of a kind, and with `content`, showing the same.
+// of a kind, and with `content`, showing the same. A group's key is part of
+// its kind: who draws it.
 @(private = "file")
 same_draw :: proc(r: ^Renderer, a, b: i32, content: bool) -> bool {
 	ka, kb := &r.ctx.tree.nodes[a].kind, &r.motion.tree.nodes[b].kind
-	return reflect.union_variant_typeid(ka^) == reflect.union_variant_typeid(kb^) && (!content || draw_key(ka) == draw_key(kb))
+	_, is_group := ka^.(Group)
+	return reflect.union_variant_typeid(ka^) == reflect.union_variant_typeid(kb^) && (!content && !is_group || draw_key(ka) == draw_key(kb))
 }
 
 // What a draw shows, apart from where and how it is painted: a text's
-// string, an image's file, a path's points.
+// string, an image's file, a path's points; a group's function and role.
 @(private = "file")
 draw_key :: proc(k: ^Node_Kind) -> u64 {
 	#partial switch n in k^ {
 	case Group:
-		return u64(n.is_mask) | u64(n.is_pattern) << 1 | u64(n.masked) << 2
+		return n.drawn_by ~ (u64(n.is_mask) | u64(n.is_pattern) << 1 | u64(n.masked) << 2)
 	case Text:
 		return hash.fnv64a(transmute([]u8)n.text)
 	case Image:

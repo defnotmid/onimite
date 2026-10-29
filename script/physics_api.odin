@@ -46,10 +46,12 @@ import om "../onimite"
 // a metre.
 //
 // The simulation checks itself as it runs (load warnings at the physics{}
-// line): a body that starts inside another (`physics_overlap`), one that
-// leaves the canvas for good (`physics_offscreen`, unless `leaves = true`);
-// `physics_at` reports frames sampled past the end while a body still
-// moves (`physics_unsettled`).
+// line): a body that starts inside another (`physics_overlap`); from its
+// tracks at the end of the load (video{} may come after physics{}), one
+// that leaves the canvas for good (`physics_offscreen`, unless
+// `leaves = true`); `physics_at` reports
+// frames sampled past the end while a body still moves
+// (`physics_unsettled`).
 
 @(private)
 PHYSICS_SCALE :: 100
@@ -99,15 +101,12 @@ Physics_Body :: struct {
 	settled:     f32,
 	// The step it started on, for the overlap check after it.
 	first_step:  int,
-	// Seen on the canvas, and when it last went off it (-1: on it).
-	seen:        bool,
-	left_at:     f32,
 }
 
 // The simulated poses, made once per simulation in `Shared.arena` and never
 // changed: body i's step k at [i * samples + k] (body-major, so a body's
 // track is contiguous).
-@(private = "file")
+@(private)
 Physics_Tracks :: struct {
 	// PHYSICS_TRACKS: what `physics_at` checks its handle by.
 	magic:    u32,
@@ -120,6 +119,10 @@ Physics_Tracks :: struct {
 	// Still moving at the end, and its name in warnings, per body.
 	moving:   []bool,
 	labels:   []string,
+	// How far a dynamic body reaches from its track (px, any turn): the
+	// offscreen check's circle; 0 for one it doesn't check (static,
+	// kinematic, `leaves = true`, never started).
+	reach:    []f32,
 }
 
 @(private)
@@ -290,7 +293,6 @@ l_physics :: proc "c" (L: ^lua.State) -> c.int {
 		}
 	}
 
-	canvas := [2]f32{f32(s.video.width), f32(s.video.height)}
 	steps := int(math.ceil(duration * rate))
 	samples := steps + 1
 	tracks := make_tracks(s.shared, bodies, samples, rate, duration)
@@ -384,20 +386,12 @@ l_physics :: proc "c" (L: ^lua.State) -> c.int {
 			if body.first_step == k {
 				check_overlap(L, s, bodies, i, &contact_data)
 			}
-			if canvas.x > 0 && !body.leaves {
+			if !body.leaves && tracks.reach[i] == 0 {
 				box := b2.Body_ComputeAABB(body.id)
-				lo, hi := box.lowerBound * PHYSICS_SCALE, box.upperBound * PHYSICS_SCALE
-				if hi.x > 0 && hi.y > 0 && lo.x < canvas.x && lo.y < canvas.y {
-					body.seen, body.left_at = true, -1
-				} else if body.seen && body.left_at < 0 {
-					body.left_at = t
-				}
+				p := b2.Body_GetPosition(body.id)
+				far := [2]f32{max(p.x - box.lowerBound.x, box.upperBound.x - p.x), max(p.y - box.lowerBound.y, box.upperBound.y - p.y)}
+				tracks.reach[i] = math.sqrt(far.x * far.x + far.y * far.y) * PHYSICS_SCALE
 			}
-		}
-	}
-	for body in bodies {
-		if body.seen && body.left_at >= 0 {
-			report_warning(L, s, {code = .Physics_Offscreen, a = body.label, x = body.left_at})
 		}
 	}
 
@@ -448,7 +442,12 @@ l_physics :: proc "c" (L: ^lua.State) -> c.int {
 	lua.setfield(L, -2, "contacts")
 	lua.pushlightuserdata(L, tracks)
 	lua.setfield(L, -2, "tracks")
-	append(&s.physics, Physics_Sim{tracks, strings.clone(caller_where(L))})
+	at := strings.clone(caller_where(L))
+	append(&s.physics, Physics_Sim{tracks, at})
+	if s.ctx != nil {
+		// In a frame: the canvas is known (a load checks at its end).
+		physics_offscreen(s, tracks, at)
+	}
 	return 1
 }
 
@@ -529,11 +528,37 @@ make_tracks :: proc(sh: ^Shared, bodies: []Physics_Body, samples: int, rate, dur
 		angle    = make([]f32, n * samples, alloc),
 		moving   = make([]bool, n, alloc),
 		labels   = make([]string, n, alloc),
+		reach    = make([]f32, n, alloc),
 	}
 	for b, i in bodies {
 		tr.labels[i] = strings.clone(b.label, alloc)
 	}
 	return tr
+}
+
+// The bodies of `tr` that leave the canvas for good (`physics_offscreen`,
+// at the physics{} line `at`): seen on it, then off it, their reach about
+// their track, from a step to the end.
+@(private)
+physics_offscreen :: proc(s: ^Script, tr: ^Physics_Tracks, at: string) {
+	w, h := f32(s.video.width), f32(s.video.height)
+	for r, i in tr.reach {
+		if r == 0 {
+			continue
+		}
+		xs, ys := tr.x[i * tr.samples:][:tr.samples], tr.y[i * tr.samples:][:tr.samples]
+		seen, left := false, -1
+		for k in 0 ..< tr.samples {
+			if xs[k] + r > 0 && ys[k] + r > 0 && xs[k] - r < w && ys[k] - r < h {
+				seen, left = true, -1
+			} else if seen && left < 0 {
+				left = k
+			}
+		}
+		if left >= 0 {
+			report_problem(s, {code = .Physics_Offscreen, name = at, a = tr.labels[i], x = f32(left) / tr.rate})
+		}
+	}
 }
 
 // physics_at(sim, body, t) -> x, y, angle (or pos, rot for a physics3d{}

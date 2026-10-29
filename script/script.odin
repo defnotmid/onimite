@@ -257,6 +257,13 @@ load_pass :: proc(s: ^Script, path: string, args: []string, media: ^om.Media, sh
 	if v.width <= 0 || v.height <= 0 || v.fps <= 0 {
 		return set_error(s, {code = .No_Video, path = path})
 	}
+	// physics{} may come before video{}: its offscreen check waits for the
+	// canvas.
+	for sim in s.physics {
+		if sim.tracks != nil && (^u32)(sim.tracks)^ == PHYSICS_TRACKS {
+			physics_offscreen(s, (^Physics_Tracks)(sim.tracks), sim.at)
+		}
+	}
 	if len(s.scenes) == 0 && v.duration == nil {
 		return set_error(s, {code = .No_Duration, path = path})
 	}
@@ -1258,6 +1265,11 @@ l_group :: proc "c" (L: ^lua.State) -> c.int {
 	lua.pop(L, 1)
 	g.mask_alpha = get_str(L, 1, "mask_type", "luminance") == "alpha"
 	fields_end(L, s, 1, "group")
+	ar: lua.Debug
+	lua.pushvalue(L, 2)
+	lua.getinfo(L, ">S", &ar)
+	drawn_by := [2]uintptr{uintptr(rawptr(ar.source)), uintptr(ar.linedefined)}
+	g.drawn_by = hash.fnv64a(slice.to_bytes(drawn_by[:]))
 
 	om.group_begin(ctx, g)
 	status: c.int = 0

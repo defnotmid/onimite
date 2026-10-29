@@ -1890,6 +1890,38 @@ video { width = 32, height = 32, fps = 10, duration = 0.1 }
 	fixture_load(t, &f)
 }
 
+// A body that falls off the canvas for good is reported at its physics{}
+// line, also when physics{} runs before video{} gives the canvas (a scene
+// file required first); one that may leave (`leaves = true`) and one that
+// lands on a floor aren't.
+@(test)
+test_physics_offscreen :: proc(t: ^testing.T) {
+	f: Fixture
+	defer fixture_destroy(&f)
+	fixture_init(t, &f, `
+local sim = physics { duration = 2, gravity = 2000, bodies = {
+  { name = "drop", box = { 20, 20 }, x = 50, y = 50 },
+  { name = "free", box = { 20, 20 }, x = 150, y = 50, leaves = true },
+  { name = "kept", box = { 20, 20 }, x = 250, y = 50 },
+  { static = true, box = { 100, 10 }, x = 250, y = 90 },
+} }
+video { width = 320, height = 100, fps = 30, duration = 1 }
+`)
+	if !fixture_load(t, &f) {
+		return
+	}
+	testing.expect_value(t, len(f.script.load_problems), 1)
+	if len(f.script.load_problems) == 1 {
+		d := f.script.load_problems[0]
+		testing.expect_value(t, d.code, om.Diagnostic_Code.Physics_Offscreen)
+		testing.expect_value(t, d.a, "drop")
+		testing.expectf(t, strings.has_suffix(d.name, ":2"), "where: %s", d.name)
+		// From y 50 at 2000 px/s², its corners (14 px out) leave the 100 px
+		// canvas after about 0.25 s.
+		testing.expectf(t, d.x > 0.22 && d.x < 0.3, "left at %v s", d.x)
+	}
+}
+
 // attach = { sim, body } rides a physics3d body (meshes and emitters alike);
 // an emitter's start, stop and bursts read into it; world_space without a
 // body is an error.
@@ -2161,6 +2193,46 @@ end }
 	speed, _ = om.motion_speed(r, 1)
 	testing.expectf(t, abs(speed - 4) < 1e-3, "scene B's second frame: %v", speed)
 	testing.expect_value(t, len(r.ctx.diagnostics), 0)
+}
+
+// A group that appears among its siblings doesn't take another's pair: a
+// crate poured in at 1 s, after the crates before it and ahead of a block
+// another function draws, appears; the block is still paired with itself.
+@(test)
+test_motion_group_appears :: proc(t: ^testing.T) {
+	f: Fixture
+	defer fixture_destroy(&f)
+	fixture_init(t, &f, `
+video { width = 640, height = 360, fps = 60 }
+scene { "A", duration = 2, render = function(f)
+  for k = 1, f.seconds >= 1 and 3 or 2 do
+    group({ transform = translate(40 * k, 300) }, function() rect { x = 0, y = 0, w = 10, h = 10 } end)
+  end
+  group({ transform = translate(100 + 240 * f.seconds, 50) }, function()
+    rect { x = 0, y = 0, w = 40, h = 40 }
+    text { "block", x = 0, y = 60, size = 24 }
+  end)
+end }
+`)
+	if !fixture_load(t, &f) {
+		return
+	}
+	r := fixture_renderer(t, &f)
+	m := &r.motion
+
+	// Frame 60, 1 s: root, three crates (a group and its rect each), the
+	// block's group, its rect and its text.
+	om.build_motion(r, 60, om.motion_shift(&f.script.video))
+	testing.expect_value(t, len(m.state), 10)
+	for i in ([2]int{2, 4}) {
+		speed, _ := om.motion_speed(r, i)
+		testing.expectf(t, m.state[i] == .Paired && speed == 0, "crate %d: %v %v", i, m.state[i], speed)
+	}
+	testing.expect_value(t, m.state[6], om.Motion_State.Unpaired)
+	for i in ([2]int{8, 9}) {
+		speed, _ := om.motion_speed(r, i)
+		testing.expectf(t, m.state[i] == .Paired && abs(speed - 4) < 1e-3, "block node %d: %v %v", i, m.state[i], speed)
+	}
 }
 
 

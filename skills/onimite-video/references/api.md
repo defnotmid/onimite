@@ -170,7 +170,8 @@ origin arguments rather than translating by hand.
 most 360). Each frame is built a second time at the shutter's opening, the clock read `shutter
 / 2` degrees earlier (`f.seconds`, `animate`, `physics_at`, a view's physics), and each draw is
 paired with itself there, as `onimite motion` pairs them (by its place among its siblings,
-kind and content first, then kind). What moved streaks along its motion over the whole
+kind and content first, then kind; a group only with one the same function draws, so a group
+that appears doesn't take another's place). What moved streaks along its motion over the whole
 shutter; what stayed still stays sharp, and a frame where nothing moves is what it is
 without the shutter. A still draw in front of a moving one stays sharp over its streak.
 
@@ -399,7 +400,9 @@ end }
   `angle`, `vx`, `vy` (px/s), `spin` (degrees/s), `bounce` (restitution, 0), `friction` (0.6),
   `density` (1), `gravity_scale` (1), `damping`, `spin_damping`, `bullet = true` (no
   tunnelling through other moving bodies: fast, small ones).
-  - Kinds: dynamic (the default), `static = true` (never moves; without a shape, an anchor),
+  - Kinds: dynamic (the default), `static = true` (never moves; without a shape, an anchor;
+    make floors and walls thick, reaching past what you draw: a light body crushed under a
+    heavy one is pushed out through the far side of a thin one),
     `kinematic = true` (pushes, is not pushed): `move = function(t) return x, y, angle end`
     puts it there every step (e.g. from `animate(t, keys)`).
   - Time: `start` (it waits, frozen and touching nothing, until then; then launches with its
