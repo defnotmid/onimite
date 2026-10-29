@@ -24,17 +24,22 @@ local function place(name, pos) put(name, pos:match("^[%w_]+"), score.time(pos))
 -- Title: the slam on the downbeat of bar 2 (the "slam" section).
 place("TITLE_SLAM", "slam")
 
--- Race: bars start on bar 2 and fframes' all take two bars; each onimite
--- bar takes its share of that, its DONE on the nearest eighth (labels show
--- the exact seconds).
+-- Race: bars start on bar 2; in each lane the slower render's bar takes two
+-- bars, so every lane ends together on the music, and the faster one's its
+-- share of that, onimite's DONE on the nearest eighth (labels show the exact
+-- seconds).
 place("RACE_GO", "race@1m")
 place("RACE_STOP", "race@3m")
 do
-  local done = {}
+  local done, fdone = {}, {}
+  local span = T.at.RACE_STOP - T.at.RACE_GO
   for i, r in ipairs(facts.RACE) do
-    done[i] = score.snap(T.at.RACE_GO + r[3] / r[2] * (T.at.RACE_STOP - T.at.RACE_GO), "8n")
+    local slower = math.max(r[2], r[3])
+    done[i] = score.snap(T.at.RACE_GO + r[3] / slower * span, "8n")
+    fdone[i] = T.at.RACE_GO + r[2] / slower * span
   end
   put("RACE_DONE", "race", done)
+  put("RACE_FDONE", "race", fdone)
 end
 
 -- Bill: the counters tick on the song's blips, four each (fframes' takes

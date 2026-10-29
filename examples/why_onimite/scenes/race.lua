@@ -1,8 +1,9 @@
 -- Eight renders side by side: each lane's bars are the progress of the same
--- video in fframes and in onimite, at their measured relative speeds.
--- fframes' bars all take two bars of music; onimite' finish on the nearest
--- eighth of their share, with a DONE. The speedup pops once both are
--- done, in the winner's colour: fframes' wins, if any, are the last lanes.
+-- video in fframes and in onimite, at their measured relative speeds. The
+-- slower render of each lane takes two bars of music, so all lanes end
+-- together; the faster finishes at its share, onimite's on the nearest
+-- eighth with a DONE. The speedup pops once both are done, in the winner's
+-- colour: fframes' wins, if any, are the last lanes.
 
 local beat = require("beat")
 local ui = require("ui")
@@ -22,12 +23,12 @@ end
 
 local function lane(i, r, lb)
   local name, fsec, osec, ratio = r[1], r[2], r[3], r[4]
-  local done = T.RACE_DONE[i]
-  local both = math.max(done, STOP)
+  local done, fdone = T.RACE_DONE[i], T.RACE_FDONE[i]
+  local both = math.max(done, fdone)
   local y = LANE_Y + (i - 1) * LANE_H
   local at = 0.4 * i
   local appear = snap(lb - at)
-  local pf = progress(lb, GO, STOP)
+  local pf = progress(lb, GO, fdone)
   local po = progress(lb, GO, done)
   group({ opacity = progress(lb, at, at + 0.1), transform = translate((1 - appear) * 200, 0) }, function()
     text { name, x = 120, y = y + 52, font = ui.MONO, size = 32, fill = ui.TEXT }
