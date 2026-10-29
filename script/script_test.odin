@@ -1961,6 +1961,64 @@ end }
 	testing.expect_value(t, unused, 1)
 }
 
+// A view3d panel keeps more than 8 bits: a faint flare (a gradient, and a
+// shader's falloff, from 0.12 alpha to 0) brightened 400 times steps one
+// output level at a time across its tail, where an 8-bit panel's levels
+// jumped up to 6.
+@(test)
+test_view3d_panel_precision :: proc(t: ^testing.T) {
+	f: Fixture
+	defer fixture_destroy(&f)
+	fixture_init(t, &f, `
+local FALL = [[
+uniform float2 iResolution;
+half4 main(float2 p) {
+  float a = 0.12 * clamp(1.0 - length(p - iResolution * 0.5) / (iResolution.x * 0.5), 0.0, 1.0);
+  return half4(half3(1.0, 0.78, 0.55) * a, a);
+}
+]]
+video { width = 480, height = 240, fps = 10, duration = 0.1, render = function(f)
+  view3d { camera = { position = { 0, 0, 4 } }, background = "#000", tone_mapping = "linear", tone_mapping_exposure = 400,
+    panels = {
+      gradient = { w = 256, h = 256, draw = function()
+        circle { cx = 128, cy = 128, r = 128, fill = radial_gradient { cx = 128, cy = 128, r = 128,
+          stops = { { 0, "rgba(255,200,140,0.12)" }, { 1, "rgba(255,200,140,0)" } } } }
+      end },
+      shaded = { w = 256, h = 256, draw = function() shader { sksl = FALL, x = 0, y = 0, w = 256, h = 256 } end },
+    },
+    meshes = {
+      { geometry = { type = "PlaneGeometry", width = 2.2, height = 2.2 }, position = { -1.2, 0, 0 },
+        material = { type = "MeshBasicMaterial", map = "gradient", blending = "additive" } },
+      { geometry = { type = "PlaneGeometry", width = 2.2, height = 2.2 }, position = { 1.2, 0, 0 },
+        material = { type = "MeshBasicMaterial", map = "shaded", blending = "additive" } },
+    } }
+end }
+`)
+	if !fixture_load(t, &f) {
+		return
+	}
+	px := fixture_frame(t, &f, 0)
+	if len(px) != 480 * 240 * 4 {
+		testing.fail_now(t, "no frame")
+	}
+	row := px[120 * 480 * 4:][:480 * 4]
+	// Banding is flat runs between jumps: an 8-bit panel held a level for
+	// 9 to 11 pixels here. Saturated and near-black pixels aside.
+	run, longest := 0, 0
+	prev := -1
+	for x in 0 ..< 480 {
+		v := int(row[x * 4])
+		if v < 20 || v > 250 {
+			run, prev = 0, -1
+			continue
+		}
+		run = run + 1 if v == prev else 1
+		longest = max(longest, run)
+		prev = v
+	}
+	testing.expectf(t, longest <= 3, "a flat run of %d pixels in the flares' tails", longest)
+}
+
 // attach = { sim, body } rides a physics3d body (meshes and emitters alike);
 // an emitter's start, stop and bursts read into it; world_space without a
 // body is an error.

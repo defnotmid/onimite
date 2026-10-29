@@ -279,10 +279,11 @@ onimite render video.lua 10s..20s -o part.mp4       # a range; the audio is cut 
 onimite render video.lua -o frames/                 # PNGs (any -o not ending in .mp4): frames/000000.png ...
 ```
 
-H.264 and H.265 encode through the system: VideoToolbox on macOS (in hardware, or Apple's
-software codecs), Vulkan Video on Linux and Windows. A release carries no H.264 / H.265 codec of
-its own: on a machine without a system encoder (no Vulkan Video, or a Mesa built without
-H.264 / H.265) `render` writes PNGs but no MP4, and says so.
+H.264 and H.265 encode and decode through the system: VideoToolbox on macOS (in hardware, or
+Apple's software codecs), Vulkan Video on Linux and Windows, else the system's FFmpeg
+(libavcodec, loaded when needed; its encoder is whichever that FFmpeg has, libx264 or
+libopenh264). A release carries no H.264 / H.265 codec of its own: on a machine with none of
+these `render` writes PNGs but no MP4, and says so.
 `--draft`: half resolution (unless `--scale`), QP 32, one-second GOP. A scaled size rounds to
 even (1080x1350 at half is 540x676). `--h265`, `--qp N`
 (0 best .. 51), `--native` and `--slices N` (odecs' own encoder instead of the system's, and its

@@ -1694,7 +1694,9 @@ View3d_Label_Sprite :: struct {
 view3d_bind_content :: proc(r: ^Renderer, job: ^View3d_Job, i: int, content: i32, w, h, sx, sy: f32) -> (texture: o3d.Texture_Id, pixels: [2]f32) {
 	pw := u32(clamp(math.ceil(w * sx), 1, 4096))
 	ph := u32(clamp(math.ceil(h * sy), 1, 4096))
-	img := draw_content(r, content, w, h, pw, ph)
+	// Half floats: an 8-bit texel keeps few levels of a faint gradient (a
+	// flare's at low alpha), which the sRGB curve then spreads into bands.
+	img := draw_content(r, content, w, h, pw, ph, .RGBA16F)
 	if !vg.image_id_valid(img) {
 		return
 	}

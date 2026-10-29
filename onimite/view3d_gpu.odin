@@ -132,7 +132,7 @@ view3d_job_run_software :: proc(job: ^View3d_Job, images: ^vg.Image_Store) {
 	for b in job.videos {
 		if px := pixels_of(images, b.image); px != nil {
 			if info, ok := vg.image_store_info(images, b.image); ok {
-				o3d.software_set_external(sw, b.texture, px, int(info.width), int(info.height))
+				o3d.software_set_external(sw, b.texture, px, int(info.width), int(info.height), halves = info.format == .RGBA16F)
 			}
 		}
 	}

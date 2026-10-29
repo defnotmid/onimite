@@ -79,6 +79,10 @@ Renderer :: struct {
 	xform:         vg.Transform2D,
 	boxes:         [dynamic]Box_Check,
 	offscreen:     int,
+	// The format of the content image being drawn into (`draw_content`):
+	// a shader's output there takes it, so a half-float panel keeps a
+	// shader's precision.
+	content_format: vg.Pixel_Format,
 	// The readable texts drawn this frame, in pixels (`check_frame`),
 	// and how readable text drawn now is: the groups' opacity, 0 inside
 	// blurred or filtered groups (glows and shadows are not read).
@@ -775,9 +779,10 @@ pattern_paint :: proc(r: ^Renderer, pat: Pattern, box: vg.Rect) -> (vg.Paint, bo
 }
 
 // Draws the nodes under `content` (`w x h` units, origin top-left) into a
-// pooled `pw x ph` image and returns it (a shader's group child).
+// pooled `pw x ph` image of `format` and returns it (a shader's group
+// child; a view3d panel or label, in half floats).
 @(private)
-draw_content :: proc(r: ^Renderer, content: i32, w, h: f32, pw, ph: u32) -> vg.Image_Id {
+draw_content :: proc(r: ^Renderer, content: i32, w, h: f32, pw, ph: u32, format := vg.Pixel_Format.RGBA8) -> vg.Image_Id {
 	c := &r.canvas
 	// The content is clipped to its own image, not the frame: text in it is
 	// not checked against the frame's edges.
@@ -785,7 +790,10 @@ draw_content :: proc(r: ^Renderer, content: i32, w, h: f32, pw, ph: u32) -> vg.I
 	defer r.clip_depth -= 1
 	r.offscreen += 1
 	defer r.offscreen -= 1
-	img := vg.layer_image_begin(&r.layers, c, pw, ph)
+	img := vg.layer_image_begin(&r.layers, c, pw, ph, format)
+	outer_format := r.content_format
+	r.content_format = format
+	defer r.content_format = outer_format
 	vg.save(c)
 	vg.reset_transform(c)
 	vg.reset_scissor(c)

@@ -774,7 +774,7 @@ draw_shader :: proc(r: ^Renderer, n: Shader, sim := false) {
 		if !ok {
 			return
 		}
-		image = frame_image(r, layer_pixels(n.w, n.h, sx, sy))
+		image = frame_image(r, layer_pixels(n.w, n.h, sx, sy), r.content_format if r.offscreen > 0 else .RGBA8)
 		if !vg.image_id_valid(image) || !shader_run_pass(r, n, g, out, prog, image, outputs, sx, sy) {
 			return
 		}

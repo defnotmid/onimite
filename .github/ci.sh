@@ -22,9 +22,11 @@ exe=
 [ "${OS:-}" = Windows_NT ] && exe=.exe
 mkdir -p build
 
-# Hosted runners have no system H.264 / H.265 encoder (no Vulkan Video, no
-# media engine), so the binary and tests CI runs carry odecs' native ones;
-# they are never shipped. Releases build without the define (`release`).
+# The binary and tests CI runs carry odecs' native H.264 / H.265: hosted
+# runners have no Vulkan Video or media engine, and the smoke test compares
+# files byte for byte, which only the native encoder makes the same on every
+# machine (a system libavcodec's encoder varies). They are never shipped;
+# releases build without the define (`release`).
 PATENTED=-define:ODECS_PATENTED=true
 
 # The symbols of odecs' native H.264 / H.265 decoding and encoding (the
