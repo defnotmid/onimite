@@ -2,8 +2,10 @@
 # What CI runs (.github/workflows/ci.yml), from an onimite checkout with ovg,
 # oglyph, ocurves, oksl, odecs, ottis, o3d and odawg beside it; runnable locally too:
 #
-#   bash .github/ci.sh build   # build/onimite, -o:speed, version v0.0.0-ci (it can update)
-#   bash .github/ci.sh test    # odin test, every package that has tests
+#   bash .github/ci.sh build   # build/onimite, -o:speed, version v0.0.0-ci (it can update), with odecs' native H.264 / H.265
+#   bash .github/ci.sh test    # odin test, every package that has tests, with odecs' native H.264 / H.265
+#   bash .github/ci.sh release # the configuration releases ship: no native H.264 / H.265 in it, render --native refused
+#   bash .github/ci.sh no-patents FILE  # FILE (an unstripped binary) has no native H.264 / H.265 code
 #   bash .github/ci.sh smoke   # the built binary draws a frame, renders a clip (software), serves MCP, updates itself
 #   bash .github/ci.sh songs   # every example song part by part against its parts.json (audio parts --against)
 #   bash .github/ci.sh media   # no heavy audio or video committed under examples/ or skills/
@@ -20,9 +22,38 @@ exe=
 [ "${OS:-}" = Windows_NT ] && exe=.exe
 mkdir -p build
 
+# Hosted runners have no system H.264 / H.265 encoder (no Vulkan Video, no
+# media engine), so the binary and tests CI runs carry odecs' native ones;
+# they are never shipped. Releases build without the define (`release`).
+PATENTED=-define:ODECS_PATENTED=true
+
 case ${1:-} in
 build)
-	odin build . -collection:deps=.. -o:speed -define:ONIMITE_VERSION=v0.0.0-ci -out:"build/onimite$exe" ${ONIMITE_TEST_LDFLAGS:+"-extra-linker-flags:$ONIMITE_TEST_LDFLAGS"}
+	odin build . -collection:deps=.. -o:speed $PATENTED -define:ONIMITE_VERSION=v0.0.0-ci -out:"build/onimite$exe" ${ONIMITE_TEST_LDFLAGS:+"-extra-linker-flags:$ONIMITE_TEST_LDFLAGS"}
+	;;
+release)
+	# As release.yml builds it: no native H.264 / H.265 compiled in, and
+	# render refuses --native before loading the script.
+	odin build . -collection:deps=.. -o:speed -define:ONIMITE_VERSION=v0.0.0-ci -out:"build/onimite-release$exe" ${ONIMITE_TEST_LDFLAGS:+"-extra-linker-flags:$ONIMITE_TEST_LDFLAGS"}
+	bash "$0" no-patents "build/onimite-release$exe"
+	out=${RUNNER_TEMP:-${TMPDIR:-/tmp}}/onimite-release
+	mkdir -p "$out"
+	if "build/onimite-release$exe" render examples/scenes/video.lua 0..2 --native -o "$out/native.mp4" 2>"$out/native.err"; then
+		echo "a release build rendered with --native" >&2
+		exit 1
+	fi
+	grep -F 'not built in (-define:ODECS_PATENTED=true)' "$out/native.err"
+	test ! -e "$out/native.mp4"
+	;;
+no-patents)
+	# The symbols of odecs' native H.264 / H.265 decoding and encoding (the
+	# pattern odecs' CI checks): a default build links only the parsing
+	# VideoToolbox and Vulkan Video need.
+	syms=$(nm "${2:?no-patents takes the binary}")
+	if grep -E 'h26[45]_decoder::decode_|h264_encoder::|h265_encoder::encode' <<<"$syms"; then
+		echo "$2 carries native H.264 / H.265 code" >&2
+		exit 1
+	fi
 	;;
 test)
 	# macOS: the GPU tests in encode and onimite (view3d's GPU half) skip
@@ -31,7 +62,7 @@ test)
 	# of o3d's own tests runs here (no O3D_NO_GPU needed).
 	for pkg in onimite script app encode speech; do
 		echo "::group::odin test $pkg"
-		odin test "$pkg" -collection:deps=.. -out:"build/test_$pkg$exe" ${ONIMITE_TEST_LDFLAGS:+"-extra-linker-flags:$ONIMITE_TEST_LDFLAGS"}
+		odin test "$pkg" -collection:deps=.. $PATENTED -out:"build/test_$pkg$exe" ${ONIMITE_TEST_LDFLAGS:+"-extra-linker-flags:$ONIMITE_TEST_LDFLAGS"}
 		echo "::endgroup::"
 	done
 	;;

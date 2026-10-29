@@ -389,7 +389,7 @@ command_validate :: proc(app: ^App_State, row: ^Command_Row) -> Error {
 
 Command_Flag :: enum u8 {
 	Draft, // render: half size, fastest encoding
-	Native, // render: no hardware encoder
+	Native, // render: odecs' native encoder (builds with -define:ODECS_PATENTED=true)
 	Update, // snapshot: accept the current frames
 	All_Frames, // inspect: every frame
 	Info, // inspect: informational findings too

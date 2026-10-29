@@ -1,7 +1,9 @@
 // Encodes rendered frames to MP4 with odecs' video writer: BT.709
-// limited-range 4:2:0 frames encoded as H.264 or H.265 (hardware through
-// Vulkan Video when available, else odecs' native encoders); the audio mix
-// becomes an interleaved AAC track.
+// limited-range 4:2:0 frames encoded as H.264 or H.265 by the system's
+// encoders (VideoToolbox on macOS, in hardware or Apple's software codecs;
+// Vulkan Video on Linux and Windows), or by odecs' native encoders in a
+// build with -define:ODECS_PATENTED=true (`native_built_in`, `--native`);
+// the audio mix becomes an interleaved AAC track.
 //
 // The work runs off the caller's thread so rendering never waits on
 // encoding: `write_nv12` queues the caller's frame as it is (GPU_NV12's
@@ -12,9 +14,8 @@
 // convert to NV12 on the GPU (gpu_nv12.odin), the layout Vulkan Video takes;
 // software renders convert to I420 with `rgba_to_i420` on the thread that
 // drew them; both use odecs' conversion coefficients and produce identical
-// samples. The native encoder codes its
-// slices on the application's task pool, shared with the frame builders
-// (`Pool_Work`).
+// samples. The native encoder, where built in, codes its slices on the
+// application's task pool, shared with the frame builders (`Pool_Work`).
 package onimite_encode
 
 import "core:fmt"
@@ -41,6 +42,8 @@ Error :: enum u8 {
 	Audio,
 	Frame,
 	Finish,
+	// `software` in a build without the native encoder.
+	Native_Missing,
 	// GPU conversion (gpu_nv12.odin).
 	Gpu_Unsupported,
 	Gpu_Submit,
@@ -59,6 +62,7 @@ Failure :: struct {
 	width, height: int,
 	movie:         video.Error,
 	detail:        string,
+	codec:         Codec,
 }
 
 @(rodata)
@@ -69,6 +73,7 @@ ERROR_TEXT := [Error]string {
 	.Audio           = "audio: {movie} {detail}",
 	.Frame           = "encode frame {frame}: {movie} {detail}",
 	.Finish          = "finish: {movie} {detail}",
+	.Native_Missing  = "the native {codec} encoder (--native, --slices) is not built in (-define:ODECS_PATENTED=true): {codec} encodes through VideoToolbox (macOS) or Vulkan Video (Linux, Windows)",
 	.Gpu_Unsupported = "the GPU can not convert frames to I420",
 	.Gpu_Submit      = "can not convert the frame on the GPU",
 	.Gpu_Map         = "can not read the converted frame back",
@@ -94,6 +99,8 @@ error_message :: proc(f: Failure, allocator := context.allocator) -> string {
 			fmt.sbprintf(b, "%v", f.movie)
 		case "detail":
 			strings.write_string(b, f.detail)
+		case "codec":
+			strings.write_string(b, "H.265" if f.codec == .H265 else "H.264")
 		case:
 			return false
 		}
@@ -108,7 +115,8 @@ Options :: struct {
 	qp:             i32,
 	// Frames between keyframes; 0 is about one second.
 	gop:            int,
-	// Skip Vulkan Video and use the native encoder.
+	// Skip the system's encoders for odecs' native one (only where it is
+	// built in: `native_built_in`).
 	software:       bool,
 	// odecs' ultrafast preset: encode speed over size (`render --draft`).
 	ultrafast:      bool,
@@ -133,6 +141,12 @@ Chapter :: video.Chapter
 
 // The native encoder's H.264 slices by default (odecs' own default).
 NATIVE_SLICES :: 4
+
+// Whether this build has odecs' native encoder for `codec`: only with
+// -define:ODECS_PATENTED=true (or ODECS_NATIVE_H264 / ODECS_NATIVE_H265).
+native_built_in :: proc "contextless" (codec: Codec) -> bool {
+	return native.ODECS_NATIVE_H265 if codec == .H265 else native.ODECS_NATIVE_H264
+}
 
 // Frames in flight between the renderer and the encoder thread.
 RING_SLOTS :: 4

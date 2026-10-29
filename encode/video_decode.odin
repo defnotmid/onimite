@@ -6,6 +6,7 @@ import "core:strings"
 import "core:sync"
 import "core:thread"
 import "core:time"
+import native "deps:odecs/media/native"
 import video "deps:odecs/video"
 import om "../onimite"
 
@@ -40,10 +41,10 @@ Video_Decoders :: struct {
 	// others on their first use. Stable pointers: workers are shared with
 	// their threads.
 	workers: [dynamic][CLIP_STREAMS]^Clip_Worker,
-	// Decode with odecs' native codecs rather than Vulkan Video. Backward
-	// seeks cost ~5 ms native against 27-40 ms on Vulkan, so interactive
-	// previews set it; exports keep hardware decoding. Read when a clip's
-	// thread starts.
+	// Decode with odecs' native codecs where this build has them
+	// (`native_decodes`) rather than the system's. Backward seeks cost ~5 ms
+	// native against 27-40 ms on Vulkan, so interactive previews set it;
+	// exports keep hardware decoding. Read when a clip's thread starts.
 	native:  bool,
 }
 
@@ -153,7 +154,7 @@ vs_open :: proc(data: rawptr, path: string) -> (clip: int, info: om.Video_Info, 
 	w.leased = -1
 	w.capacity = FORWARD_SLOTS
 	cfg := video.Reader_Config {
-		preference          = .Native if d.native else .Automatic,
+		preference          = .Automatic,
 		// ovg composites premultiplied, and SkSL children `.eval` it.
 		premultiplied_alpha = true,
 		format              = .Planar,
@@ -451,13 +452,29 @@ vs_release :: proc(data: rawptr, clip: int, stream: int) {
 	sync.mutex_unlock(&w.mutex)
 }
 
+// Whether odecs decodes `codec` natively in this build: ProRes and VP9
+// always, H.264 and H.265 only with -define:ODECS_PATENTED=true, AV1 never.
+@(private = "file")
+native_decodes :: proc "contextless" (codec: video.Video_Codec) -> bool {
+	switch codec {
+	case .H264:
+		return native.ODECS_NATIVE_H264
+	case .H265:
+		return native.ODECS_NATIVE_H265
+	case .ProRes, .VP9:
+		return true
+	case .AV1:
+	}
+	return false
+}
+
 // ---- the decode thread ----------------------------------------------------------
 
 @(private = "file")
 worker_run :: proc(w: ^Clip_Worker) {
 	context.allocator = w.allocator
 	// The backend is chosen at the first decode, so this still applies.
-	if w.owner.native {
+	if w.owner.native && native_decodes(w.reader.video.codec) {
 		w.reader.config.preference = .Native
 		w.reader.preference = .Native
 	}

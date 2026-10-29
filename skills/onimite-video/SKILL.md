@@ -279,14 +279,15 @@ onimite render video.lua 10s..20s -o part.mp4       # a range; the audio is cut 
 onimite render video.lua -o frames/                 # PNGs (any -o not ending in .mp4): frames/000000.png ...
 ```
 
-`--draft`: half resolution (unless `--scale`), QP 32, one-second GOP, and odecs' own encoder
-(`--native`, or no hardware encoder) on its ultrafast preset: an H.265 draft renders 1.5 to 3.6
-times faster for about 1 dB, an H.264 one up to 16% faster in files up to 30% larger. A scaled size rounds to
+H.264 and H.265 encode through the system: VideoToolbox on macOS (in hardware, or Apple's
+software codecs), Vulkan Video on Linux and Windows. A release carries no H.264 / H.265 codec of
+its own: on a machine without a system encoder (no Vulkan Video, or a Mesa built without
+H.264 / H.265) `render` writes PNGs but no MP4, and says so.
+`--draft`: half resolution (unless `--scale`), QP 32, one-second GOP. A scaled size rounds to
 even (1080x1350 at half is 540x676). `--h265`, `--qp N`
-(0 best .. 51), `--native` (odecs' own encoder instead of Vulkan Video hardware encoding),
-`--slices N` (that encoder's H.264 slices, default 4: more encode faster in a slightly larger
-file; the file depends on the count, never on the machine),
-`--software` (draw on the CPU; also for machines without a usable GPU), `--scale S`,
+(0 best .. 51), `--native` and `--slices N` (odecs' own encoder instead of the system's, and its
+H.264 slices: only in a build with `-define:ODECS_PATENTED=true`; a release refuses them before
+loading the script), `--software` (draw on the CPU; also for machines without a usable GPU), `--scale S`,
 `--threads N` (default one per core: a quarter render songs, audio and `say()` lines, the
 rest frames; 1: everything on one thread; output does not depend on it). There is no WebM or alpha video output.
 

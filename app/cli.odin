@@ -843,6 +843,12 @@ render_chapters :: proc(t: ^om.Timeline, fps, start, end: int) -> []enc.Chapter 
 @(private)
 video_render_to :: proc(app: ^App_State, regs: Command_Regs, fa: mem.Allocator) -> (res: Render_Result, err: Error) {
 	began := time.tick_now()
+	// The native encoder's flags in a build without it: refused before the
+	// script loads.
+	codec: enc.Codec = .H265 if regs.option == 1 else .H264
+	if (.Native in regs.flags || regs.slices > 0) && !enc.native_built_in(codec) {
+		return {}, fail(app, {code = .Encoder, encoder = {code = .Native_Missing, codec = codec}})
+	}
 	load_ready(app) or_return
 	draft := .Draft in regs.flags
 	r := renderer_scaled(app, 0.5 if draft else 1) or_return
@@ -862,7 +868,7 @@ video_render_to :: proc(app: ^App_State, regs: Command_Regs, fa: mem.Allocator) 
 	defer enc.destroy(&e)
 	if as_png {
 		make_dir(app, out) or_return
-	} else if enc.open(&e, out, int(r.width), int(r.height), fps, {codec = .H265 if regs.option == 1 else .H264, qp = qp, software = .Native in regs.flags, audio = has_audio(r.video), gop = fps if draft else 0, ultrafast = draft, slices = regs.slices, pool = app.pool, chapters = render_chapters(&r.timeline, fps, start, end)}) != nil {
+	} else if enc.open(&e, out, int(r.width), int(r.height), fps, {codec = codec, qp = qp, software = .Native in regs.flags, audio = has_audio(r.video), gop = fps if draft else 0, ultrafast = draft, slices = regs.slices, pool = app.pool, chapters = render_chapters(&r.timeline, fps, start, end)}) != nil {
 		return {}, fail(app, {code = .Encoder, encoder = e.failure})
 	}
 	if !as_png && e.audio {

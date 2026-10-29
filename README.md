@@ -123,8 +123,12 @@ onimite is built from sibling Odin projects and Odin's vendor packages:
 - **Cues**: `cue(name, t)` names a moment and `cue = "name"` on scenes, tracks
   and animate keys lands them on it; `inspect` reports what drifts off, and
   cues work as times.
-- **Output**: H.264 / H.265 MP4 (Vulkan Video, or odecs' native encoder),
-  or PNG frames. Frames build on all cores and draw on the GPU (or on the
+- **Output**: H.264 / H.265 MP4 through the system's encoders (VideoToolbox
+  on macOS, in hardware or Apple's software codecs; Vulkan Video on Linux and
+  Windows), or PNG frames. Releases carry no H.264 / H.265 codec of their own:
+  odecs' native one is only in a build with `-define:ODECS_PATENTED=true`.
+  Without a system encoder (no Vulkan Video, or a Mesa built without
+  H.264 / H.265) a release writes PNG frames but no MP4. Frames build on all cores and draw on the GPU (or on the
   CPU with `--software`); the output does not depend on the thread count.
 - **Checking without watching**: PNG frames, contact sheets, onion skins,
   frames as SVG, snapshot tests, `inspect` (missing media and fonts,
@@ -188,8 +192,8 @@ odin build . -collection:deps=.. -o:speed -out:build/onimite \
 
 Tests take the same flag. SDL's Metal driver needs Cocoa, which starts only
 on the main thread, so the GPU tests in `encode` and `onimite` (view3d's GPU
-half) skip under the test runner on macOS. There is no Vulkan Video on macOS: `render` encodes with odecs'
-native encoder.
+half) skip under the test runner on macOS. On macOS `render` encodes with
+VideoToolbox, in hardware or Apple's software codecs.
 
 ## Use it with an AI agent
 
@@ -298,10 +302,11 @@ onimite update   [--check]                                # replace this release
 ```
 
 - `render`: `--draft` is half resolution (unless `--scale`), QP 32 and a
-  one second GOP; `--h265`, `--qp N`, `--native` (no hardware encoder),
-  `--slices N` (the native encoder's H.264 slices, default 4: more encode
-  faster in a slightly larger file; the file depends on it, never on the
-  machine).
+  one second GOP; `--h265`, `--qp N`; in a build with
+  `-define:ODECS_PATENTED=true` (not the releases, which refuse them),
+  `--native` (odecs' native encoder instead of the system's) and `--slices N`
+  (its H.264 slices, default 4: more encode faster in a slightly larger file;
+  the file depends on it, never on the machine).
 - Common options: `--json`, `--scale S`, `--media DIR` (default `media/`
   beside the script), `--props FILE`, `--set K=V`, `--software` (draw on
   the CPU), `--threads N` (default one per core; `1` runs everything on one

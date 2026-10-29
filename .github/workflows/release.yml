@@ -85,8 +85,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/odecs
-          # Pinned like ottis: onimite, ovg v0.0.52, o3d v0.0.46, odawg v0.0.47 and ottis v0.0.11 decode through odecs v0.0.16.
-          ref: v0.0.16
+          # Pinned like ottis: onimite decodes and encodes through odecs v0.0.17, whose native H.264 / H.265 is built only with -define:ODECS_PATENTED=true; ovg v0.0.52, o3d v0.0.46, odawg v0.0.47 and ottis v0.0.11 use nothing it changed since v0.0.16.
+          ref: v0.0.17
           path: odecs
       - uses: actions/checkout@v4
         with:
@@ -124,6 +124,8 @@ jobs:
           # Odin links with -rpath $ORIGIN by default, so the binary loads the
           # libSDL3.so.0 copied next to it.
           odin build . -collection:deps=.. -o:speed -define:ONIMITE_VERSION="$GITHUB_REF_NAME" -out:"$stage/onimite" -extra-linker-flags:"$ONIMITE_LDFLAGS"
+          # No native H.264 / H.265 ships (read before strip drops the symbols).
+          bash .github/ci.sh no-patents "$stage/onimite"
           strip "$stage/onimite"
           cp -L "$SDL3_LIB_DIR/libSDL3.so.0" "$stage/"
           strip --strip-unneeded "$stage/libSDL3.so.0"
@@ -142,6 +144,8 @@ jobs:
           # exactly one rpath, @executable_path, where libSDL3.0.dylib sits.
           odin build . -collection:deps=.. -o:speed -define:ONIMITE_VERSION="$GITHUB_REF_NAME" -minimum-os-version:11.0 -no-rpath -out:"$stage/onimite" \
             -extra-linker-flags:"$ONIMITE_LDFLAGS -Wl,-rpath,@executable_path"
+          # No native H.264 / H.265 ships (read before strip drops the symbols).
+          bash .github/ci.sh no-patents "$stage/onimite"
           strip "$stage/onimite"
           cp -L "$SDL3_LIB_DIR/libSDL3.0.dylib" "$stage/"
           strip -x "$stage/libSDL3.0.dylib"
@@ -168,6 +172,9 @@ jobs:
         run: |
           stage="$RUNNER_TEMP/$NAME"
           mkdir -p "$stage"
+          # Built without -define:ODECS_PATENTED like the others; the MSVC
+          # binary's symbols are in its PDB, so nm can't check it here (the
+          # Linux and macOS builds of the same source are).
           odin build . -collection:deps=.. -o:speed -define:ONIMITE_VERSION="$GITHUB_REF_NAME" -out:"$stage/onimite.exe"
           vendor="$(cygpath -u "$ODIN_ROOT")/vendor"
           cp "$vendor/sdl3/SDL3.dll" "$vendor/lua/5.4/windows/lua54.dll" "$stage/"
