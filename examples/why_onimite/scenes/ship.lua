@@ -52,9 +52,11 @@ local function simulate(shift)
       vy = 1400, angle = hash(k, 3) * 90, spin = (hash(k, 4) - 0.5) * 600, friction = 0.4, bounce = 0.1,
       start = poured(k) }
   end
-  -- The bins: floor and walls, open at the top.
+  -- The bins: floor and walls, open at the top. A floor reaches far below
+  -- what is drawn: the build lands on crates already pressed into it, and
+  -- a thin one lets them through.
   for _, bin in ipairs { FF, ON } do
-    bodies[#bodies + 1] = wall(bin.x - WALL, FLOOR, bin.w + 2 * WALL, WALL)
+    bodies[#bodies + 1] = wall(bin.x - WALL, FLOOR, bin.w + 2 * WALL, 120)
     bodies[#bodies + 1] = wall(bin.x - WALL, 300, WALL, FLOOR - 300)
     bodies[#bodies + 1] = wall(bin.x + bin.w, 300, WALL, FLOOR - 300)
   end
