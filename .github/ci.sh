@@ -27,6 +27,18 @@ mkdir -p build
 # they are never shipped. Releases build without the define (`release`).
 PATENTED=-define:ODECS_PATENTED=true
 
+# The symbols of odecs' native H.264 / H.265 decoding and encoding (the
+# pattern odecs' CI checks) in binary $1 (unstripped): a default build links
+# only the parsing VideoToolbox and Vulkan Video need.
+no_patents() {
+	local syms
+	syms=$(nm "$1")
+	if grep -E 'h26[45]_decoder::decode_|h264_encoder::|h265_encoder::encode' <<<"$syms"; then
+		echo "$1 carries native H.264 / H.265 code" >&2
+		exit 1
+	fi
+}
+
 case ${1:-} in
 build)
 	odin build . -collection:deps=.. -o:speed $PATENTED -define:ONIMITE_VERSION=v0.0.0-ci -out:"build/onimite$exe" ${ONIMITE_TEST_LDFLAGS:+"-extra-linker-flags:$ONIMITE_TEST_LDFLAGS"}
@@ -35,7 +47,7 @@ release)
 	# As release.yml builds it: no native H.264 / H.265 compiled in, and
 	# render refuses --native before loading the script.
 	odin build . -collection:deps=.. -o:speed -define:ONIMITE_VERSION=v0.0.0-ci -out:"build/onimite-release$exe" ${ONIMITE_TEST_LDFLAGS:+"-extra-linker-flags:$ONIMITE_TEST_LDFLAGS"}
-	bash "$0" no-patents "build/onimite-release$exe"
+	no_patents "build/onimite-release$exe"
 	out=${RUNNER_TEMP:-${TMPDIR:-/tmp}}/onimite-release
 	mkdir -p "$out"
 	if "build/onimite-release$exe" render examples/scenes/video.lua 0..2 --native -o "$out/native.mp4" 2>"$out/native.err"; then
@@ -46,14 +58,7 @@ release)
 	test ! -e "$out/native.mp4"
 	;;
 no-patents)
-	# The symbols of odecs' native H.264 / H.265 decoding and encoding (the
-	# pattern odecs' CI checks): a default build links only the parsing
-	# VideoToolbox and Vulkan Video need.
-	syms=$(nm "${2:?no-patents takes the binary}")
-	if grep -E 'h26[45]_decoder::decode_|h264_encoder::|h265_encoder::encode' <<<"$syms"; then
-		echo "$2 carries native H.264 / H.265 code" >&2
-		exit 1
-	fi
+	no_patents "${2:?no-patents takes the binary}"
 	;;
 test)
 	# macOS: the GPU tests in encode and onimite (view3d's GPU half) skip
