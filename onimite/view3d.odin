@@ -4,6 +4,7 @@ import "base:runtime"
 import "core:fmt"
 import "core:hash"
 import "core:math"
+import "core:math/linalg"
 import "core:os"
 import "core:slice"
 import "core:strings"
@@ -261,9 +262,13 @@ Mesh :: struct {
 	tube_radius:   f32,
 	tube_segments: int,
 	instances:     []o3d.Instance,
+	// The instances turned toward a point (`look_at`): their transforms are
+	// made when the mesh's world is known.
+	instance_looks: []Instance_Look,
 	position:      o3d.Vec3,
 	rotation:      o3d.Vec3,
 	scale:         o3d.Vec3,
+	look_at:       Maybe(Look_At),
 	material:      o3d.Material,
 	maps:          [Texture_Map]string,
 	shader:        Maybe(Shader_Material),
@@ -383,6 +388,7 @@ Model_Pose :: struct {
 	position:        o3d.Vec3,
 	rotation:        o3d.Vec3,
 	scale:           o3d.Vec3,
+	look_at:         Maybe(Look_At),
 	animation:       string,
 	animation_index: int,
 	time:            f32,
@@ -442,6 +448,7 @@ view3d :: proc(ctx: ^Context, f: Frame, v: View3d) {
 		m.points = clone_slice(m.points, arena)
 		m.colors = clone_slice(m.colors, arena)
 		m.instances = clone_slice(m.instances, arena)
+		m.instance_looks = clone_slice(m.instance_looks, arena)
 		for &name in m.maps {
 			name = strings.clone(name, arena)
 		}
@@ -1238,10 +1245,12 @@ view3d_scene :: proc(r: ^Renderer, n: View3d, scene: ^o3d.Scene, size: [2]int, l
 			continue
 		}
 		first := len(scene.draws)
-		view3d_mesh(r, scene, mesh, attach_frame(1, mesh.attach, mesh.group, now) * o3d.compose(mesh.position, mesh.rotation, mesh.scale))
+		world := pose_world(attach_frame(1, mesh.attach, mesh.group, now), mesh.position, mesh.rotation, mesh.scale, mesh.look_at)
+		view3d_mesh(r, scene, mesh, world)
+		check_back_facing(r, mesh, i, world, n.camera)
 		if i < len(paired) && same_mesh(mesh, paired[i]) {
 			p := paired[i]
-			view3d_mesh_opened(scene, first, p, attach_frame(1, p.attach, p.group, opened_now) * o3d.compose(p.position, p.rotation, p.scale))
+			view3d_mesh_opened(scene, first, p, pose_world(attach_frame(1, p.attach, p.group, opened_now), p.position, p.rotation, p.scale, p.look_at))
 		}
 	}
 	// Where attached meshes and models ride: their part's world, read right
@@ -1344,14 +1353,14 @@ view3d_scene :: proc(r: ^Renderer, n: View3d, scene: ^o3d.Scene, size: [2]int, l
 		if mi < len(paired_models) && paired_models[mi].src == pose.src {
 			p := paired_models[mi]
 			opening = o3d.Gltf_Opening {
-				transform = attach_frame(model_on_opened[mi], p.attach, p.group, opened_now) * o3d.compose(p.position, p.rotation, p.scale),
+				transform = pose_world(attach_frame(model_on_opened[mi], p.attach, p.group, opened_now), p.position, p.rotation, p.scale, p.look_at),
 				time      = p.time,
 				morphs    = p.morphs,
 				parts     = view3d_opened_parts(r, model, p),
 				pose      = &r.view3d.opened_pose,
 			}
 		}
-		o3d.gltf_draw(scene, model, attach_frame(model_on[mi], pose.attach, pose.group, now) * o3d.compose(pose.position, pose.rotation, pose.scale), anim, pose.time, pose.loop, pose.flags, &r.view3d.pose, override, morphs = pose.morphs, outline_width = pose.outline_width, outline_color = pose.outline_color, parts = parts, opened = opening)
+		o3d.gltf_draw(scene, model, pose_world(attach_frame(model_on[mi], pose.attach, pose.group, now), pose.position, pose.rotation, pose.scale, pose.look_at), anim, pose.time, pose.loop, pose.flags, &r.view3d.pose, override, morphs = pose.morphs, outline_width = pose.outline_width, outline_color = pose.outline_color, parts = parts, opened = opening)
 		for mesh, k in n.meshes {
 			if mesh.attach.model == mi + 1 {
 				mesh_on[k] = view3d_attach_world(r, model, pose.src, mesh.attach.node)
@@ -1414,10 +1423,12 @@ view3d_scene :: proc(r: ^Renderer, n: View3d, scene: ^o3d.Scene, size: [2]int, l
 			report(&r.ctx, .Error, {code = .Attach_Target, name = "mesh", n = i64(mesh.attach.model)})
 		}
 		first := len(scene.draws)
-		view3d_mesh(r, scene, mesh, attach_frame(mesh_on[i], mesh.attach, mesh.group, now) * o3d.compose(mesh.position, mesh.rotation, mesh.scale))
+		world := pose_world(attach_frame(mesh_on[i], mesh.attach, mesh.group, now), mesh.position, mesh.rotation, mesh.scale, mesh.look_at)
+		view3d_mesh(r, scene, mesh, world)
+		check_back_facing(r, mesh, i, world, n.camera)
 		if i < len(paired) && same_mesh(mesh, paired[i]) {
 			p := paired[i]
-			view3d_mesh_opened(scene, first, p, attach_frame(mesh_on_opened[i], p.attach, p.group, opened_now) * o3d.compose(p.position, p.rotation, p.scale))
+			view3d_mesh_opened(scene, first, p, pose_world(attach_frame(mesh_on_opened[i], p.attach, p.group, opened_now), p.position, p.rotation, p.scale, p.look_at))
 		}
 	}
 	scene.environment = view3d_texture(r, n.environment)
@@ -1461,7 +1472,7 @@ same_mesh :: proc(a, b: Mesh) -> bool {
 view3d_mesh_opened :: proc(scene: ^o3d.Scene, first: int, p: Mesh, transform: o3d.Mat4) {
 	instances: o3d.Instance_Range
 	if len(p.instances) > 0 {
-		instances = o3d.scene_instances(scene, p.instances)
+		instances = o3d.scene_instances(scene, aimed_instances(p, transform))
 	}
 	uniforms: o3d.Uniform_Range
 	if sh, ok := p.shader.?; ok && len(sh.uniforms) > 0 {
@@ -1495,7 +1506,7 @@ view3d_mesh :: proc(r: ^Renderer, scene: ^o3d.Scene, mesh: Mesh, transform: o3d.
 				side_mat := view3d_material(r, scene, side, {}, nil)
 				append(&scene.draws, o3d.Draw{ex.sides, transform, side_mat})
 				if len(mesh.instances) > 0 {
-					o3d.scene_set_draw_instances(scene, len(scene.draws) - 1, o3d.scene_instances(scene, mesh.instances))
+					o3d.scene_set_draw_instances(scene, len(scene.draws) - 1, o3d.scene_instances(scene, aimed_instances(mesh, transform)))
 				}
 			}
 		} else {
@@ -1515,8 +1526,157 @@ view3d_mesh :: proc(r: ^Renderer, scene: ^o3d.Scene, mesh: Mesh, transform: o3d.
 	di := len(scene.draws)
 	append(&scene.draws, o3d.Draw{geo_id, transform, material})
 	if len(mesh.instances) > 0 {
-		o3d.scene_set_draw_instances(scene, di, o3d.scene_instances(scene, mesh.instances))
+		o3d.scene_set_draw_instances(scene, di, o3d.scene_instances(scene, aimed_instances(mesh, transform)))
 	}
+}
+
+// A flat, one-sided, additive mesh (a glare, a light card) facing away from
+// the camera draws nothing (`View3d_Back_Facing`), every instance of it
+// facing away. A plain one-sided plane may face away on purpose (a card's
+// back as it turns); a glow never does.
+@(private = "file")
+check_back_facing :: proc(r: ^Renderer, mesh: Mesh, index: int, world: o3d.Mat4, camera: o3d.Camera) {
+	if mesh.material.side != .Front || .Additive not_in mesh.material.flags || mesh.shader != nil || mesh.path_kind != .None {
+		return
+	}
+	what: string
+	switch {
+	case mesh.outline.kind == .Shape || mesh.outline.kind == .Exact:
+		what = "ShapeGeometry"
+	case mesh.outline.kind != .None:
+		return
+	case mesh.geometry.kind == .Plane:
+		what = "PlaneGeometry"
+	case mesh.geometry.kind == .Circle:
+		what = "CircleGeometry"
+	case mesh.geometry.kind == .Ring:
+		what = "RingGeometry"
+	case:
+		return
+	}
+	faces :: proc(m: o3d.Mat4, camera: o3d.Camera) -> bool {
+		normal := (o3d.normal_matrix(m) * o3d.Vec4{0, 0, 1, 0}).xyz
+		// An orthographic camera looks along its axis; a perspective one
+		// from its position.
+		to_camera := camera.position - camera.target if camera.orthographic else camera.position - m[3].xyz
+		return linalg.dot(normal, to_camera) > 0
+	}
+	if len(mesh.instances) == 0 {
+		if faces(world, camera) {
+			return
+		}
+	} else {
+		for inst in aimed_instances(mesh, world) {
+			if faces(world * inst.transform, camera) {
+				return
+			}
+		}
+	}
+	at := world[3].xyz
+	report(&r.ctx, .Warning, {code = .View3d_Back_Facing, n = i64(index + 1), a = what, b = fmt.tprintf("(%.3g, %.3g, %.3g)", at.x, at.y, at.z)})
+}
+
+// A `look_at`: the point (in the view's world, as three.js's
+// Object3D.lookAt) local +Z turns toward, and the way local +Y leans.
+Look_At :: struct {
+	target, up: o3d.Vec3,
+}
+
+// Instance `index` of a mesh, turned toward `look`: its position and scale.
+Instance_Look :: struct {
+	index:         int,
+	position, scale: o3d.Vec3,
+	look:          Look_At,
+}
+
+// A pose's transform in `parent`'s space: `rotation`, or turned so its
+// local +Z points at `look`'s world target (the target and up taken into
+// the parent's space).
+pose_local :: proc(parent: o3d.Mat4, pos, rot, scl: o3d.Vec3, look: Maybe(Look_At)) -> o3d.Mat4 {
+	rot := rot
+	if l, ok := look.?; ok {
+		inv := linalg.inverse(parent)
+		target := (inv * o3d.Vec4{l.target.x, l.target.y, l.target.z, 1}).xyz
+		up := (inv * o3d.Vec4{l.up.x, l.up.y, l.up.z, 0}).xyz
+		rot = orient_along_z(pos, target, up)
+	}
+	return o3d.compose(pos, rot, scl)
+}
+
+// A pose's world transform in `parent` (`pose_local`).
+pose_world :: proc(parent: o3d.Mat4, pos, rot, scl: o3d.Vec3, look: Maybe(Look_At)) -> o3d.Mat4 {
+	return parent * pose_local(parent, pos, rot, scl, look)
+}
+
+// `mesh`'s instances with those that look at a point turned toward it,
+// the mesh at `world` (temp memory when any does).
+@(private = "file")
+aimed_instances :: proc(mesh: Mesh, world: o3d.Mat4) -> []o3d.Instance {
+	if len(mesh.instance_looks) == 0 {
+		return mesh.instances
+	}
+	out := slice.clone(mesh.instances, context.temp_allocator)
+	for l in mesh.instance_looks {
+		out[l.index].transform = pose_local(world, l.position, {}, l.scale, l.look)
+	}
+	return out
+}
+
+// A transform's translation, Euler XYZ rotation (radians: three.js's
+// Euler.setFromRotationMatrix, as o3d.compose builds it) and scale.
+euler_pose :: proc(m: o3d.Mat4) -> (position, rotation, scale: o3d.Vec3) {
+	position = {m[0, 3], m[1, 3], m[2, 3]}
+	for j in 0 ..< 3 {
+		scale[j] = linalg.length(o3d.Vec3{m[0, j], m[1, j], m[2, j]})
+	}
+	r :: proc(m: o3d.Mat4, s: o3d.Vec3, i, j: int) -> f32 {
+		return m[i, j] / s[j] if s[j] != 0 else 0
+	}
+	rotation.y = math.asin(clamp(r(m, scale, 0, 2), -1, 1))
+	if abs(r(m, scale, 0, 2)) < 0.9999999 {
+		rotation.x = math.atan2(-r(m, scale, 1, 2), r(m, scale, 2, 2))
+		rotation.z = math.atan2(-r(m, scale, 0, 1), r(m, scale, 0, 0))
+	} else {
+		rotation.x = math.atan2(r(m, scale, 2, 1), r(m, scale, 1, 1))
+	}
+	return
+}
+
+// Euler XYZ angles `(rx, ry, rz)` for `o3d.compose` from orthonormal basis
+// columns `(col0, col1, col2)`.
+basis_to_euler_xyz :: proc(col0, col1, col2: o3d.Vec3) -> o3d.Vec3 {
+	ry := math.asin(clamp(col2.x, -1, 1))
+	rx, rz: f32
+	if abs(col2.x) < 0.999999 {
+		rx = math.atan2(-col2.y, col2.z)
+		rz = math.atan2(-col1.x, col0.x)
+	} else {
+		rx = math.atan2(col1.z, col1.y)
+		rz = 0
+	}
+	return {rx, ry, rz}
+}
+
+// Euler XYZ rotation aligning local +Z from `pos` toward `target`.
+orient_along_z :: proc(pos, target, up: o3d.Vec3) -> o3d.Vec3 {
+	d := target - pos
+	dist := linalg.length(d)
+	if dist < 1e-6 {
+		return {}
+	}
+	col2 := d / dist
+	ref_up := up
+	if linalg.length(ref_up) < 1e-5 {
+		ref_up = {0, 1, 0}
+	} else {
+		ref_up = linalg.normalize(ref_up)
+	}
+	if abs(linalg.dot(col2, ref_up)) > 0.999 {
+		ref_up = {0, 0, 1} if abs(col2.z) < 0.9 else {1, 0, 0}
+	}
+	col0 := linalg.normalize(linalg.cross(ref_up, col2))
+	col1 := linalg.cross(col2, col0)
+	return basis_to_euler_xyz(col0, col1, col2)
 }
 
 // A label's sprite this frame: the texture its panel image is bound to and

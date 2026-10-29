@@ -317,9 +317,20 @@ read_mesh :: proc(L: ^lua.State, s: ^Script, t: c.int) -> (m: om.Mesh, ok: bool)
 		return
 	}
 	defer fields_pop(L, s, t, "mesh", outer)
-	m.position, m.rotation, m.scale = read_pose_transform(L, t)
+	m.position, m.rotation, m.scale, m.look_at = read_pose_transform(L, t)
 	m.attach = read_attach(L, s, t)
-	m.instances = read_list(L, s, t, "instances", o3d.Instance, read_instance)
+	read := read_list(L, s, t, "instances", Read_Instance, read_instance)
+	if len(read) > 0 {
+		m.instances = make([]o3d.Instance, len(read), context.temp_allocator)
+		looks := make([dynamic]om.Instance_Look, context.temp_allocator)
+		for r, i in read {
+			m.instances[i] = r.instance
+			if l, ok := r.look.?; ok {
+				append(&looks, om.Instance_Look{i, r.position, r.scale, l})
+			}
+		}
+		m.instance_looks = looks[:]
+	}
 	m.material = o3d.MATERIAL_DEFAULT
 	default_mat := "MeshStandardMaterial"
 	switch m.path_kind {
@@ -377,16 +388,33 @@ read_mesh :: proc(L: ^lua.State, s: ^Script, t: c.int) -> (m: om.Mesh, ok: bool)
 }
 
 @(private = "file")
-read_instance :: proc(L: ^lua.State, s: ^Script, t: c.int) -> (inst: o3d.Instance, ok: bool) {
+read_instance :: proc(L: ^lua.State, s: ^Script, t: c.int) -> (r: Read_Instance, ok: bool) {
 	outer := fields_push(L, t)
 	defer fields_pop(L, s, t, "instance", outer)
-	pos, rot, scl := read_pose_transform(L, t)
+	inst := &r.instance
+	pos, rot, scl, look := read_pose_transform(L, t)
 	inst.transform = o3d.compose(pos, rot, scl)
+	r.position, r.scale, r.look = pos, scl, look
 	if has_field(L, t, "color") {
 		inst.color = read_color3(L, t, "color", {1, 1, 1})
 		inst.has_color = true
 	}
-	return inst, true
+	// Its own glow in place of the material's emissive (scaled by the
+	// material's emissive_intensity): lit LEDs; "#000" turns one off.
+	if has_field(L, t, "emissive") {
+		inst.emissive = read_color3(L, t, "emissive", {})
+		inst.has_emissive = true
+	}
+	return r, true
+}
+
+// An instance as read: turned toward a point (`look`) once its mesh's
+// world is known.
+@(private = "file")
+Read_Instance :: struct {
+	instance:        o3d.Instance,
+	position, scale: o3d.Vec3,
+	look:            Maybe(om.Look_At),
 }
 
 // A geometry type and its parameters (`om.GEOMETRY_TYPES`), or per-frame
@@ -788,7 +816,7 @@ read_model :: proc(L: ^lua.State, s: ^Script, t: c.int) -> (p: om.Model_Pose, ok
 		return
 	}
 	defer fields_pop(L, s, t, "model", outer)
-	p.position, p.rotation, p.scale = read_pose_transform(L, t)
+	p.position, p.rotation, p.scale, p.look_at = read_pose_transform(L, t)
 	p.animation_index = -1
 	field(L, t, "animation")
 	#partial switch lua.type(L, -1) {
@@ -1154,8 +1182,10 @@ read_groups :: proc(L: ^lua.State, s: ^Script, t: c.int, parent: Maybe(o3d.Mat4)
 		}
 		gt := lua.absindex(L, -1)
 		outer := fields_push(L, gt)
-		pos, rot, scl := read_pose_transform(L, gt)
-		g := om.group_transform(parent) * o3d.compose(pos, rot, scl)
+		// A group's look_at is resolved here, in its parent group (an
+		// attach's motion doesn't turn it).
+		pos, rot, scl, look := read_pose_transform(L, gt)
+		g := om.pose_world(om.group_transform(parent), pos, rot, scl, look)
 		attach := read_attach(L, s, gt)
 		if om.attach_none(attach) {
 			attach = parent_attach
@@ -1260,13 +1290,18 @@ read_parts :: proc(L: ^lua.State, s: ^Script, t: c.int, key: cstring, of: type_o
 
 // Reads `position`, `rotation` and `scale`, with optional `from` / `to`
 // (places at the midpoint and rotates local +Y from `from` to `to`, scaling
-// local Y by the distance when `stretch = true`) or `look_at` (rotates
-// local +Z toward `look_at`).
+// local Y by the distance when `stretch = true`) or `look_at` (local +Z
+// turns toward that world point where the pose is placed: `om.pose_world`;
+// `rotation` is then not read, so one given is reported unused).
 @(private = "file")
-read_pose_transform :: proc(L: ^lua.State, t: c.int) -> (pos, rot, scl: o3d.Vec3) {
+read_pose_transform :: proc(L: ^lua.State, t: c.int) -> (pos, rot, scl: o3d.Vec3, look: Maybe(om.Look_At)) {
 	pos = read_vec3(L, t, "position", {})
-	rot = read_vec3(L, t, "rotation", {})
 	scl = read_vec3(L, t, "scale", {1, 1, 1}, splat = true)
+	if has_field(L, t, "look_at") && !(has_field(L, t, "from") && has_field(L, t, "to")) {
+		look = om.Look_At{read_vec3(L, t, "look_at", {}), read_vec3(L, t, "up", {0, 1, 0})}
+		return
+	}
+	rot = read_vec3(L, t, "rotation", {})
 	if has_field(L, t, "from") && has_field(L, t, "to") {
 		p_from := read_vec3(L, t, "from", {})
 		p_to := read_vec3(L, t, "to", {0, 1, 0})
@@ -1281,28 +1316,8 @@ read_pose_transform :: proc(L: ^lua.State, t: c.int) -> (pos, rot, scl: o3d.Vec3
 		if get_bool(L, t, "stretch", false) {
 			scl.y *= dist
 		}
-	} else if has_field(L, t, "look_at") {
-		target := read_vec3(L, t, "look_at", {})
-		up := read_vec3(L, t, "up", {0, 1, 0})
-		rot = orient_along_z(pos, target, up)
 	}
 	return
-}
-
-// Euler XYZ angles `(rx, ry, rz)` for `o3d.compose` from orthonormal basis
-// columns `(col0, col1, col2)`.
-@(private)
-basis_to_euler_xyz :: proc(col0, col1, col2: o3d.Vec3) -> o3d.Vec3 {
-	ry := math.asin(clamp(col2.x, -1, 1))
-	rx, rz: f32
-	if abs(col2.x) < 0.999999 {
-		rx = math.atan2(-col2.y, col2.z)
-		rz = math.atan2(-col1.x, col0.x)
-	} else {
-		rx = math.atan2(col1.z, col1.y)
-		rz = 0
-	}
-	return {rx, ry, rz}
 }
 
 // Midpoint, Euler XYZ rotation aligning local +Y from `from` to `to`, and
@@ -1327,32 +1342,10 @@ orient_along_y :: proc(from, to, up: o3d.Vec3) -> (mid, euler: o3d.Vec3, dist: f
 	}
 	col0 := linalg.normalize(linalg.cross(ref_up, col1))
 	col2 := linalg.cross(col0, col1)
-	euler = basis_to_euler_xyz(col0, col1, col2)
+	euler = om.basis_to_euler_xyz(col0, col1, col2)
 	return
 }
 
-// Euler XYZ rotation aligning local +Z from `pos` toward `target`.
-@(private = "file")
-orient_along_z :: proc(pos, target, up: o3d.Vec3) -> o3d.Vec3 {
-	d := target - pos
-	dist := linalg.length(d)
-	if dist < 1e-6 {
-		return {}
-	}
-	col2 := d / dist
-	ref_up := up
-	if linalg.length(ref_up) < 1e-5 {
-		ref_up = {0, 1, 0}
-	} else {
-		ref_up = linalg.normalize(ref_up)
-	}
-	if abs(linalg.dot(col2, ref_up)) > 0.999 {
-		ref_up = {0, 0, 1} if abs(col2.z) < 0.9 else {1, 0, 0}
-	}
-	col0 := linalg.normalize(linalg.cross(ref_up, col2))
-	col1 := linalg.cross(col2, col0)
-	return basis_to_euler_xyz(col0, col1, col2)
-}
 
 
 // `key` as a vector {x, y, z} (three.js's Vector3), else `def`; with
@@ -1519,7 +1512,7 @@ l_model_info :: proc "c" (L: ^lua.State) -> c.int {
 		lua.pop(L, 1)
 		lua.pushlstring(L, cstring(raw_data(name)), c.size_t(len(name)))
 		lua.createtable(L, 0, 7)
-		position, rotation, scale := euler_pose(model.nodes.local[i])
+		position, rotation, scale := om.euler_pose(model.nodes.local[i])
 		push_vec3(L, "position", position)
 		push_vec3(L, "rotation", rotation)
 		push_vec3(L, "scale", scale)
@@ -1546,26 +1539,6 @@ l_model_info :: proc "c" (L: ^lua.State) -> c.int {
 	return 1
 }
 
-// A transform's translation, Euler XYZ rotation (radians: three.js's
-// Euler.setFromRotationMatrix, as o3d.compose builds it) and scale.
-@(private = "file")
-euler_pose :: proc(m: o3d.Mat4) -> (position, rotation, scale: o3d.Vec3) {
-	position = {m[0, 3], m[1, 3], m[2, 3]}
-	for j in 0 ..< 3 {
-		scale[j] = linalg.length(o3d.Vec3{m[0, j], m[1, j], m[2, j]})
-	}
-	r :: proc(m: o3d.Mat4, s: o3d.Vec3, i, j: int) -> f32 {
-		return m[i, j] / s[j] if s[j] != 0 else 0
-	}
-	rotation.y = math.asin(clamp(r(m, scale, 0, 2), -1, 1))
-	if abs(r(m, scale, 0, 2)) < 0.9999999 {
-		rotation.x = math.atan2(-r(m, scale, 1, 2), r(m, scale, 2, 2))
-		rotation.z = math.atan2(-r(m, scale, 0, 1), r(m, scale, 0, 0))
-	} else {
-		rotation.x = math.atan2(r(m, scale, 2, 1), r(m, scale, 1, 1))
-	}
-	return
-}
 
 // view3d_project(camera, point, size): where `point` ({x, y, z}) shows in a
 // view3d of `size` ({ width, height }; default the video's) seen by

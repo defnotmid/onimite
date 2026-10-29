@@ -18,6 +18,7 @@ import "core:path/filepath"
 import "core:slice"
 import "core:strconv"
 import "core:strings"
+import "core:sync"
 import "core:thread"
 import om "../onimite"
 import "../speech"
@@ -2008,9 +2009,45 @@ measured :: proc(s: ^Script, q: om.Font_Query, ok: bool) {
 	load_problem(s, .Warning, {code = .Missing_Font, name = q.family})
 }
 
+// What scripts print while a capture is on (`print_capture_begin`): the MCP
+// server returns it with a tool's answer, its client reading no stderr. A
+// render's builders print from their own threads; past PRINT_CAPTURE_MAX
+// bytes only the count is kept.
+@(private = "file")
+Print_Capture :: struct {
+	lock:    sync.Mutex,
+	on:      bool,
+	out:     strings.Builder,
+	dropped: int,
+}
+
+@(private = "file")
+print_capture: Print_Capture
+
+PRINT_CAPTURE_MAX :: 64 * 1024
+
+print_capture_begin :: proc() {
+	sync.guard(&print_capture.lock)
+	strings.builder_reset(&print_capture.out)
+	print_capture.dropped = 0
+	sync.atomic_store(&print_capture.on, true)
+}
+
+// What was printed since `print_capture_begin` (in `allocator`), and how
+// many bytes past PRINT_CAPTURE_MAX were left out.
+print_capture_end :: proc(allocator := context.allocator) -> (printed: string, dropped: int) {
+	sync.guard(&print_capture.lock)
+	sync.atomic_store(&print_capture.on, false)
+	printed = strings.clone(strings.to_string(print_capture.out), allocator)
+	dropped = print_capture.dropped
+	strings.builder_destroy(&print_capture.out)
+	return
+}
+
 // text_width{ "text", font, size, weight, letter_spacing } -> pixels
 // print(...): Lua's, on stderr: stdout carries the command's output (one
-// JSON document with --json, the MCP server's messages).
+// JSON document with --json, the MCP server's messages); kept too while a
+// capture is on.
 @(private)
 l_print :: proc "c" (L: ^lua.State) -> c.int {
 	s := host(L)
@@ -2027,7 +2064,18 @@ l_print :: proc "c" (L: ^lua.State) -> c.int {
 		lua.pop(L, 1)
 	}
 	strings.write_byte(&b, '\n')
-	os.write_string(os.stderr, strings.to_string(b))
+	line := strings.to_string(b)
+	os.write_string(os.stderr, line)
+	if sync.atomic_load(&print_capture.on) {
+		sync.guard(&print_capture.lock)
+		if print_capture.on {
+			if strings.builder_len(print_capture.out) + len(line) <= PRINT_CAPTURE_MAX {
+				strings.write_string(&print_capture.out, line)
+			} else {
+				print_capture.dropped += len(line)
+			}
+		}
+	}
 	return 0
 }
 

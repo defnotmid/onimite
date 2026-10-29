@@ -10,13 +10,15 @@ import "core:reflect"
 import "core:strings"
 import "core:sync"
 import "core:thread"
+import script "../script"
 
 // `onimite mcp`: the commands as Model Context Protocol tools, JSON-RPC 2.0
 // over stdio, one message per line. Stateless: every call fills its
 // command's rows from its arguments through its options, as the command
 // line does, and runs them on an App_State of its own. What the command prints (its
 // `--json` document) is the call's text; frames, strips, onion skins and
-// waveforms come back as images too. Warnings and progress stay on stderr.
+// waveforms come back as images too, and what the script prints as text
+// (`print`). Warnings and progress stay on stderr.
 // `preview` opens the window for the user as a process of its own and
 // returns at once. `guide` returns the built-in skill (mcp_guide.odin), which
 // the server's instructions tell a client to read first.
@@ -376,11 +378,18 @@ mcp_call :: proc(kind: Command_Kind, args: json.Object) -> Mcp_Answer {
 	}
 
 	out := strings.builder_make(context.temp_allocator)
+	// What the script prints comes back too: a client reads no stderr.
+	script.print_capture_begin()
 	exit_code := front_rows_run(rows, &out)
+	printed, dropped := script.print_capture_end(context.temp_allocator)
 
 	text := strings.trim_space(strings.to_string(out))
 	b := strings.builder_make(context.temp_allocator)
 	strings.write_string(&b, mcp_text(text))
+	if printed != "" {
+		cut := fmt.tprintf("\n(%d more bytes printed, not kept)", dropped) if dropped > 0 else ""
+		fmt.sbprintf(&b, ",%s", mcp_text(fmt.tprintf("the script printed:\n%s%s", strings.trim_right_space(printed), cut)))
+	}
 	if exit_code == 2 {
 		strings.write_string(&b, `,{"type":"text","text":"{\"failed\": true}"}`)
 	}

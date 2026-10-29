@@ -10,6 +10,7 @@ import "core:sync"
 import "deps:o3d"
 import b3 "vendor:box3d"
 import lua "vendor:lua/5.4"
+import om "../onimite"
 
 // physics3d{...} -> sim: 3D rigid bodies simulated with Box3D once, at load,
 // and returned as plain data in view3d{}'s vocabulary (metres, +Y up, Euler
@@ -1356,7 +1357,7 @@ quat_to_euler_xyz :: proc(q: b3.Quat) -> b3.Vec3 {
 	xy, xz, yz := q.x * q.y, q.x * q.z, q.y * q.z
 	xw, yw, zw := q.x * q.w, q.y * q.w, q.z * q.w
 	// The rotation matrix's columns.
-	return basis_to_euler_xyz({1 - 2 * (yy + zz), 2 * (xy + zw), 2 * (xz - yw)}, {2 * (xy - zw), 1 - 2 * (xx + zz), 2 * (yz + xw)}, {2 * (xz + yw), 2 * (yz - xw), 1 - 2 * (xx + yy)})
+	return om.basis_to_euler_xyz({1 - 2 * (yy + zz), 2 * (xy + zw), 2 * (xz - yw)}, {2 * (xy - zw), 1 - 2 * (xx + zz), 2 * (yz + xw)}, {2 * (xz + yw), 2 * (yz - xw), 1 - 2 * (xx + yy)})
 }
 
 @(private = "file")

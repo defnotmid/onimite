@@ -1922,6 +1922,45 @@ video { width = 320, height = 100, fps = 30, duration = 1 }
 	}
 }
 
+// A one-sided additive plane facing away from the camera draws nothing and
+// is reported; a plain one-sided plane facing away (a card's back) isn't,
+// nor is one turned to the camera with look_at from inside a group turned
+// half round; a rotation given with look_at is reported unused.
+@(test)
+test_view3d_back_facing :: proc(t: ^testing.T) {
+	f: Fixture
+	defer fixture_destroy(&f)
+	fixture_init(t, &f, `
+local glow = { type = "MeshBasicMaterial", color = "#ffd080", blending = "additive" }
+video { width = 64, height = 36, fps = 10, duration = 0.1, render = function(f)
+  view3d { camera = { position = { 0, 0, 6 } },
+    meshes = {
+      { geometry = { type = "PlaneGeometry" }, material = glow, rotation = { 0, math.pi, 0 } },
+      { geometry = { type = "PlaneGeometry" }, material = { type = "MeshBasicMaterial" }, rotation = { 0, math.pi, 0 } },
+      { geometry = { type = "CircleGeometry" }, material = glow, rotation = { 1, 0, 0 }, look_at = { 0, 0, 6 } },
+    },
+    groups = { { rotation = { 0, math.pi, 0 }, meshes = { { geometry = { type = "PlaneGeometry" }, material = glow, look_at = { 0, 0, 6 } } } } } }
+end }
+`)
+	if !fixture_load(t, &f) {
+		return
+	}
+	fixture_frame(t, &f, 0)
+	back, unused := 0, 0
+	for d in f.r.ctx.diagnostics {
+		#partial switch d.code {
+		case .View3d_Back_Facing:
+			back += 1
+			testing.expect_value(t, d.n, 1)
+		case .Unused_Field:
+			unused += 1
+			testing.expectf(t, strings.contains(d.a, "rotation"), "unused: %v", d.a)
+		}
+	}
+	testing.expect_value(t, back, 1)
+	testing.expect_value(t, unused, 1)
+}
+
 // attach = { sim, body } rides a physics3d body (meshes and emitters alike);
 // an emitter's start, stop and bursts read into it; world_space without a
 // body is an error.

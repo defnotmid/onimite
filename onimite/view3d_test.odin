@@ -4,6 +4,7 @@ import "core:encoding/base64"
 import "core:fmt"
 import "core:log"
 import "core:math"
+import "core:math/linalg"
 import "core:mem"
 import "core:os"
 import "core:path/filepath"
@@ -1079,4 +1080,23 @@ test_particle_births_and_world_space :: proc(t: ^testing.T) {
 	for p in riding {
 		testing.expectf(t, abs(p.position.x - 1) < 1e-5, "riding: x %v", p.position.x)
 	}
+}
+
+// look_at turns local +Z toward a world point wherever the pose sits: under
+// a parent turned half round and moved, the plane still faces the camera
+// (three.js's lookAt), and its up stays the world's.
+@(test)
+test_look_at_world :: proc(t: ^testing.T) {
+	camera := o3d.Vec3{0, 0, 8}
+	parent := o3d.compose({3, -1, 0}, {0, math.PI, 0}, {1, 1, 1})
+	world := pose_world(parent, {0.5, 0, 0}, {}, {1, 1, 1}, Look_At{camera, {0, 1, 0}})
+	z := (world * o3d.Vec4{0, 0, 1, 0}).xyz
+	y := (world * o3d.Vec4{0, 1, 0, 0}).xyz
+	at := world[3].xyz
+	to := camera - at
+	testing.expectf(t, abs(linalg.dot(z, to) / linalg.length(to) - 1) < 1e-4, "+Z %v toward %v", z, to)
+	testing.expectf(t, y.y > 0.99, "up %v", y)
+	// Without a look, the rotation is kept as given.
+	plain := pose_world(parent, {}, {0, 0, 1}, {1, 1, 1}, nil)
+	testing.expect(t, plain == parent * o3d.compose({}, {0, 0, 1}, {1, 1, 1}))
 }

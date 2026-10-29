@@ -13,6 +13,7 @@ import "core:strings"
 import om "../onimite"
 import script "../script"
 import "../speech"
+import "deps:o3d"
 import obase "deps:odawg/base"
 import odevice "deps:odawg/device"
 import ospec "deps:odawg/spec"
@@ -908,6 +909,27 @@ show_media_file :: proc(sh: ^Show, name: string) -> Error {
 		sh.res.fields["animations"] = clips
 		sh.res.fields["morphs"] = morphs
 		sh.res.fields["warnings"] = warnings
+		// Its parts as model_info's `parts` has them: each named node's
+		// rest-pose box (it and what is under it, in the model's space) and
+		// its own pose in its parent (what `nodes = { name = {...} }` replaces).
+		n := len(model.nodes)
+		boxes := make([][2]o3d.Vec3, n, context.temp_allocator)
+		o3d.model_node_bounds(model, &m.view3d.geometries, boxes)
+		listed := make(map[string]bool, n, context.temp_allocator)
+		for i in 0 ..< n {
+			part := model.nodes.name[i]
+			if part == "" || part in listed {
+				continue
+			}
+			listed[part] = true
+			box := "no geometry"
+			if lo, hi := boxes[i][0], boxes[i][1]; lo.x <= hi.x {
+				size := hi - lo
+				box = fmt.tprintf("box %.4g..%.4g, %.4g..%.4g, %.4g..%.4g (size %.4g x %.4g x %.4g)", lo.x, hi.x, lo.y, hi.y, lo.z, hi.z, size.x, size.y, size.z)
+			}
+			p, r, sc := om.euler_pose(model.nodes.local[i])
+			append(&sh.children, Show_Child{part, "part", fmt.tprintf("%s; at (%.4g, %.4g, %.4g), rotation (%.4g, %.4g, %.4g), scale (%.4g, %.4g, %.4g)", box, p.x, p.y, p.z, r.x, r.y, r.z, sc.x, sc.y, sc.z)})
+		}
 	case .Subtitles, .Captions:
 		c := &m.captions[name]
 		n := om.caption_count(c)

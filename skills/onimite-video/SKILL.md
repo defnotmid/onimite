@@ -438,8 +438,9 @@ playing.
   joining clips").
 - A scene without `render` is fine as a label (for `Card@2s` addressing and per-scene
   loudness) when the video-level `render` draws everything.
-- Debug values with `io.stderr:write(...)` inside `render` and run `frame` on one frame
-  (renders call `render` on many threads, in any order).
+- Debug values with `print(...)` (at load, or inside `render`) and run `frame` on one frame
+  (renders call `render` on many threads, in any order). Through MCP, what was printed
+  comes back with the tool's answer ("the script printed:"); `io.stderr:write` doesn't.
 
 ### Beat sync
 
@@ -610,7 +611,8 @@ video { ..., buses = { music = {}, voice = {}, sfx = {} },
 ## Gotchas
 
 - `print(...)` in a script writes to stderr: stdout is the command's output (one JSON
-  document with `--json`, the MCP server's messages).
+  document with `--json`, the MCP server's messages). An MCP tool call returns what was
+  printed too (the first 64 KB).
 - `rect`/`text`/`group` at load: "can only be called while rendering a frame". Draw inside
   `render`; measure (`text_width` & co) anywhere.
 - `video{}`, `scene{}`, `cue`, `song{}`, `sound{}`, `physics{}`, `physics3d{}`, `sky{}`, `audio_add`, `captions_load`
