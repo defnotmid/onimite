@@ -29,7 +29,7 @@ T.PORTALS = hits("blips", "drop")
 T.KALEIDO = B("kaleido")
 T.GLITCH = hits("glitch", "kaleido")[1]
 -- The break: kick out, the suite's structure draws itself, unwarped, a box
--- a blip (ovg, oksl, odecs, SDL3 under onimite; o3d's box lands with the
+-- a blip (ovg, oksl, oicut, SDL3 under onimite; o3d's box lands with the
 -- SDL3 row, then odawg's and ottis's), while ottis says the line.
 T.BREAK = B("break")
 T.BOXES = hits("blips", "break")

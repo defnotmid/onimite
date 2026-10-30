@@ -17,7 +17,7 @@ run: build
 test:
 	@mkdir -p $(BUILD_DIR)
 	@for pkg in ui onimite script app encode speech; do \
-		$(ODIN) test $$pkg $(FLAGS) -define:ODECS_PATENTED=true -out:$(BUILD_DIR)/test_$$pkg || exit 1; \
+		$(ODIN) test $$pkg $(FLAGS) -define:OICUT_PATENTED=true -out:$(BUILD_DIR)/test_$$pkg || exit 1; \
 	done
 
 smoke: speed

@@ -10,7 +10,7 @@ import odevice "deps:odawg/device"
 import odsp "deps:odawg/dsp"
 import orender "deps:odawg/render"
 import osong "deps:odawg/song"
-import common "deps:odecs/common"
+import common "deps:oicut/common"
 
 // The mix: every track placed on the video timeline, as one odawg song
 // (odawg's song/mix.odin) that odawg's engine streams: a clip is a Clip node
@@ -24,7 +24,7 @@ import common "deps:odecs/common"
 // stream.
 
 // The master limiter's ceiling when the script sets none (dBTP), a dB under
-// the file's -1 bar for the AAC encode's overshoot: odecs v0.0.13's AAC at
+// the file's -1 bar for the AAC encode's overshoot: oicut v0.0.13's AAC at
 // 192 kbps lands mixes limited to -2.0 at -1.5 to -1.9 dBTP (FFmpeg's
 // ebur128 on the saga, why_onimite, data_story, disco, motion_poster).
 LIMITER_CEILING :: -2

@@ -1,4 +1,4 @@
--- The family cards (OVG, ODECS, OKSL share them): what onimite is built
+-- The family cards (OVG, OICUT, OKSL share them): what onimite is built
 -- on, after the montage showed what it does. The repo on the left, a panel
 -- on the right that each scene fills.
 

@@ -1,9 +1,9 @@
 package onimite_encode
 
 import "core:fmt"
-import video "deps:odecs/video"
+import video "deps:oicut/video"
 
-// `onimite probe FILE`: what odecs' reader finds in a media file (container,
+// `onimite probe FILE`: what oicut's reader finds in a media file (container,
 // video and audio stream), so nothing outside the binary is needed to check
 // a rendered or reference video.
 
@@ -33,7 +33,7 @@ Probe_Result :: struct {
 	audio:     Maybe(Probe_Audio) `json:"audio"`,
 }
 
-// What odecs' reader finds in `path`; on failure `f` says why (`.Probe_Open`,
+// What oicut's reader finds in `path`; on failure `f` says why (`.Probe_Open`,
 // `path` borrowed).
 probe :: proc(path: string) -> (res: Probe_Result, f: Failure) {
 	r: video.Reader

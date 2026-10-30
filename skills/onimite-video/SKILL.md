@@ -81,8 +81,9 @@ repositories (the build's `deps` collection is their parent directory):
 git clone https://github.com/defnotmid/onimite
 git clone https://github.com/defnotmid/ovg     # 2D vector canvas: software + SDL_GPU (Vulkan / Metal / D3D12)
 git clone https://github.com/defnotmid/oglyph  # fonts and OpenType text shaping (ovg draws text through it)
+git clone https://github.com/defnotmid/ocurves # curve geometry: contours, exact pixel coverage, booleans (ovg and o3d keep their shapes in it)
 git clone https://github.com/defnotmid/oksl    # shader compiler: SkSL, Shadertoy and GLSL to SPIR-V, MSL, CPU
-git clone https://github.com/defnotmid/odecs   # every image, sound and clip decoder, and the MP4 encoder
+git clone https://github.com/defnotmid/oicut   # every image, sound and clip decoder, and the MP4 encoder
 git clone https://github.com/defnotmid/odawg   # songs and the mix in Tone.js's vocabulary, loudness, onsets, spectra
 git clone https://github.com/defnotmid/ottis   # text to speech with word timings (say)
 git clone https://github.com/defnotmid/o3d     # 3D in three.js's vocabulary: SDL_GPU + software, glTF 2.0 (skins, morphs) + 3MF + OBJ + USD
@@ -287,8 +288,8 @@ libopenh264). A release carries no H.264 / H.265 codec of its own: on a machine 
 these `render` writes PNGs but no MP4, and says so.
 `--draft`: half resolution (unless `--scale`), QP 32, one-second GOP. A scaled size rounds to
 even (1080x1350 at half is 540x676). `--h265`, `--qp N`
-(0 best .. 51), `--native` and `--slices N` (odecs' own encoder instead of the system's, and its
-H.264 slices: only in a build with `-define:ODECS_PATENTED=true`; a release refuses them before
+(0 best .. 51), `--native` and `--slices N` (oicut's own encoder instead of the system's, and its
+H.264 slices: only in a build with `-define:OICUT_PATENTED=true`; a release refuses them before
 loading the script), `--software` (draw on the CPU; also for machines without a usable GPU), `--scale S`,
 `--threads N` (default one per core: a quarter render songs, audio and `say()` lines, the
 rest frames; 1: everything on one thread; output does not depend on it). There is no WebM or alpha video output.

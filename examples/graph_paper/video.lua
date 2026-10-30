@@ -36,7 +36,7 @@ video { width = W, height = H, fps = 60, background = PAPER,
   master_gain_db = 7.7 }   -- about -14 LUFS
 
 local WORD = "ONIMITE"
-local MARKS = { "onimite", "ovg", "oksl", "odecs", "ottis", "o3d", "odawg" }
+local MARKS = { "onimite", "ovg", "oksl", "oicut", "ottis", "o3d", "odawg" }
 local N = #MARKS
 local PITCH = CELL * 5                            -- letters sit on the major lines
 local function column(i) return W / 2 + (i - (N + 1) / 2) * PITCH end
@@ -274,7 +274,7 @@ end)
 local BLOCK = { x = 81, y = 81, w = 918, h = 216 }
 local FIELDS = {
   { "DRAWN BY", "Claude, through onimite" },
-  { "LIBRARIES", "ovg oksl odecs ottis o3d odawg" },
+  { "LIBRARIES", "ovg oksl oicut ottis o3d odawg" },
   { "SHEET", "1 / 1      SCALE 1:1" },
 }
 local TITLE_SIZE = text_size { "onimite", font = "Instrument Serif", italic = true, max_width = 320, size = 132 }

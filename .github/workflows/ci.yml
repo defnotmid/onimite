@@ -12,10 +12,10 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-# The build reads ovg, oglyph, ocurves, oksl, odecs, ottis, o3d and odawg through
+# The build reads ovg, oglyph, ocurves, oksl, oicut, ottis, o3d and odawg through
 # `-collection:deps=..`, so every job checks the nine repositories out side by side, each at its
 # pinned tag (ci.sh pins checks every checkout names one):
-#   $GITHUB_WORKSPACE/{onimite,ovg,oglyph,ocurves,oksl,odecs,ottis,o3d,odawg}
+#   $GITHUB_WORKSPACE/{onimite,ovg,oglyph,ocurves,oksl,oicut,ottis,o3d,odawg}
 # The build, test and smoke steps are .github/ci.sh, the same on every OS.
 #
 # third_party/fetch.sh is not run: it fetches only the fframes reference
@@ -43,7 +43,7 @@ jobs:
         with:
           repository: defnotmid/ovg
           path: ovg
-          ref: v0.0.55
+          ref: v0.0.56
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/ocurves
@@ -53,38 +53,38 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/oglyph
-          # Pinned like ovg: fonts, font collections, text shaping, bidi and line breaks, which ovg draws through (v0.0.12; ovg v0.0.55 needs it).
+          # Pinned like ovg: fonts, font collections, text shaping, bidi and line breaks, which ovg draws through (v0.0.12; ovg v0.0.56 needs it).
           ref: v0.0.12
           path: oglyph
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/oksl
-          # Pinned like o3d, whose shaders and onimite's it compiles (v0.0.3; o3d v0.0.48 needs it).
+          # Pinned like o3d, whose shaders and onimite's it compiles (v0.0.3; o3d v0.0.50 needs it).
           ref: v0.0.3
           path: oksl
       - uses: actions/checkout@v4
         with:
-          repository: defnotmid/odecs
-          # Pinned like ottis: onimite decodes and encodes through odecs v0.0.20: H.264 / H.265 by the system (VideoToolbox, Vulkan Video, Media Foundation on Windows, else the system's libavcodec, loaded at run time), natively only with -define:ODECS_PATENTED=true; ovg, o3d, odawg and ottis at their pins use nothing it changed since v0.0.16.
-          ref: v0.0.20
-          path: odecs
+          repository: defnotmid/oicut
+          # Pinned like ottis: onimite decodes and encodes through oicut v0.0.21: H.264 / H.265 by the system (VideoToolbox, Vulkan Video, Media Foundation on Windows, else the system's libavcodec, loaded at run time), natively only with -define:OICUT_PATENTED=true; ovg, o3d, odawg and ottis at their pins use nothing it changed since v0.0.16.
+          ref: v0.0.21
+          path: oicut
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/ottis
           # Pinned: ottis is released on its own; a new tag is taken on purpose.
-          ref: v0.0.11
+          ref: v0.0.12
           path: ottis
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/o3d
-          # Pinned like ottis: o3d is released on its own (v0.0.48).
-          ref: v0.0.48
+          # Pinned like ottis: o3d is released on its own (v0.0.50).
+          ref: v0.0.50
           path: o3d
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/odawg
-          # Pinned like ottis: odawg is released on its own (v0.0.47).
-          ref: v0.0.47
+          # Pinned like ottis: odawg is released on its own (v0.0.48).
+          ref: v0.0.48
           path: odawg
 
       - uses: ./onimite/.github/actions/setup-toolchain
@@ -103,7 +103,7 @@ jobs:
         run: bash onimite/.github/ci.sh facts
       - name: Build
         run: bash onimite/.github/ci.sh build
-      # The binary releases ship (no -define:ODECS_PATENTED): built here too,
+      # The binary releases ship (no -define:OICUT_PATENTED): built here too,
       # so its first build isn't the tag's.
       - name: Release configuration (no native H.264 / H.265)
         run: bash onimite/.github/ci.sh release
@@ -135,7 +135,7 @@ jobs:
         with:
           repository: defnotmid/ovg
           path: ovg
-          ref: v0.0.55
+          ref: v0.0.56
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/ocurves
@@ -145,38 +145,38 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/oglyph
-          # Pinned like ovg: fonts, font collections, text shaping, bidi and line breaks, which ovg draws through (v0.0.12; ovg v0.0.55 needs it).
+          # Pinned like ovg: fonts, font collections, text shaping, bidi and line breaks, which ovg draws through (v0.0.12; ovg v0.0.56 needs it).
           ref: v0.0.12
           path: oglyph
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/oksl
-          # Pinned like o3d, whose shaders and onimite's it compiles (v0.0.3; o3d v0.0.48 needs it).
+          # Pinned like o3d, whose shaders and onimite's it compiles (v0.0.3; o3d v0.0.50 needs it).
           ref: v0.0.3
           path: oksl
       - uses: actions/checkout@v4
         with:
-          repository: defnotmid/odecs
-          # Pinned like ottis: onimite decodes and encodes through odecs v0.0.20: H.264 / H.265 by the system (VideoToolbox, Vulkan Video, Media Foundation on Windows, else the system's libavcodec, loaded at run time), natively only with -define:ODECS_PATENTED=true; ovg, o3d, odawg and ottis at their pins use nothing it changed since v0.0.16.
-          ref: v0.0.20
-          path: odecs
+          repository: defnotmid/oicut
+          # Pinned like ottis: onimite decodes and encodes through oicut v0.0.21: H.264 / H.265 by the system (VideoToolbox, Vulkan Video, Media Foundation on Windows, else the system's libavcodec, loaded at run time), natively only with -define:OICUT_PATENTED=true; ovg, o3d, odawg and ottis at their pins use nothing it changed since v0.0.16.
+          ref: v0.0.21
+          path: oicut
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/ottis
           # Pinned: ottis is released on its own; a new tag is taken on purpose.
-          ref: v0.0.11
+          ref: v0.0.12
           path: ottis
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/o3d
-          # Pinned like ottis: o3d is released on its own (v0.0.48).
-          ref: v0.0.48
+          # Pinned like ottis: o3d is released on its own (v0.0.50).
+          ref: v0.0.50
           path: o3d
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/odawg
-          # Pinned like ottis: odawg is released on its own (v0.0.47).
-          ref: v0.0.47
+          # Pinned like ottis: odawg is released on its own (v0.0.48).
+          ref: v0.0.48
           path: odawg
 
       - uses: ./onimite/.github/actions/setup-toolchain

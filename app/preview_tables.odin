@@ -816,7 +816,7 @@ part_notes :: proc(x: ^Timeline_Build, it: int, ref: Timeline_Ref) {
 				if z <= p.start || a >= p.end {
 					continue
 				}
-				append(&t.notes, Timeline_Note{a, z, n.pitch, n.velocity})
+				append(&t.notes, Timeline_Note{a, z, f32(n.pitch), n.velocity})
 			}
 		}
 	}

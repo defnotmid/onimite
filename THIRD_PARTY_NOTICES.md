@@ -12,14 +12,14 @@ separate file in [LICENSES/](LICENSES); binary releases ship `LICENSE`,
 | femtovg | ovg is a port of it (used under its MIT option) | `LICENSES/femtovg-MIT.txt` |
 | nanovg | femtovg's origin: the tessellation, antialiasing and shader design ovg inherits through it | `LICENSES/nanovg-Zlib.txt` |
 | oksl | SkSL shader compiler (and o3d's ShaderMaterial compiler) | `LICENSES/oksl-MIT.txt` |
-| odecs | codecs and containers | `LICENSES/odecs-MIT.txt` |
-| libwebp | odecs' WebP decoder is a restructured port of libwebp's decoder and copies its tables | `LICENSES/libwebp-BSD-3-Clause.txt` |
-| libopus 1.6.1 | odecs' Opus decoder is a restructured port of it | `LICENSES/libopus-BSD-3-Clause.txt` |
-| gen2brain/h265 | odecs' H.265 decoder began as a port of it | `LICENSES/gen2brain-h265-MIT.txt` |
-| oxideav-h265 | cross-reference for odecs' H.265 decoder and transforms | `LICENSES/oxideav-h265-MIT.txt` |
-| Kvazaar | odecs' H.265 encoder follows it (CABAC, SAO decisions, context tables) | `LICENSES/Kvazaar-BSD-3-Clause.txt` |
-| OpenH264 | the CABAC tables in odecs' H.264 decoder | `LICENSES/OpenH264-BSD-2-Clause.txt` |
-| Apple ALAC | odecs' Apple Lossless decoder is a restructured port of Apple's reference decoder | `LICENSES/ALAC-Apache-2.0.txt` |
+| oicut | codecs and containers | `LICENSES/oicut-MIT.txt` |
+| libwebp | oicut's WebP decoder is a restructured port of libwebp's decoder and copies its tables | `LICENSES/libwebp-BSD-3-Clause.txt` |
+| libopus 1.6.1 | oicut's Opus decoder is a restructured port of it | `LICENSES/libopus-BSD-3-Clause.txt` |
+| gen2brain/h265 | oicut's H.265 decoder began as a port of it | `LICENSES/gen2brain-h265-MIT.txt` |
+| oxideav-h265 | cross-reference for oicut's H.265 decoder and transforms | `LICENSES/oxideav-h265-MIT.txt` |
+| Kvazaar | oicut's H.265 encoder follows it (CABAC, SAO decisions, context tables) | `LICENSES/Kvazaar-BSD-3-Clause.txt` |
+| OpenH264 | the CABAC tables in oicut's H.264 decoder | `LICENSES/OpenH264-BSD-2-Clause.txt` |
+| Apple ALAC | oicut's Apple Lossless decoder is a restructured port of Apple's reference decoder | `LICENSES/ALAC-Apache-2.0.txt` |
 | Lua 5.4 | script runtime | `LICENSES/Lua-MIT.txt` |
 | SDL 3 | window, input, audio, GPU (bundled shared library) | `LICENSES/SDL3-Zlib.txt` |
 | oglyph | fonts and OpenType text shaping (ovg draws text through it) | `LICENSES/oglyph-MIT.txt` |

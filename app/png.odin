@@ -1,9 +1,9 @@
 package onimite_app
 
 import "core:os"
-import odimg "deps:odecs/image"
+import odimg "deps:oicut/image"
 
-// Straight-alpha RGBA8 pixels of a PNG (or any image odecs reads).
+// Straight-alpha RGBA8 pixels of a PNG (or any image oicut reads).
 read_png :: proc(path: string) -> (pixels: []u8, w, h: u32, ok: bool) {
 	data, err := os.read_entire_file(path, context.temp_allocator)
 	if err != nil {

@@ -20,7 +20,7 @@ import "core:path/filepath"
 import "core:strings"
 import "core:sync"
 import "core:time"
-import common "deps:odecs/common"
+import common "deps:oicut/common"
 import "deps:ottis/assets"
 import "deps:ottis/pocket"
 

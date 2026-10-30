@@ -16,7 +16,7 @@ import script "../script"
 import "../animation"
 import ui "../ui"
 import vg "deps:ovg"
-import odimg "deps:odecs/image"
+import odimg "deps:oicut/image"
 import sdl "vendor:sdl3"
 
 // The preview window, after paf: platform events and ui widgets publish

@@ -5,7 +5,7 @@ import "core:os"
 import "core:slice"
 import "core:testing"
 import "deps:ottis/assets"
-import common "deps:odecs/common"
+import common "deps:oicut/common"
 
 // The key changes with everything a line's samples depend on and nothing
 // else.

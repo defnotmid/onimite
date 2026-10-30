@@ -6,7 +6,7 @@ import vg "deps:ovg"
 
 // Clip frames arrive as the decoder's planes (`Video_Frame.planes`). GPU
 // renders upload them to single-channel images and convert them into the
-// slot's RGBA image with one program (video_yuv.sksl, odecs' conversion),
+// slot's RGBA image with one program (video_yuv.sksl, oicut's conversion),
 // recorded with the frame, so the conversion runs where the frame is drawn
 // and reads the planes uploaded when it plays. Software renders convert on
 // the CPU (`Video_Source.to_rgba`).
@@ -162,7 +162,7 @@ video_yuv_run :: proc(r: ^Renderer, slot: int, info: Video_Info) -> bool {
 	return true
 }
 
-// video_yuv.sksl's uniforms for frames in format `f`: odecs' choices
+// video_yuv.sksl's uniforms for frames in format `f`: oicut's choices
 // (video/planar.odin `prepare_conversion`, hdr.odin `init_tone_map`).
 @(private = "file")
 Yuv_Uniforms :: struct {

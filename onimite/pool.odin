@@ -4,7 +4,7 @@ import "base:runtime"
 import "core:mem"
 import "core:sync"
 import "core:thread"
-import common "deps:odecs/common"
+import common "deps:oicut/common"
 
 // Caller-owned task pool, as in ../oasic (work/pool.odin): the application
 // creates one `thread.Pool` and lends it to the operations it runs; nil runs
@@ -128,7 +128,7 @@ pool_job_running :: proc(job: ^Pool_Job) -> bool {
 
 // ---- slices on the task pool ------------------------------------------------------
 
-// odecs' `Work_Pool` (the suite's: odecs' codecs and odawg's engine take
+// oicut's `Work_Pool` (the suite's: oicut's codecs and odawg's engine take
 // it) on one of the application's task pools, which other work uses at the
 // same time. Ranges (one item each) are claimed from
 // an atomic ticket by the encoder thread and by helper tasks, so the encoder

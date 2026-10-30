@@ -113,7 +113,7 @@ output puts it before the message. Match on `code` and `fields`, not on the mess
 
 `{q:...}` is the value quoted, `{r:...}` rounded, `{s:...}` seconds to the millisecond,
 `{ds:...}` the same with a sign, `{X4:...}` four hex digits; `{video}` is
-the decoder's reason (`no video track`, or odecs' error and detail), `{gpu}`, `{svg}` and
+the decoder's reason (`no video track`, or oicut's error and detail), `{gpu}`, `{svg}` and
 `{lottie}` the renderer's or parser's error name, `{o3d}` the 3D renderer's, `{where}` the script line (`video.lua:12`), `{error}` and `{at}` the shader compiler's
 message and `name:line:col` (`name: pass:line:col` in a program of passes: `trail.sksl: blur:3:9`,
 `image.glsl: Buffer A:3:9`, `Common` for the common source; `Vertex:line:col` or `Fragment:line:col` in a `view3d` `ShaderMaterial`); `{warning}` is
@@ -134,7 +134,7 @@ read back from the GPU), `batch_read`,
 `batch_rows`, `output_no_field`, `output_not_scalar`, `no_track` (`--track` names no track),
 `load_errors` (`render`: the script's load found errors, such as a `say()` line that could
 not be synthesized or a track whose sound is missing; the message gives the count and the
-first), `probe` (`probe`: a file odecs can not read), `window` and `window_drawing` (`preview`: the
+first), `probe` (`probe`: a file oicut can not read), `window` and `window_drawing` (`preview`: the
 window, its GPU device or its drawing could not be set up), `no_path` (`show`: nothing at
 that path; the message lists the paths there are), and `update`'s: `update_dev` (a source
 build), `update_platform` (no release for this platform), `update_fetch`, `update_checksum`

@@ -1,9 +1,9 @@
--- The suite as one piece: onimite, ovg, oksl, odecs, o3d, odawg and ottis
+-- The suite as one piece: onimite, ovg, oksl, oicut, o3d, odawg and ottis
 -- used together in 36 seconds. An SkSL world (oksl, media/world.sksl) warps
 -- a group of shaped text and vector art (ovg: filters, blend modes,
 -- masks, focal gradients) and a 3D gyroscope (o3d) given to it as its
 -- `uniform shader` child, with a WebP panorama on its horizon; the ovg rocket (an SVG animated by
--- element id) flies through it; alpha video clips decoded live by odecs
+-- element id) flies through it; alpha video clips decoded live by oicut
 -- glow in portals and fold into the shader's kaleidoscope. The music is an
 -- odawg song (track.lua) and the picture follows it: its sections, its
 -- blips and crashes place every moment (timeline.lua), its kicks pump the
@@ -37,7 +37,7 @@ local function rgb3(hex)
   return { tonumber(hex:sub(2, 3), 16) / 255, tonumber(hex:sub(4, 5), 16) / 255, tonumber(hex:sub(6, 7), 16) / 255 }
 end
 local TINT_A, TINT_B = rgb3(ui.OVG), rgb3(ui.OKSL)
-local TINT_B2 = rgb3(ui.ODECS)
+local TINT_B2 = rgb3(ui.OICUT)
 
 -- ---- the world (oksl over ovg) -------------------------------------------
 
@@ -102,26 +102,26 @@ local function rocket(b, kick)
   group({ blend = "screen" }, function()
     for i = 1, 18 do
       line { x1 = trail[2 * i - 1], y1 = trail[2 * i], x2 = trail[2 * i + 1], y2 = trail[2 * i + 2],
-        stroke = ui.ODECS, stroke_width = 26 * (1 - i / 19), stroke_opacity = 0.5 * (1 - i / 19),
+        stroke = ui.OICUT, stroke_width = 26 * (1 - i / 19), stroke_opacity = 0.5 * (1 - i / 19),
         line_cap = "round" }
     end
   end)
   local x, y, ang, s = path_at(b)
   local flicker = 0.85 + 0.25 * hash(math.floor(b * 16)) + 0.35 * kick
   group({ transform = { translate = { x, y }, rotate = ang }, shadow = { dx = 0, dy = 0, blur = 30,
-    color = ui.ODECS, opacity = 0.35 + 0.4 * kick } }, function()
+    color = ui.OICUT, opacity = 0.35 + 0.4 * kick } }, function()
     svg { src = "rocket.svg", x = -s / 2, y = -s / 2, w = s, h = s, overrides = {
       flame = { transform = scale(1, flicker, 200, 262) },
       flame_core = { opacity = 0.6 + 0.4 * kick },
       fin_l = { transform = rotate(-6 * kick, 150, 190) },
       fin_r = { transform = rotate(6 * kick, 250, 190) },
-      window_glass = { fill = ({ ui.OVG, ui.OKSL, ui.ODECS, ui.ONIMITE })[math.floor(b) % 4 + 1] },
+      window_glass = { fill = ({ ui.OVG, ui.OKSL, ui.OICUT, ui.ONIMITE })[math.floor(b) % 4 + 1] },
       star1 = { visible = false }, star2 = { visible = false }, star3 = { visible = false },
     } }
   end)
 end
 
--- ---- the portals (odecs' alpha clips, composited live) -------------------------
+-- ---- the portals (oicut's alpha clips, composited live) -------------------------
 
 local function glow(color)
   return { filter = {
@@ -173,7 +173,7 @@ end
 local CAPTIONS = {
   { 1, "video.lua → onimite: a Lua script, rendered by a native Odin engine" },
   { T.DROP, "oksl compiles world.sksl · ovg draws its child group · svg{} flies the rocket by id" },
-  { T.PORTALS[1], "odecs decodes ProRes 4444 and VP9 with alpha, live on the frame clock" },
+  { T.PORTALS[1], "oicut decodes ProRes 4444 and VP9 with alpha, live on the frame clock" },
   { T.PORTALS[2] + 4, "o3d draws the gyroscope (lit tori, view3d{}) inside the group the shader warps" },
   { T.KALEIDO, "the VP9 clip and the gyroscope, inside the shader's child group, folded six ways" },
   { T.KALEIDO + 8, "odawg composes the song; its sections, hits and spectrum move the picture" },
@@ -194,7 +194,7 @@ end
 
 -- A name an eighth; ottis's lands with the line.
 local NAMES = { { "onimite", ui.ONIMITE, T.NAMES[1] }, { "ovg", ui.OVG, T.NAMES[2] }, { "oksl", ui.OKSL, T.NAMES[3] },
-  { "odecs", ui.ODECS, T.NAMES[4] }, { "o3d", ui.O3D, T.NAMES[5] }, { "odawg", ui.ODAWG, T.NAMES[6] },
+  { "oicut", ui.OICUT, T.NAMES[4] }, { "o3d", ui.O3D, T.NAMES[5] }, { "odawg", ui.ODAWG, T.NAMES[6] },
   { "ottis", ui.OTTIS, T.LINE } }
 local NAME_SIZE, SEP = 72, "  ·  "
 -- The row's layout, measured once at load.

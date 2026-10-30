@@ -2,7 +2,7 @@ package onimite
 
 import "core:encoding/json"
 import oassets "deps:odawg/assets"
-import odaudio "deps:odecs/audio"
+import odaudio "deps:oicut/audio"
 
 // Sound: tracks placed on the video (or scene) clock, after fframes'
 // `AudioMap`. Files decode once to stereo f32 at MIX_RATE.
@@ -101,7 +101,7 @@ Audio_Clip :: struct {
 	source_channels: int,
 }
 
-// Decodes any audio file odecs reads (WAV, FLAC, MP3, Ogg Vorbis/Opus,
+// Decodes any audio file oicut reads (WAV, FLAC, MP3, Ogg Vorbis/Opus,
 // MP4/M4A AAC or ALAC, WebM/MKV; the format from its first bytes) and
 // converts it to a clip.
 audio_decode :: proc(data: []u8) -> (clip: Audio_Clip, ok: bool) {

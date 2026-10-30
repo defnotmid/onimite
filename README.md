@@ -48,7 +48,7 @@ onimite is built from sibling Odin projects and Odin's vendor packages:
 | --- | --- |
 | [`ovg`](https://github.com/defnotmid/ovg) | 2D vector canvas (femtovg lineage): software backend + SDL_GPU (Vulkan / Metal / D3D12) |
 | [`oglyph`](https://github.com/defnotmid/oglyph) | fonts and OpenType text shaping in native Odin (HarfBuzz's rules, checked against it), which ovg draws text through |
-| [`odecs`](https://github.com/defnotmid/odecs) | H.264 / H.265 / AAC codecs (native Odin, Vulkan Video when available), MP4, clip decoding; every image (PNG, JPEG, GIF, WebP, ...) and audio file (WAV, FLAC, MP3, Ogg, M4A) |
+| [`oicut`](https://github.com/defnotmid/oicut) | H.264 / H.265 / AAC codecs (native Odin, Vulkan Video when available), MP4, clip decoding; every image (PNG, JPEG, GIF, WebP, ...) and audio file (WAV, FLAC, MP3, Ogg, M4A) |
 | [`oksl`](https://github.com/defnotmid/oksl) | shader compiler for SkSL, Shadertoy and GLSL: SPIR-V, MSL and a CPU interpreter |
 | [`ottis`](https://github.com/defnotmid/ottis) | text to speech with word timings (Kyutai's Pocket TTS through ONNX Runtime, loaded at run time; models downloaded on first use) |
 | [`odawg`](https://github.com/defnotmid/odawg) | sound in Tone.js's vocabulary: songs composed from data (`song{}`, `sound{}`), the mix, master and preview stream, loudness, onsets and spectra; sample sets downloaded on first use |
@@ -128,8 +128,8 @@ onimite is built from sibling Odin projects and Odin's vendor packages:
   Windows; Media Foundation on Windows: H.264, and H.265 with Microsoft's HEVC
   Video Extensions; else the system's FFmpeg, libavcodec, loaded at run time
   and never bundled), or PNG frames. Releases carry no H.264 / H.265 codec of
-  their own: odecs' native one is only in a build with
-  `-define:ODECS_PATENTED=true`. With none of those on the machine a release
+  their own: oicut's native one is only in a build with
+  `-define:OICUT_PATENTED=true`. With none of those on the machine a release
   writes PNG frames but no MP4. Frames build on all cores and draw on the GPU
   (or on the CPU with `--software`); the output does not depend on the thread
   count.
@@ -152,8 +152,9 @@ that make videos with onimite.
 git clone https://github.com/defnotmid/onimite
 git clone https://github.com/defnotmid/ovg
 git clone https://github.com/defnotmid/oglyph
+git clone https://github.com/defnotmid/ocurves
 git clone https://github.com/defnotmid/oksl
-git clone https://github.com/defnotmid/odecs
+git clone https://github.com/defnotmid/oicut
 git clone https://github.com/defnotmid/ottis
 git clone https://github.com/defnotmid/o3d
 git clone https://github.com/defnotmid/odawg
@@ -162,7 +163,7 @@ mkdir -p build    # a fresh clone has no build/ (gitignored); Odin will not crea
 odin build . -collection:deps=.. -o:speed -out:build/onimite
 ```
 
-`deps` is the parent directory holding `ovg`, `oglyph`, `oksl`, `odecs`, `ottis`, `o3d` and `odawg`. Use
+`deps` is the parent directory holding `ovg`, `oglyph`, `ocurves`, `oksl`, `oicut`, `ottis`, `o3d` and `odawg`. Use
 `-o:speed`: unoptimized builds are many times slower. On Linux the binary
 links the system SDL3 (`pacman -S sdl3`, `apt install libsdl3-dev` on Ubuntu
 25.04+, otherwise build SDL 3 from source as `.github/actions/setup-toolchain`
@@ -252,7 +253,7 @@ does that check once as it starts (off with `--update-check false` or
 Push a tag `vX.Y.Z` (`git tag v0.1.0 && git push origin v0.1.0`; a tag with
 a `-`, like `v0.2.0-rc1`, makes a prerelease, which the installers skip).
 `.github/workflows/release.yml` builds `-o:speed` stripped binaries against the
-default branch of oksl and ovg, oglyph, odecs, ottis, o3d and odawg at their pinned
+default branch of oksl and ovg, oglyph, oicut, ottis, o3d and odawg at their pinned
 tags, with the tag as their
 `--version`, and publishes a GitHub release:
 
@@ -306,8 +307,8 @@ onimite update   [--check]                                # replace this release
 
 - `render`: `--draft` is half resolution (unless `--scale`), QP 32 and a
   one second GOP; `--h265`, `--qp N`; in a build with
-  `-define:ODECS_PATENTED=true` (not the releases, which refuse them),
-  `--native` (odecs' native encoder instead of the system's) and `--slices N`
+  `-define:OICUT_PATENTED=true` (not the releases, which refuse them),
+  `--native` (oicut's native encoder instead of the system's) and `--slices N`
   (its H.264 slices, default 4: more encode faster in a slightly larger file;
   the file depends on it, never on the machine).
 - Common options: `--json`, `--scale S`, `--media DIR` (default `media/`
@@ -456,7 +457,7 @@ Each folder in `examples/` is a `video.lua` with its `media/`.
 | --- | --- |
 | `onimite_saga` | a 2 min film laid out for agents: a manifest, a file per scene on its cue, a tempo map, a music clip per act |
 | `why_onimite` | a 50 s beat-synced pitch: BPM clock, quick cuts, a soundtrack synthesized in Lua, a shader title |
-| `suite` | onimite, ovg, oksl, odecs and o3d in every frame: an SkSL world warping a group with a 3D gyroscope in it, alpha clips, a WebP skyline |
+| `suite` | onimite, ovg, oksl, oicut and o3d in every frame: an SkSL world warping a group with a 3D gyroscope in it, alpha clips, a WebP skyline |
 | `data_story` | a 30 s chart explainer drawn from `props`, one video per `--batch` row |
 | `motion_poster` | a generative poster made of noise: SVG filter primitives, `noise()`, an SkSL warp |
 | `social_clip_kit` | one promo in 9:16, 1:1 and 16:9 through `--batch`: adaptive layout, word captions, an alpha clip |
@@ -513,7 +514,7 @@ and the ports' media first.
 | --- | --- | --- |
 | `onimite/` | `onimite` | core: timeline and easing, scenes, node tree, drawing, text, media, captions, 3D layers, time specs, SVG export |
 | `script/` | `onimite_script` | the Lua host: the script API bound to the core builders; `std.lua`, the standard library |
-| `encode/` | `onimite_encode` | RGBA to BT.709 I420 (GPU compute or CPU), odecs H.264 / H.265, MP4; clip and audio decoding |
+| `encode/` | `onimite_encode` | RGBA to BT.709 I420 (GPU compute or CPU), oicut H.264 / H.265, MP4; clip and audio decoding |
 | `app/` | `onimite_app` | command rows and one dispatch (after paf / raddbg): the commands, their output, batches, the preview |
 | `main.odin` | `main` | the command line: parses arguments into command rows |
 | `platform/`, `render/`, `ui/` | | SDL3 window and input, the UI's frame drawn as one ovg canvas (as onib draws its own), the raddbg-style UI (ported from paf) |
@@ -525,7 +526,7 @@ made only at the edge.
 
 ## Not yet
 
-WebM and alpha video output (odecs writes VP9 and HEVC with alpha, but its WebM
+WebM and alpha video output (oicut writes VP9 and HEVC with alpha, but its WebM
 has no sound yet; such clips work as inputs).
 
 ## License

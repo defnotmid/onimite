@@ -1,6 +1,6 @@
 package onimite_encode
 
-import video "deps:odecs/video"
+import video "deps:oicut/video"
 import sdl "vendor:sdl3"
 
 // Converts GPU-rendered frames to NV12 on the GPU (shaders/rgba_to_nv12.slang)
@@ -11,7 +11,7 @@ import sdl "vendor:sdl3"
 // done with it. With GPU_NV12_SLOTS frames in flight the render loop records
 // frame N+1 while earlier ones convert, transfer and encode, and it reads
 // back 1.5 bytes a pixel instead of 4. The samples are bit-identical to the
-// CPU path's (odecs' rgba_to_i420 with the same coefficients).
+// CPU path's (oicut's rgba_to_i420 with the same coefficients).
 //
 // Each slot has its own RGBA target to render the frame into
 // (`gpu_nv12_target`) and its own output buffer: with shared ones, the next

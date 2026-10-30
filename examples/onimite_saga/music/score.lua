@@ -66,7 +66,7 @@ return song { "score", instruments = INSTRUMENTS, key = "C# minor", seed = 204, 
     -- act III: all it does (the montage), then what it is built on (the family)
     { "montage", duration = "4m", bpm = 144, energy = 1, chords = "Amaj7 B7 G#m7 C#m9" },
     { "ovg", duration = "2m", energy = 0.9, chords = "Amaj7 B7" },
-    { "odecs", duration = "2m", chords = "G#m7 C#m9" },
+    { "oicut", duration = "2m", chords = "G#m7 C#m9" },
     { "oksl", duration = "2m", chords = "Amaj7 B7" },
     { "not_needed", duration = "2m", chords = "G#m7 C#m9" },
     { "check", duration = "2m", chords = "Amaj7 B7" },

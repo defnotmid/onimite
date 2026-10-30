@@ -14,7 +14,7 @@ import "core:time"
 import om "../onimite"
 import enc "../encode"
 import vg "deps:ovg"
-import odimg "deps:odecs/image"
+import odimg "deps:oicut/image"
 import vgsdl "deps:ovg/sdlgpu"
 
 // The command line's handlers: render, frame, strip, onion, snapshot,

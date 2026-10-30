@@ -18,9 +18,9 @@ fixture :: proc(name: string) -> string {
 	return ""
 }
 
-// SDL starting Vulkan for a GPU device and odecs starting its own (a clip's
+// SDL starting Vulkan for a GPU device and oicut starting its own (a clip's
 // first probe) on two threads at once crash NVIDIA's Vulkan loader: the
-// tests that start either take turns. odecs keeps one Vulkan instance per
+// tests that start either take turns. oicut keeps one Vulkan instance per
 // process after that.
 vulkan_start: sync.Mutex
 

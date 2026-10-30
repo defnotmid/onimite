@@ -2,7 +2,7 @@
 
 A 30 second piece on a drafting sheet (1080x1350, 60 fps): the seven letters
 of ONIMITE and the seven marks of its libraries (onimite's Pip, ovg, oksl,
-odecs, ottis, o3d's Oxa, odawg). Every shape is one outline (`outline{}`):
+oicut, ottis, o3d's Oxa, odawg). Every shape is one outline (`outline{}`):
 drawn as ink, morphed, extruded into a solid and collided as a physics body.
 
 ```sh

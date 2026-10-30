@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # What CI runs (.github/workflows/ci.yml), from an onimite checkout with ovg,
-# oglyph, ocurves, oksl, odecs, ottis, o3d and odawg beside it; runnable locally too:
+# oglyph, ocurves, oksl, oicut, ottis, o3d and odawg beside it; runnable locally too:
 #
-#   bash .github/ci.sh build   # build/onimite, -o:speed, version v0.0.0-ci (it can update), with odecs' native H.264 / H.265
-#   bash .github/ci.sh test    # odin test, every package that has tests, with odecs' native H.264 / H.265
+#   bash .github/ci.sh build   # build/onimite, -o:speed, version v0.0.0-ci (it can update), with oicut's native H.264 / H.265
+#   bash .github/ci.sh test    # odin test, every package that has tests, with oicut's native H.264 / H.265
 #   bash .github/ci.sh release # the configuration releases ship: no native H.264 / H.265 in it, render --native refused
 #   bash .github/ci.sh no-patents FILE  # FILE (an unstripped binary) has no native H.264 / H.265 code
 #   bash .github/ci.sh smoke   # the built binary draws a frame, renders a clip (software), serves MCP, updates itself
@@ -22,15 +22,15 @@ exe=
 [ "${OS:-}" = Windows_NT ] && exe=.exe
 mkdir -p build
 
-# The binary and tests CI runs carry odecs' native H.264 / H.265: hosted
+# The binary and tests CI runs carry oicut's native H.264 / H.265: hosted
 # runners have no Vulkan Video or media engine, and the smoke test compares
 # files byte for byte, which only the native encoder makes the same on every
 # machine (a system libavcodec's encoder varies). They are never shipped;
 # releases build without the define (`release`).
-PATENTED=-define:ODECS_PATENTED=true
+PATENTED=-define:OICUT_PATENTED=true
 
-# The symbols of odecs' native H.264 / H.265 decoding and encoding (the
-# pattern odecs' CI checks) in binary $1 (unstripped): a default build links
+# The symbols of oicut's native H.264 / H.265 decoding and encoding (the
+# pattern oicut's CI checks) in binary $1 (unstripped): a default build links
 # only the parsing VideoToolbox and Vulkan Video need.
 no_patents() {
 	local syms
@@ -56,7 +56,7 @@ release)
 		echo "a release build rendered with --native" >&2
 		exit 1
 	fi
-	grep -F 'not built in (-define:ODECS_PATENTED=true)' "$out/native.err"
+	grep -F 'not built in (-define:OICUT_PATENTED=true)' "$out/native.err"
 	test ! -e "$out/native.mp4"
 	;;
 no-patents)

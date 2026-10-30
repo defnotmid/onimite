@@ -6,13 +6,13 @@ import "core:strings"
 import "core:sync"
 import "core:thread"
 import "core:time"
-import native "deps:odecs/media/native"
-import video "deps:odecs/video"
+import native "deps:oicut/media/native"
+import video "deps:oicut/video"
 import om "../onimite"
 
 // Video clip decoding for onimite' `Video_Source`: per clip, a stream per
 // playhead (the n-th use of the clip in a frame is stream n), each a
-// background thread that owns an odecs `video.Reader` and fills a small
+// background thread that owns an oicut `video.Reader` and fills a small
 // ring of frames ahead of the requested time, as the decoder's planes (GPU
 // renders convert them on the GPU; software ones with `to_rgba`). Requests
 // take frames from the ring without decoding on the caller's thread; a
@@ -41,7 +41,7 @@ Video_Decoders :: struct {
 	// others on their first use. Stable pointers: workers are shared with
 	// their threads.
 	workers: [dynamic][CLIP_STREAMS]^Clip_Worker,
-	// Decode with odecs' native codecs where this build has them
+	// Decode with oicut's native codecs where this build has them
 	// (`native_decodes`) rather than the system's. Backward seeks cost ~5 ms
 	// native against 27-40 ms on Vulkan, so interactive previews set it;
 	// exports keep hardware decoding. Read when a clip's thread starts.
@@ -229,7 +229,7 @@ clip_format :: proc(r: ^video.Reader, path: string, cfg: video.Reader_Config) ->
 	return f
 }
 
-// The CPU conversion (software renders): odecs' own, from the planes.
+// The CPU conversion (software renders): oicut's own, from the planes.
 @(private = "file")
 vs_to_rgba :: proc(data: rawptr, frame: om.Video_Frame, out: []u8) {
 	f := frame.format
@@ -253,7 +253,7 @@ vs_to_rgba :: proc(data: rawptr, frame: om.Video_Frame, out: []u8) {
 	video.planar_to_rgba(p, out, premultiplied = true)
 }
 
-// odecs' error as the core's failure: its name and detail (static strings).
+// oicut's error as the core's failure: its name and detail (static strings).
 @(private = "file")
 decode_failure :: proc(e: video.Error, detail: string) -> om.Video_Failure {
 	return {code = .Video_Decode, cause = reflect.enum_string(e), detail = detail}
@@ -452,15 +452,15 @@ vs_release :: proc(data: rawptr, clip: int, stream: int) {
 	sync.mutex_unlock(&w.mutex)
 }
 
-// Whether odecs decodes `codec` natively in this build: ProRes and VP9
-// always, H.264 and H.265 only with -define:ODECS_PATENTED=true, AV1 never.
+// Whether oicut decodes `codec` natively in this build: ProRes and VP9
+// always, H.264 and H.265 only with -define:OICUT_PATENTED=true, AV1 never.
 @(private = "file")
 native_decodes :: proc "contextless" (codec: video.Video_Codec) -> bool {
 	switch codec {
 	case .H264:
-		return native.ODECS_NATIVE_H264
+		return native.OICUT_NATIVE_H264
 	case .H265:
-		return native.ODECS_NATIVE_H265
+		return native.OICUT_NATIVE_H265
 	case .ProRes, .VP9:
 		return true
 	case .AV1:

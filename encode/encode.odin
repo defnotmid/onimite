@@ -1,10 +1,10 @@
-// Encodes rendered frames to MP4 with odecs' video writer: BT.709
+// Encodes rendered frames to MP4 with oicut's video writer: BT.709
 // limited-range 4:2:0 frames encoded as H.264 or H.265 by the system's
 // encoders (VideoToolbox on macOS, in hardware or Apple's software codecs;
 // Vulkan Video on Linux and Windows; Media Foundation on Windows: H.264,
 // H.265 with the HEVC Video Extensions; else the system's libavcodec,
-// loaded at run time), or by odecs' native encoders in a build with
-// -define:ODECS_PATENTED=true (`native_built_in`, `--native`); the audio mix
+// loaded at run time), or by oicut's native encoders in a build with
+// -define:OICUT_PATENTED=true (`native_built_in`, `--native`); the audio mix
 // becomes an interleaved AAC track.
 //
 // The work runs off the caller's thread so rendering never waits on
@@ -15,7 +15,7 @@
 // Only the encoder thread touches the video writer until `close`. GPU renders
 // convert to NV12 on the GPU (gpu_nv12.odin), the layout Vulkan Video takes;
 // software renders convert to I420 with `rgba_to_i420` on the thread that
-// drew them; both use odecs' conversion coefficients and produce identical
+// drew them; both use oicut's conversion coefficients and produce identical
 // samples. The native encoder, where built in, codes its slices on the
 // application's task pool, shared with the frame builders (`Pool_Work`).
 package onimite_encode
@@ -25,8 +25,8 @@ import "core:strings"
 import "core:sync"
 import "core:thread"
 import "base:runtime"
-import native "deps:odecs/media/native"
-import video "deps:odecs/video"
+import native "deps:oicut/media/native"
+import video "deps:oicut/video"
 import om "../onimite"
 
 Codec :: enum u8 {
@@ -54,7 +54,7 @@ Error :: enum u8 {
 	Probe_Open,
 }
 
-// An encoder's first failure and its operands: odecs' error and its detail
+// An encoder's first failure and its operands: oicut's error and its detail
 // (a static string), the file, the frame or the size.
 Failure :: struct {
 	code:          Error,
@@ -75,7 +75,7 @@ ERROR_TEXT := [Error]string {
 	.Audio           = "audio: {movie} {detail}",
 	.Frame           = "encode frame {frame}: {movie} {detail}",
 	.Finish          = "finish: {movie} {detail}",
-	.Native_Missing  = "the native {codec} encoder (--native, --slices) is not built in (-define:ODECS_PATENTED=true): {codec} encodes through VideoToolbox (macOS), Vulkan Video (Linux, Windows), Media Foundation (Windows) or the system's libavcodec",
+	.Native_Missing  = "the native {codec} encoder (--native, --slices) is not built in (-define:OICUT_PATENTED=true): {codec} encodes through VideoToolbox (macOS), Vulkan Video (Linux, Windows), Media Foundation (Windows) or the system's libavcodec",
 	.Gpu_Unsupported = "the GPU can not convert frames to I420",
 	.Gpu_Submit      = "can not convert the frame on the GPU",
 	.Gpu_Map         = "can not read the converted frame back",
@@ -117,10 +117,10 @@ Options :: struct {
 	qp:             i32,
 	// Frames between keyframes; 0 is about one second.
 	gop:            int,
-	// Skip the system's encoders for odecs' native one (only where it is
+	// Skip the system's encoders for oicut's native one (only where it is
 	// built in: `native_built_in`).
 	software:       bool,
-	// odecs' ultrafast preset: encode speed over size (`render --draft`).
+	// oicut's ultrafast preset: encode speed over size (`render --draft`).
 	ultrafast:      bool,
 	// Add an AAC stereo track at onimite' mix rate (see `write_audio`).
 	audio:          bool,
@@ -141,13 +141,13 @@ Options :: struct {
 // A chapter: where it starts (seconds) and its title.
 Chapter :: video.Chapter
 
-// The native encoder's H.264 slices by default (odecs' own default).
+// The native encoder's H.264 slices by default (oicut's own default).
 NATIVE_SLICES :: 4
 
-// Whether this build has odecs' native encoder for `codec`: only with
-// -define:ODECS_PATENTED=true (or ODECS_NATIVE_H264 / ODECS_NATIVE_H265).
+// Whether this build has oicut's native encoder for `codec`: only with
+// -define:OICUT_PATENTED=true (or OICUT_NATIVE_H264 / OICUT_NATIVE_H265).
 native_built_in :: proc "contextless" (codec: Codec) -> bool {
-	return native.ODECS_NATIVE_H265 if codec == .H265 else native.ODECS_NATIVE_H264
+	return native.OICUT_NATIVE_H265 if codec == .H265 else native.OICUT_NATIVE_H264
 }
 
 // Frames in flight between the renderer and the encoder thread.
@@ -173,7 +173,7 @@ Encoder :: struct {
 	height:      int,
 	fps:         int,
 	audio:       bool,
-	// The encoder implementation odecs selected.
+	// The encoder implementation oicut selected.
 	backend:     string,
 	// The first failure (complete after `close`).
 	failure:     Failure,
@@ -474,7 +474,7 @@ i420_size :: proc(width, height: int) -> int {
 }
 
 // Converts a frame of premultiplied RGBA8 rows to I420 planes packed with
-// `y_stride = width` in `out` (`i420_size` bytes): odecs' converter, the
+// `y_stride = width` in `out` (`i420_size` bytes): oicut's converter, the
 // same planes the GPU pass writes. Even sizes.
 rgba_to_i420 :: proc(pixels: []u8, width, height: int, out: []u8) {
 	k := video.rgb_to_yuv_coefficients(.BT709, false)

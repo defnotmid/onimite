@@ -8,7 +8,7 @@ import "core:strconv"
 import "core:strings"
 import cv "deps:ocurves"
 import vg "deps:ovg"
-import odimg "deps:odecs/image"
+import odimg "deps:oicut/image"
 
 // SVG export (`onimite frame --svg`, fframes' `frame --svg`): the frame's
 // node tree written as an SVG document in one walk into a string builder.

@@ -25,7 +25,7 @@ return {
   stabs = { { "montage..last", chords = { voicing = "close", rhythm = "....x.......x..." }, duration = "8n" } },
   arp3 = { { "montage..last", degrees = "1 3 5 8 5 3 5 8", subdivision = "16n", velocity = 0.55, humanize = 0.002 } },
   lead = {
-    { "odecs", notes = HOOK.HOME, subdivision = "8n" },
+    { "oicut", notes = HOOK.HOME, subdivision = "8n" },
     { "oksl", notes = HOOK.UP, subdivision = "8n" },
     { "check", notes = HOOK.UP, subdivision = "8n" },
     { "last", notes = HOOK.UP .. " " .. HOOK.TURN, subdivision = "8n" },

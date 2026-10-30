@@ -1,11 +1,11 @@
 # suite
 
-onimite, ovg, oksl, odecs, o3d, odawg and ottis used together in one 38
+onimite, ovg, oksl, oicut, o3d, odawg and ottis used together in one 38
 second piece: 1920x1080, 60 fps, 112 BPM, the kaleidoscope accelerating to 140. The seven aren't shown one after
 another; the picture is one composition through all of it:
 
 - **oksl** compiles `media/world.sksl`, the world everything sits in: a sky
-  over a moving grid floor, with `canyon.webp` (decoded by odecs) as a
+  over a moving grid floor, with `canyon.webp` (decoded by oicut) as a
   duotone skyline. Its `uniform shader uWorld` child is a group of nodes
   that it warps, splits into colour fringes, blooms and, in the second
   half, folds into a six-way kaleidoscope.
@@ -20,7 +20,7 @@ another; the picture is one composition through all of it:
   turning round onimite's green core, swelling with the kick and the bass.
   It is part of the shader's child group, so the warp bends it, the
   fringes split it and the kaleidoscope folds it into rings.
-- **odecs** decodes Pip, the dancing mascot, live on the frame clock: the ProRes
+- **oicut** decodes Pip, the dancing mascot, live on the frame clock: the ProRes
   4444 `.mov` and the VP9-alpha `.webm` glow in masked portals over the
   shader world. In the kaleidoscope the VP9 clip is drawn *inside* the
   shader's child group, so the fold multiplies it.
@@ -51,7 +51,7 @@ onimite render examples/suite/video.lua -o suite.mp4
 | 16-32 | 8.6-17.1 | `drop` | full warp, the 3D gyroscope springs up inside the spectrum ring, the rocket flies a figure of eight, the portals open on their pings (beats 20 and 24) |
 | 32-48 | 17.1-24.8 | `kaleido` (112 to 140 BPM) | the portals dive into the centre, the kaleidoscope folds the VP9 dancer, the gyroscope and the spectrum ring; the rocket orbits; the violins' stutter before the break |
 | 48-56 | 24.8-29.1 | `break` (back to 112) | the warp settles and the structure draws itself, a box a ping (o3d's lands with the SDL_GPU row on 52, then odawg's and ottis's); ottis says the line, its words lit as they are said |
-| 56-72 | 29.1-37.7 | `lockup`, `tail` | "onimite · ovg · oksl · odecs · o3d · odawg · ottis" (a name an eighth, ottis's with the line on its cymbal, 60), "one binary, all Odin, Lua scripts", the structure under it; the last hit on 68 |
+| 56-72 | 29.1-37.7 | `lockup`, `tail` | "onimite · ovg · oksl · oicut · o3d · odawg · ottis" (a name an eighth, ottis's with the line on its cymbal, 60), "one binary, all Odin, Lua scripts", the structure under it; the last hit on 68 |
 
 The text on screen comes from the seven READMEs. Files: `track.lua` (the
 song, F# minor: its sections are the piece's parts, its own parts the

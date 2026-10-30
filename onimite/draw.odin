@@ -5,7 +5,7 @@ import "core:mem/virtual"
 import "core:sync"
 import "core:thread"
 import "deps:o3d"
-import common "deps:odecs/common"
+import common "deps:oicut/common"
 import "deps:oksl"
 import vg "deps:ovg"
 import vgsdl "deps:ovg/sdlgpu"
@@ -40,7 +40,7 @@ Renderer :: struct {
 	// Borrowed task pool for fork-join work inside a frame (shader bands,
 	// and the software backend's through `work`); nil works serially.
 	pool:      ^thread.Pool,
-	// `pool` as odecs' Work_Pool, which the software backend takes
+	// `pool` as oicut's Work_Pool, which the software backend takes
 	// (software_pool).
 	work:      Pool_Work,
 	// What the CPU draws this renderer's frames with (renderer_cpu): its
@@ -1191,7 +1191,7 @@ rect_transform :: proc "contextless" (r: vg.Rect, t: vg.Transform2D) -> vg.Rect 
 	return {lo.x, lo.y, hi.x - lo.x, hi.y - lo.y}
 }
 
-// The software backend's bands on the renderer's pool, through odecs'
+// The software backend's bands on the renderer's pool, through oicut's
 // Work_Pool (made the first time, again if the owner changed the pool);
 // nil when it has none.
 @(private)

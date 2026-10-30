@@ -29,7 +29,7 @@ any part of it by reading only that part.
 | `music/act1.lua` ... | what each part plays in that act's sections (play entries: steps, degrees, chords, notes, events) |
 | `music/parts.lua` | the sources (VS Chamber Orchestra 2, pinned in `media/pins/vsco.pins`), the film's own layered rows (the string sections, the hook's lead with violins, the bells with a glockenspiel), the instruments (a part each, with its `role`: the 909, the 808, rows of the skill's library, effects, sends, side-chain), the hook, the builders the acts use |
 | `scenes/<name>.lua` | one scene: its own constants and drawing, then the `scene{}` call that places it on its section |
-| `scenes/family.lua` | the cards OVG, ODECS and OKSL share |
+| `scenes/family.lua` | the cards OVG, OICUT and OKSL share |
 | `look.lua` | palette, type, springs and the parts several scenes share |
 | `fx.lua` | the shaders (backdrops, glitch, dissolve, tunnel, matrix rain) |
 | `sfx.lua` | the sound effects: `sound{}` clips built once; each scene places a track per sound (a key, a pop) on the `sfx` bus |

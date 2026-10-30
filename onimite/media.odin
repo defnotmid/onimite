@@ -14,7 +14,7 @@ import vg "deps:ovg"
 import vglottie "deps:ovg/lottie"
 import vgsvg "deps:ovg/svg"
 import ft "deps:oglyph/font"
-import odimg "deps:odecs/image"
+import odimg "deps:oicut/image"
 
 // Fonts and images a video can reference by name. Fonts are found by
 // family and weight (`Text.font`, `Text.weight`), images by file name

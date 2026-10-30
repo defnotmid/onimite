@@ -7,7 +7,7 @@ import "core:os"
 import "core:slice"
 import "core:testing"
 import vg "deps:ovg"
-import odimg "deps:odecs/image"
+import odimg "deps:oicut/image"
 
 @(test)
 test_parse_subtitles :: proc(t: ^testing.T) {

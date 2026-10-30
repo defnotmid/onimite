@@ -1,7 +1,7 @@
 // Rendered RGBA8 frame to the encoder's NV12 planes (Y, then interleaved
 // U and V: the layout Vulkan Video encodes), on the GPU, so the readback is
 // 1.5 bytes a pixel instead of 4 and the CPU converts nothing.
-// Same Q16 fixed point as odecs' movie writer (rgb_to_yuv_coefficients) and
+// Same Q16 fixed point as oicut's movie writer (rgb_to_yuv_coefficients) and
 // encode/encode.odin's CPU path, so every backend writes identical planes.
 //
 // One invocation owns an 8x2 pixel block: two Y words per row and two UV

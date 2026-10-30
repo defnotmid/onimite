@@ -10,7 +10,7 @@ import enc "../encode"
 import script "../script"
 import "../speech"
 import vg "deps:ovg"
-import odimg "deps:odecs/image"
+import odimg "deps:oicut/image"
 import vgsdl "deps:ovg/sdlgpu"
 
 App_State :: struct {

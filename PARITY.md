@@ -70,10 +70,10 @@ Every fframes feature and where onimite stands. ✅ done · 🔨 in progress ·
 | fframes | onimite | |
 | --- | --- | --- |
 | `include_media_dir!`, runtime media folders | `media/` beside the script, `--media DIR` | ✅ |
-| Images | png, jpeg, bmp, gif, tga, qoi, webp (odecs: one decoder for every format; webp lossy, lossless, alpha) | ✅ |
+| Images | png, jpeg, bmp, gif, tga, qoi, webp (oicut: one decoder for every format; webp lossy, lossless, alpha) | ✅ |
 | Fonts by family | by family + nearest weight + style (ttf, otf, ttc) | ✅ |
-| Audio files: mp3, wav, flac, aac, ogg, m4a | wav, ogg (Vorbis, Opus), mp3, flac, m4a/aac (odecs) | ✅ |
-| Synced video frames (`get_synced_video_frame`, looping, start_from) | `video_frame(f, { src, x, y, w, h, start_from, looping, clip_start, fit })`, `video_info(name)`; odecs `video` on a decode thread per clip; .mp4 / .mov / .m4v / .webm, alpha (ProRes 4444, VP9 alpha WebM) composited premultiplied | ✅ |
+| Audio files: mp3, wav, flac, aac, ogg, m4a | wav, ogg (Vorbis, Opus), mp3, flac, m4a/aac (oicut) | ✅ |
+| Synced video frames (`get_synced_video_frame`, looping, start_from) | `video_frame(f, { src, x, y, w, h, start_from, looping, clip_start, fit })`, `video_info(name)`; oicut `video` on a decode thread per clip; .mp4 / .mov / .m4v / .webm, alpha (ProRes 4444, VP9 alpha WebM) composited premultiplied | ✅ |
 | Subtitles (WebVTT, `get_subtitle_phrase` / cues) | `subtitle_at(f, name)` (text, start, stop, progress, id, settings), `subtitles(name)`; SRT too | ✅ |
 | Word-level captions (beyond fframes; Remotion's `@remotion/captions`) | word timings from Whisper / whisper.cpp JSON, `[{text, start, end}]` / Remotion `[{text, startMs, endMs}]` lists, WebVTT inline timestamps, plain VTT / SRT cues (words spread evenly); `captions_load(name [, source])`, `caption_pages(name, { max_words, max_duration, combine_ms })` (createTikTokStyleCaptions), `caption_words(f, name, opts)` (`text, start, stop, active, progress`), and the `captions{}` node: shaped layout and wrapping, active word by colour, sliding box or underline, spring pop (onimite/captions.odin, script/std.lua) | ✅ |
 | Lottie animations (beyond fframes; Remotion / HyperFrames have them) | `lottie{ src = "anim.json" \| data = [[...]], x, y, w, h, fit, align, opacity, frame \| time \| speed, offset, loop }` (also `lottie(f, {...})`), `lottie_info(name)`: `.json` media that are Lottie files parse once (ovg `lottie.odin`) and draw as vectors at the frame the clock maps to: precomps, time remap / stretch, parenting, shapes, gradients, dashes, trim paths, repeater, merge paths, masks, track mattes, blend modes, spatial and eased keyframes, effects (gaussian blur, drop shadow, fill, tint, tritone), text layers with the media's fonts (box text, text animators: range selectors, per-letter transforms / opacity / colours / tracking; `overrides = { ["Title"] = { text = "Hello" } }`) | ✅ gaps: other effects and layer styles, other shape modifiers, text on a path, expressions (keyframed values are used), 3D, mask feather; each a warning naming the file |
@@ -127,8 +127,8 @@ Every fframes feature and where onimite stands. ✅ done · 🔨 in progress ·
 
 | fframes | onimite | |
 | --- | --- | --- |
-| H.264 / H.265 MP4, hardware when available | ✅ odecs (Vulkan Video or native) | ✅ |
-| WebM (VP9/AV1), alpha video output | | ➖ odecs has no VP9/AV1/ProRes encoder (WebM and alpha clips decode as inputs) |
+| H.264 / H.265 MP4, hardware when available | ✅ oicut (Vulkan Video or native) | ✅ |
+| WebM (VP9/AV1), alpha video output | | ➖ oicut has no VP9/AV1/ProRes encoder (WebM and alpha clips decode as inputs) |
 
 ## Examples
 

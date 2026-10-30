@@ -37,7 +37,7 @@ local function code_line(s, x, y, n)
     if not q then spans[#spans + 1] = { s:sub(i), fill = ui.TEXT } break end
     if q > i then spans[#spans + 1] = { s:sub(i, q - 1), fill = ui.TEXT } end
     local e = s:find('"', q + 1, true) or #s
-    spans[#spans + 1] = { s:sub(q, e), fill = ui.ODECS }
+    spans[#spans + 1] = { s:sub(q, e), fill = ui.OICUT }
     i = e + 1
   end
   text { "", x = x, y = y, font = ui.MONO, size = CODE_SIZE, spans = spans }
@@ -86,7 +86,7 @@ end
 local RING_N = 48
 local RING_ANG = {}
 for i = 1, RING_N do RING_ANG[i] = (i - 0.5) / RING_N * 2 * pi end
-local ACCENTS = { ui.ONIMITE, ui.OVG, ui.OKSL, ui.ODECS }
+local ACCENTS = { ui.ONIMITE, ui.OVG, ui.OKSL, ui.OICUT }
 
 local function ring(b, bands)
   local a = progress(b, T.DROP - 0.5, T.DROP)
@@ -110,7 +110,7 @@ end
 local GYRO = {
   { color = ui.OVG, size = 1.25, spin = { 0.9, 0.3, 0 } },
   { color = ui.OKSL, size = 1.03, spin = { -0.4, 0.8, 0.2 } },
-  { color = ui.ODECS, size = 0.81, spin = { 0.3, -0.5, 0.9 } },
+  { color = ui.OICUT, size = 0.81, spin = { 0.3, -0.5, 0.9 } },
   { color = ui.O3D, size = 0.59, spin = { -0.8, 0.2, -0.5 } },
 }
 local GYRO_R = 240 -- the view's half size, in the ring's middle
@@ -170,7 +170,7 @@ local function dancer(f, b)
     video_frame(f, { src = "avatar_vp9_alpha.webm", x = 1079, y = 512, w = 400, h = 225, looping = true })
   end)
   -- dashes on the fold lines
-  circle { cx = 960, cy = 540, r = 470, fill = "none", stroke = ui.ODECS, stroke_width = 4,
+  circle { cx = 960, cy = 540, r = 470, fill = "none", stroke = ui.OICUT, stroke_width = 4,
     stroke_dasharray = { 18, 30 }, stroke_dashoffset = -b * 24, opacity = a * 0.8 }
 end
 
@@ -183,7 +183,7 @@ local BOXES = {
   { name = "ovg", line = "2D vector canvas", x = box_x(1), color = ui.OVG, at = T.BOXES[1] },
   { name = "oksl", line = "SkSL → SPIR-V · MSL · CPU", x = box_x(2), color = ui.OKSL, at = T.BOXES[2] },
   { name = "o3d", line = "3D in three.js terms", x = box_x(3), color = ui.O3D, at = T.O3D_BOX },
-  { name = "odecs", line = "codecs, no FFmpeg", x = box_x(4), color = ui.ODECS, at = T.BOXES[3] },
+  { name = "oicut", line = "codecs, no FFmpeg", x = box_x(4), color = ui.OICUT, at = T.BOXES[3] },
   { name = "odawg", line = "songs described as data", x = box_x(5), color = ui.ODAWG, at = T.BOXES[5] },
   { name = "ottis", line = "speech with word timings", x = box_x(6), color = ui.OTTIS, at = T.BOXES[6] },
 }
@@ -217,7 +217,7 @@ function M.structure(b, x0, y0, s)
         end)
       end
     end
-    -- SDL_GPU under ovg, oksl and o3d; odecs on Vulkan Video or its own codecs
+    -- SDL_GPU under ovg, oksl and o3d; oicut on Vulkan Video or its own codecs
     local sdl = snap(b - T.BOXES[4])
     if sdl > 0.001 then
       group({ opacity = clamp01(sdl), transform = translate(0, (1 - sdl) * 40) }, function()

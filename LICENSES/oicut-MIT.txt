@@ -20,6 +20,6 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-Parts of odecs are ported from permissively licensed projects; their notices
+Parts of oicut are ported from permissively licensed projects; their notices
 are kept next to the code (<package>/LICENSE-*.txt) and listed in
 PROVENANCE.md.

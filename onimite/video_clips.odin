@@ -9,7 +9,7 @@ import vg "deps:ovg"
 // Video clips in the media, drawn in sync with the frame clock (fframes'
 // `get_synced_video_frame`). The core holds the clip table; decoding lives
 // behind a `Video_Source` the host provides (onimite' `encode` package
-// decodes with odecs on one background thread per clip).
+// decodes with oicut on one background thread per clip).
 
 Video_Info :: struct {
 	width, height: int,

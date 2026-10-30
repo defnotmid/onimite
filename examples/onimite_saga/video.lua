@@ -62,7 +62,7 @@ require("scenes.rise")
 -- act III: all it does, then what it is built on
 require("scenes.montage")
 require("scenes.ovg")
-require("scenes.odecs")
+require("scenes.oicut")
 require("scenes.oksl")
 require("scenes.not_needed")
 require("scenes.check")
