@@ -281,7 +281,7 @@ onimite render video.lua -o frames/                 # PNGs (any -o not ending in
 
 H.264 and H.265 encode and decode through the system: VideoToolbox on macOS (in hardware, or
 Apple's software codecs), Vulkan Video on Linux and Windows, Media Foundation on Windows (H.264;
-H.265 decoding with Microsoft's HEVC extension), else the system's FFmpeg
+H.265 with Microsoft's HEVC Video Extensions installed), else the system's FFmpeg
 (libavcodec, loaded when needed; its encoder is whichever that FFmpeg has, libx264 or
 libopenh264). A release carries no H.264 / H.265 codec of its own: on a machine with none of
 these `render` writes PNGs but no MP4, and says so.
