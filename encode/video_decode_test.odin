@@ -18,6 +18,12 @@ fixture :: proc(name: string) -> string {
 	return ""
 }
 
+// SDL starting Vulkan for a GPU device and odecs starting its own (a clip's
+// first probe) on two threads at once crash NVIDIA's Vulkan loader: the
+// tests that start either take turns. odecs keeps one Vulkan instance per
+// process after that.
+vulkan_start: sync.Mutex
+
 @(private = "file")
 string_concat :: proc(a, b: string) -> string {
 	buf := make([]u8, len(a) + len(b), context.temp_allocator)
@@ -39,7 +45,9 @@ test_video_seek_matches_sequential :: proc(t: ^testing.T) {
 		video_decoders_init(&d, native = true)
 		defer video_decoders_destroy(&d)
 		src := video_source(&d)
+		sync.lock(&vulkan_start)
 		clip, info, why, err := src.open(src.data, path)
+		sync.unlock(&vulkan_start)
 		testing.expectf(t, err == nil && clip >= 0, "%s: %v", name, why)
 		testing.expect_value(t, info.width, 320)
 		testing.expect_value(t, info.frames, 90)
@@ -89,7 +97,9 @@ test_video_backwards_and_streams :: proc(t: ^testing.T) {
 	video_decoders_init(&d, native = true)
 	defer video_decoders_destroy(&d)
 	src := video_source(&d)
+	sync.lock(&vulkan_start)
 	clip, info, _, _ := src.open(src.data, path)
+	sync.unlock(&vulkan_start)
 	at :: proc(i: int, fps: f64) -> f64 {return (f64(i) + 0.5) / fps}
 	sums := make([]u64, info.frames)
 	defer delete(sums)
@@ -144,7 +154,9 @@ test_video_nearest_does_not_block :: proc(t: ^testing.T) {
 	video_decoders_init(&d, native = true)
 	defer video_decoders_destroy(&d)
 	src := video_source(&d)
+	sync.lock(&vulkan_start)
 	clip, info, _, _ := src.open(src.data, path)
+	sync.unlock(&vulkan_start)
 	target := 2.0
 	f := src.request(src.data, clip, 0, target, .Nearest)
 	src.release(src.data, clip, 0)
@@ -175,7 +187,9 @@ test_video_nearest_seek_lands_while_playing :: proc(t: ^testing.T) {
 	video_decoders_init(&d, native = true)
 	defer video_decoders_destroy(&d)
 	src := video_source(&d)
+	sync.lock(&vulkan_start)
 	clip, info, _, _ := src.open(src.data, path)
+	sync.unlock(&vulkan_start)
 	start := 0.45 // keyframes every 0.5 s: the seek decodes 13 frames
 	// Twenty preview frames asked before the seek can finish restart it
 	// at most once (the first request starts it).
@@ -220,7 +234,9 @@ test_errors :: proc(t: ^testing.T) {
 	defer video_decoders_destroy(&d)
 	src := video_source(&d)
 	// This source file.
+	sync.lock(&vulkan_start)
 	clip, _, why, err := src.open(src.data, #location().file_path)
+	sync.unlock(&vulkan_start)
 	testing.expect_value(t, clip, -1)
 	testing.expect_value(t, err, om.Error.Video_Decode)
 	testing.expect_value(t, why.code, om.Error.Video_Decode)

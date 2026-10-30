@@ -2,6 +2,7 @@ package onimite_encode
 
 import "core:log"
 import "core:mem"
+import "core:sync"
 import "core:testing"
 import sdl "vendor:sdl3"
 
@@ -22,7 +23,9 @@ test_gpu_nv12_matches_cpu :: proc(t: ^testing.T) {
 		}
 	}
 	defer sdl.Quit()
+	sync.lock(&vulkan_start) // see video_decode_test.odin
 	device := sdl.CreateGPUDevice({.SPIRV, .MSL}, false, nil)
+	sync.unlock(&vulkan_start)
 	if device == nil {
 		log.infof("no SDL_GPU device (%s): skipped", sdl.GetError())
 		return

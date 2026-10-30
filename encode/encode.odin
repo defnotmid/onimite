@@ -1,10 +1,10 @@
 // Encodes rendered frames to MP4 with odecs' video writer: BT.709
 // limited-range 4:2:0 frames encoded as H.264 or H.265 by the system's
 // encoders (VideoToolbox on macOS, in hardware or Apple's software codecs;
-// Vulkan Video on Linux and Windows; else the system's libavcodec, loaded
-// at run time), or by odecs' native encoders in a
-// build with -define:ODECS_PATENTED=true (`native_built_in`, `--native`);
-// the audio mix becomes an interleaved AAC track.
+// Vulkan Video on Linux and Windows; Media Foundation on Windows, H.264;
+// else the system's libavcodec, loaded at run time), or by odecs' native
+// encoders in a build with -define:ODECS_PATENTED=true (`native_built_in`,
+// `--native`); the audio mix becomes an interleaved AAC track.
 //
 // The work runs off the caller's thread so rendering never waits on
 // encoding: `write_nv12` queues the caller's frame as it is (GPU_NV12's
@@ -74,7 +74,7 @@ ERROR_TEXT := [Error]string {
 	.Audio           = "audio: {movie} {detail}",
 	.Frame           = "encode frame {frame}: {movie} {detail}",
 	.Finish          = "finish: {movie} {detail}",
-	.Native_Missing  = "the native {codec} encoder (--native, --slices) is not built in (-define:ODECS_PATENTED=true): {codec} encodes through VideoToolbox (macOS), Vulkan Video (Linux, Windows) or the system's libavcodec",
+	.Native_Missing  = "the native {codec} encoder (--native, --slices) is not built in (-define:ODECS_PATENTED=true): {codec} encodes through VideoToolbox (macOS), Vulkan Video (Linux, Windows), Media Foundation (Windows, H.264) or the system's libavcodec",
 	.Gpu_Unsupported = "the GPU can not convert frames to I420",
 	.Gpu_Submit      = "can not convert the frame on the GPU",
 	.Gpu_Map         = "can not read the converted frame back",

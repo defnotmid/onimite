@@ -85,8 +85,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/odecs
-          # Pinned like ottis: onimite decodes and encodes through odecs v0.0.18: H.264 / H.265 by the system (VideoToolbox, Vulkan Video, else the system's libavcodec loaded at run time), natively only with -define:ODECS_PATENTED=true; ovg, o3d, odawg and ottis at their pins use nothing it changed since v0.0.16.
-          ref: v0.0.18
+          # Pinned like ottis: onimite decodes and encodes through odecs v0.0.20: H.264 / H.265 by the system (VideoToolbox, Vulkan Video, Media Foundation on Windows, else the system's libavcodec, loaded at run time), natively only with -define:ODECS_PATENTED=true; ovg, o3d, odawg and ottis at their pins use nothing it changed since v0.0.16.
+          ref: v0.0.20
           path: odecs
       - uses: actions/checkout@v4
         with:

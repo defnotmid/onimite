@@ -125,8 +125,8 @@ onimite is built from sibling Odin projects and Odin's vendor packages:
   cues work as times.
 - **Output**: H.264 / H.265 MP4 through the system's codecs (VideoToolbox
   on macOS, in hardware or Apple's software codecs; Vulkan Video on Linux and
-  Windows; else the system's FFmpeg, libavcodec, loaded at run time and never
-  bundled), or PNG frames. Releases carry no H.264 / H.265 codec of their own:
+  Windows; Media Foundation on Windows, H.264 only; else the system's FFmpeg,
+  libavcodec, loaded at run time and never bundled), or PNG frames. Releases carry no H.264 / H.265 codec of their own:
   odecs' native one is only in a build with `-define:ODECS_PATENTED=true`.
   With none of those on the machine a release writes PNG frames but no MP4. Frames build on all cores and draw on the GPU (or on the
   CPU with `--software`); the output does not depend on the thread count.

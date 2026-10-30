@@ -82,7 +82,7 @@ Render_Args :: struct {
 	draft:                bool   `flag:"Draft" about:"half size, fastest encoding"`,
 	h265:                 bool   `reg:"option" about:"H.265 instead of H.264"`,
 	qp:                   int    `reg:"count" arg:"N" about:"quantizer, 0 best .. 51"`,
-	native:               bool   `flag:"Native" about:"odecs' native encoder instead of the system's (VideoToolbox, Vulkan Video, libavcodec); only in a build with -define:ODECS_PATENTED=true, refused otherwise"`,
+	native:               bool   `flag:"Native" about:"odecs' native encoder instead of the system's (VideoToolbox, Vulkan Video, Media Foundation, libavcodec); only in a build with -define:ODECS_PATENTED=true, refused otherwise"`,
 	slices:               int    `arg:"N" about:"H.264 slices odecs' native encoder codes in parallel; the file depends on it (more: faster, slightly larger), never on the machine; the system's encoders ignore it; only in a build with the native encoder, refused otherwise" default:"4" check:"Positive" invalid:"needs a count of at least 1"`,
 	batch:                string `reg:"props" arg:"ROWS" about:"a .json array or .csv of rows: one video per row, the row as props; a failing row is reported, the others still render"`,
 	rows:                 string `arg:"A..B" about:"the batch rows to render, 1-based and inclusive: 2, 1..3, 2.., ..2" invalid:"takes rows like 2, 1..3, 2.. or ..2"`,
