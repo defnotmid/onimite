@@ -63,17 +63,17 @@ jobs:
         with:
           repository: defnotmid/ovg
           path: ovg
-          ref: v0.0.57
+          ref: v0.0.58
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/ocurves
-          # Pinned like ovg and o3d, which keep their paths and shapes in its contour tables (v0.0.9: build_append grows a frame's shape words geometrically; ovg v0.0.57 needs it).
+          # Pinned like ovg and o3d, which keep their paths and shapes in its contour tables (v0.0.9: build_append grows a frame's shape words geometrically; ovg v0.0.58 needs it).
           ref: v0.0.9
           path: ocurves
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/oglyph
-          # Pinned like ovg: fonts, font collections, text shaping, bidi and line breaks, which ovg draws through (v0.0.12; ovg v0.0.57 needs it).
+          # Pinned like ovg: fonts, font collections, text shaping, bidi and line breaks, which ovg draws through (v0.0.12; ovg v0.0.58 needs it).
           ref: v0.0.12
           path: oglyph
       - uses: actions/checkout@v4
