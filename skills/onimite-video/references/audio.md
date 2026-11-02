@@ -705,7 +705,9 @@ view3d { ..., bloom = { intensity = 0.3 + e.rms }, ... }
 The magnitude spectrum of the clip's stereo mix. With a frame `f` it is what the track playing
 `src` plays at that frame, wherever the track sits on the video (silence while it does not
 play); with a number it is that time in the clip (for a clip no track plays). Averaged over
-`smooth` frames each side; deterministic per frame.
+`smooth` frames each side; deterministic per frame. A clip and a song are measured the same
+way (odawg's analysis, each frame once): a frame whose `sample_size` samples run past the
+sound's end reads silence.
 `sample_size` is a power of two up to 2048. Without options the values are raw magnitudes
 (`sample_size / 2` bins, dominated by the lows); `bands = n` averages them into n groups,
 `log = true` makes the groups an equal pitch step wide (bin 1 to 12 kHz), `levels = { lo, hi }`

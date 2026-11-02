@@ -86,9 +86,6 @@ Ducking :: struct {
 Audio_Clip :: struct {
 	samples:         []f32,
 	frames:          int,
-	// The frame `samples` starts at: a window of a longer sound (a song read
-	// from its stream, for the analysis); 0 for a whole clip.
-	first:           int,
 	source_rate:     int,
 	source_channels: int,
 }

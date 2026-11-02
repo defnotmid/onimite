@@ -176,7 +176,8 @@ test_mix_stream_plays_song_render :: proc(t: ^testing.T) {
 
 // A song's analysis tables, shared by every reader, are its render
 // measured: a frame's energy and spectrum are those of the rendered
-// samples at the frame, whoever built the table and however.
+// samples at the frame (the same samples as a clip, measured by the same
+// rows), whoever built the table and however.
 @(test)
 test_song_tables_are_render :: proc(t: ^testing.T) {
 	m: Media
@@ -191,10 +192,11 @@ test_song_tables_are_render :: proc(t: ^testing.T) {
 	testing.expect(t, sc.ok)
 	frames := int(math.ceil((f64(sc.song.duration) + sc.tail) * MIX_RATE))
 	whole := orender.output_from_song(&sc.song, {to = obase.Seconds(f64(frames) / MIX_RATE)}, context.temp_allocator)
-	clip := Audio_Clip{samples = make([]f32, 2 * whole.frames, context.temp_allocator), frames = whole.frames, source_rate = MIX_RATE, source_channels = 2}
+	clip := Audio_Clip{samples = make([]f32, 2 * whole.frames), frames = whole.frames, source_rate = MIX_RATE, source_channels = 2}
 	for i in 0 ..< whole.frames {
 		clip.samples[2 * i], clip.samples[2 * i + 1] = whole.left[i], whole.right[i]
 	}
+	m.audio[strings.clone("whole")] = clip
 	spectrum := song_table(sc, .Spectrum, MIX_RATE, 30, 1024, .Hann)
 	energy := song_table(sc, .Energy, MIX_RATE, 30)
 	testing.expect(t, song_table(sc, .Energy, MIX_RATE, 30) == energy) // one per kind and step
@@ -206,16 +208,15 @@ test_song_tables_are_render :: proc(t: ^testing.T) {
 		time.sleep(time.Millisecond)
 	}
 	testing.expect(t, music_landed(&m) > 0)
-	p := Spectrum_Params{sample_size = 1024, smooth = 1, window = .Hann}
 	worst: f32
 	a, b: [512]f32
 	for f in 0 ..< 70 { // past the end: silence from both
-		audio_spectrum(&clip, f, 30, p, a[:])
-		audio_spectrum(nil, f, 30, p, b[:], spectrum)
+		audio_spectrum(media_clip_table(&m, "whole", .Spectrum, 30, {f - 1, f + 1}, 1024, .Hann), f, 1, a[:])
+		audio_spectrum(spectrum, f, 1, b[:])
 		for k in 0 ..< 512 {
 			worst = max(worst, abs(a[k] - b[k]))
 		}
-		x, y := audio_energy(&clip, f, 30, 2), audio_energy(nil, f, 30, 2, energy)
+		x, y := audio_energy(media_clip_table(&m, "whole", .Energy, 30, {f - 2, f + 2}), f, 2), audio_energy(energy, f, 2)
 		worst = max(worst, abs(x.rms - y.rms), abs(x.peak - y.peak), abs(x.low - y.low), abs(x.mid - y.mid), abs(x.high - y.high))
 	}
 	// the song's render is 16-bit: its quantization moves the quietest

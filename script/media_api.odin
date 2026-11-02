@@ -724,16 +724,13 @@ l_audio_spectrum :: proc "c" (L: ^lua.State) -> c.int {
 	if !later {
 		build_pending(L, s, src)
 	}
-	silence: om.Audio_Clip
-	clip, ok := &ctx.media.audio[src]
+	_, ok := ctx.media.audio[src]
 	song := om.media_song(ctx.media, src) if !ok else nil
-	if song != nil {
-		clip, ok = &silence, true // its frames are its table's rows (song_table_at)
-	}
+	ok ||= song != nil
 	if !ok && later {
 		// Not built yet: the spectrum of silence until it lands.
 		ctx.audio_pending += 1
-		clip, ok = &silence, true
+		ok = true
 	}
 	if !ok {
 		om.report(ctx, .Error, {code = .Missing_Audio, name = src})
@@ -752,11 +749,7 @@ l_audio_spectrum :: proc "c" (L: ^lua.State) -> c.int {
 		window = .Hamming
 	}
 	out := make([]f32, n / 2, context.temp_allocator)
-	params := om.Spectrum_Params {
-		sample_size = n,
-		smooth      = int(get_num(L, 2, "smooth", 0)),
-		window      = window,
-	}
+	smooth := int(get_num(L, 2, "smooth", 0))
 	if lua.istable(L, 1) {
 		// A frame: what the track plays at this frame, where it sits on the
 		// video (silence while it doesn't play). A clip no track plays reads
@@ -765,13 +758,13 @@ l_audio_spectrum :: proc "c" (L: ^lua.State) -> c.int {
 			if t, playing := at.?; playing {
 				fps = ctx.video.fps
 				index = int(math.round(t * f64(fps)))
-				om.audio_spectrum(clip, index, fps, params, out, song_table_at(s, ctx, song, .Spectrum, fps, {index - params.smooth, index + params.smooth}, n, window))
+				om.audio_spectrum(sound_table_at(s, ctx, src, song, .Spectrum, fps, {index - smooth, index + smooth}, n, window), index, smooth, out)
 			}
 		} else {
-			om.audio_spectrum(clip, index, fps, params, out, song_table_at(s, ctx, song, .Spectrum, fps, {index - params.smooth, index + params.smooth}, n, window))
+			om.audio_spectrum(sound_table_at(s, ctx, src, song, .Spectrum, fps, {index - smooth, index + smooth}, n, window), index, smooth, out)
 		}
 	} else {
-		om.audio_spectrum(clip, index, fps, params, out, song_table_at(s, ctx, song, .Spectrum, fps, {index - params.smooth, index + params.smooth}, n, window))
+		om.audio_spectrum(sound_table_at(s, ctx, src, song, .Spectrum, fps, {index - smooth, index + smooth}, n, window), index, smooth, out)
 	}
 	result := out
 	field(L, 2, "log")
@@ -879,12 +872,9 @@ l_audio_energy :: proc "c" (L: ^lua.State) -> c.int {
 			push_energy(L, energy)
 			return 1
 		}
-		silence: om.Audio_Clip
-		clip, ok := &ctx.media.audio[src]
+		_, ok := ctx.media.audio[src]
 		song := om.media_song(ctx.media, src) if !ok else nil
-		if song != nil {
-			clip, ok = &silence, true // its frames are its table's rows (song_table_at)
-		}
+		ok ||= song != nil
 		if !ok {
 			om.report(ctx, .Error, {code = .Missing_Audio, name = src})
 			lua.pushnil(L)
@@ -894,10 +884,10 @@ l_audio_energy :: proc "c" (L: ^lua.State) -> c.int {
 			if t, playing := at.?; playing {
 				v_fps := max(ctx.video.fps, 1)
 				i := int(math.round(t * f64(v_fps)))
-				energy = om.audio_energy(clip, i, v_fps, smooth, song_table_at(s, ctx, song, .Energy, v_fps, {i - smooth, i + smooth}))
+				energy = om.audio_energy(sound_table_at(s, ctx, src, song, .Energy, v_fps, {i - smooth, i + smooth}), i, smooth)
 			}
 		} else {
-			energy = om.audio_energy(clip, index, fps, smooth, song_table_at(s, ctx, song, .Energy, fps, {index - smooth, index + smooth}))
+			energy = om.audio_energy(sound_table_at(s, ctx, src, song, .Energy, fps, {index - smooth, index + smooth}), index, smooth)
 		}
 		push_energy(L, energy)
 		return 1
@@ -916,7 +906,7 @@ l_audio_energy :: proc "c" (L: ^lua.State) -> c.int {
 		}
 		t := f64(p.file_start + sample - p.start) / om.MIX_RATE
 		i := int(math.round(t * f64(v_fps)))
-		te := om.audio_energy(p.clip, i, v_fps, smooth, song_table_at(s, ctx, p.song, .Energy, v_fps, {i - smooth, i + smooth}))
+		te := om.audio_energy(sound_table_at(s, ctx, p.track.src, p.song, .Energy, v_fps, {i - smooth, i + smooth}), i, smooth)
 		gain := math.pow_f32(10, p.track.gain_db / 20)
 		energy.rms = min(energy.rms + te.rms * gain, 1)
 		energy.peak = min(max(energy.peak, te.peak * gain), 1)
@@ -935,7 +925,7 @@ l_audio_energy :: proc "c" (L: ^lua.State) -> c.int {
 // has only those rows filled when that is less sound to make than the
 // whole song.
 @(private = "file")
-song_table_at :: proc(s: ^Script, ctx: ^om.Context, song: ^om.Song_Clip, kind: orender.Table_Kind, fps: int, rows: [2]int, size := 0, shape := oanalyze.Window.None) -> ^om.Song_Table {
+song_table_at :: proc(s: ^Script, ctx: ^om.Context, song: ^om.Song_Clip, kind: orender.Table_Kind, fps: int, rows: [2]int, size := 0, shape := oanalyze.Window.None) -> ^om.Sound_Table {
 	if song == nil {
 		return nil
 	}
@@ -945,12 +935,23 @@ song_table_at :: proc(s: ^Script, ctx: ^om.Context, song: ^om.Song_Clip, kind: o
 		if !om.song_table_later(song, st) {
 			ctx.audio_pending += 1
 		}
-	case s.audio_frames > 0 && om.song_table_rows_cheaper(song, st, s.audio_frames, rows[1] - rows[0] + 1):
+	case s.audio_frames > 0 && om.sound_table_rows_cheaper(song, st, s.audio_frames, rows[1] - rows[0] + 1):
 		om.song_table_fill_rows(song, st, max(rows[0], 0), rows[1])
 	case:
 		om.song_table_build(song, st)
 	}
 	return st
+}
+
+// The analysis table of sound `src` for its rows `rows` (first, last): a
+// song's (song_table_at) or a clip's (made from its samples); nil when it
+// is neither yet (silence).
+@(private = "file")
+sound_table_at :: proc(s: ^Script, ctx: ^om.Context, src: string, song: ^om.Song_Clip, kind: orender.Table_Kind, fps: int, rows: [2]int, size := 0, shape := oanalyze.Window.None) -> ^om.Sound_Table {
+	if song != nil {
+		return song_table_at(s, ctx, song, kind, fps, rows, size, shape)
+	}
+	return om.media_clip_table(ctx.media, src, kind, fps, rows, size, shape)
 }
 
 @(private = "file")

@@ -115,7 +115,7 @@ Song_Clip :: struct {
 	music:    ^Music, // whose bank it plays
 	// Its render and the tables read from it: heap memory, freed with it.
 	render:   Song_Render,
-	tables:   [dynamic]^Song_Table,
+	tables:   [dynamic]^Sound_Table,
 }
 
 @(private)
@@ -274,7 +274,7 @@ media_song_put :: proc(m: ^Media, name: string, v: json.Value, key: u64) -> (sc:
 	made_with := context.allocator
 	sc = new(Song_Clip)
 	sc.music = mu
-	sc.tables = make([dynamic]^Song_Table, runtime.heap_allocator())
+	sc.tables = make([dynamic]^Sound_Table, runtime.heap_allocator())
 	_ = virtual.arena_init_growing(&sc.arena)
 	host := oassets.Bank_Host{root = m.dir, pinning = mu.pinning}
 	full := key
@@ -448,26 +448,17 @@ SONG_BAND_STEP :: 4096
 // Values a band row holds: odawg's third-octave bands (render.BAND_HZ).
 BAND_COUNT :: len(orender.BAND_HZ)
 
-song_bands :: proc(sc: ^Song_Clip) -> ^Song_Table {
+song_bands :: proc(sc: ^Song_Clip) -> ^Sound_Table {
 	return song_table(sc, .Bands, SONG_BAND_STEP, 1)
-}
-
-// A table of a song's mix (a frame's spectrum or energy): odawg's rows,
-// one table per kind and step, shared by every script state and worker,
-// read from the render: a row is filled once the render holds its window.
-Song_Table :: struct {
-	table:    orender.Table,
-	lock:     sync.Mutex, // held while rows are filled
-	filled:   []u8, // per step: 1 once filled (atomic); heap memory
-	complete: bool, // atomic: every row is filled
 }
 
 // Song `sc`'s mix table of `kind`, a row every `step_num / step_den`
 // samples (a video frame: MIX_RATE / fps), made on first ask with the rows
-// the render already holds.
-song_table :: proc(sc: ^Song_Clip, kind: orender.Table_Kind, step_num, step_den: int, size := 0, shape := oanalyze.Window.None) -> ^Song_Table {
+// the render already holds; one table per kind and step, shared by every
+// script state and worker, a row filled once the render holds its window.
+song_table :: proc(sc: ^Song_Clip, kind: orender.Table_Kind, step_num, step_den: int, size := 0, shape := oanalyze.Window.None) -> ^Sound_Table {
 	mu := sc.music
-	st: ^Song_Table
+	st: ^Sound_Table
 	{
 		sync.guard(&mu.lock)
 		for x in sc.tables {
@@ -476,7 +467,7 @@ song_table :: proc(sc: ^Song_Clip, kind: orender.Table_Kind, step_num, step_den:
 				return x
 			}
 		}
-		st = new(Song_Table, runtime.heap_allocator())
+		st = new(Sound_Table, runtime.heap_allocator())
 		orender.table_init(&st.table, &sc.song, kind, -1, step_num, step_den, size, shape, runtime.heap_allocator())
 		t := &st.table
 		st.filled = make([]u8, t.frames * t.step_den / max(t.step_num, 1) + 1, runtime.heap_allocator())
@@ -489,19 +480,6 @@ song_table :: proc(sc: ^Song_Clip, kind: orender.Table_Kind, step_num, step_den:
 		}
 	}
 	return st
-}
-
-// Row `i` of a table once filled (nil: not yet, silent, or outside the
-// song).
-song_table_row :: proc(st: ^Song_Table, i: int) -> []f32 {
-	if i < 0 || i >= len(st.filled) || sync.atomic_load(&st.filled[i]) == 0 {
-		return nil
-	}
-	return orender.table_row(&st.table, i)
-}
-
-song_table_ready :: proc(st: ^Song_Table) -> bool {
-	return sync.atomic_load(&st.complete)
 }
 
 // Asks for the song's render: its memory and segments now, the sound as
@@ -550,8 +528,8 @@ song_render_whole :: proc(sc: ^Song_Clip) -> bool {
 
 // Whether `st` is complete; if not, the song's render is asked for (the
 // driver fills it as it goes and tells the host, Music.wake).
-song_table_later :: proc(sc: ^Song_Clip, st: ^Song_Table) -> bool {
-	if song_table_ready(st) {
+song_table_later :: proc(sc: ^Song_Clip, st: ^Sound_Table) -> bool {
+	if sound_table_ready(st) {
 		return true
 	}
 	song_render_want(sc)
@@ -561,8 +539,8 @@ song_table_later :: proc(sc: ^Song_Clip, st: ^Song_Table) -> bool {
 // Has the song's render made now (the driver on the background pool, or
 // here without one; this thread waiting) and `st` filled: what a command
 // reading the whole song does.
-song_table_build :: proc(sc: ^Song_Clip, st: ^Song_Table) {
-	if song_table_ready(st) {
+song_table_build :: proc(sc: ^Song_Clip, st: ^Sound_Table) {
+	if sound_table_ready(st) {
 		return
 	}
 	song_render_build(sc)
@@ -677,7 +655,7 @@ land_through :: proc(sc: ^Song_Clip, upto: int) {
 			continue
 		}
 		sync.atomic_store(&rd.state[g], u8(Segment_State.Done))
-		tables: []^Song_Table
+		tables: []^Sound_Table
 		{
 			sync.guard(&mu.lock)
 			tables = slice.clone(sc.tables[:], context.temp_allocator)
@@ -705,7 +683,7 @@ land_through :: proc(sc: ^Song_Clip, upto: int) {
 // holds, from the render: each run of such steps (a segment of row starts
 // at most) read from the 16-bit render once and filled by odawg.
 @(private = "file")
-table_fill_held :: proc(sc: ^Song_Clip, st: ^Song_Table, from, to: int) {
+table_fill_held :: proc(sc: ^Song_Clip, st: ^Sound_Table, from, to: int) {
 	rd := &sc.render
 	t := &st.table
 	window := orender.table_window(t)
@@ -755,8 +733,8 @@ render_holds :: proc(sc: ^Song_Clip, start, window: int) -> bool {
 // Whether filling `rows` rows for each of `frames` frames alone makes less
 // sound than the render: each fill renders its rows' windows and the
 // pre-roll before them (an exact seek). A render already made costs none.
-song_table_rows_cheaper :: proc(sc: ^Song_Clip, st: ^Song_Table, frames, rows: int) -> bool {
-	if song_table_ready(st) || song_render_whole(sc) {
+sound_table_rows_cheaper :: proc(sc: ^Song_Clip, st: ^Sound_Table, frames, rows: int) -> bool {
+	if sound_table_ready(st) || song_render_whole(sc) {
 		return false
 	}
 	t := &st.table
@@ -769,8 +747,8 @@ song_table_rows_cheaper :: proc(sc: ^Song_Clip, st: ^Song_Table, frames, rows: i
 // Fills steps `first ..= last` of `st` alone (a command drawing a few
 // frames): renders only the samples they read, from an exact seek, instead
 // of the whole song. Steps already filled are left.
-song_table_fill_rows :: proc(sc: ^Song_Clip, st: ^Song_Table, first, last: int) {
-	if song_table_ready(st) || last < first {
+song_table_fill_rows :: proc(sc: ^Song_Clip, st: ^Sound_Table, first, last: int) {
+	if sound_table_ready(st) || last < first {
 		return
 	}
 	sync.guard(&st.lock)

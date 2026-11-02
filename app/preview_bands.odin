@@ -31,7 +31,7 @@ Band_Texture :: struct {
 Band_View :: struct {
 	source:  i32,
 	song:    ^om.Song_Clip,
-	table:   ^om.Song_Table,
+	table:   ^om.Sound_Table,
 	texture: Band_Texture,
 	levels:  []u8,
 	drawn:   []bool,
@@ -132,7 +132,7 @@ bands_draw :: proc(w: ^Render_Worker, v: ^Band_View) -> bool {
 		if v.drawn[k] {
 			continue
 		}
-		row := om.song_table_row(v.table, k)
+		row := om.sound_table_row(v.table, k)
 		if row == nil {
 			continue
 		}

@@ -30,9 +30,10 @@ Media :: struct {
 	// Bumped when `audio` gains or loses a clip: placed tracks point into
 	// it, and contexts place theirs again (`placed_audio`).
 	audio_gen: u64,
-	// Onsets of the audio clips, analysed on first use (`media_onsets`);
-	// shared by copies of the media.
-	onsets:   ^Onset_Cache,
+	// What is measured of the audio clips, on first use: onsets
+	// (`media_onsets`) and analysis tables (`media_clip_table`); shared by
+	// copies of the media.
+	analysis: ^Clip_Analysis,
 	// The songs scripts compose (`song{}`, `sound{}`) and the video's
 	// sample sets (music.odin); shared by copies of the media.
 	music:    ^Music,
@@ -208,8 +209,8 @@ media_init :: proc(m: ^Media) {
 	m.cache.lru.on_remove = image_evicted
 	m.cache.lru.on_remove_user_data = m.cache
 	m.audio = make(map[string]Audio_Clip)
-	m.onsets = new(Onset_Cache)
-	m.onsets.entries = make(map[string]Onset_Cache_Entry)
+	m.analysis = new(Clip_Analysis)
+	m.analysis.entries = make(map[string]Clip_Analysis_Entry)
 	m.music = new(Music)
 	music_init(m.music)
 	m.instances = new(Font_Instances)
@@ -247,8 +248,8 @@ media_destroy :: proc(m: ^Media) {
 	}
 	lru.destroy(&m.cache.lru, false)
 	free(m.cache)
-	onset_cache_destroy(m.onsets)
-	free(m.onsets)
+	clip_analysis_destroy(m.analysis)
+	free(m.analysis)
 	if m.music != nil {
 		music_destroy(m.music)
 		free(m.music)

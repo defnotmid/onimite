@@ -5,7 +5,9 @@ import "core:log"
 import "core:math"
 import "core:os"
 import "core:slice"
+import "core:strings"
 import "core:testing"
+import oanalyze "deps:odawg/analyze"
 import vg "deps:ovg"
 import odimg "deps:oicut/image"
 
@@ -52,16 +54,25 @@ sine_clip :: proc(freq: f32, seconds: f32, rate: int) -> Audio_Clip {
 	return clip_from_samples(src, rate, 2)
 }
 
+// A clip's spectrum at frame `index` (30 fps): rows of its table.
+@(private = "file")
+clip_spectrum :: proc(m: ^Media, name: string, index, smooth, size: int, shape: oanalyze.Window, out: []f32) {
+	audio_spectrum(media_clip_table(m, name, .Spectrum, 30, {index - smooth, index + smooth}, size, shape), index, smooth, out)
+}
+
 @(test)
 test_audio_spectrum :: proc(t: ^testing.T) {
+	m: Media
+	media_init(&m)
+	defer media_destroy(&m)
 	// Analysed at MIX_RATE: bin 64 of a 1024-point FFT is 3000 Hz, whatever
 	// the file's rate.
 	clip := sine_clip(48000.0 * 64 / 1024, 2, 44100)
-	defer audio_clip_destroy(&clip)
 	testing.expect(t, clip.source_rate == 44100 && clip.source_channels == 2 && clip.frames == 96000)
+	m.audio[strings.clone("sine")] = clip
 	out := make([]f32, 512)
 	defer delete(out)
-	audio_spectrum(&clip, 10, 30, {sample_size = 1024}, out)
+	clip_spectrum(&m, "sine", 10, 0, 1024, .None, out)
 	peak := 0
 	for v, i in out {
 		if v > out[peak] {peak = i}
@@ -70,43 +81,58 @@ test_audio_spectrum :: proc(t: ^testing.T) {
 	// An unwindowed full-scale sine on a bin, left only: N/2 of the
 	// 0.707 * (L + R) mix.
 	testing.expectf(t, abs(out[64] - 512 * 0.70710678) < 5, "sine bin %v", out[64])
+	// One table per kind, rate, size and window: each row made once.
+	table := media_clip_table(&m, "sine", .Spectrum, 30, {10, 10}, 1024)
+	testing.expect(t, table == media_clip_table(&m, "sine", .Spectrum, 30, {0, 0}, 1024) && table != media_clip_table(&m, "sine", .Spectrum, 30, {0, 0}, 512))
 
 	// The Hamming window on a constant: bin 0 is the window's sum.
 	dc := make([]f32, 4800)
 	defer delete(dc)
 	for &v in dc {v = 1}
-	mono := clip_from_samples(dc, 48000, 1)
-	defer audio_clip_destroy(&mono)
+	media_add_audio_samples(&m, "dc", dc, 48000, 1)
 	ham := make([]f32, 8)
 	defer delete(ham)
-	audio_spectrum(&mono, 1, 30, {sample_size = 16, window = .Hamming}, ham)
+	clip_spectrum(&m, "dc", 1, 0, 16, .Hamming, ham)
 	want: f32
 	for k in 0 ..< 16 {
 		want += 2 * 0.70710678 * (0.54 - 0.46 * math.cos(2 * math.PI * f32(k) / 15))
 	}
 	testing.expectf(t, abs(ham[0] - want) < 1e-3 * want, "hamming dc %v, want %v", ham[0], want)
+	// A window running past the clip's end reads silence, as a song's does:
+	// frame 1's 2048 samples (1600 ..< 3648) are in the 4800, frame 2's
+	// (3200 ..< 5248) are not.
+	wide := make([]f32, 1024)
+	defer delete(wide)
+	clip_spectrum(&m, "dc", 1, 0, 2048, .None, wide)
+	testing.expect(t, wide[0] > 1000)
+	clip_spectrum(&m, "dc", 2, 0, 2048, .None, wide)
+	testing.expect_value(t, wide[0], 0)
+	// A clip replaced under its name is measured again.
+	media_add_audio_samples(&m, "dc", dc[:2400], 48000, 1)
+	clip_spectrum(&m, "dc", 1, 0, 2048, .None, wide)
+	testing.expect_value(t, wide[0], 0)
 
 	// Deterministic, and smoothing is the mean of neighbouring frames.
 	again := make([]f32, 512)
 	defer delete(again)
-	audio_spectrum(&clip, 10, 30, {sample_size = 1024}, again)
+	clip_spectrum(&m, "sine", 10, 0, 1024, .None, again)
 	testing.expect(t, slices_equal(out, again))
 	smooth := make([]f32, 512)
 	defer delete(smooth)
-	audio_spectrum(&clip, 20, 30, {sample_size = 1024, smooth = 2, window = .Hann}, smooth)
+	clip_spectrum(&m, "sine", 20, 2, 1024, .Hann, smooth)
 	sum := make([]f32, 512)
 	defer delete(sum)
 	tmp := make([]f32, 512)
 	defer delete(tmp)
 	for f in 18 ..= 22 {
-		audio_spectrum(&clip, f, 30, {sample_size = 1024, window = .Hann}, tmp)
+		clip_spectrum(&m, "sine", f, 0, 1024, .Hann, tmp)
 		for v, i in tmp {sum[i] += v / 5}
 	}
 	for v, i in sum {
 		testing.expect(t, abs(v - smooth[i]) <= 1e-4 * max(abs(v), 1))
 	}
 	// Past the end of the file the buffer is silent.
-	audio_spectrum(&clip, 1000, 30, {sample_size = 1024}, out)
+	clip_spectrum(&m, "sine", 1000, 0, 1024, .None, out)
 	testing.expect_value(t, out[64], 0)
 
 	centered := make([]f32, 8)
