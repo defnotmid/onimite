@@ -35,11 +35,12 @@ test_mix_envelopes :: proc(t: ^testing.T) {
 	}
 	out, _ := mix_tracks(placed, 0, n, {no_limiter = true})
 	defer delete(out)
-	d := ducking_resolved(duck)
-	depth := math.pow(10, d.depth_db / 20)
-	attack := seconds_to_samples(d.attack)
-	hold := seconds_to_samples(d.hold)
-	release := seconds_to_samples(d.release)
+	// what the mix resolves the ducking to (odawg's defaults for what it leaves out)
+	d := ducking_sidechain(duck)
+	depth := f32(d.floor)
+	attack := seconds_to_samples(f32(d.attack))
+	hold := seconds_to_samples(f32(d.hold))
+	release := seconds_to_samples(f32(d.release))
 	ducking :: proc(s, a, b, attack, hold, release: int, depth: f32) -> f32 {
 		w: f32
 		switch {
@@ -62,8 +63,8 @@ test_mix_envelopes :: proc(t: ^testing.T) {
 		want_l, want_r: f32
 		if s >= p.start && s < p.end {
 			k := s - p.start
-			cuts_in, cuts_out := track_cuts(p)
-			env := track_envelope(k, p.end - p.start, seconds_to_samples(p.track.fade_in), seconds_to_samples(p.track.fade_out), p.track.curve, cuts_in, cuts_out)
+			fade_in, fade_out := track_edges(p)
+			env := track_envelope(k, p.end - p.start, fade_in, fade_out, p.track.curve)
 			env *= ducking(s, 12000, 20000, attack, hold, release, depth)
 			want_l, want_r = 0.5 * gl * env, 0.25 * gr * env
 		}

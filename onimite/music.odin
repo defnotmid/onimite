@@ -702,43 +702,54 @@ land_through :: proc(sc: ^Song_Clip, upto: int) {
 }
 
 // Fills `st`'s rows near `[from, to)` whose whole window the render now
-// holds, from the render.
+// holds, from the render: each run of such steps (a segment of row starts
+// at most) read from the 16-bit render once and filled by odawg.
 @(private = "file")
 table_fill_held :: proc(sc: ^Song_Clip, st: ^Song_Table, from, to: int) {
 	rd := &sc.render
 	t := &st.table
-	row := orender.TABLE_KINDS[t.kind]
-	window := row.window(t)
+	window := orender.table_window(t)
 	sync.guard(&st.lock)
-	buf := make([]f32, 2 * window, context.temp_allocator)
-	first := (max(from - window + 1, 0) * t.step_den + t.step_num - 1) / max(t.step_num, 1)
-	rows: for step := first; step < len(st.filled); step += 1 {
-		start := orender.row_start(t, step)
-		if start >= to {
-			break
+	half := SONG_SEGMENT + window
+	buf := make([]f32, 2 * half, context.temp_allocator)
+	step := (max(from - window + 1, 0) * t.step_den + t.step_num - 1) / max(t.step_num, 1)
+	for step < len(st.filled) && orender.row_start(t, step) < to {
+		first, a := step, orender.row_start(t, step)
+		for step < len(st.filled) {
+			start := orender.row_start(t, step)
+			if start >= to || start - a >= SONG_SEGMENT || st.filled[step] != 0 || !render_holds(sc, start, window) {
+				break
+			}
+			step += 1
 		}
-		if st.filled[step] != 0 {
+		if step == first {
+			step += 1
 			continue
 		}
-		end := min(start + window, rd.frames)
-		for g in start / SONG_SEGMENT ..= max(end - 1, start) / SONG_SEGMENT {
-			if !song_segment_done(sc, g) {
-				continue rows
-			}
+		n := min(orender.row_start(t, step - 1) + window, rd.frames) - a
+		l, r := buf[:n], buf[half:][:n]
+		for i in 0 ..< n {
+			l[i] = f32(rd.samples[2 * (a + i)]) / 32767
+			r[i] = f32(rd.samples[2 * (a + i) + 1]) / 32767
 		}
-		if dst := orender.table_row(t, step); dst != nil {
-			// a window running past the song reads nothing: the kind's
-			// own silence (bands at the floor, not 0 dB)
-			k := 0 if row.whole && start + window > t.frames else end - start
-			l, r := buf[:k], buf[window:][:k]
-			for i in 0 ..< k {
-				l[i] = f32(rd.samples[2 * (start + i)]) / 32767
-				r[i] = f32(rd.samples[2 * (start + i) + 1]) / 32767
-			}
-			row.fill(t, dst, l, r)
+		// steps without rows (silent, outside the song) count as filled too
+		orender.table_fill_steps(t, first, step, a, l, r)
+		for k in first ..< step {
+			sync.atomic_store(&st.filled[k], 1)
 		}
-		sync.atomic_store(&st.filled[step], 1)
 	}
+}
+
+// Whether the render holds samples `[start, start + window)` (to its end).
+@(private = "file")
+render_holds :: proc(sc: ^Song_Clip, start, window: int) -> bool {
+	end := min(start + window, sc.render.frames)
+	for g in start / SONG_SEGMENT ..= max(end - 1, start) / SONG_SEGMENT {
+		if !song_segment_done(sc, g) {
+			return false
+		}
+	}
+	return true
 }
 
 // Whether filling `rows` rows for each of `frames` frames alone makes less
@@ -749,7 +760,7 @@ song_table_rows_cheaper :: proc(sc: ^Song_Clip, st: ^Song_Table, frames, rows: i
 		return false
 	}
 	t := &st.table
-	window := orender.TABLE_KINDS[t.kind].window(t)
+	window := orender.table_window(t)
 	preroll := int(orender.preroll_from_song(&sc.song) * MIX_RATE)
 	each := orender.row_start(t, max(rows, 1)) + window + preroll
 	return frames * each < t.frames
@@ -774,8 +785,7 @@ song_table_fill_rows :: proc(sc: ^Song_Clip, st: ^Song_Table, first, last: int) 
 	if lo > hi {
 		return
 	}
-	row := orender.TABLE_KINDS[t.kind]
-	window := row.window(t)
+	window := orender.table_window(t)
 	from := orender.row_start(t, lo)
 	to := min(orender.row_start(t, hi) + window, t.frames)
 	if to <= from {
@@ -789,18 +799,8 @@ song_table_fill_rows :: proc(sc: ^Song_Clip, st: ^Song_Table, first, last: int) 
 	pool_work_init(&work, sc.music.pool)
 	defer pool_work_destroy(&work)
 	orender.export_into(&sc.song, {from = obase.Seconds(f64(from) / MIX_RATE), to = obase.Seconds(f64(to) / MIX_RATE), pool = &work.work_pool}, {l, r})
+	orender.table_fill_steps(t, lo, hi + 1, from, l, r)
 	for step in lo ..= hi {
-		out := orender.table_row(t, step)
-		start := orender.row_start(t, step)
-		// a window running past the song reads nothing: the kind's own
-		// silence (as the render does)
-		if out != nil {
-			a, z := start - from, min(start + window, to) - from
-			if row.whole && start + window > t.frames {
-				z = a
-			}
-			row.fill(t, out, l[a:z], r[a:z])
-		}
 		sync.atomic_store(&st.filled[step], 1)
 	}
 }

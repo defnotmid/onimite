@@ -256,6 +256,8 @@ Mix :: struct {
 	// Per placed track, its song's placement in the mix (-1: a clip, or a
 	// song played as its render).
 	placements: []i32,
+	// The master gain and limiter (Mix_Options), odawg's to run.
+	mastering: orender.Mastering,
 }
 
 // The master limiter's release (fframes' 80 ms).
@@ -303,7 +305,6 @@ mix_init :: proc(mx: ^Mix, placed: []Placed_Track, opts: Mix_Options, samples :=
 				set = odevice.bank_borrow(&mx.bank, tr.src, p.song.render.samples)
 				sets[p.song] = set
 			}
-			d := ducking_resolved(tr.duck)
 			c := osong.Clip {
 				name     = tr.src,
 				set      = set,
@@ -316,14 +317,14 @@ mix_init :: proc(mx: ^Mix, placed: []Placed_Track, opts: Mix_Options, samples :=
 				curve    = odevice.Curve(tr.curve),
 				ducked   = tr.ducked,
 			}
-			c.duck = {obase.db_to_gain(obase.Db(d.depth_db)), obase.Seconds(f64(d.attack)), obase.Seconds(f64(d.hold)), obase.Seconds(f64(d.release)), obase.Seconds(f64(d.merge_gap))}
+			c.duck.floor, c.duck.attack, c.duck.hold, c.duck.release, c.duck.merge = ducking_set(tr.duck)
 			ti := osong.append_clip(&mx.song, c)
 			mx.song.tracks[ti].muted = p.muted
 		} else if p.song != nil {
 			// song time 0 on the video, let through the track's span
 			at := f64(p.start - p.file_start) / MIX_RATE
 			window := osong.Window{obase.Seconds(f64(p.start) / MIX_RATE), obase.Seconds(f64(p.end) / MIX_RATE), obase.Seconds(f64(tr.fade_in)), obase.Seconds(f64(tr.fade_out)), odevice.Curve(tr.curve)}
-			duck := tr.ducked ? sidechain_from_ducking(tr.duck) : osong.Sidechain{}
+			duck := tr.ducked ? ducking_sidechain(tr.duck) : osong.Sidechain{}
 			mx.placements[i] = osong.append_song(&mx.song, &p.song.song, obase.Seconds(at), tr.src, obase.db_to_gain(obase.Db(tr.gain_db)), window, duck)
 			heard := strings.concatenate({tr.src, "/", p.part}, context.temp_allocator)
 			for &t in mx.song.tracks[first:] {
@@ -338,7 +339,6 @@ mix_init :: proc(mx: ^Mix, placed: []Placed_Track, opts: Mix_Options, samples :=
 					sets[p.clip] = set
 				}
 			}
-			d := ducking_resolved(tr.duck)
 			c := osong.Clip {
 				name     = tr.src,
 				set      = set,
@@ -357,7 +357,7 @@ mix_init :: proc(mx: ^Mix, placed: []Placed_Track, opts: Mix_Options, samples :=
 				ducked   = tr.ducked,
 				effects  = tr.effects,
 			}
-			c.duck = {obase.db_to_gain(obase.Db(d.depth_db)), obase.Seconds(f64(d.attack)), obase.Seconds(f64(d.hold)), obase.Seconds(f64(d.release)), obase.Seconds(f64(d.merge_gap))}
+			c.duck.floor, c.duck.attack, c.duck.hold, c.duck.release, c.duck.merge = ducking_set(tr.duck)
 			ti := osong.append_clip(&mx.song, c)
 			mx.song.tracks[ti].muted = p.muted
 		}
@@ -374,16 +374,12 @@ mix_init :: proc(mx: ^Mix, placed: []Placed_Track, opts: Mix_Options, samples :=
 			}
 		}
 	}
-	mx.song.master_gain = obase.db_to_gain(obase.Db(opts.master_gain_db))
-	if !opts.no_limiter {
-		p := odevice.params_from_kind(.Limiter)
-		p[.Threshold] = opts.ceiling_db if opts.ceiling_db != 0 else LIMITER_CEILING
-		p[.Release] = LIMITER_RELEASE
-		append(&mx.song.devices, odevice.Device_Kind.Limiter)
-		append(&mx.song.labels, odevice.DEVICE_TABLE[.Limiter].name)
-		append(&mx.song.params, p)
-		append(&mx.song.chain, i32(len(mx.song.devices) - 1))
-		mx.song.master = {i32(len(mx.song.chain) - 1), 1}
+	mx.mastering = {
+		on         = true,
+		gain       = obase.db_to_gain(obase.Db(opts.master_gain_db)),
+		limit      = !opts.no_limiter,
+		ceiling_db = obase.Db(opts.ceiling_db if opts.ceiling_db != 0 else LIMITER_CEILING),
+		release    = LIMITER_RELEASE,
 	}
 	osong.mix_end(&mx.song)
 }
@@ -393,12 +389,21 @@ mix_destroy :: proc(mx: ^Mix) {
 	mx^ = {}
 }
 
-// A ducked song track's sidechain: under the voice tracks' spans, with the
-// track's ducking (onimite's defaults for what it leaves out).
-@(private = "file")
-sidechain_from_ducking :: proc(duck: Ducking) -> osong.Sidechain {
-	d := ducking_resolved(duck)
-	return {mode = .Spans, floor = obase.db_to_gain(obase.Db(d.depth_db)), attack = obase.Seconds(f64(d.attack)), hold = obase.Seconds(f64(d.hold)), release = obase.Seconds(f64(d.release)), merge = obase.Seconds(f64(d.merge_gap))}
+// What a track's ducking sets, as odawg takes it: 0 is unset, which
+// odawg's duck_under_voice fills with its defaults (the one place they are).
+@(private)
+ducking_set :: proc(d: Ducking) -> (floor: Maybe(obase.Gain), attack, hold, release, merge: obase.Seconds) {
+	if d.depth_db != 0 {
+		floor = obase.db_to_gain(obase.Db(d.depth_db))
+	}
+	return floor, obase.Seconds(f64(d.attack)), obase.Seconds(f64(d.hold)), obase.Seconds(f64(d.release)), obase.Seconds(f64(d.merge_gap))
+}
+
+// A ducked track's sidechain under the voice tracks' spans, its defaults
+// resolved.
+@(private)
+ducking_sidechain :: proc(d: Ducking) -> osong.Sidechain {
+	return osong.duck_under_voice(ducking_set(d))
 }
 
 // The master as odawg measures it, in onimite's terms.
@@ -417,7 +422,7 @@ mix_render :: proc(mx: ^Mix, from, to: int, pool: ^common.Work_Pool = nil, alloc
 	if n == 0 {
 		return
 	}
-	got := orender.export_song(&mx.song, {from = obase.Seconds(f64(from) / MIX_RATE), to = obase.Seconds(f64(to) / MIX_RATE), pool = pool}, {&out, proc(data: rawptr, at: i64, l, r: []f32, stems: [][2][]f32) {
+	got := orender.export_song(&mx.song, {from = obase.Seconds(f64(from) / MIX_RATE), to = obase.Seconds(f64(to) / MIX_RATE), pool = pool, mastering = mx.mastering}, {&out, proc(data: rawptr, at: i64, l, r: []f32, stems: [][2][]f32) {
 		out := (^[]f32)(data)^
 		for i in 0 ..< len(l) {
 			k := 2 * (int(at) + i)
@@ -426,7 +431,7 @@ mix_render :: proc(mx: ^Mix, from, to: int, pool: ^common.Work_Pool = nil, alloc
 			}
 		}
 	}})
-	if mx.song.master.count > 0 || mx.song.master_gain != 1 {
+	if mx.mastering.limit || (mx.mastering.gain.? or_else 1) != 1 {
 		stats = mix_stats(got)
 	}
 	return
@@ -455,7 +460,7 @@ Mix_Stream :: struct {
 
 mix_stream_init :: proc(st: ^Mix_Stream, placed: []Placed_Track, opts: Mix_Options, load := true) {
 	mix_init(&st.mix, placed, opts, load = load, renders = true)
-	st.ready = orender.engine_init(&st.engine, &st.mix.song)
+	st.ready = orender.engine_init(&st.engine, &st.mix.song, nil, st.mix.mastering)
 	st.next = 0
 }
 
@@ -490,49 +495,31 @@ mix_block :: proc(st: ^Mix_Stream, from: int, out: []f32) {
 // the voice tracks dip it there (1: not ducked).
 mix_duck_gain :: proc(mx: ^Mix, i: int, at: int) -> f32 {
 	span := mx.tracks[i]
-	if span[1] == 0 {
-		return 1
-	}
-	l, r := [1]f32{1}, [1]f32{1}
-	// a song's duck is its placement's, a clip's its track's
-	if pl := mx.placements[i]; pl >= 0 {
-		if sc := mx.song.placements[pl].duck; sc.mode == .Spans {
-			orender.SIDECHAIN_TABLE[.Spans].duck(&mx.song, sc, i64(at), l[:], r[:])
-		}
-		return l[0]
-	}
-	t := mx.song.tracks[span[0]]
-	for sc in mx.song.sidechains[t.sidechains.first:t.sidechains.first + t.sidechains.count] {
-		if sc.mode == .Spans {
-			orender.SIDECHAIN_TABLE[.Spans].duck(&mx.song, sc, i64(at), l[:], r[:])
-		}
-	}
-	return l[0]
+	return f32(orender.duck_gain_at(&mx.song, span[0], i64(at))) if span[1] > 0 else 1
 }
 
-// Whether placed track `p`'s start and end cut into its sound: a start
-// after its file's (or song's) first sample, an end before a clip's last
-// (a song's always: its tail's length is the engine's). odawg fades a cut
-// edge by at least dsp.DECLICK (dsp.edge_fade), so these do too.
-track_cuts :: proc "contextless" (p: Placed_Track) -> (cuts_in, cuts_out: bool) {
-	return p.file_start > 0, p.clip == nil || placed_file_sample(p, p.end) < p.clip.frames
+// Placed track `p`'s fades in samples as the mix plays them: an edge that
+// cuts into its sound (a start after its file's or song's first sample, an
+// end short of a clip's last, or of its first played backwards; a song's
+// end always: its tail's length is the engine's) fades at least
+// dsp.DECLICK. odawg's rule for a clip and a song's window (dsp.span_edges).
+track_edges :: proc "contextless" (p: Placed_Track) -> (fade_in, fade_out: int) {
+	frames := i64(p.clip.frames) if p.clip != nil else -1
+	fi, fo := odsp.span_edges(i64(seconds_to_samples(p.track.fade_in)), i64(seconds_to_samples(p.track.fade_out)), i64(p.file_start), i64(p.end - p.start), f64(track_speed(p.track)), frames)
+	return int(fi), int(fo)
 }
 
-// A track's fade gain (0 to 1) `k` samples into its `length` samples: its
-// fade in times its fade out (lengths in samples), an edge that cuts
-// (track_cuts) at least dsp.DECLICK: what the mix plays, for `audio at`
-// and the preview's waveforms.
-track_envelope :: #force_inline proc "contextless" (k, length, fade_in, fade_out: int, curve: Fade_Curve, cuts_in, cuts_out: bool) -> f32 {
-	c := odsp.Curve(curve)
-	fi, fo := odsp.edge_fade(i64(fade_in), cuts_in), odsp.edge_fade(i64(fade_out), cuts_out)
-	return odsp.fade_gain(i64(k), fi, c) * odsp.fade_gain(i64(length - 1 - k), fo, c)
+// A track's fade gain (0 to 1) `k` samples into its `length` samples, its
+// edges' fades (track_edges) in samples: what the mix plays, for `audio
+// at` and the preview's waveforms.
+track_envelope :: #force_inline proc "contextless" (k, length, fade_in, fade_out: int, curve: Fade_Curve) -> f32 {
+	return odsp.fade_envelope(i64(k), i64(length), i64(fade_in), i64(fade_out), odsp.Curve(curve))
 }
 
 // The loudest track_envelope over samples `[k0, k1)` of the track (a
 // waveform's bucket or pixel): at the sample nearest its full level, which
 // the fade in rises to and the fade out falls from.
-track_envelope_peak :: proc "contextless" (k0, k1, length, fade_in, fade_out: int, curve: Fade_Curve, cuts_in, cuts_out: bool) -> f32 {
-	fi, fo := int(odsp.edge_fade(i64(fade_in), cuts_in)), int(odsp.edge_fade(i64(fade_out), cuts_out))
-	full := clamp(k0, fi, length - 1 - fo)
-	return track_envelope(clamp(full, k0, max(k1 - 1, k0)), length, fade_in, fade_out, curve, cuts_in, cuts_out)
+track_envelope_peak :: proc "contextless" (k0, k1, length, fade_in, fade_out: int, curve: Fade_Curve) -> f32 {
+	full := clamp(k0, fade_in, length - 1 - fade_out)
+	return track_envelope(clamp(full, k0, max(k1 - 1, k0)), length, fade_in, fade_out, curve)
 }

@@ -724,6 +724,12 @@ end }
 Measure with the same family, size, weight, `italic`, `letter_spacing` and `features` you draw with; results are
 kept by text and font, so measuring every frame is cheap.
 
+`text_lines` breaks where Unicode allows: at spaces, after a hyphen, between CJK
+characters, and at every newline. A word wider than `max_width` keeps a line of its own
+instead of being cut. `text_fit` keeps as much of the first line as fits before the
+ellipsis and cuts only between characters as they're drawn, so a ligature, an accent, a
+vowel sign, an emoji sequence or a flag is kept whole or left out whole.
+
 ```lua
 local size = text_size { "SHADERS", font = "Bebas Neue", max_width = 1600, size = 260 }  -- largest size that fits
 for _, c in ipairs(text_chars { "POP", font = "Bebas Neue", size = 200 }) do  -- { text, x, w } per character

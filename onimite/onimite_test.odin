@@ -392,6 +392,26 @@ test_text_helpers :: proc(t: ^testing.T) {
 	fitted, _ := text_fit(&media, q, "A long title that does not fit", 100)
 	fw, _ := text_width(&media, q, fitted)
 	testing.expect(t, fw <= 100 && len(fitted) < 30)
+	// a cut is only between the text's clusters, so a ligature (the font's
+	// "fi"), a grapheme (a vowel sign, an accent, a ZWJ emoji, a flag) stays
+	// whole, and what is kept fits
+	for s in ([]string{"office affiliation officially", "क्षत्रिय क्षत्रिय", "éééééééé", "👩‍💻👍🏽🇯🇵👩‍💻👍🏽🇯🇵"}) {
+		layout: vg.Text_Layout
+		vg.text_layout_init(&layout, context.temp_allocator)
+		vg.text_layout(media_text_fonts(&media, q.family, q.weight, q.italic, q.variations), {text_piece(q, s)}, {}, &layout)
+		starts := make([]bool, strings.rune_count(s) + 1, context.temp_allocator)
+		for c in layout.clusters {
+			starts[c] = true
+		}
+		starts[len(starts) - 1] = true
+		for w := f32(20); w <= 200; w += 5 {
+			cut, _ := text_fit(&media, q, s, w)
+			kept := strings.trim_suffix(cut, "…")
+			cw, _ := text_width(&media, q, cut)
+			n := strings.rune_count(kept)
+			testing.expectf(t, strings.has_prefix(s, kept) && (n == 0 || starts[n]) && (cw <= w || n == 0), "%q at %v: %q (%v wide)", s, w, cut, cw)
+		}
+	}
 	lines, _ := text_break_lines(&media, q, "one two three four five six", 80)
 	testing.expect(t, len(lines) >= 3)
 	for l in lines {

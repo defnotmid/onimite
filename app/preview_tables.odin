@@ -147,10 +147,9 @@ Wave_Lane :: struct {
 	regions:           [2]i32, // first, count into regions
 	start, end:        int, // mix samples from the video start
 	gain_db:           f32,
-	fade_in, fade_out: int, // samples
+	// its edges' fades in samples, as the mix plays them (om.track_edges)
+	fade_in, fade_out: int,
 	curve:             om.Fade_Curve,
-	// Whether its start and end cut into its sound (om.track_cuts).
-	cuts_in, cuts_out: bool,
 	name, scene:       Text_Span,
 }
 
@@ -382,7 +381,7 @@ WAVE_SOURCE_KINDS := [Wave_Source_Kind]proc(b: ^Wave_Builder, src: ^Wave_Source)
 						continue
 					}
 					into := at - l.start
-					env := om.track_envelope_peak(into, into + WAVE_BUCKET, length, l.fade_in, l.fade_out, l.curve, l.cuts_in, l.cuts_out)
+					env := om.track_envelope_peak(into, into + WAVE_BUCKET, length, l.fade_in, l.fade_out, l.curve)
 					pk := from[cb]
 					mn, mx := i8(f32(pk[0]) * env), i8(f32(pk[1]) * env)
 					level0[tb] = {min(level0[tb][0], mn), max(level0[tb][1], mx)}
@@ -755,13 +754,11 @@ placed_lane :: proc(x: ^Timeline_Build, ks: []int, part: i32, name: string) -> i
 		start = first.start,
 		end = first.end,
 		gain_db = tr.gain_db,
-		fade_in = om.seconds_to_samples(tr.fade_in),
-		fade_out = om.seconds_to_samples(tr.fade_out),
 		curve = tr.curve,
 		name = text_push(&t.text, name),
 		scene = text_push(&t.text, first.scene),
 	}
-	l.cuts_in, l.cuts_out = om.track_cuts(first)
+	l.fade_in, l.fade_out = om.track_edges(first)
 	l.regions[0] = i32(len(t.regions))
 	for k in ks {
 		p := x.placed[k]

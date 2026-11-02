@@ -89,6 +89,19 @@ local lines = text_lines { "one two three four five six", size = 20, max_width =
 assert(w > 30 and w < 80, w)
 assert(#fitted < 30 and text_width { fitted, size = 20 } <= 100, fitted)
 assert(#lines >= 3, #lines)
+for _, l in ipairs(lines) do assert(text_width { l, size = 20 } <= 80, l) end
+-- Unicode line breaks: after a hyphen, at a newline, between CJK characters;
+-- a word wider than the width keeps a line of its own, unbroken
+local hy = text_lines { "state-of-the-art", size = 20, max_width = 70 }
+assert(#hy >= 2 and hy[1]:sub(-1) == "-", table.concat(hy, "|"))
+assert(table.concat(hy) == "state-of-the-art", table.concat(hy, "|"))
+local nl = text_lines { "one\ntwo", size = 20, max_width = 1000 }
+assert(#nl == 2 and nl[1] == "one" and nl[2] == "two", table.concat(nl, "|"))
+local long = text_lines { "a supercalifragilistic b", size = 20, max_width = 60 }
+assert(long[1] == "a" and long[2] == "supercalifragilistic" and long[3] == "b", table.concat(long, "|"))
+local cjk = text_lines { "日本語の文章です", size = 20, max_width = 50 }
+assert(#cjk >= 2 and table.concat(cjk) == "日本語の文章です", table.concat(cjk, "|"))
+assert(#text_lines { "", size = 20, max_width = 50 } == 1)
 -- OpenType features: kerning off widens "AV" (measured, not the kerned width kept for "AV")
 local kerned = text_width { "AV", size = 20 }
 assert(text_width { "AV", size = 20, features = { kern = 0 } } > kerned + 0.5)

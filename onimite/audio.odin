@@ -2,12 +2,14 @@ package onimite
 
 import "core:encoding/json"
 import oassets "deps:odawg/assets"
+import obase "deps:odawg/base"
 import odaudio "deps:oicut/audio"
 
 // Sound: tracks placed on the video (or scene) clock, after fframes'
 // `AudioMap`. Files decode once to stereo f32 at MIX_RATE.
 
-MIX_RATE :: 48000
+// odawg renders at this rate, so the mix runs at it too.
+MIX_RATE :: obase.RATE
 
 // Seconds; `stop <= start` means "until the file ends".
 Audio_Track :: struct {
@@ -68,25 +70,15 @@ Fade_Curve :: enum u8 {
 	Equal_Power,
 }
 
-// How a ducked track dips under voice. Zero fields take the defaults of
-// fframes' `duck_under_voice` (-12 dB, 0.2 s attack before the voice, 0.3 s
-// hold, 0.8 s release, gaps under 0.8 s merged).
+// How a ducked track dips under voice. Zero fields take odawg's defaults
+// (song.duck_under_voice, fframes': -12 dB, 0.2 s attack before the voice,
+// 0.3 s hold, 0.8 s release, gaps under 0.8 s merged).
 Ducking :: struct {
 	depth_db:  f32,
 	attack:    f32,
 	hold:      f32,
 	release:   f32,
 	merge_gap: f32,
-}
-
-ducking_resolved :: proc "contextless" (d: Ducking) -> Ducking {
-	return {
-		depth_db = d.depth_db if d.depth_db != 0 else -12,
-		attack = d.attack if d.attack > 0 else 0.2,
-		hold = d.hold if d.hold > 0 else 0.3,
-		release = d.release if d.release > 0 else 0.8,
-		merge_gap = d.merge_gap if d.merge_gap > 0 else 0.8,
-	}
 }
 
 // Decoded sound: interleaved stereo at MIX_RATE, plus the file's own rate

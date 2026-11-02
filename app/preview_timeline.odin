@@ -827,7 +827,7 @@ draw_lane :: proc(v: ^Row_View, index: int, y, lane_h: f32, color_index: int) {
 			if !ok {
 				break // still being computed
 			}
-			env := om.track_envelope_peak(s0 - lane.start, s1 - lane.start, length, lane.fade_in, lane.fade_out, lane.curve, lane.cuts_in, lane.cuts_out)
+			env := om.track_envelope_peak(s0 - lane.start, s1 - lane.start, length, lane.fade_in, lane.fade_out, lane.curve)
 			top := mid - clamp(hi * env, -1, 1) * half
 			bottom := mid - clamp(lo * env, -1, 1) * half
 			fill(r, v.a, cx, top, col_w, max(bottom - top, v.line_w), wave)
