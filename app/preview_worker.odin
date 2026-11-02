@@ -61,6 +61,11 @@ Render_Request :: struct {
 	// `hold_through` run `hold` seconds ahead (Renderer.clock_offset)
 	hold:         f64,
 	hold_through: int,
+	// The wall clock at the video's first frame (Video.now: the --now
+	// moment, or --live's system clock) and at the frame asked for (a
+	// load's moment, when this request reloads).
+	now_start:    f64,
+	now:          f64,
 	scale:        f32,
 	// Bumped by Script_Reload; the worker reloads when it differs from the
 	// generation it loaded.
@@ -209,6 +214,8 @@ Render_Worker :: struct {
 	background:     ^thread.Pool,
 	thread:         ^thread.Thread,
 
+	// What the script's track_changes stamped, for the next load's.
+	changes:        script.Change_Memory,
 	// Heap allocated: a Script must keep its address while loaded.
 	script:         ^script.Script,
 	media:          ^om.Media,
@@ -380,7 +387,7 @@ worker_main :: proc(w: ^Render_Worker) {
 		sync.mutex_unlock(&w.mb.mutex)
 
 		if req.reload != w.loaded {
-			worker_load(w, req.reload_media || !w.ever_loaded)
+			worker_load(w, req, req.reload_media || !w.ever_loaded)
 			w.loaded = req.reload
 			// The latency is the frame's, not the load's (shown separately).
 			req.asked = time.tick_now()
@@ -484,7 +491,7 @@ worker_clips_start :: proc(w: ^Render_Worker, s: ^script.Script, tl: om.Timeline
 	for o, i in order {
 		sorted[i] = names[o]
 	}
-	b := clip_builds_make(sorted, w.pool, w.background, nil, w.script_path, w.media_dir, w.script_args, w.script_props, w.video)
+	b := clip_builds_make(sorted, w.pool, w.background, nil, w.script_path, w.media_dir, w.script_args, w.script_props, w.script.clock, w.video)
 	b.wake, b.wake_data = worker_wake, w
 	w.clips_began = time.tick_now()
 	clip_builds_start(b)
@@ -768,7 +775,7 @@ worker_idle :: proc(w: ^Render_Worker, busy: bool) {
 // Loads the script (and the media when asked) into fresh instances and
 // swaps them in on success; a failing edit keeps the last good script.
 @(private = "file")
-worker_load :: proc(w: ^Render_Worker, reload_media: bool) {
+worker_load :: proc(w: ^Render_Worker, req: Render_Request, reload_media: bool) {
 	began := time.tick_now()
 	// The audio thread lets go of the samples a load may replace; the tracks
 	// come back with the new script (or the last good one).
@@ -802,8 +809,9 @@ worker_load :: proc(w: ^Render_Worker, reload_media: bool) {
 		sync.mutex_unlock(&w.mb.mutex)
 	}
 	next := new(script.Script)
-	// Lines an edit added are synthesized by the load.
-	loaded := script.load(next, w.script_path, w.script_args, media, nil, w.script_props, w.pool)
+	// Lines an edit added are synthesized by the load; its rows are matched
+	// with the last good load's (track_changes), changed at the frame asked.
+	loaded := script.load(next, w.script_path, w.script_args, media, nil, w.script_props, w.pool, {start = req.now_start, at = req.now, rows = &w.changes})
 	if loaded != nil {
 		// The Watch's problems and the video show it.
 		delete(w.load_error)
@@ -865,6 +873,8 @@ worker_load :: proc(w: ^Render_Worker, reload_media: bool) {
 	w.script = next
 	w.media = media
 	w.ever_loaded = true
+	script.change_memory_destroy(&w.changes)
+	w.changes = script.change_memory_take(next)
 	// What a frame reads that takes long to make (a song's tables, a clip
 	// the script builds) is made in the background: the frame draws without
 	// it and again once it lands.
@@ -1087,6 +1097,7 @@ worker_render :: proc(w: ^Render_Worker, req: Render_Request) {
 	}
 	began := time.tick_now()
 	r.clock_offset, r.held_through = req.hold, req.hold_through
+	w.script.video.now = req.now_start
 	frame := draw_into(w, r, w.gpu_ok, req.frame, s.texture)
 	r.clock_offset, r.held_through = 0, 0
 	ms := time.duration_milliseconds(time.tick_since(began))
@@ -1289,6 +1300,7 @@ upload_rgba :: proc(device: ^sdl.GPUDevice, tex: ^sdl.GPUTexture, size: [2]u32, 
 @(private = "file")
 worker_release :: proc(w: ^Render_Worker) {
 	audio_clear_tracks(w.audio)
+	defer script.change_memory_destroy(&w.changes)
 	// Pool jobs still building wake this worker: wait for them (each ends
 	// with the clip it is on).
 	worker_clips_retire(w)

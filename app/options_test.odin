@@ -50,6 +50,18 @@ test_cli_parse :: proc(t: ^testing.T) {
 	testing.expect_value(t, rows[.Threads], Command_Row{.Threads_Set, {count = 2}})
 	_, help = cli_parse({"show", "v.lua", "--help"})
 	testing.expect(t, help)
+	// --now: the Load row's moment, read by now_parse; show's --at is its own
+	rows, _ = cli_parse({"show", "v.lua", "--at", "2s", "--now", "2026-11-02T14:05:00+01:00"})
+	testing.expect_value(t, rows[.Command].regs.at, "2s")
+	testing.expect_value(t, rows[.Load].regs.at, "2026-11-02T14:05:00+01:00")
+	for c in ([?]struct {
+			text: string,
+			want: f64,
+			ok:   bool,
+		}{{"2026-11-02T13:05:00Z", 1793624700, true}, {"2026-11-02T14:05:00+01:00", 1793624700, true}, {"1793624700.5", 1793624700.5, true}, {"", 0, false}, {"2026-11-02T13:05:00", 0, false}, {"13:05", 0, false}, {"2026-11-02T13:05:00Zjunk", 0, false}}) {
+		got, ok := now_parse(c.text)
+		testing.expectf(t, ok == c.ok && got == c.want, "now_parse(%q) = %v, %v", c.text, got, ok)
+	}
 
 	// The rows the arguments push, as pushed (all in temp memory).
 	pushed :: proc(args: ..string) -> []Command_Row {

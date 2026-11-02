@@ -272,7 +272,7 @@ COMMAND_KINDS := [Command_Kind]Command_Descriptor {
 		mcp_note = "The running server keeps the old version: restart the app (Claude Desktop: quit and reopen it) to use the new one.",
 	},
 	.Script_Load = {
-		help = "regs.path the script; regs.media a media directory (\"\" = `media/` beside the script); regs.props a JSON file of props (\"\" = none); regs.args the script arguments, NUL-separated (LIST_SEP); .No_Media in regs.flags: the script only; .No_Script: the media only (a batch loads the script per row); .Pinning: its songs fetch what their sources haven't pinned (audio pin)",
+		help = "regs.path the script; regs.media a media directory (\"\" = `media/` beside the script); regs.props a JSON file of props (\"\" = none); regs.args the script arguments, NUL-separated (LIST_SEP); regs.at the wall clock at the video's first frame (now_parse; \"\" = 0); .No_Media in regs.flags: the script only; .No_Script: the media only (a batch loads the script per row); .Pinning: its songs fetch what their sources haven't pinned (audio pin)",
 		domain = .Settings,
 	},
 	.Output_Set = {help = "regs.flag: print one JSON document per command instead of text", domain = .Settings},
@@ -398,6 +398,7 @@ Command_Flag :: enum u8 {
 	No_Loop, // preview: stop at the end
 	Bare, // preview: the video alone, played once
 	Present, // preview: a presentation, waiting at each scene's end
+	Live, // preview: a board on the wall clock that never ends
 	Fullscreen, // preview: open fullscreen
 	Mute, // preview: no sound
 	No_Media, // script load: skip the media (the preview's worker loads it)
@@ -427,7 +428,8 @@ Command_Regs :: struct {
 	args:       string,
 	// Audio commands: the one track (its file name) to hear alone.
 	track:      string,
-	// show: the moment for what changes over time (a time spec).
+	// show: the moment for what changes over time (a time spec);
+	// Script_Load: --now, the wall clock at the video's first frame.
 	at:         string,
 	// Script_Load: a JSON file of props; Batch_Render: the rows file.
 	props:      string,

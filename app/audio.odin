@@ -29,7 +29,7 @@ build_audio :: proc(app: ^App_State) -> Error {
 		return nil
 	}
 	s := &app.script
-	b := clip_builds_make(script.audio_pending_names(s), app.pool, app.background, s.shared, s.path, app.media.dir, s.args, s.props, &app.video)
+	b := clip_builds_make(script.audio_pending_names(s), app.pool, app.background, s.shared, s.path, app.media.dir, s.args, s.props, s.clock, &app.video)
 	defer clip_builds_destroy(b)
 	clip_builds_wait(b)
 	if _, f := clip_builds_drain(b, &app.media, s); f.code != .None {

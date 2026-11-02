@@ -1,0 +1,22 @@
+{
+  "title": "Departures",
+  "terminal": "Terminal 2 · Gates A1–A24",
+  "utc_offset": "+00:00",
+  "departures": [
+    { "time": "13:55", "flight": "PP 214", "to": "LISBON", "gate": "A3", "remarks": "GATE CLOSED" },
+    { "time": "14:05", "flight": "OX 902", "to": "REYKJAVIK", "gate": "A14", "remarks": "FINAL CALL" },
+    { "time": "14:10", "flight": "ON 101", "to": "KYOTO", "gate": "A7", "remarks": "BOARDING" },
+    { "time": "14:20", "flight": "OC 330", "to": "MONTREAL", "gate": "A1", "remarks": "BOARDING" },
+    { "time": "14:25", "flight": "OV 58", "to": "BUENOS AIRES", "gate": "A18", "remarks": "DELAYED 15:10" },
+    { "time": "14:35", "flight": "OD 48", "to": "LAGOS", "gate": "A9", "remarks": "ON TIME" },
+    { "time": "14:40", "flight": "PP 377", "to": "HELSINKI", "gate": "A21", "remarks": "ON TIME" },
+    { "time": "14:50", "flight": "OT 12", "to": "MARRAKESH", "gate": "A4", "remarks": "ON TIME" },
+    { "time": "15:00", "flight": "OX 415", "to": "VANCOUVER", "gate": "A15", "remarks": "CANCELLED" },
+    { "time": "15:05", "flight": "ON 266", "to": "SEOUL", "gate": "A11", "remarks": "ON TIME" },
+    { "time": "15:15", "flight": "OC 77", "to": "CAPE TOWN", "gate": "A2", "remarks": "ON TIME" },
+    { "time": "15:25", "flight": "OV 640", "to": "MEXICO CITY", "gate": "A24", "remarks": "ON TIME" },
+    { "time": "15:30", "flight": "PP 508", "to": "OSLO", "gate": "A6", "remarks": "ON TIME" },
+    { "time": "15:45", "flight": "OD 19", "to": "SINGAPORE", "gate": "A13", "remarks": "GO TO GATE" },
+    { "time": "15:55", "flight": "OX 233", "to": "NAIROBI", "gate": "A17", "remarks": "ON TIME" }
+  ]
+}

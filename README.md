@@ -128,8 +128,9 @@ onimite is built from sibling Odin projects and Odin's vendor packages:
   Windows; Media Foundation on Windows: H.264, and H.265 with Microsoft's HEVC
   Video Extensions; else the system's FFmpeg, libavcodec, loaded at run time
   and never bundled), AV1 MP4 through oicut's own encoder in every build
-  (`--codec av1`: royalty-free, needs no codec on the machine, larger than
-  H.264 at the same quality), or PNG frames. Releases carry no H.264 / H.265
+  (`--codec av1`: royalty-free, needs no codec on the machine; at the same
+  quality, from a little smaller than H.264 to larger on sharp motion
+  graphics), or PNG frames. Releases carry no H.264 / H.265
   codec of their own: oicut's native one is only in a build with
   `-define:OICUT_PATENTED=true`. With none of those on the machine, `render`
   to an MP4 says so and names `--codec av1` and PNG frames. Frames build on all cores and draw on the GPU
@@ -301,21 +302,24 @@ onimite audio analyze video.lua [range] [--waveform w.png] # LUFS, LRA, true pea
 onimite audio at      video.lua 3.1s,6.2s                 # what plays: file position, level, ducking, a song's notes
 onimite audio onsets  video.lua [range] [--min 0.1]       # where sounds start, and the beat
                                                           # (audio commands: --track FILE hears one track, --track score/bass a song's part)
-onimite preview  video.lua [at] [--paused] [--no-loop] [--mute] [--bare] [--fullscreen] [--present]
+onimite preview  video.lua [at] [--paused] [--no-loop] [--mute] [--bare] [--fullscreen] [--present] [--live]
                                                           # --bare: the video alone, played once, then the window closes
                                                           # --present: a presentation, waiting at each scene's end for a click
+                                                          # --live: a board on a screen, for good, on the system clock
 onimite update   [--check]                                # replace this release with the latest (--check: only say)
 ```
 
-- `render`: `--draft` is half resolution (unless `--scale`), QP 32 (AV1: 24)
-  and a one second GOP; `--codec h264|h265|av1`, `--qp N` (default 23; AV1:
-  12, as its quantizer is coarser); in a build with
+- `render`: `--draft` is half resolution (unless `--scale`), QP 32 and a one
+  second GOP; `--codec h264|h265|av1`, `--qp N` (default 23, the same scale for
+  every codec); in a build with
   `-define:OICUT_PATENTED=true` (not the releases, which refuse them),
   `--native` (oicut's native encoder instead of the system's) and `--slices N`
   (its H.264 slices, default 4: more encode faster in a slightly larger file;
   the file depends on it, never on the machine).
 - Common options: `--json`, `--scale S`, `--media DIR` (default `media/`
-  beside the script), `--props FILE`, `--set K=V`, `--software` (draw on
+  beside the script), `--props FILE`, `--set K=V`, `--now TIME` (the wall
+  clock at the first frame, `f.now`: `2026-11-02T14:05:00Z`; default 0),
+  `--software` (draw on
   the CPU), `--threads N` (default one per core; `1` runs everything on one
   thread with the same output), `--image-cache MB` (decoded images kept in
   memory, default 1024; the least recently used are freed between frames
@@ -452,6 +456,36 @@ callback is the playback clock, and the UI thread only draws.
 `--exit-after N` closes after N window frames and prints frame timings;
 `ONIMITE_PREVIEW_CAPTURE=out.png` also writes the last frame.
 
+### A board on a screen
+
+`onimite preview board.lua --live` shows a script full screen for good, as
+signage: it plays once and then runs on past its end (its last frame held,
+the scenes' clocks going on), `f.now` is the system clock, and the only key
+is Ctrl+Q. Whatever feeds it replaces a file beside the script (write the
+new file, then rename it over the old one); the board reloads on the same
+clock with no label, and a file that fails to load keeps the last good board
+(the reason goes to stderr). `track_changes` gives each row of the new data
+when it last changed and what it was before, so only what changed animates
+(`examples/departures`). A frame of the board at a moment:
+`onimite frame board.lua 2s --now 2026-11-02T14:05:00Z`.
+
+To keep it up, run it as a service that restarts it, e.g. a systemd user
+unit (`~/.config/systemd/user/board.service`, then `systemctl --user enable
+--now board`):
+
+```ini
+[Unit]
+Description=Departures board
+After=graphical-session.target
+
+[Service]
+ExecStart=/usr/local/bin/onimite preview /srv/board/video.lua --live
+Restart=always
+
+[Install]
+WantedBy=graphical-session.target
+```
+
 ## Examples
 
 Each folder in `examples/` is a `video.lua` with its `media/`.
@@ -482,6 +516,8 @@ Each folder in `examples/` is a `video.lua` with its `media/`.
 | `media_demo` | a synced clip, WebVTT subtitles, an audio spectrum, durations from media |
 | `batch` | a title card per row of `rows.json` / `rows.csv` |
 | `scenes` | scene overlaps (cross-fades) |
+| `departures` | a split-flap departures board for `preview --live`: replace `flights.json` or `notices.json` and only what changed flips or comes in (`track_changes`), on the system clock (`f.now`); `--set screen=portrait` for a portrait screen |
+| `production_line` | a production line dashboard for `preview --live`: a PLC bridge rewrites `line.json`, stations matched by id (`track_changes`) turn and count from their last values, OEE and the shift's pace on `f.now` |
 | `talk` | a talk: `preview --present` holds each slide (a scene) until the next click, still moving; builds, a looping slide, a card that plays on |
 | `fframes/` | all 20 fframes example crates (22 videos) ported: each makes the same video, the benchmark material (media: `examples/fframes/fetch.sh`) |
 

@@ -182,6 +182,8 @@ The examples in the onimite repository are working patterns to read and borrow f
 | `examples/media_demo` | `video_frame` clip with its sound, WebVTT `subtitle_at`, `audio_spectrum` bars, durations from media |
 | `examples/batch` | data-driven title card: `props` with defaults, `--batch rows.json` / `rows.csv`, `--props`, `--set` |
 | `examples/scenes` | scene structure and overlaps |
+| `examples/departures` | a split-flap departures board for `preview --live`: rows from `flights.json` matched by position with `track_changes` (only the characters that changed flip, from the old ones), pages that flip, a clock on `f.now`; `notices.json` matched by id: an info ticker, a gate banner, an alert over everything, each shown between its `from` and `until`; render it at a moment with `--now`; `--set screen=portrait` lays it out for a portrait screen (1080x1920, two lines a flight) from the same measures table |
+| `examples/production_line` | a production line dashboard for `preview --live`, fed by a file a PLC bridge rewrites every few seconds (`line.json`): stations matched by id with `track_changes` (a state change turns and rings out on its own card, every number counts from its `before`), the shift's OEE, counts and pace (`f.now` against the shift's hours), events sliding in by id, a conveyor whose segments stop at the moment the station that stops them changed |
 | `examples/talk` | a talk for `preview --present`: scenes as slides held at their ends (`hold`: alive by default, a 3D slide that keeps turning; `"loop"`; `false` for a card that plays on), builds as scenes that redraw what came before in place; rendered, the recorded talk with a chapter per slide |
 
 The examples are not in the release download. Read them at the release you have, so they
@@ -287,10 +289,11 @@ H.265 with Microsoft's HEVC Video Extensions installed), else the system's FFmpe
 libopenh264). A release carries no H.264 / H.265 codec of its own: on a machine with none of
 these, `render` to an MP4 fails and says so; `-o DIR` still writes PNGs. `--codec av1` writes AV1
 MP4 with oicut's own encoder in every build and on every machine, needing no system codec:
-royalty-free, larger than H.264 at the same quality; browsers play it.
-`--draft`: half resolution (unless `--scale`), QP 32 (AV1: 24), one-second GOP. A scaled size rounds to
+royalty-free; at the same quality, from a little smaller than H.264 to larger on sharp motion graphics;
+browsers play it.
+`--draft`: half resolution (unless `--scale`), QP 32, one-second GOP. A scaled size rounds to
 even (1080x1350 at half is 540x676). `--codec h264|h265|av1`, `--qp N`
-(1 best .. 51; default 23, AV1 12: its quantizer is coarser, so the same number looks worse), `--native` and `--slices N` (oicut's own encoder instead of the system's, and its
+(1 best .. 51; default 23, the same scale for every codec), `--native` and `--slices N` (oicut's own encoder instead of the system's, and its
 H.264 slices: only in a build with `-define:OICUT_PATENTED=true`; a release refuses them before
 loading the script), `--software` (draw on the CPU; also for machines without a usable GPU), `--scale S`,
 `--threads N` (default one per core: a quarter render songs, audio and `say()` lines, the
@@ -336,7 +339,7 @@ with commas.
 | `frame SPECS [-o frames] [--svg]` | full-size PNGs; `--svg` also writes each frame's node tree as SVG to read positions, text and colours |
 | `onion RANGE [-n 6] [-o onion.png]` | a movement's trajectory and easing |
 | `motion SPECS` | how fast each thing moves at a moment: its speed in video pixels a frame where it moves most, its centre's direction, the script line that drew it, and what appears within the shutter. It builds the frame again at the shutter's opening (the video's `motion_blur` shutter, or a quarter frame earlier: a 180° one) and pairs each draw with itself there by its place among its siblings (kind and content first, then kind: a counter whose text changes is the same text; a group only with one the same function draws, so a group that appears among others doesn't take one's place); a draw that wasn't there doesn't move and is listed as appearing. Speeds come from the clock (`f.seconds`, `animate`, `physics_at`): anything moved by `f.index` reads as still, and nothing moves on the first frame of the video or a scene. A path's points changing (a morph) doesn't count as motion, only its groups' transforms; a 3D view moves as a box |
-| `preview [AT] [--paused] [--no-loop] [--mute] [--bare] [--fullscreen] [--present] [--exit-after N]` | real-time window with sound and hot reload, for the user (`--bare`: the video alone, no controls, panels or timeline, played once, then the window closes, Escape sooner; `--fullscreen`: open fullscreen; both together play a script full screen like a screensaver; `--present`: a presentation, bare and fullscreen, playing each scene and waiting at its end (`scene{ hold = ... }`) for Right, Space, Page Down or a click (clickers send these), Left, Page Up or a right click back a scene, B black, P pause, Escape closes; `--exit-after N`: close after N window frames). Playback that misses frames steps down to 75, 50, 35 or 25% of the window's size (a step that doesn't help is undone: the script isn't limited by pixels) and back up once it keeps up; the status line shows the size; a paused frame renders at full size, so judge detail paused. The window opens before the script loads (it loads once, in the window): a script that fails shows its error there until an edit fixes it, and an `AT` that names nothing warns and starts as without it |
+| `preview [AT] [--paused] [--no-loop] [--mute] [--bare] [--fullscreen] [--present] [--live] [--exit-after N]` | real-time window with sound and hot reload, for the user (`--bare`: the video alone, no controls, panels or timeline, played once, then the window closes, Escape sooner; `--fullscreen`: open fullscreen; both together play a script full screen like a screensaver; `--present`: a presentation, bare and fullscreen, playing each scene and waiting at its end (`scene{ hold = ... }`) for Right, Space, Page Down or a click (clickers send these), Left, Page Up or a right click back a scene, B black, P pause, Escape closes; `--live`: a board on a screen (signage), bare and fullscreen, played once and then running on past its end for good (the last frame held, its scenes' clocks going on), `f.now` the system clock; a changed file beside the script reloads with no pause and no label (a failing one keeps the last good board and says why on stderr only); no keys but Control+Q; `--exit-after N`: close after N window frames). Playback that misses frames steps down to 75, 50, 35 or 25% of the window's size (a step that doesn't help is undone: the script isn't limited by pixels) and back up once it keeps up; the status line shows the size; a paused frame renders at full size, so judge detail paused. The window opens before the script loads (it loads once, in the window): a script that fails shows its error there until an edit fixes it, and an `AT` that names nothing warns and starts as without it |
 | `render [RANGE] [-o out.mp4 \| dir] [--draft] [--codec h264\|h265\|av1] [--qp N] [--native] [--slices N]` | encode the video or a part (an MP4 carries a chapter per scene, or per slide when scenes `hold = false` into the next), or write PNGs |
 | `render --batch rows.json\|rows.csv [-o out/{name}.mp4] [--rows a..b \| --only N]` | one video per data row, the row as `props` |
 | `snapshot SPECS [--update] [--dir _frame_snapshots] [--threshold 16] [--max-diff 0.001]` | compare frames with approved PNGs; writes `.actual.png`/`.diff.png`, exit 2 on a difference; a PNG of another size (another `--scale`) is the error `snapshot_size` |
@@ -352,8 +355,9 @@ with commas.
 The audio commands take `--track FILE` to hear one track alone, as it sounds in the mix.
 
 Common options: `--json`, `--scale S`, `--media DIR` (default `media/` beside the script),
-`--props FILE`, `--set K=V`, `--software`, `--threads N`, `--image-cache MB` (decoded images
-kept in memory, default 1024).
+`--props FILE`, `--set K=V`, `--now TIME` (`f.now` at the first frame: an RFC 3339 time with
+its zone, `2026-11-02T14:05:00Z`, or seconds since 1970; default 0), `--software`,
+`--threads N`, `--image-cache MB` (decoded images kept in memory, default 1024).
 
 ### As MCP tools
 
@@ -403,7 +407,9 @@ playing.
 ## 4. Writing the video
 
 - One scene per idea, 2-6 s each. Inside a scene `f.seconds` and `f.index` count from the
-  scene start; `f.global_seconds` / `f.global_index` from the video start.
+  scene start; `f.global_seconds` / `f.global_index` from the video start; `f.now` is the wall
+  clock (seconds since 1970: `--now` at the first frame, default 0; the system clock in
+  `preview --live`).
 - `animate(f, keys)` with keys `{ start, stop, from, to, easing }` is the default for
   motion. Leave `stop` nil on a trailing spring so it settles naturally. Before the first key
   the value is its `from`; after the last it holds its `to`.
@@ -513,6 +519,12 @@ The short version of `references/design.md`:
   default; or `"loop"`, `"freeze"`; `hold = false` plays on, for a build inside a slide).
   Builds are scenes too: the next one draws what came before in place and brings in the
   new part. The same script renders the recorded talk, with a chapter per slide.
+- A board on a screen (departures, a scoreboard, a queue) is a video that reads its data at
+  load and is played with `preview --live`: whatever writes the data replaces the file, the
+  board reloads on the same clock, and `track_changes` says which rows changed and what they
+  were (`examples/departures`). Draw from `f.now` for the time of day and from `f.seconds`
+  for motion; check it at a moment with `frame video.lua 3s --now 2026-11-02T14:05:00Z`.
+  To keep it up, run it from a service that restarts it (systemd: `Restart=always`).
 - Cross-fade scenes with `overlap = { previous = 0.4 }` (added to the scene's duration),
   give the entering scene `transition = { "wipe", duration = 0.5, easing = ease_in_out }`
   (fade, slide, wipe, clock_wipe, zoom, glitch; the previous scene leaves by it), or carry an

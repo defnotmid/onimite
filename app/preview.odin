@@ -117,6 +117,12 @@ Preview_State :: struct {
 	// ahead (the held one leaves from where it was); the screen black while
 	// `blackout`.
 	present:            bool,
+	// --live: bare and fullscreen, playing on past the end for good (the
+	// clock runs on, the last frame held: preview_request), `now_start`
+	// following the system clock; no input but Control+Q. Otherwise
+	// `now_start` is the app's --now.
+	live:               bool,
+	now_start:          f64,
 	aimed:              bool,
 	toward:             int,
 	toward_scene:       int,
@@ -137,6 +143,7 @@ Preview_State :: struct {
 	asked_frame:        int,
 	asked_hold:         f64,
 	asked_through:      int,
+	asked_now_start:    f64,
 	asked_scale:        f32,
 	asked_reload:       u64,
 	reload_gen:         u64,
@@ -314,6 +321,10 @@ preview_open :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 	}
 	if .Present in regs.flags {
 		pv.present, pv.bare, pv.fullscreen, pv.loop = true, true, true, false
+	}
+	pv.now_start = app.now
+	if .Live in regs.flags {
+		pv.live, pv.bare, pv.fullscreen, pv.loop, pv.playing = true, true, true, false, true
 	}
 	// The worker loads the script (the start frame resolved with it).
 	pv.script_path = strings.clone(app.script_path)
@@ -847,7 +858,12 @@ preview_seek :: proc(app: ^App_State, frame: int) {
 	} else {
 		pv.frame = max(frame, 0)
 	}
-	pv.clock = f64(pv.frame) / f64(preview_fps(app))
+	// a live board's clock only runs forward: past its end the last frame
+	// holds while the clock goes on, so a seek there (the sound's resync
+	// after a reload) must not take it back to the end (f.now would jump
+	// into the past for a frame)
+	at := f64(pv.frame) / f64(preview_fps(app))
+	pv.clock = max(pv.clock, at) if pv.live else at
 	if pv.audio != nil {
 		audio_seek(pv.audio, i64(pv.clock * om.MIX_RATE))
 	}
@@ -1446,6 +1462,14 @@ CLOCK_STEER :: 0.1
 @(private)
 preview_playback_advance :: proc(app: ^App_State, dt: f64) {
 	pv := &app.preview
+	defer if pv.live {
+		// f.now is the system clock: the clock's start moves when the two
+		// part by more than a frame (a stall, the system clock set)
+		wall := f64(time.time_to_unix_nano(time.now())) / 1e9
+		if start := wall - pv.clock; abs(start - pv.now_start) > 1 / f64(max(preview_fps(app), 1)) {
+			pv.now_start = start
+		}
+	}
 	if pv.present && pv.holding && !pv.playing && !pv.hold_paused {
 		pv.hold_time += dt
 	}
@@ -1458,6 +1482,13 @@ preview_playback_advance :: proc(app: ^App_State, dt: f64) {
 	}
 	fps := f64(preview_fps(app))
 	total := f64(preview_duration(app)) / fps
+	if pv.live && pv.clock >= total - 1.5 / fps {
+		// a live board runs on past its end, on real time (the sound is
+		// over), its last frame held (preview_request)
+		pv.clock += dt
+		pv.frame = preview_duration(app) - 1
+		return
+	}
 	if pv.audio_stream != nil {
 		pos, playing, _ := audio_position(pv.audio)
 		// The heard position moves a device block at a time (about 21 ms at
@@ -1480,7 +1511,7 @@ preview_playback_advance :: proc(app: ^App_State, dt: f64) {
 		} else {
 			pv.clock += off * CLOCK_STEER
 		}
-		if !playing && pv.clock >= total - 1.5 / fps {
+		if !playing && pv.clock >= total - 1.5 / fps && !pv.live {
 			// The audio stopped at the end (not looping).
 			pv.playing = false
 			pv.clock = total - 1 / fps
@@ -1488,7 +1519,7 @@ preview_playback_advance :: proc(app: ^App_State, dt: f64) {
 		}
 	} else {
 		pv.clock += dt
-		if pv.clock >= total {
+		if pv.clock >= total && !pv.live {
 			if pv.loop {
 				pv.clock -= total * math.floor(pv.clock / total)
 			} else {
@@ -1734,11 +1765,38 @@ preview_request :: proc(app: ^App_State, p: ^platform.Platform) {
 		// Quantized, so a window drag doesn't rebuild the renderer every pixel.
 		scale = clamp(math.ceil(fit * 32) / 32, 1.0 / 32, 2)
 	}
+	frame, hold, through := preview_asked(app)
+	fps := max(preview_fps(app), 1)
+	if pv.asked_frame == frame && pv.asked_hold == hold && pv.asked_through == through && pv.asked_scale == scale && pv.reload_gen == pv.asked_reload && pv.asked_now_start == pv.now_start {
+		return
+	}
+	// the frame's moment on the wall clock: what a reload's track_changes
+	// stamps the rows it finds changed with
+	now := pv.now_start + f64(frame) / f64(fps) + hold
+	sync.mutex_lock(&mb.mutex)
+	mb.request = {frame = frame, hold = hold, hold_through = through, now_start = pv.now_start, now = now, scale = scale, reload = pv.reload_gen, reload_media = pv.reload_media, asked = time.tick_now()}
+	mb.request_seq += 1
+	sync.cond_signal(&mb.cond)
+	sync.mutex_unlock(&mb.mutex)
+	pv.asked_frame = frame
+	pv.asked_hold = hold
+	pv.asked_through = through
+	pv.asked_now_start = pv.now_start
+	pv.asked_scale = scale
+	pv.asked_reload = pv.reload_gen
+	pv.reload_media = false
+}
+
+// The frame the worker is asked for, and the hold it runs the scenes up to
+// `through` on by (Render_Request.hold).
+@(private)
+preview_asked :: proc(app: ^App_State) -> (frame: int, hold: f64, through: int) {
+	pv := &app.preview
+	frame = pv.frame
 	// a presentation's hold: the held scene runs on past its last frame, and
 	// leaves from there (Hold.Alive); a looping one plays on its last frame,
 	// alone (no previous scene coming in), its clock going round from its
 	// start with the sound (Hold.Loop)
-	frame, hold, through := pv.frame, 0.0, 0
 	if pv.present {
 		switch {
 		case pv.holding && !pv.playing && present_scene_hold(app) == .Alive:
@@ -1750,20 +1808,13 @@ preview_request :: proc(app: ^App_State, p: ^platform.Platform) {
 			hold, through = pv.carry, pv.carry_through
 		}
 	}
-	if pv.asked_frame == frame && pv.asked_hold == hold && pv.asked_through == through && pv.asked_scale == scale && pv.reload_gen == pv.asked_reload {
-		return
+	// a live board past its end: the last frame held, every scene running
+	// on in whole frames of the clock (as a render's)
+	fps := max(preview_fps(app), 1)
+	if k := int(pv.clock * f64(fps)); pv.live && k > frame {
+		hold, through = f64(k - frame) / f64(fps), frame
 	}
-	sync.mutex_lock(&mb.mutex)
-	mb.request = {frame = frame, hold = hold, hold_through = through, scale = scale, reload = pv.reload_gen, reload_media = pv.reload_media, asked = time.tick_now()}
-	mb.request_seq += 1
-	sync.cond_signal(&mb.cond)
-	sync.mutex_unlock(&mb.mutex)
-	pv.asked_frame = frame
-	pv.asked_hold = hold
-	pv.asked_through = through
-	pv.asked_scale = scale
-	pv.asked_reload = pv.reload_gen
-	pv.reload_media = false
+	return
 }
 
 // The shares of the fitted scale playback steps down through when frames
@@ -1936,8 +1987,9 @@ video_draw :: proc(s: ^ui.State, box: ^ui.Box, data: rawptr) {
 }
 
 // The video, letterboxed in `area` with 2D wheel zoom and drag pan; a click
-// toggles playback and a double-click fits the camera. Over it, what the
-// worker is doing until the first frame shows, and a failed reload.
+// toggles playback and a double-click fits the camera (a live board's takes
+// none of it). Over it, what the worker is doing until the first frame
+// shows, and a failed reload.
 @(private)
 video_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32, area: Workspace_Rect) {
 	pv := &app.preview
@@ -1950,7 +2002,7 @@ video_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32, area: Workspace_Rect
 	if ui.pressed(sig) {
 		pv.video_drag_moved = false
 	}
-	if w > 0 && h > 0 {
+	if w > 0 && h > 0 && !pv.live {
 		if ui.dragging(sig) && (abs(sig.drag_delta.x) > 3 * dpi || abs(sig.drag_delta.y) > 3 * dpi) {
 			pv.video_drag_moved = true
 		}
@@ -1968,13 +2020,14 @@ video_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32, area: Workspace_Rect
 			command_push(c, .Video_Zoom, {scalar = math.pow(1.25, f64(wheel)), at_xy = at_xy})
 		}
 	}
-	if ui.clicked(sig) && !pv.video_drag_moved {
+	if ui.clicked(sig) && !pv.video_drag_moved && !pv.live {
 		command_push(c, .Present_Next if pv.present else .Playback_Toggle)
 	}
 	if pv.present && ui.right_clicked(sig) {
 		command_push(c, .Present_Previous)
 	}
-	if pv.loading || !render.image_loaded(&pv.video_image) {
+	// a live board shows the last good frame while it reloads
+	if (pv.loading && !pv.live) || !render.image_loaded(&pv.video_image) {
 		label := "Rendering the first frame…"
 		if pv.loading {
 			phase := "running the script"
@@ -1997,7 +2050,8 @@ video_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32, area: Workspace_Rect
 		ui.build_box(s, {.Draw_Background, .Draw_Text}, fmt.tprintf("%s###loading", label))
 		ui.pop_parent(s)
 	}
-	if pv.reload_error != "" {
+	// (a live board's goes to stderr only: the worker's warning)
+	if pv.reload_error != "" && !pv.live {
 		ui.push_parent(s, video)
 		first_line := pv.reload_error
 		if i := strings.index_byte(first_line, '\n'); i >= 0 {

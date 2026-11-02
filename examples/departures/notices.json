@@ -1,0 +1,8 @@
+{
+  "notices": [
+    { "id": "liquids", "level": "info", "text": "Liquids over 100 ml travel in checked baggage" },
+    { "id": "belongings", "level": "info", "text": "Keep your belongings with you at all times" },
+    { "id": "wifi", "level": "info", "text": "Free Wi-Fi: TERMINAL-2" },
+    { "id": "ox902-gate", "level": "gate", "text": "OX 902 to Reykjavik now departs from gate A14", "from": "13:30", "until": "14:10" }
+  ]
+}

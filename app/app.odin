@@ -22,6 +22,8 @@ App_State :: struct {
 	script_path:    string,
 	script_args:    []string,
 	props_text:     string,
+	// --now: the wall clock at the video's first frame (seconds since 1970).
+	now:            f64,
 	// The media folder: --media, else media/ beside the script (owned);
 	// the preview's worker loads it too.
 	media_dir:      string,
@@ -287,6 +289,8 @@ script_load :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 	for a, i in args {
 		app.script_args[i] = strings.clone(a)
 	}
+	// checked when the option was read (Option_Check.Time)
+	app.now, _ = now_parse(regs.at)
 	if regs.props != "" {
 		data, err := os.read_entire_file(regs.props, context.allocator)
 		if err != nil {
@@ -338,7 +342,7 @@ script_reload :: proc(app: ^App_State, row: string) -> Error {
 	// The main load synthesizes the spoken lines the store lacks (the
 	// preview's too, before its window opens); frame builders and the
 	// preview's worker read them from the store.
-	loaded := script.load(&app.script, app.script_path, app.script_args, &app.media, nil, props[:], app.pool)
+	loaded := script.load(&app.script, app.script_path, app.script_args, &app.media, nil, props[:], app.pool, {start = app.now, at = app.now})
 	if loaded != nil {
 		return fail(app, {code = .Script, script = app.script.failure})
 	}
@@ -363,6 +367,7 @@ script_inputs_clear :: proc(app: ^App_State) {
 	delete(app.props_text)
 	delete(app.media_dir)
 	app.script_path, app.script_args, app.props_text, app.media_dir = "", nil, "", ""
+	app.now = 0
 }
 
 // The renderer at the current scale, rebuilt when the scale changes.

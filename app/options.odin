@@ -5,6 +5,7 @@ import "core:os"
 import "core:reflect"
 import "core:strconv"
 import "core:strings"
+import "core:time"
 import enc "../encode"
 
 // The commands of the command line and the MCP server are the kinds with
@@ -27,7 +28,8 @@ import enc "../encode"
 //   arg, about   the value in the help (PATH, N) and what the option does
 //   default      what the help says it defaults to (`mcp_default`: the MCP
 //                tool's, when it differs)
-//   check        Positive or Not_Negative: a number the usage refuses else
+//   check        Positive or Not_Negative: a number the usage refuses else;
+//                Time: a moment (now_parse)
 //   invalid      what the usage error says of a value the check or the
 //                register refuses
 // A `using` field of struct type adds its fields there; tagged `shared`,
@@ -68,6 +70,7 @@ Script_Options :: struct {
 	media:            string               `row:"Load" arg:"DIR" about:"fonts, images and sounds" default:"media/ beside the script"`,
 	props:            string               `row:"Load" arg:"FILE" about:"a JSON object the script reads as the table props (props.title, ...)"`,
 	set:              map[string]Set_Value `row:"Load" reg:"args" arg:"K=V" about:"script arguments (Lua: arg.K, a string) that also set props.K (a number when it looks like one); they win over a batch row, which wins over the props file" invalid:"takes key=value"`,
+	now:              string               `row:"Load" reg:"at" arg:"TIME" about:"the wall clock at the video's first frame (Lua: f.now, seconds since 1970): an RFC 3339 time with its zone (2026-11-02T14:05:00Z, 2026-11-02T15:05:00+01:00) or seconds since 1970; preview --live runs on the system clock instead" default:"0, 1970-01-01T00:00:00Z" check:"Time" invalid:"takes a time like 2026-11-02T14:05:00Z (or +01:00 for the Z), or seconds since 1970"`,
 	scale:            f64                  `row:"Scale" reg:"scalar" arg:"S" about:"output resolution factor, e.g. 0.5 for half resolution (rounded to an even size)" check:"Positive" invalid:"needs a positive number"`,
 	software:         bool                 `row:"Backend" reg:"flag" about:"draw on the CPU instead of the GPU"`,
 	using json_option: Json_Option,
@@ -82,7 +85,7 @@ Render_Args :: struct {
 	output:               string `cli:"-o|--output|--out" reg:"path" arg:"PATH" about:"the .mp4, or a directory for PNGs; with a batch, a name template with {field} from the row and {index}, the row number" default:"out.mp4; with a batch, out/{index}.mp4"`,
 	draft:                bool   `flag:"Draft" about:"half size, fastest encoding"`,
 	codec:                enc.Codec `reg:"option" about:"the video codec: h264 and h265 through the system's encoders, av1 through oicut's own, on every machine" default:"h264"`,
-	qp:                   int    `reg:"count" arg:"N" about:"quantizer, 1 best .. 51 (AV1's is coarser: the same number looks worse)" default:"23, av1 12; with --draft 32, av1 24"`,
+	qp:                   int    `reg:"count" arg:"N" about:"quantizer, 1 best .. 51, the same scale for every codec" default:"23; with --draft 32"`,
 	native:               bool   `flag:"Native" about:"oicut's native encoder instead of the system's (VideoToolbox, Vulkan Video, Media Foundation, libavcodec); only in a build with -define:OICUT_PATENTED=true, refused otherwise"`,
 	slices:               int    `arg:"N" about:"H.264 slices oicut's native encoder codes in parallel; the file depends on it (more: faster, slightly larger), never on the machine; the system's encoders ignore it; only in a build with the native encoder, refused otherwise" default:"4" check:"Positive" invalid:"needs a count of at least 1"`,
 	batch:                string `reg:"props" arg:"ROWS" about:"a .json array or .csv of rows: one video per row, the row as props; a failing row is reported, the others still render"`,
@@ -211,6 +214,7 @@ Preview_Args :: struct {
 	no_loop:              bool   `flag:"No_Loop" about:"stop at the end"`,
 	bare:                 bool   `flag:"Bare" about:"the video alone (no controls, panels or timeline), played once, then the window closes; Escape closes it sooner"`,
 	present:              bool   `flag:"Present" about:"a presentation: the video alone, fullscreen, waiting at each scene's end (its hold) for Right, Space, Page Down or a click; Left or Page Up back a scene, B black, P pause, Escape closes"`,
+	live:                 bool   `flag:"Live" about:"a live board (signage): the video alone, fullscreen, played once and then running on past its end for good, f.now the system clock; a changed file beside the script swaps the new version in without a pause (a failing one keeps the last good one and says why on stderr); no keys but Control+Q"`,
 	fullscreen:           bool   `flag:"Fullscreen" about:"open fullscreen (F toggles)"`,
 	exit_after:           int    `mcp:"-" reg:"count" arg:"N" about:"close after N window frames"`,
 	using script_options: Script_Options `shared:""`,
@@ -259,11 +263,12 @@ FRONT_ROW_KINDS := [Front_Row]Command_Kind {
 // The settings pushed only when an option sets them.
 FRONT_ROWS_GIVEN :: bit_set[Front_Row]{.Threads, .Image_Cache}
 
-// A number that must be positive or not negative.
+// A number that must be positive or not negative, or a moment (now_parse).
 Option_Check :: enum u8 {
 	None,
 	Positive,
 	Not_Negative,
+	Time,
 }
 
 // An option: a field of a command's arguments struct, as its tags say.
@@ -401,6 +406,10 @@ option_set :: proc(rows: ^Front_Rows, o: Option, v: Option_Value) -> string {
 		}
 	case .Not_Negative:
 		if n < 0 {
+			return o.invalid
+		}
+	case .Time:
+		if _, ok := now_parse(v.str); !ok {
 			return o.invalid
 		}
 	}
@@ -850,4 +859,17 @@ usage_line :: proc(b: ^strings.Builder, indent: int, head, text: string) {
 		first = false
 	}
 	strings.write_byte(b, '\n')
+}
+
+// A moment as --now takes it, in seconds since 1970 (UTC): an RFC 3339 time
+// with its zone (Z or an offset), or the seconds themselves.
+now_parse :: proc(text: string) -> (seconds: f64, ok: bool) {
+	if n, is_number := strconv.parse_f64(text); is_number {
+		return n, true
+	}
+	t, consumed := time.rfc3339_to_time_utc(text)
+	if consumed != len(text) || consumed == 0 {
+		return 0, false
+	}
+	return f64(time.time_to_unix_nano(t)) / 1e9, true
 }

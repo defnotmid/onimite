@@ -107,6 +107,11 @@ Script :: struct {
 	say_made:      map[speech.Key]Say_Made,
 	// The songs and sounds this load made (song_api.odin).
 	songs:         [dynamic]Script_Song,
+	// The load's clock and what track_changes remembers from the loads
+	// before it (borrowed), and the rows its calls stamped (owned until the
+	// preview takes them for the next load: changes_api.odin).
+	clock:         Load_Clock,
+	changes:       Change_Memory,
 }
 
 // A named moment, seconds on the video clock. `hit` names a track whose
@@ -172,7 +177,7 @@ video { width = 1280, height = 720, fps = 30, duration = i.duration, background 
 // Loads the script. Its `say` lines are all made before it is used: a first
 // pass notes the ones not made yet (a silent stand-in meanwhile), they are
 // synthesized together (say_synthesize), and a second pass reads them all.
-load :: proc(s: ^Script, path: string, args: []string = nil, media: ^om.Media = nil, shared: ^Shared = nil, props: []string = nil, pool: ^thread.Pool = nil) -> Error {
+load :: proc(s: ^Script, path: string, args: []string = nil, media: ^om.Media = nil, shared: ^Shared = nil, props: []string = nil, pool: ^thread.Pool = nil, clock: Load_Clock = {}) -> Error {
 	// A load that synthesized lines lets go of the engine when it ends (the
 	// lines own their memory; the next miss starts it again). Loads that
 	// only read lines (frame builders, clip builds) never touch it.
@@ -182,18 +187,18 @@ load :: proc(s: ^Script, path: string, args: []string = nil, media: ^om.Media = 
 	}
 	defer say_made_clear(s)
 	s.say_defer = true
-	err := load_pass(s, path, args, media, shared, props, pool)
+	err := load_pass(s, path, args, media, shared, props, pool, clock)
 	s.say_defer = false
 	if err != nil || len(s.say_misses) == 0 {
 		say_misses_clear(s)
 		return err
 	}
 	say_synthesize(s)
-	return load_pass(s, path, args, media, shared, props, pool)
+	return load_pass(s, path, args, media, shared, props, pool, clock)
 }
 
 @(private = "file")
-load_pass :: proc(s: ^Script, path: string, args: []string, media: ^om.Media, shared: ^Shared, props: []string, pool: ^thread.Pool) -> Error {
+load_pass :: proc(s: ^Script, path: string, args: []string, media: ^om.Media, shared: ^Shared, props: []string, pool: ^thread.Pool, clock: Load_Clock) -> Error {
 	// what the load carries from pass to pass
 	spoke, say_defer, say_made := s.spoke, s.say_defer, s.say_made
 	unload(s)
@@ -201,6 +206,7 @@ load_pass :: proc(s: ^Script, path: string, args: []string, media: ^om.Media, sh
 	s.odin_context = context
 	s.media = media
 	s.pool = pool
+	s.clock = clock
 	s.shared = shared if shared != nil else &s.own_shared
 	s.path = strings.clone(path)
 	s.args = make([]string, len(args))
@@ -274,6 +280,7 @@ load_pass :: proc(s: ^Script, path: string, args: []string, media: ^om.Media, sh
 		scene.render = scene_render
 	}
 	v.scenes = s.scenes[:]
+	v.now = clock.start
 	// The video's own tracks first, then each scene's in scene order.
 	slice.stable_sort_by(s.tracks[:], proc(a, b: om.Audio_Track) -> bool {
 		return (a.scene.? or_else -1) < (b.scene.? or_else -1)
@@ -358,6 +365,7 @@ unload :: proc(s: ^Script) {
 	}
 	delete(s.props)
 	shared_destroy(&s.own_shared)
+	change_memory_destroy(&s.changes)
 	s^ = {}
 }
 
@@ -577,19 +585,23 @@ message_handler :: proc "c" (L: ^lua.State) -> c.int {
 }
 
 // The frame as a Lua table: index, global_index, fps, seconds,
-// global_seconds, width, height and, inside a scene, `scene`.
+// global_seconds, now (the wall clock, Video.now on), width, height and,
+// inside a scene, `scene`.
 @(private)
 push_frame :: proc(s: ^Script, f: om.Frame) {
 	L := s.L
-	lua.createtable(L, 0, 8)
+	lua.createtable(L, 0, 9)
 	set_int(L, "index", f.index)
 	set_int(L, "global_index", f.global_index)
 	set_int(L, "fps", f.fps)
 	// In double precision: Lua sums and compares these.
 	lua.pushnumber(L, lua.Number(f.index) / lua.Number(f.fps) + lua.Number(f.shift))
 	lua.setfield(L, -2, "seconds")
-	lua.pushnumber(L, lua.Number(f.global_index) / lua.Number(f.fps) + lua.Number(f.shift))
+	global := lua.Number(f.global_index) / lua.Number(f.fps) + lua.Number(f.shift)
+	lua.pushnumber(L, global)
 	lua.setfield(L, -2, "global_seconds")
+	lua.pushnumber(L, lua.Number(s.video.now) + global)
+	lua.setfield(L, -2, "now")
 	set_int(L, "width", s.video.width)
 	set_int(L, "height", s.video.height)
 	if f.scene != nil {
@@ -802,6 +814,7 @@ API := [?]Api_Function {
 	{"spectrum_centered", l_spectrum_centered, .Both},
 	{"gunzip", l_gunzip, .Both},
 	{"json_decode", l_json_decode, .Both},
+	{"track_changes", l_track_changes, .Load},
 	{"check_fields", l_check_fields, .Both},
 	{"dofile", l_dofile, .Both},
 	{"print", l_print, .Both},

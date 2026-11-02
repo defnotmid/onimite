@@ -198,14 +198,14 @@ l_shared :: proc "c" (L: ^lua.State) -> c.int {
 	return 1
 }
 
-@(private = "file")
+@(private)
 clone_slice :: proc(s: []$T, alloc: mem.Allocator) -> []T {
 	out := make([]T, len(s), alloc)
 	copy(out, s)
 	return out
 }
 
-@(private = "file")
+@(private)
 Freezer :: struct {
 	root:   Shared_Item,
 	tables: [dynamic]Shared_Table,
@@ -218,7 +218,7 @@ Freezer :: struct {
 	bad:    cstring,
 }
 
-@(private = "file")
+@(private)
 freezer_destroy :: proc(f: ^Freezer) {
 	delete(f.tables)
 	delete(f.items)
@@ -227,7 +227,7 @@ freezer_destroy :: proc(f: ^Freezer) {
 
 // Flattens the value at `at`; on failure `f.bad` names a type it can not
 // share (functions, userdata, threads).
-@(private = "file")
+@(private)
 freeze :: proc(L: ^lua.State, f: ^Freezer, at: c.int) -> bool {
 	idx := lua.absindex(L, at)
 	lua.createtable(L, 0, 0)
@@ -252,7 +252,7 @@ freeze :: proc(L: ^lua.State, f: ^Freezer, at: c.int) -> bool {
 	return true
 }
 
-@(private = "file")
+@(private)
 freeze_item :: proc(L: ^lua.State, f: ^Freezer, idx: c.int) -> (it: Shared_Item, ok: bool) {
 	#partial switch lua.type(L, idx) {
 	case .BOOLEAN:
@@ -293,7 +293,7 @@ freeze_item :: proc(L: ^lua.State, f: ^Freezer, idx: c.int) -> (it: Shared_Item,
 }
 
 // Pushes a copy of `v`: its tables made first, then filled.
-@(private = "file")
+@(private)
 thaw :: proc(L: ^lua.State, v: ^Shared_Value) {
 	lua.L_checkstack(L, 8, "shared")
 	lua.createtable(L, c.int(len(v.tables)), 0)
@@ -316,7 +316,7 @@ thaw :: proc(L: ^lua.State, v: ^Shared_Value) {
 	lua.remove(L, refs)
 }
 
-@(private = "file")
+@(private)
 push_item :: proc(L: ^lua.State, v: ^Shared_Value, it: Shared_Item, refs: c.int) {
 	switch it.kind {
 	case .False, .True:

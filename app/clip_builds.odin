@@ -60,6 +60,8 @@ Clip_Builds :: struct {
 	script_path: string,
 	media_dir:   string,
 	args, props: []string,
+	// The loads' clock (their rows: none).
+	clock:       script.Load_Clock,
 	video:       ^enc.Video_Decoders,
 	// Called by a job after each slot it fills (the preview wakes its worker).
 	wake:        proc(data: rawptr),
@@ -77,7 +79,7 @@ Clip_Job :: struct {
 // Builds for `names` (in the order they are needed), with a job per pool
 // thread (up to CLIP_JOBS); nothing runs until clip_builds_start or
 // clip_builds_wait. `shared` must outlive the builds.
-clip_builds_make :: proc(names: []string, pool, background: ^thread.Pool, shared: ^script.Shared, script_path, media_dir: string, args, props: []string, video: ^enc.Video_Decoders) -> ^Clip_Builds {
+clip_builds_make :: proc(names: []string, pool, background: ^thread.Pool, shared: ^script.Shared, script_path, media_dir: string, args, props: []string, clock: script.Load_Clock, video: ^enc.Video_Decoders) -> ^Clip_Builds {
 	b := new(Clip_Builds)
 	b.slots = make([]Clip_Slot, len(names))
 	for n, i in names {
@@ -94,6 +96,7 @@ clip_builds_make :: proc(names: []string, pool, background: ^thread.Pool, shared
 	b.media_dir = strings.clone(media_dir)
 	b.args = clone_strings(args)
 	b.props = clone_strings(props)
+	b.clock = {start = clock.start, at = clock.at}
 	b.video = video
 	return b
 }
@@ -227,7 +230,7 @@ clip_job_build :: proc(j: ^Clip_Job) -> bool {
 			om.media_load_dir(&j.media, b.media_dir)
 		}
 		j.script = new(script.Script)
-		j.loaded = script.load(j.script, b.script_path, b.args, &j.media, b.shared, b.props, b.pool) == nil
+		j.loaded = script.load(j.script, b.script_path, b.args, &j.media, b.shared, b.props, b.pool, b.clock) == nil
 	}
 	slot := &b.slots[i]
 	if !j.loaded {

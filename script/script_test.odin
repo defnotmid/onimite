@@ -372,6 +372,104 @@ scene { "E", duration = 1, hold = true }
 	testing.expect(t, strings.contains(error_message(bad.script.failure, context.temp_allocator), `hold is "alive", "loop", "freeze" or false`))
 }
 
+// f.now: the load clock's start (Video.now) plus the frame's time, held
+// scenes' hold included.
+@(test)
+test_frame_now :: proc(t: ^testing.T) {
+	f: Fixture
+	defer fixture_destroy(&f)
+	fixture_init(t, &f, `
+video { width = 8, height = 8, fps = 10, duration = 1, render = function(f) seen = f.now end }
+`)
+	if !testing.expect(t, load(&f.script, f.path, nil, &f.media, &f.shared, clock = {start = 1000, at = 1000}) == nil) {
+		return
+	}
+	testing.expect_value(t, f.script.video.now, 1000)
+	L := f.script.L
+	fixture_frame(t, &f, 5)
+	lua.getglobal(L, "seen")
+	testing.expect_value(t, f64(lua.tonumber(L, -1)), 1000.5)
+	lua.pop(L, 1)
+	r := fixture_renderer(t, &f)
+	r.clock_offset, r.held_through = 2, 9
+	fixture_frame(t, &f, 9)
+	lua.getglobal(L, "seen")
+	testing.expect_value(t, f64(lua.tonumber(L, -1)), 1002.9)
+	lua.pop(L, 1)
+	r.clock_offset, r.held_through = 0, 0
+}
+
+// track_changes: rows matched with the previous load's by key (or by
+// position), stamped with when they last changed and what they were
+// before; equal whatever order their keys come in; errors name the row.
+@(test)
+test_track_changes :: proc(t: ^testing.T) {
+	f: Fixture
+	defer fixture_destroy(&f)
+	fixture_init(t, &f, `
+video { width = 8, height = 8, fps = 10, duration = 1 }
+list = track_changes("list", json_decode(props.rows), props.key and { key = props.key } or nil)
+`)
+	memory: Change_Memory
+	defer change_memory_destroy(&memory)
+	// Loads `rows` (JSON) at `at`, matched with what the last call kept,
+	// then runs `check` (Lua asserts on `list`); "" for `key`: by position.
+	step :: proc(t: ^testing.T, f: ^Fixture, memory: ^Change_Memory, rows, key: string, at: f64, check: string, loc := #caller_location) {
+		props := fmt.tprintf(`{{"rows": %q%s}}`, rows, fmt.tprintf(`, "key": %q`, key) if key != "" else "")
+		if !testing.expectf(t, load(&f.script, f.path, nil, &f.media, &f.shared, {props}, clock = {start = 0, at = at, rows = memory}) == nil, "load: %s", error_message(f.script.failure, context.temp_allocator), loc = loc) {
+			return
+		}
+		L := f.script.L
+		if lua.L_dostring(L, strings.clone_to_cstring(check, context.temp_allocator)) != 0 {
+			testing.expectf(t, false, "check: %s", lua.tostring(L, -1), loc = loc)
+			lua.pop(L, 1)
+		}
+		change_memory_destroy(memory)
+		memory^ = change_memory_take(&f.script)
+	}
+	step(t, &f, &memory, `[{"id": "a", "v": 1}, {"id": "b", "v": 2}]`, "id", 100, `
+assert(list[1].changed_at == 100 and list[1].before == nil and list[2].changed_at == 100)`)
+	// b moved and kept, a changed (before: v 1), c new
+	step(t, &f, &memory, `[{"id": "b", "v": 2}, {"id": "a", "v": 9}, {"id": "c", "v": 3}]`, "id", 200, `
+assert(list[1].id == "b" and list[1].changed_at == 100 and list[1].before == nil)
+assert(list[2].changed_at == 200 and list[2].before.v == 1 and list[2].before.id == "a")
+assert(list[3].changed_at == 200 and list[3].before == nil)`)
+	// the same again: every stamp and before kept
+	step(t, &f, &memory, `[{"id": "b", "v": 2}, {"id": "a", "v": 9}, {"id": "c", "v": 3}]`, "id", 300, `
+assert(list[1].changed_at == 100 and list[2].changed_at == 200 and list[2].before.v == 1 and list[3].changed_at == 200)`)
+	// keys in another order, nested: the same row
+	step(t, &f, &memory, `[{"id": "n", "t": {"p": 1, "q": [1, 2]}}]`, "id", 400, ``)
+	step(t, &f, &memory, `[{"t": {"q": [1, 2], "p": 1}, "id": "n"}]`, "id", 500, `
+assert(list[1].changed_at == 400)`)
+	// a repeated key: the n-th with the n-th
+	step(t, &f, &memory, `[{"id": 7, "v": 1}, {"id": 7, "v": 2}]`, "id", 600, ``)
+	step(t, &f, &memory, `[{"id": 7, "v": 1}, {"id": 7, "v": 3}]`, "id", 700, `
+assert(list[1].changed_at == 600 and list[2].changed_at == 700 and list[2].before.v == 2)`)
+	// by position
+	step(t, &f, &memory, `[{"s": "x"}, {"s": "y"}]`, "", 800, ``)
+	step(t, &f, &memory, `[{"s": "x"}, {"s": "z"}, {"s": "w"}]`, "", 900, `
+assert(list[1].changed_at == 800 and list[2].changed_at == 900 and list[2].before.s == "y" and list[3].before == nil)`)
+	// no memory (any load but the preview's): every row new, at the load's moment
+	if testing.expect(t, load(&f.script, f.path, nil, &f.media, &f.shared, {`{"rows": "[{\"s\": \"x\"}]"}`}, clock = {start = 5, at = 5}) == nil) {
+		L := f.script.L
+		testing.expect(t, lua.L_dostring(L, `assert(list[1].changed_at == 5 and list[1].before == nil)`) == 0)
+	}
+
+	bad :: proc(t: ^testing.T, src, want: string, loc := #caller_location) {
+		f: Fixture
+		defer fixture_destroy(&f)
+		fixture_init(t, &f, src)
+		testing.expect(t, load(&f.script, f.path, nil, &f.media, &f.shared) != nil, loc = loc)
+		msg := error_message(f.script.failure, context.temp_allocator)
+		testing.expectf(t, strings.contains(msg, want), "%q lacks %q", msg, want, loc = loc)
+	}
+	bad(t, `track_changes("l", { 3 })`, "track_changes(l): row 1 is a number; rows are tables")
+	bad(t, `track_changes("l", { { changed_at = 1 } })`, "row 1 already has changed_at")
+	bad(t, `track_changes("l", { { id = 1 }, { } }, { key = "id" })`, "row 2 has no id")
+	bad(t, `track_changes("l", { { f = print } })`, "row 1 holds a function")
+	bad(t, `track_changes("l", {}) track_changes("l", {})`, "called twice in one load")
+}
+
 // `props`: JSON objects merged in order (objects to tables, arrays from 1,
 // integers stay integers, null is nil), then `key=value` arguments; and
 // json_decode, which reads JSON text the same way.

@@ -99,6 +99,12 @@ PRESENT_KEYS := [?]Key_Binding {
 	{key = .Escape, modal = true, kind = .Dismiss},
 }
 
+// A live board's (--live): nothing a passer-by can press by accident.
+@(rodata)
+LIVE_KEYS := [?]Key_Binding {
+	{key = .Q, ctrl = .Down, kind = .Quit},
+}
+
 // Pushes the rows of the keys that went down this window frame (the
 // window's key actions); `modal`: the lister is up.
 preview_keys :: proc(app: ^App_State, actions: []ui.Action_Row, modal: bool) {
@@ -109,7 +115,14 @@ preview_keys :: proc(app: ^App_State, actions: []ui.Action_Row, modal: bool) {
 		if a.kind != .Key || a.consumed {
 			continue
 		}
-		for b in (PRESENT_KEYS[:] if app.preview.present else PREVIEW_KEYS[:]) {
+		keys := PREVIEW_KEYS[:]
+		switch {
+		case app.preview.live:
+			keys = LIVE_KEYS[:]
+		case app.preview.present:
+			keys = PRESENT_KEYS[:]
+		}
+		for b in keys {
 			if b.key == a.key && (b.modal || !modal) && (b.repeat || !a.repeat) && held(b.ctrl, a.control) && held(b.shift, a.shift) {
 				command_push(&app.commands, b.kind, b.regs)
 				a.consumed = true

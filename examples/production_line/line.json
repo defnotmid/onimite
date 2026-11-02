@@ -1,0 +1,25 @@
+{
+  "line": "Line 3",
+  "product": "Bottling · 0.5 l PET",
+  "shift": { "name": "Shift B", "from": "06:00", "to": "14:00", "target": 168000 },
+  "utc_offset": "+01:00",
+  "target_rate": 24000,
+  "stations": [
+    { "id": "depal", "name": "Depalletizer", "state": "running", "rate": 24300, "count": 118420, "buffer": 6 },
+    { "id": "rinse", "name": "Rinser", "state": "running", "rate": 24210, "count": 118390, "buffer": 5 },
+    { "id": "fill", "name": "Filler", "state": "running", "rate": 24020, "count": 118102, "buffer": 7 },
+    { "id": "cap", "name": "Capper", "state": "running", "rate": 24010, "count": 118060, "buffer": 4 },
+    { "id": "label", "name": "Labeler", "state": "fault", "rate": 0, "count": 117808, "buffer": 0, "fault": "Label web break" },
+    { "id": "inspect", "name": "Vision inspect", "state": "starved", "rate": 0, "count": 117650, "buffer": 0 },
+    { "id": "pack", "name": "Case packer", "state": "starved", "rate": 0, "count": 117410, "buffer": 0 },
+    { "id": "pallet", "name": "Palletizer", "state": "running", "rate": 23800, "count": 117330, "buffer": 2 }
+  ],
+  "totals": { "good": 117102, "scrap": 1388, "availability": 0.91, "performance": 0.95, "quality": 0.988 },
+  "events": [
+    { "id": "e41", "at": "11:02", "level": "fault", "text": "Labeler: label web break" },
+    { "id": "e40", "at": "10:47", "level": "info", "text": "Filler: product change done, 0.5 l PET" },
+    { "id": "e39", "at": "10:21", "level": "warn", "text": "Capper: torque drift, recalibrated" },
+    { "id": "e38", "at": "09:55", "level": "info", "text": "Shift B: maintenance round complete" }
+  ],
+  "history": [23600, 23900, 24100, 24050, 23800, 23950, 24200, 24150, 23700, 22900, 21000, 23400, 24000, 24100, 24250, 24150, 23950, 24000, 24100, 23850, 24050, 24200, 24100, 23900, 24000, 23950, 24150, 24100, 18200, 9600]
+}

@@ -1,6 +1,7 @@
 package onimite_app
 
 import "core:testing"
+import "core:time"
 import om "../onimite"
 import platform "../platform"
 import ui "../ui"
@@ -138,4 +139,36 @@ test_render_chapters :: proc(t: ^testing.T) {
 		testing.expect_value(t, part[1].start, 1.5)
 	}
 	testing.expect(t, render_chapters(&tl, 10, 0, 10) == nil)
+}
+
+// A live board plays once and then runs on past its end for good: the last
+// frame held, the hold in whole frames of the clock; its clock's start
+// follows the system clock.
+@(test)
+test_live_runs_on :: proc(t: ^testing.T) {
+	app: App_State
+	pv := &app.preview
+	defer preview_timeline_destroy(&pv.timeline)
+	pv.live, pv.bare, pv.playing = true, true, true
+	pv.timeline.fps, pv.timeline.frames = 10, 20
+	append(&pv.timeline.scenes, Preview_Scene{start_frame = 0, end_frame = 20, hold = .Freeze})
+	preview_playback_advance(&app, 1.04)
+	frame, hold, through := preview_asked(&app)
+	testing.expect_value(t, frame, 10)
+	testing.expect_value(t, hold, 0)
+	// past the end (2 s): the last frame, held on in whole frames
+	preview_playback_advance(&app, 1.0)
+	preview_playback_advance(&app, 100)
+	frame, hold, through = preview_asked(&app)
+	testing.expect_value(t, frame, 19)
+	testing.expect_value(t, through, 19)
+	testing.expectf(t, abs(hold - 100.1) < 1e-9, "hold %v", hold)
+	testing.expect(t, pv.playing && !pv.quit)
+	// a seek (the sound's resync after a reload) doesn't take it back
+	clock := pv.clock
+	preview_seek(&app, pv.frame)
+	testing.expect_value(t, pv.clock, clock)
+	// f.now's start: the system clock less the clock
+	wall := f64(time.time_to_unix_nano(time.now())) / 1e9
+	testing.expectf(t, abs(pv.now_start + pv.clock - wall) < 0.5, "start %v, clock %v, wall %v", pv.now_start, pv.clock, wall)
 }

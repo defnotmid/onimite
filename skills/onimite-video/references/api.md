@@ -75,7 +75,12 @@ scene { "Main", duration = 5, overlap = { previous = 0.5 },
   Renders play straight through, and carry one chapter per stop, named after the scene it
   stops on (players list them).
 - The frame `f`: `index`, `seconds` (scene-relative inside a scene), `global_index`,
-  `global_seconds`, `fps`, `width`, `height`, and `scene` inside a scene. Functions about the
+  `global_seconds`, `now`, `fps`, `width`, `height`, and `scene` inside a scene. `f.now` is the
+  wall clock, seconds since 1970 (UTC): the video's first frame is at `--now` (an RFC 3339
+  time, `2026-11-02T14:05:00Z`; default 0) plus `f.global_seconds`, so renders and `inspect`
+  stay reproducible; `preview --live` runs it on the system clock. Format it with
+  `os.date("!%H:%M", f.now // 1 + offset)` (`!`: UTC, moved by the place's offset, so the
+  screen's own zone doesn't matter). Functions about the
   thing you are in (`animate(f, ...)`, clips, Lottie, shaders, captions) read `f.seconds`;
   things that live on the video (beat clocks, placed audio tracks) read `f.global_seconds`
   themselves, so pass `f` to both.
@@ -822,6 +827,38 @@ and text measurements can depend on them. `onimite render video.lua --batch rows
 out/{name}.mp4` renders one video per row; see `examples/batch/`.
 
 Lua 5.4 standard libraries are available; `require` returns the module only.
+
+### Data that changes while it plays
+
+A board on a screen (`preview --live`) reloads when a file beside the script changes:
+replace the data file (write the new one, then rename it over the old) and the next frame
+is drawn from it, on the same clock. `track_changes` tells the new load what changed:
+
+```lua
+local fh = assert(io.open(SCRIPT_DIR .. "/flights.json"))
+local board = json_decode(fh:read("a"))
+fh:close()
+track_changes("departures", board.departures)                -- matched by position
+track_changes("notices", board.notices, { key = "id" })      -- matched by a field
+-- in render: local age = f.now - row.changed_at   (< 0: not yet; show row.before)
+--            row.before                           -- the row before that change (nil: new)
+```
+
+- Each row (a table of strings, numbers, booleans and tables) is matched with the previous
+  load's row of the same `key` (the n-th of a repeated key with the n-th), or without `key`
+  with the row at the same position. One that differs from its match, or has none, gets
+  `changed_at` = the load's moment on `f.now`'s clock and `before` = its match (nil if new);
+  one that doesn't keeps its match's `changed_at` and `before`, so a reload in the middle of
+  an animation doesn't restart it. Key order inside a row doesn't count.
+- Only the preview carries rows from one load to the next (its reloads; a reload that fails
+  keeps the last good load's). Any other load (`render`, `frame`, `inspect`) finds every row
+  new, changed at the video's first frame: renders show the board coming in.
+- By position fits a split-flap board: a slot that shows another row flips from what it
+  showed. By key fits things that move or come and go: a notice that's new animates in.
+  Rows that left aren't returned: end a row's showing by time in the data (`until`, compared
+  with `f.now`) to animate it out.
+- Load time only, once per name per load; a row may not have its own `changed_at` or
+  `before` (they would be overwritten): rename them first.
 
 Mistakes that would read as nothing are reported instead:
 

@@ -787,22 +787,11 @@ Render_Result :: struct {
 	findings:        []Finding   `json:"findings"`,
 }
 
-// The quantizer without --qp, per codec, and with --draft. oicut's AV1 takes
-// qp as base_q_idx 5*qp, coarser than H.264's at the same number: 12 and 24
-// land near H.264's 23 and 32 in PSNR on the examples, in larger files.
-@(rodata)
-DEFAULT_QP := [enc.Codec]i32 {
-	.H264 = 23,
-	.H265 = 23,
-	.AV1  = 12,
-}
-
-@(rodata)
-DRAFT_QP := [enc.Codec]i32 {
-	.H264 = 32,
-	.H265 = 32,
-	.AV1  = 24,
-}
+// The quantizer without --qp, and with --draft: one scale for every codec
+// (oicut maps an AV1 qp onto H.264's, av1_q_index, so the same number gives
+// about the same quality).
+DEFAULT_QP :: 23
+DRAFT_QP :: 32
 
 @(private)
 video_render :: proc(app: ^App_State, regs: Command_Regs) -> Error {
@@ -876,7 +865,7 @@ video_render_to :: proc(app: ^App_State, regs: Command_Regs, fa: mem.Allocator) 
 	}
 	qp := i32(regs.count)
 	if qp == 0 {
-		qp = DRAFT_QP[codec] if draft else DEFAULT_QP[codec]
+		qp = DRAFT_QP if draft else DEFAULT_QP
 	}
 
 	e: enc.Encoder
@@ -914,6 +903,7 @@ video_render_to :: proc(app: ^App_State, regs: Command_Regs, fa: mem.Allocator) 
 		script_path  = app.script.path,
 		script_args  = app.script.args,
 		script_props = app.script.props,
+		clock        = {start = app.script.clock.start, at = app.script.clock.at},
 		shared       = app.script.shared,
 		media        = &app.media,
 		scale        = r.scale,

@@ -284,7 +284,7 @@ test_av1_round_trip :: proc(t: ^testing.T) {
 	}
 
 	e: Encoder
-	testing.expect_value(t, open(&e, path, W, H, 30, {codec = .AV1, qp = 12}), nil)
+	testing.expect_value(t, open(&e, path, W, H, 30, {codec = .AV1, qp = 23}), nil)
 	for i in 0 ..< N {
 		testing.expect_value(t, write_i420(&e, frames[i * i420_size(W, H):][:i420_size(W, H)], W), nil)
 	}

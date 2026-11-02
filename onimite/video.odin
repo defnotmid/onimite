@@ -86,6 +86,10 @@ Video :: struct {
 	// half the frame's time, centred on its moment); 0, the default, is
 	// none. 3D views blur what moves in them over the shutter (motion.odin).
 	shutter:       f32,
+	// The wall clock at its first frame, seconds since 1970 (UTC): `f.now`
+	// is it plus the frame's time. The load's (`--now`, else 0); the
+	// preview's --live sets it per frame from the system clock.
+	now:           f64,
 	user:          rawptr,
 }
 

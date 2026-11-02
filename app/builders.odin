@@ -67,6 +67,8 @@ Build_Run :: struct {
 	script_path:  string,
 	script_args:  []string,
 	script_props: []string,
+	// The app's script's load clock (its rows: none).
+	clock:        script.Load_Clock,
 	// Load-time data of the app's script state, which builders reuse
 	// rather than make again (script/shared.odin).
 	shared:       ^script.Shared,
@@ -231,7 +233,7 @@ scout_task :: proc(job: ^om.Pool_Job) {
 	sc := container_of(job, Scout, "job")
 	run := sc.run
 	if !sc.ready {
-		if script.load(&sc.script, run.script_path, run.script_args, run.media, run.shared, run.script_props) != nil {
+		if script.load(&sc.script, run.script_path, run.script_args, run.media, run.shared, run.script_props, clock = run.clock) != nil {
 			sc.failed = true
 			return
 		}
@@ -261,7 +263,7 @@ builder_setup :: proc(b: ^Builder) -> bool {
 		return false
 	}
 	run := b.run
-	if script.load(&b.script, run.script_path, run.script_args, run.media, run.shared, run.script_props) != nil {
+	if script.load(&b.script, run.script_path, run.script_args, run.media, run.shared, run.script_props, clock = run.clock) != nil {
 		b.failure = {code = .Script, script = b.script.failure}
 		return false
 	}
