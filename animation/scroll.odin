@@ -1,21 +1,32 @@
 package animation
 
+import "core:math"
+
 // A scroll register may use pixels, rows or sample indexes. The owner supplies
 // bounds; interpolation, clamping and fractional paging are shared primitives.
 Scroll :: struct {
 	current, maximum: f32,
 	track:            Track,
 }
+// A scroll halves its distance to where it is sent sixty times a second (RAD
+// Debugger's scrolling animation rate).
+SCROLL_RATE :: 60 * math.LN2
 scroll_to :: proc(s: ^Scroll, requested: f32) {
 	value := clamp(requested, 0, s.maximum)
-	if value != s.track.target do target(&s.track, s.current, value)
+	if value != s.track.target do target(&s.track, s.current, value, rate = SCROLL_RATE)
 }
 scroll_by :: proc(s: ^Scroll, delta: f32) {scroll_to(s, s.track.target + delta)}
+// There at once, no easing (RAD's scroll point with its offset zeroed).
+scroll_jump :: proc(s: ^Scroll, requested: f32) {
+	value := clamp(requested, 0, s.maximum)
+	s.current = value
+	target(&s.track, value, value, rate = SCROLL_RATE)
+}
 scroll_limit :: proc(s: ^Scroll, maximum: f32) {
 	s.maximum = max(0, maximum)
 	s.current = clamp(s.current, 0, s.maximum)
 	value := clamp(s.track.target, 0, s.maximum)
-	if value != s.track.target || s.current == value do target(&s.track, s.current, value)
+	if value != s.track.target || s.current == value do target(&s.track, s.current, value, rate = SCROLL_RATE)
 }
 scroll_advance :: proc(s: ^Scroll, dt: f32) -> bool {return advance(&s.current, &s.track, dt)}
 scroll_page :: proc(s: ^Scroll) -> (first: int, fraction: f32) {

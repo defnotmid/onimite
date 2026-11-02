@@ -385,22 +385,27 @@ are not kept). A failing command is an error result with its code; an `inspect` 
 
 ### Preview keys
 
-Space play/pause · Left/Right or J/K step a frame · Ctrl+Left/Right one second · Home/0
+The arrows, Home/End, PgUp/PgDn, Delete, Backspace, Enter and Space act on the focused panel (click
+a view to focus it): in the video or the timeline they are the keys below; in a Watch they move its
+cursor row (Enter or Space goes to its frame). Letter keys work anywhere. Alt+=/Alt+- size the window's text.
+Space or Enter play/pause · Left/Right or J/K step a frame · Ctrl+Left/Right one second · Home/0
 (Shift+J, Shift+Left) the bookmark, then the start · End (Shift+G, Shift+Right) last frame ·
 PgDn/S/W, PgUp/B/Shift+S next/previous scene · M set the bookmark (reloads return to it) ·
 `[` / `]` mark a range's in / out · P mark a moment (again: unmark) · Delete / Backspace remove
 the mark under the playhead (the marks file beside the script, `show marks`) ·
 Up/L, Down/H volume · Ctrl+Down/Ctrl+H mute · Shift+L loop · =/- zoom the timeline, Ctrl+0
-fit it · Z fit the video in its panel · T hide timeline · F fullscreen · D/I the Watch on problems/media · N/Shift+N
+fit it · Z fit the video in its panel · T hide timeline · F or Ctrl+Enter fullscreen · D/I the Watch on problems/media · N/Shift+N
 next/previous row with a warning or error · Ctrl+P go to a scene, cue, problem or mark (type to
-filter, Up/Down, Enter) · Ctrl+F over a Watch filters its rows · R reload · Ctrl+O open a script · Esc closes the list, the
-Watch, fullscreen, then the window · Q close.
+filter, Up/Down, Enter) · Ctrl+F in a Watch's panel (click it first) filters its rows · R reload · Ctrl+O open a script · Esc closes the list or a
+Watch's filter · Q close. Keys take exactly the modifiers listed and repeat while held.
 Click or drag the timeline to scrub; once zoomed, it stops following the playhead when you
 scroll it, and its Follow button brings it back. Over the video, the wheel zooms around the
-cursor and dragging pans (a click still plays/pauses). Views are tabs in panels: drag a tab to another panel or
+cursor and dragging pans (a click still plays/pauses); Ctrl+wheel over the video or the timeline zooms it, elsewhere it
+sizes the window's text. Views are tabs in panels (X, a middle click or Ctrl+W closes one): drag a tab to another panel or
 its edge, `+` lists the views to open in that panel and its splits (type to filter). A timeline
-in a panel at the side, taller than wide, runs top to bottom. The Watch lists scenes, cues (with drift / missing-hit
-findings), problems, media (failed, unused sounds) and marks; a click on a row goes to its frame. A
+in a panel at the side, taller than wide, runs its ruler, scenes and cues top to bottom, without its lanes (the scenes take the width beside a column of cue names); the lanes scroll as a list (wheel, scroll bar). Filters match each space-separated
+word anywhere in a row (any case; rows keep their order). The Watch's sections are tabs, each with its row count: scenes, cues (with drift / missing-hit
+findings), problems, media (failed, unused sounds) and marks; D/I open its problems' / media's tab (the first beside the video, the others after it), `+` any section's in its panel; a click on a row goes to its frame. A
 script that fails to load shows its error in the window while the last good version keeps
 playing.
 

@@ -19,12 +19,19 @@ Platform :: struct {
 	window:        ^sdl.Window,
 	device:        ^sdl.GPUDevice,
 	width, height: u32, // framebuffer size in pixels
-	dpi_scale:     f32, // pixels per logical point
+	dpi_scale:     f32, // framebuffer pixels per UI point (display content scale)
+	pixel_density: f32, // framebuffer pixels per SDL window coordinate
+	refresh_ns:    i64, // display refresh interval in nanoseconds
+	// The presentation init chose: mailbox doesn't wait for vsync, so the
+	// caller paces its frames.
+	present_mode:  sdl.GPUPresentMode,
 	should_close:  bool,
 	resized:       bool, // framebuffer size changed since last tick
+	had_event:     bool, // any SDL event was consumed by the current tick
 	input:         Input,
-	// TEXT_INPUT events are on (while a text field has keyboard focus).
-	text_input:    bool,
+	// SDL's system cursors, made at init, and the one set (set_cursor).
+	cursors:       [Cursor]^sdl.Cursor,
+	cursor:        Cursor,
 
 	// the native open-file dialog: one at a time; its answer arrives as a
 	// dropped file
@@ -36,6 +43,27 @@ Platform :: struct {
 	start_ns:      u64,
 	last_ns:       u64,
 	frame_time:    f32, // seconds elapsed during the previous frame
+	frame_slept:   bool, // frame_time includes an idle_wait block, not frame work
+	idle_slept:    bool, // set by idle_wait, handed to frame_slept by the next tick
+}
+
+// How frames reach the screen: Auto is mailbox where the window supports it,
+// else vsync; Immediate runs unthrottled where supported, so a benchmark can
+// read frame time as GPU time.
+Present :: enum u8 {
+	Auto,
+	Vsync,
+	Mailbox,
+	Immediate,
+}
+
+// The pointer's shapes, as RAD Debugger's WM_Cursor: the arrow, a text
+// field's I-beam, and a divider's or slider's resize arrows.
+Cursor :: enum u8 {
+	Pointer,
+	IBar,
+	Left_Right,
+	Up_Down,
 }
 
 // What failed to open the window (SDL's reason is the `detail` init returns).
@@ -48,9 +76,9 @@ Error :: enum u8 {
 }
 
 // init opens a resizable, high-DPI window backed by an SDL_GPU device using the
-// SPIR-V (Vulkan) or MSL (Metal) shader format. On failure `detail` is SDL's
-// reason (temp memory).
-init :: proc(p: ^Platform, title: cstring, w, h: i32) -> (err: Error, detail: string) {
+// SPIR-V (Vulkan) or MSL (Metal) shader format, presenting as `present`
+// says. On failure `detail` is SDL's reason (temp memory).
+init :: proc(p: ^Platform, title: cstring, w, h: i32, present := Present.Auto) -> (err: Error, detail: string) {
 	failed :: proc(err: Error) -> (Error, string) {
 		return err, strings.clone_from_cstring(sdl.GetError(), context.temp_allocator)
 	}
@@ -65,6 +93,10 @@ init :: proc(p: ^Platform, title: cstring, w, h: i32) -> (err: Error, detail: st
 	if p.window == nil {
 		return failed(.Window)
 	}
+	p.input.focused = .INPUT_FOCUS in sdl.GetWindowFlags(p.window)
+	p.input.moved_ns = sdl.GetTicksNS()
+	SYSTEM_CURSORS :: [Cursor]sdl.SystemCursor{.Pointer = .DEFAULT, .IBar = .TEXT, .Left_Right = .EW_RESIZE, .Up_Down = .NS_RESIZE}
+	for kind, c in SYSTEM_CURSORS do p.cursors[c] = sdl.CreateSystemCursor(kind)
 	// SPIR-V (Vulkan) and MSL (Metal) only: ovg and the UI commit no DXIL,
 	// so Windows runs SDL_GPU on Vulkan.
 	props := sdl.CreateProperties()
@@ -79,34 +111,30 @@ init :: proc(p: ^Platform, title: cstring, w, h: i32) -> (err: Error, detail: st
 	if !sdl.ClaimWindowForGPUDevice(p.device, p.window) {
 		return failed(.Claim_Window)
 	}
-	// Keep presentation deterministic across GPU backends and preserve CPU/GPU
-	// overlap on slower hardware. The extra queued frame trades a small amount of
-	// latency for materially better throughput than fully serialized submission.
-	_ = sdl.SetGPUSwapchainParameters(p.device, p.window, .SDR, .VSYNC)
+	// Mailbox presentation: never tears, and a frame that finishes after the
+	// compositor's pickup point is simply replaced by the next one; the
+	// compositor gives back a buffer a newer one replaced, so taking the next
+	// image never waits on it (with FIFO it waits for the display, forever
+	// when the display is asleep). FIFO remains where mailbox is unsupported.
+	// `present` overrides it.
+	p.present_mode = .VSYNC
+	if sdl.WindowSupportsGPUPresentMode(p.device, p.window, .MAILBOX) do p.present_mode = .MAILBOX
+	switch present {
+	case .Auto:
+	case .Immediate:
+		if sdl.WindowSupportsGPUPresentMode(p.device, p.window, .IMMEDIATE) do p.present_mode = .IMMEDIATE
+	case .Vsync:
+		p.present_mode = .VSYNC
+	case .Mailbox:
+		if sdl.WindowSupportsGPUPresentMode(p.device, p.window, .MAILBOX) do p.present_mode = .MAILBOX
+	}
+	if !sdl.SetGPUSwapchainParameters(p.device, p.window, .SDR, p.present_mode) do p.present_mode = .VSYNC
 	_ = sdl.SetGPUAllowedFramesInFlight(p.device, 2)
 	_update_size(p)
-	p.dpi_scale = sdl.GetWindowPixelDensity(p.window)
-	if p.dpi_scale <= 0 {
-		p.dpi_scale = 1
-	}
+	_ = sdl.StartTextInput(p.window) // enable TEXT_INPUT events for line edits
 	p.start_ns = sdl.GetTicksNS()
 	p.last_ns = p.start_ns
 	return .None, ""
-}
-
-// Turns the window's text events on or off: on while a text field has
-// keyboard focus, so typing elsewhere is only keys (and no input method
-// shows).
-text_input_set :: proc(p: ^Platform, on: bool) {
-	if on == p.text_input || p.window == nil {
-		return
-	}
-	p.text_input = on
-	if on {
-		_ = sdl.StartTextInput(p.window)
-	} else {
-		_ = sdl.StopTextInput(p.window)
-	}
 }
 
 // The dialog's filters must outlive the dialog, so they are static.
@@ -150,6 +178,7 @@ _file_dialog_take :: proc(p: ^Platform) -> (path: string, ok: bool) {
 
 shutdown :: proc(p: ^Platform) {
 	delete(p.dialog_path)
+	for c in p.cursors do if c != nil do sdl.DestroyCursor(c)
 	if p.device != nil && p.window != nil {
 		sdl.ReleaseWindowFromGPUDevice(p.device, p.window)
 	}
@@ -161,7 +190,7 @@ shutdown :: proc(p: ^Platform) {
 	}
 	input_dropped_files_clear(&p.input)
 	delete(p.input.dropped_files)
-	delete(p.input.text)
+	delete(p.input.events)
 	sdl.Quit()
 }
 
@@ -171,6 +200,8 @@ tick :: proc(p: ^Platform) -> bool {
 	now := sdl.GetTicksNS()
 	p.frame_time = f32(f64(now - p.last_ns) / 1e9)
 	p.last_ns = now
+	p.frame_slept = p.idle_slept
+	p.idle_slept = false
 	_pump(p)
 	if intrinsics.atomic_load(&_signaled) {
 		p.should_close = true
@@ -211,13 +242,12 @@ set_clipboard :: proc(text: string) {
 	sdl.SetClipboardText(strings.clone_to_cstring(text, context.temp_allocator))
 }
 
-get_clipboard :: proc(allocator := context.temp_allocator) -> string {
-	text := sdl.GetClipboardText()
-	if text == nil {
-		return ""
-	}
-	defer sdl.free(rawptr(text))
-	return strings.clone(string(cstring(text)), allocator)
+// The clipboard's text, frame-lived; empty when it holds none.
+clipboard :: proc() -> string {
+	clip := sdl.GetClipboardText()
+	if clip == nil do return ""
+	defer sdl.free(rawptr(clip))
+	return strings.clone_from_cstring(cstring(clip), context.temp_allocator)
 }
 
 // set_fullscreen switches the window to the desktop's fullscreen mode and
@@ -231,8 +261,40 @@ set_cursor_visible :: proc(on: bool) {
 	_ = sdl.ShowCursor() if on else sdl.HideCursor()
 }
 
+// set_cursor gives the pointer `c`'s shape over the window (one SDL
+// couldn't make leaves the shape as it was).
+set_cursor :: proc(p: ^Platform, c: Cursor) {
+	if c == p.cursor do return
+	p.cursor = c
+	if p.cursors[c] != nil do _ = sdl.SetCursor(p.cursors[c])
+}
+
 request_close :: proc(p: ^Platform) {
 	p.should_close = true
+}
+
+// The viewer uses this only after it has proven that no visible state is
+// changing. Wait on SDL's queue instead of polling it at 125 Hz. Passing nil
+// leaves the event queued for the next tick's single owning pump, so input wakes
+// immediately without splitting event dispatch across two paths.
+idle_wait :: proc(p: ^Platform, milliseconds: u32 = 250) {
+	// The next tick's frame_time spans this sleep — anywhere from microseconds
+	// (an event lands immediately) to the full timeout — so mark it as not
+	// measuring frame work.
+	p.idle_slept = true
+	_ = sdl.WaitEventTimeout(nil, c.int(milliseconds))
+}
+
+// Display refresh interval in nanoseconds for `window`'s display, or the
+// primary display when `window == nil`.
+refresh_interval_ns :: proc(window: ^sdl.Window = nil) -> i64 {
+	if .VIDEO not_in sdl.WasInit({.VIDEO}) do _ = sdl.InitSubSystem({.VIDEO})
+	display := window != nil ? sdl.GetDisplayForWindow(window) : 0
+	if display == 0 do display = sdl.GetPrimaryDisplay()
+	mode := sdl.GetCurrentDisplayMode(display)
+	if mode == nil do mode = sdl.GetDesktopDisplayMode(display)
+	rate := mode != nil && mode.refresh_rate > 0 ? f64(mode.refresh_rate) : 60.0
+	return i64(1e9 / rate)
 }
 
 _update_size :: proc(p: ^Platform) {
@@ -240,4 +302,9 @@ _update_size :: proc(p: ^Platform) {
 	sdl.GetWindowSizeInPixels(p.window, &pw, &ph)
 	p.width = u32(max(pw, 1))
 	p.height = u32(max(ph, 1))
+	p.pixel_density = sdl.GetWindowPixelDensity(p.window)
+	if p.pixel_density <= 0 do p.pixel_density = 1
+	p.dpi_scale = sdl.GetWindowDisplayScale(p.window)
+	if p.dpi_scale <= 0 do p.dpi_scale = p.pixel_density
+	p.refresh_ns = refresh_interval_ns(p.window)
 }

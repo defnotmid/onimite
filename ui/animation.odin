@@ -1,19 +1,27 @@
 package ui
 
 import "../animation"
-import ease "core:math/ease"
+import "core:math"
 
+// RAD Debugger's default animation rate (ui_anim): the value halves its
+// distance to its target sixty times a second.
+ANIM_RATE :: 60 * math.LN2
+
+// As RAD's UI_AnimParams: where a new (or reset) value starts, how fast it
+// approaches its target (k * ln 2: it halves its distance k times a second,
+// RAD's 1 - 2^(-k dt) a frame; 0 is RAD's default, 60), and how near it lands
+// on the target (0 is RAD's 0.005).
 Animation_Params :: struct {
-	initial:  f32,
-	duration: f32,
-	easing:   ease.Ease,
-	reset:    bool,
+	initial: f32,
+	rate:    f32,
+	epsilon: f32,
+	reset:   bool,
 }
 
 Animation_Row :: struct {
 	key:                      Key,
-	current:                  f32,
-	track:                    animation.Track,
+	current, target:          f32,
+	rate, epsilon:            f32,
 	last_touched_build_index: u64,
 }
 
@@ -55,8 +63,9 @@ animation_storage_prune :: proc(storage: ^Animation_Storage, build_index: u64) {
 	}
 }
 
-// anim_f32 returns persistent keyed animation state. New or reappearing keys
-// start at params.initial; build_end advances touched rows toward target.
+// anim_f32 returns persistent keyed animation state, as RAD's ui_anim: new
+// or reappearing keys (and a reset) start at params.initial; build_end moves
+// touched rows toward their target, landing on it within epsilon.
 anim_f32 :: proc(s: ^State, key: Key, target: f32, params: Animation_Params = {}) -> f32 {
 	if key == Key(0) {
 		return target
@@ -75,25 +84,19 @@ anim_f32 :: proc(s: ^State, key: Key, target: f32, params: Animation_Params = {}
 
 	row := &s.animations.rows[row_index]
 	reappeared := !row_is_new && row.last_touched_build_index + 1 < s.build_index
-	if row_is_new || reappeared || params.reset {
-		row.current = params.initial
-		row.track = {}
-	}
-	if row_is_new || reappeared || params.reset || row.track.target != target {
-		animation.target(
-			&row.track,
-			row.current,
-			target,
-			params.duration > 0 ? params.duration : 0.2,
-			params.easing,
-		)
-	}
+	if row_is_new || reappeared || params.reset do row.current = params.initial
+	row.target = target
+	row.rate = params.rate > 0 ? params.rate : ANIM_RATE
+	row.epsilon = params.epsilon > 0 ? params.epsilon : 0.005
+	if abs(row.current - row.target) < row.epsilon do row.current = row.target
 	row.last_touched_build_index = s.build_index
 	return row.current
 }
 
 animations_advance :: proc(s: ^State) {
 	for &row in s.animations.rows {
-		if row.last_touched_build_index == s.build_index && animation.advance(&row.current, &row.track, s.p.frame_time) do s.is_animating = true
+		if row.last_touched_build_index != s.build_index do continue
+		row.current = animation.approach(row.current, row.target, row.rate, s.p.frame_time)
+		if abs(row.current - row.target) > row.epsilon {s.is_animating = true} else {row.current = row.target}
 	}
 }

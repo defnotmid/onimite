@@ -1,22 +1,33 @@
 package onimite_app
 
 import "core:fmt"
+import "core:math"
+import "core:math/linalg"
 import platform "../platform"
 import render "../render"
 import ui "../ui"
 
 // The workspace's panels drawn from their measured areas, after oasic's
-// view/panels.odin: each leaf's tab strip (a press on a tab shows its view
-// and starts a drag, x closes it, + opens the lister on what opens in it,
-// preview_lister.odin), the view it shows, and each branch's splitter (a
-// drag resizes it). While a tab is dragged, every panel under the pointer offers drop
-// sites: its tab strip (a reorder), its four edges (a split) and its centre
-// (a join). A site is a typed Drop_Target, and `workspace_drop_command`
-// turns it into the one command a drop pushes, the same rule deciding
-// whether the site shows. Widgets only push rows; the drag is gesture state.
+// view/panels.odin and onib's panels_controls: each leaf's tab strip (a
+// press on a tab shows its view and, dragged, starts a drag; x closes it, +
+// opens the lister on what opens in it, preview_lister.odin), the view it
+// shows, and each branch's splitter (a drag resizes it). While a tab is
+// dragged (RAD Debugger's drag/drop state: Dragging, Dropping once the left
+// button is released), every panel under the pointer offers drop sites: its
+// tab strip (a reorder), its four edges (a split) and its centre (a join).
+// A site is a typed Drop_Target, and `workspace_drop_command` turns it into
+// the one command a drop pushes, the same rule deciding whether the site
+// shows. Widgets only push rows; the drag is gesture state. Built front to
+// back: the drop sites, then the tab strips and splitters, then each
+// panel's view.
 
-TAB_WIDTH :: 96
-TAB_CLOSE :: 20
+// RAD's tab sizes, in the font's size (raddbg_core.c's panel build): a
+// tab's close button's width, a tab's most, the space between tabs and at
+// the bar's ends.
+TAB_CLOSE :: 2.5
+TAB_MAX :: 20
+TAB_SPACING :: 0.4
+TAB_PADDING :: 0.5
 // Points the pointer moves before a press on a tab becomes a drag.
 DRAG_START :: 10
 COLOR_TABS :: [4]u8{25, 29, 35, 255}
@@ -26,49 +37,55 @@ COLOR_SPLITTER :: [4]u8{14, 15, 19, 255}
 COLOR_DROP :: [4]u8{38, 56, 74, 245}
 COLOR_DROP_HOT :: [4]u8{57, 111, 150, 255}
 COLOR_DROP_PREVIEW :: [4]u8{55, 130, 190, 65}
-COLOR_DROP_MARK :: [4]u8{100, 195, 250, 255}
 
-// A box at `r`, in pixels from its parent's corner (the panels' parent is
-// the workspace box, at the window's corner).
+// RAD Debugger's drag/drop state: a tab being dragged, then dropped (the
+// frame the left button is released in: drop sites take it), then none.
+Drag_State :: enum u8 {
+	Null,
+	Dragging,
+	Dropping,
+}
+
+// A box at `r`, in window pixels: a panel's place in the tree, a
+// splitter, a drop site (RAD's UI_Rect).
 place_box :: proc(s: ^ui.State, r: Workspace_Rect, flags: ui.Box_Flags, key: string) -> ^ui.Box {
-	ui.set_next_fixed_x(s, r.x)
-	ui.set_next_fixed_y(s, r.y)
-	ui.set_next_fixed_width(s, max(r.width, 0))
-	ui.set_next_fixed_height(s, max(r.height, 0))
+	place(s, r)
 	return ui.build_box(s, flags, key)
 }
 
-place_button :: proc(s: ^ui.State, r: Workspace_Rect, label: string) -> ui.Signal {
-	ui.set_next_fixed_x(s, r.x)
-	ui.set_next_fixed_y(s, r.y)
-	ui.set_next_fixed_width(s, max(r.width, 0))
-	ui.set_next_fixed_height(s, max(r.height, 0))
-	ui.set_next_corner_radius(s, 0)
-	return ui.button(s, label)
-}
-
+// The panels, front to back: the drop sites while a tab is dragged, the
+// splitters, then each leaf at its place in the tree (RAD's panel rects),
+// laid out as RAD's: its tab bar above its content, the view it shows.
 panels_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32) {
 	pv := &app.preview
 	ws := &pv.workspace
+	pv.panels_resizing = false
+	pv.drop_slot = {}
 	panel_areas_ease(app, s, dpi)
-	if pv.drag_view != 0 && !pv.drag_active {
-		d := platform.mouse_pos(s.p) - pv.drag_start
-		pv.drag_active = d.x * d.x + d.y * d.y > DRAG_START * DRAG_START * dpi * dpi
+	if pv.drag != .Null {
+		drop_sites_view(app, s, dpi)
 	}
 	for p, i in ws.panels {
-		if !p.live || i >= len(ws.areas) || !ws.areas[i].visible {
+		if !p.live || p.children[0] == 0 || i >= len(ws.areas) || !ws.areas[i].visible do continue
+		splitter_view(app, s, Panel_Id(i + 1), ws.areas[i])
+	}
+	for p, i in ws.panels {
+		if !p.live || p.children[0] != 0 || i >= len(ws.areas) || !ws.areas[i].visible {
 			continue
 		}
 		id := Panel_Id(i + 1)
 		a := ws.areas[i]
-		if p.children[0] != 0 {
-			splitter_view(app, s, id, a)
-			continue
-		}
+		ui.set_next_child_layout_axis(s, .Y)
+		ui.push_parent(s, place_box(s, a.rect, {}, fmt.tprintf("###panel_%d", id)))
+		defer ui.pop_parent(s)
 		tabs_view(app, s, dpi, id, a)
+		// The keys reach the focused panel's views alone, and none while the
+		// lister is up (RAD's panel focus: Null, else Off).
+		ui.push_focus(s, id == ws.focused && ws.lister.panel == 0 ? .Null : .Off)
+		defer ui.pop_focus(s)
 		v := workspace_view(ws, p.shown)
 		if v == nil {
-			empty_panel_view(s, dpi, id, a.content)
+			empty_panel_view(s, dpi, id)
 			continue
 		}
 		switch v.kind {
@@ -80,20 +97,14 @@ panels_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32) {
 			watch_view(app, s, dpi, p.shown, a.content)
 		}
 	}
-	if pv.drag_active {
-		drop_sites_view(app, s, dpi)
-	}
-	if !platform.mouse_down(s.p, .Left) {
-		pv.drag_view, pv.drag_active = 0, false
-	}
 }
 
 // Panels slide to new places when the tree changes shape (a split, a dock,
-// a close), as onib's panel_areas_ease (after RAD Debugger's): each rect
-// eases there in fractions of the window, so resizing the window moves
-// nothing slowly, and a new panel starts in place. When only ratios change
-// (a divider dragged) they follow at once. A splitter sits between its
-// sides as they are drawn.
+// a close), as onib's panel_areas_ease (after RAD Debugger's, at its menu
+// rate): each rect eases there in fractions of the window, so resizing the
+// window moves nothing slowly, and a new panel starts in place. When only
+// ratios change (a divider dragged) they follow at once. A splitter sits
+// between its sides as they are drawn.
 @(private = "file")
 panel_areas_ease :: proc(app: ^App_State, s: ^ui.State, dpi: f32) {
 	pv := &app.preview
@@ -113,14 +124,14 @@ panel_areas_ease :: proc(app: ^App_State, s: ^ui.State, dpi: f32) {
 	if window.width <= 0 || window.height <= 0 {
 		return
 	}
-	tab := PANEL_TABS * dpi
+	tab := ws.tab_height
 	for &a, i in ws.areas {
 		if !a.visible || a.rect.width <= 0 {
 			continue
 		}
 		target := [4]f32{(a.rect.x - window.x) / window.width, (a.rect.y - window.y) / window.height, (a.rect.x + a.rect.width - window.x) / window.width, (a.rect.y + a.rect.height - window.y) / window.height}
 		eased: [4]f32
-		for k in 0 ..< 4 do eased[k] = ui.anim_f32(s, ui.key_from_string(0, fmt.tprintf("panel_%d_%d", i, k)), target[k], {initial = target[k], duration = 0.18, easing = .Cubic_Out, reset = snap})
+		for k in 0 ..< 4 do eased[k] = ui.anim_f32(s, ui.key_from_string(0, fmt.tprintf("panel_%d_%d", i, k)), target[k], {initial = target[k], rate = MENU_RATE, reset = snap})
 		a.rect = {window.x + eased[0] * window.width, window.y + eased[1] * window.height, (eased[2] - eased[0]) * window.width, (eased[3] - eased[1]) * window.height}
 		if ws.panels[i].children[0] == 0 {
 			header := min(tab, a.rect.height)
@@ -148,8 +159,10 @@ splitter_view :: proc(app: ^App_State, s: ^ui.State, id: Panel_Id, a: Panel_Area
 	p := workspace_panel(&pv.workspace, id)
 	ui.set_next_bg_color(s, COLOR_SPLITTER)
 	ui.set_next_corner_radius(s, 0)
+	ui.set_next_hover_cursor(s, .Left_Right if p.axis == .X else .Up_Down)
 	sig := ui.signal_from_box(s, place_box(s, a.splitter, {.Clickable, .Draw_Background, .Draw_Hot_Effects}, fmt.tprintf("###split_%d", id)))
-	if ui.dragging(sig) && sig.drag_delta != {} && !pv.drag_active {
+	if ui.dragging(sig) do pv.panels_resizing = true
+	if ui.dragging(sig) && sig.drag_delta != {} && pv.drag == .Null {
 		mouse := platform.mouse_pos(s.p)
 		at, extent := mouse.x - a.rect.x, a.rect.width - a.splitter.width
 		if p.axis == .Y {
@@ -159,166 +172,182 @@ splitter_view :: proc(app: ^App_State, s: ^ui.State, id: Panel_Id, a: Panel_Area
 	}
 }
 
-// The tabs' width in leaf `p` that is `width` wide: TAB_WIDTH while they
-// fit beside the + button.
-@(private = "file")
-tab_width :: proc(ws: ^Workspace, p: ^Panel_Record, width, dpi: f32) -> f32 {
-	n := 0
-	for tab := p.first; tab != 0; tab = workspace_view(ws, tab).next {
-		n += 1
-	}
-	return min(TAB_WIDTH * dpi, (width - PANEL_TABS * dpi) / f32(max(n, 1)))
+// A tab's width, as RAD's: its title's, its close button's and an em, at
+// most TAB_MAX ems, easing there at the menu rate (a tab that appears grows
+// in, except one that appears as the window opens or while a splitter is
+// dragged). (RAD's focused tab adds a gear's width: not yet, see
+// tabs_view.)
+tab_width :: proc(app: ^App_State, s: ^ui.State, tab: View_Id) -> f32 {
+	fs := ui.top_font_size(s)
+	title, _ := view_title(app, tab)
+	target := math.floor(min(render.measure_text(s.font, title, fs) + TAB_CLOSE * fs + fs, TAB_MAX * fs))
+	// (RAD's reset only picks a new tab's first width: .initial)
+	snap := s.build_index < 5 || app.preview.panels_resizing
+	return math.floor(ui.anim_f32(s, ui.key_from_string(0, fmt.tprintf("tab_width_%d", tab)), target, {initial = snap ? target : 0, rate = MENU_RATE}))
 }
 
-// What is under `at` in leaf `id`'s tab strip `r`: a tab (and whether its
-// close mark), or the + button.
-@(private = "file")
-Tab_Hit :: struct {
-	tab:   View_Id,
-	close: bool,
-	plus:  bool,
-}
-
-@(private = "file")
-tab_hit :: proc(ws: ^Workspace, id: Panel_Id, r: Workspace_Rect, at: [2]f32, dpi: f32) -> (hit: Tab_Hit) {
-	if at.y < r.y || at.y >= r.y + r.height || at.x < r.x || at.x >= r.x + r.width {
+// A view's title (RAD's title from its cfg): what the tabs, the dragged
+// tab's label and the lister call it, in its colour (alpha 0: the theme's
+// text). A Watch's is its section's name and count, in its worst status's
+// colour.
+view_title :: proc(app: ^App_State, id: View_Id) -> (title: string, color: [4]u8) {
+	v := workspace_view(&app.preview.workspace, id)
+	if v == nil {
 		return
 	}
-	if at.x >= r.x + r.width - r.height {
-		return {plus = true}
+	if v.kind == .Watch {
+		return watch_title(&app.preview.watch, v.section)
 	}
-	p := workspace_panel(ws, id)
-	w := tab_width(ws, p, r.width, dpi)
-	x := r.x
-	for tab := p.first; tab != 0; tab = workspace_view(ws, tab).next {
-		if at.x < x + w {
-			return {tab = tab, close = at.x >= x + w - min(TAB_CLOSE * dpi, w * 0.4)}
-		}
-		x += w
-	}
-	return
+	descriptors := VIEW_DESCRIPTORS
+	return descriptors[v.kind].name, {}
 }
 
-// A leaf's tab strip: one box, painted by `tabs_draw`; a press on a tab
-// shows it and may start a drag, a click on its x closes it, on + opens
-// the lister on what can open in the panel.
+// A leaf's tab bar, laid out along it as RAD's (raddbg_core.c's panel
+// build): padded half an em at its ends, each tab tab_width wide, TAB_SPACING
+// apart, its top corners rounded, holding half an em, its title and its
+// close button: TAB_CLOSE ems wide, its X icon centred in a rounded square
+// inset by RAD's visual margins (half an em across, the tab's height less
+// TAB_CLOSE ems and a quarter em down and up). A click or a middle click on
+// the X, or a middle click on the tab, closes it (View_Close, as Ctrl+W);
+// a press on the tab shows it, dragged it starts a drag. Its boxes take the
+// pointer before the tab does (RAD's order). After the last tab, the +
+// button, a tab's height square inset a fifth of it (pressed: the lister on
+// what can open in the panel, floating under it, or closed when it is that
+// one), and the end's half em. Its tabs past its width, the wheel
+// scrolls it sideways (RAD's ViewScrollX, ViewClampX). RAD's focused tab
+// also shows a gear (its view's settings, its width another TAB_CLOSE ems)
+// and a right click opens them: approved differences until views have
+// settings (C8/B).
 @(private = "file")
 tabs_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32, id: Panel_Id, a: Panel_Area) {
 	pv := &app.preview
 	ws := &pv.workspace
 	c := &app.commands
-	r := Workspace_Rect{a.rect.x, a.rect.y, a.rect.width, min(PANEL_TABS * dpi, a.rect.height)}
-	strip := place_box(s, r, {.Clickable}, fmt.tprintf("###tabs_%d", id))
-	sig := ui.signal_from_box(s, strip)
-	mouse := platform.mouse_pos(s.p)
-	hit := tab_hit(ws, id, r, mouse, dpi)
-	if ui.pressed(sig) && hit.tab != 0 && !hit.close && !pv.drag_active {
-		command_push(c, .View_Select, {view = hit.tab})
-		pv.drag_view, pv.drag_start = hit.tab, mouse
+	p := workspace_panel(ws, id)
+	fs := ui.top_font_size(s)
+	h := min(ws.tab_height, a.rect.height)
+	ui.set_next_pref_width(s, ui.pct(1)); ui.set_next_pref_height(s, ui.px(h)); ui.set_next_child_layout_axis(s, .X)
+	ui.set_next_bg_color(s, COLOR_TABS_FOCUSED if ws.focused == id else COLOR_TABS)
+	ui.set_next_corner_radius(s, 0)
+	bar := ui.build_box(s, {.Clickable, .Clip, .View_Scroll_X, .View_Clamp_X, .Draw_Background}, fmt.tprintf("###tabs_%d", id))
+	ui.push_parent(s, bar)
+	defer {
+		ui.pop_parent(s)
+		ui.signal_from_box(s, bar)
 	}
-	// A click acts where it was pressed too.
-	if ui.clicked(sig) && hit == tab_hit(ws, id, r, s.drag_start, dpi) {
-		if hit.plus {
-			command_push(c, .Lister_Open, {panel = id, lister = .Panel})
-		} else if hit.close {
-			command_push(c, .View_Close, {view = hit.tab})
-		}
+	ui.push_pref_height(s, ui.pct(1))
+	defer ui.pop_pref_height(s)
+	ui.spacer(s, ui.px(math.floor(TAB_PADDING * fs)))
+	radius: f32 = 0 // square tabs: onimite's (RAD rounds their tops 0.6 em)
+	// Where a dragged tab would drop among these, a hollow slot four ems
+	// wide (RAD's drop visualisation).
+	slot :: proc(s: ^ui.State, fs, radius: f32, key: string) {
+		ui.set_next_pref_width(s, ui.px(4 * fs)); ui.set_next_border_color(s, COLOR_TEXT_DIM)
+		b := ui.build_box(s, {.Draw_Border}, key)
+		b.corner_radii = {radius, 0, radius, 0}
+		ui.spacer(s, ui.px(math.floor(TAB_SPACING * fs)))
 	}
-	data := new(Tabs_Draw, context.temp_allocator)
-	data^ = {app, id, dpi, hit}
-	strip.custom_draw = tabs_draw
-	strip.custom_draw_data = data
-}
-
-@(private = "file")
-Tabs_Draw :: struct {
-	app:   ^App_State,
-	panel: Panel_Id,
-	dpi:   f32,
-	hover: Tab_Hit,
-}
-
-@(private = "file")
-tabs_draw :: proc(s: ^ui.State, box: ^ui.Box, data: rawptr) {
-	d := (^Tabs_Draw)(data)
-	ws := &d.app.preview.workspace
-	p := workspace_panel(ws, d.panel)
-	r := s.r
-	dpi := d.dpi
-	x0, y0 := box.rect.min.x, box.rect.min.y
-	w, h := box.rect.max.x - x0, box.rect.max.y - y0
-	render.draw_rect(r, x0, y0, w, h, COLOR_TABS_FOCUSED if ws.focused == d.panel else COLOR_TABS)
-	px := 12 * dpi
-	ty := y0 + (h - render.line_height(s.font, px)) * 0.5
-	descriptors := VIEW_DESCRIPTORS
-	tw := tab_width(ws, p, w, dpi)
-	close := min(TAB_CLOSE * dpi, tw * 0.4)
-	x := x0
+	if pv.drop_slot.panel == id && pv.drop_slot.after == 0 do slot(s, fs, radius, fmt.tprintf("###drop_slot_%d", id))
 	for tab := p.first; tab != 0; tab = workspace_view(ws, tab).next {
-		if tab == p.shown {
-			render.draw_rect(r, x, y0, tw - dpi, h, COLOR_TAB_SHOWN)
+		shown := tab == p.shown
+		// The dragged tab lies hollow, its name and X left out (RAD's: while
+		// the drag is active with it as its view). It is the same box, still
+		// clickable, so the drag's release ends on it like any press's.
+		hollow := pv.drag != .Null && tab == pv.drag_view
+		ui.set_next_bg_color(s, COLOR_TAB_SHOWN if shown else COLOR_TABS); ui.set_next_border_color(s, COLOR_TEXT_DIM)
+		ui.set_next_pref_width(s, ui.px(tab_width(app, s, tab))); ui.set_next_child_layout_axis(s, .X)
+		box := ui.build_box(s, {.Clickable, .Draw_Border} if hollow else {.Clickable, .Draw_Background, .Draw_Hot_Effects}, fmt.tprintf("###tab_%d", tab))
+		box.corner_radii = {radius, 0, radius, 0} // its top corners (RAD's tabs on top)
+		if !hollow {
+			ui.push_parent(s, box)
+			ui.spacer(s, ui.px(math.floor(TAB_PADDING * fs)))
+			title, color := view_title(app, tab)
+			ui.set_next_text_align(s, .Left); ui.set_next_text_padding(s, 0)
+			if color.a != 0 do ui.set_next_text_color(s, color)
+			ui.set_next_pref_width(s, ui.text_content(10, 0))
+			ui.build_box(s, {.Draw_Text}, fmt.tprintf("%s###tab_title_%d", title, tab))
+			close := TAB_CLOSE * fs
+			ui.set_next_pref_width(s, ui.px(close))
+			ui.set_next_visual_margin(s, {math.ceil(fs * 0.5), math.floor(h - close + fs * 0.25)})
+			ui.set_next_font_size(s, s.theme.default_font_px * 0.75); ui.set_next_icon(s, PREVIEW_ICONS[.Close])
+			// (RAD's implicit button: its background and border lit as it is hot)
+			ui.set_next_text_color(s, COLOR_TEXT_DIM); ui.set_next_corner_radius(s, fs)
+			ui.set_next_bg_color(s, {}); ui.set_next_border_color(s, {})
+			x := ui.signal_from_box(s, ui.build_box(s, {.Clickable, .Draw_Border, .Draw_Background, .Draw_Icon, .Draw_Hot_Effects, .Draw_Active_Effects}, fmt.tprintf("###close_%d", tab)))
+			if ui.clicked(x) || ui.middle_clicked(x) do command_push(c, .View_Close, {view = tab})
+			ui.pop_parent(s)
 		}
-		if d.hover.tab == tab {
-			render.draw_rect(r, x + (tw - close if d.hover.close else 0), y0, close if d.hover.close else tw - close, h, {255, 255, 255, 20})
+		// The tab takes what its boxes left (RAD's order).
+		t := ui.signal_from_box(s, box)
+		if ui.pressed(t) {
+			command_push(c, .View_Select, {view = tab})
+		} else if ui.dragging(t) && pv.drag == .Null && linalg.length(ui.drag_delta(s)) > DRAG_START * dpi {
+			pv.drag, pv.drag_view = .Dragging, tab
+		} else if ui.middle_clicked(t) {
+			command_push(c, .View_Close, {view = tab})
 		}
-		render.clip_push(r, x, y0, tw - close, h)
-		render.draw_text(r, s.font, descriptors[workspace_view(ws, tab).kind].name, x + 10 * dpi, ty, px, s.theme.text)
-		render.clip_pop(r)
-		render.draw_text(r, s.font, "x", x + tw - close + 6 * dpi, ty, px, COLOR_TEXT_DIM)
-		x += tw
+		ui.spacer(s, ui.px(math.floor(TAB_SPACING * fs)))
+		if pv.drop_slot.panel == id && pv.drop_slot.after == tab do slot(s, fs, radius, fmt.tprintf("###drop_slot_%d", id))
 	}
-	plus_x := x0 + w - h
-	if ws.lister.panel == d.panel && ws.lister.mode == .Panel {
-		render.draw_rect(r, plus_x, y0, h, h, COLOR_TAB_SHOWN)
-	} else if d.hover.plus {
-		render.draw_rect(r, plus_x, y0, h, h, {255, 255, 255, 20})
+	ui.set_next_pref_width(s, ui.px(h))
+	ui.set_next_visual_margin(s, {h / 5, h / 5})
+	ui.set_next_text_align(s, .Center); ui.set_next_corner_radius(s, (h - h / 4) / 3)
+	own := ws.lister.panel == id && ws.lister.mode == .Panel
+	if own do ui.set_next_bg_color(s, COLOR_TAB_SHOWN)
+	// Pressed (RAD's): its panel focused, then its lister closed when it is
+	// the one open, else opened.
+	if add := ui.button(s, fmt.tprintf("+###add_%d", id)); ui.pressed(add) {
+		if p.shown != 0 do focus_panel(app, p.shown)
+		if own {
+			command_push(c, .Lister_Close)
+		} else {
+			command_push(c, .Lister_Open, {panel = id, lister = .Panel})
+			pv.lister.anchor = add.box.key
+		}
 	}
-	render.draw_text(r, s.font, "+", plus_x + h * 0.5 - 4 * dpi, ty, px, s.theme.text)
+	ui.spacer(s, ui.px(math.floor(TAB_PADDING * fs)))
 }
 
 // An empty panel (only the whole workspace can be one): how to fill it.
 @(private = "file")
-empty_panel_view :: proc(s: ^ui.State, dpi: f32, id: Panel_Id, area: Workspace_Rect) {
-	ui.set_next_bg_color(s, s.theme.background)
+empty_panel_view :: proc(s: ^ui.State, dpi: f32, id: Panel_Id) {
+	ui.set_next_pref_width(s, ui.pct(1)); ui.set_next_pref_height(s, ui.pct(1, 0))
+	ui.set_next_bg_color(s, COLOR_PANEL_BG)
 	ui.set_next_corner_radius(s, 0)
 	ui.set_next_text_color(s, COLOR_TEXT_DIM)
 	ui.set_next_text_align(s, .Center)
 	ui.set_next_font_size(s, 13 * dpi)
-	place_box(s, area, {.Draw_Background, .Draw_Text}, fmt.tprintf("+ opens a view here, Ctrl+P goes to a scene, cue or problem###empty_%d", id))
+	ui.build_box(s, {.Draw_Background, .Draw_Text}, fmt.tprintf("+ opens a view here, Ctrl+P goes to a scene, cue or problem###empty_%d", id))
 }
 
 // The drop sites of every panel under the dragged tab, and its label at
-// the pointer.
+// the pointer, over everything (the tooltip root).
 @(private = "file")
 drop_sites_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32) {
 	pv := &app.preview
 	ws := &pv.workspace
 	mouse := platform.mouse_pos(s.p)
-	inside :: proc(r: Workspace_Rect, m: [2]f32) -> bool {
-		return m.x >= r.x && m.x < r.x + r.width && m.y >= r.y && m.y < r.y + r.height
-	}
 	for &p, i in ws.panels {
 		if !p.live || p.children[0] != 0 || i >= len(ws.areas) || !ws.areas[i].visible {
 			continue
 		}
 		id := Panel_Id(i + 1)
 		a := ws.areas[i]
-		strip := Workspace_Rect{a.rect.x, a.rect.y, a.rect.width, PANEL_TABS * dpi}
+		strip := Workspace_Rect{a.rect.x, a.rect.y, a.rect.width, ws.tab_height}
 		if inside(strip, mouse) {
-			// After the tab whose right edge is nearest (0: before the first).
-			w := tab_width(ws, &p, a.rect.width, dpi)
+			// After the tab whose right edge is nearest (0: before the
+			// first), the tabs' widths summed along the bar (RAD's).
 			after, at := View_Id(0), a.rect.x
 			x := a.rect.x
 			for tab := p.first; tab != 0; tab = workspace_view(ws, tab).next {
-				x += w
+				x += tab_width(app, s, tab)
 				if abs(mouse.x - x) < abs(mouse.x - at) {
 					after, at = tab, x
 				}
 			}
-			if drop_site(app, s, {kind = .View_Reorder, panel = id, previous = after}, strip, {}, fmt.tprintf("###reorder_%d", id), false) {
-				ui.set_next_bg_color(s, COLOR_DROP_MARK)
-				place_box(s, {at - 2 * dpi, strip.y, 4 * dpi, strip.height}, {.Draw_Background}, "###reorder_mark")
-			}
+			// The site over the strip; where it drops, the bar opens a slot
+			// (tabs_view), none for a drop that moves nothing (RAD's).
+			if drop_site(app, s, {kind = .View_Reorder, panel = id, previous = after}, strip, {}, fmt.tprintf("###reorder_%d", id), false) do pv.drop_slot = {id, after}
 			continue
 		}
 		if !inside(a.content, mouse) {
@@ -360,17 +389,20 @@ drop_sites_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32) {
 		}
 		drop_site(app, s, {kind = .Panel_Join, panel = id}, r, {}, fmt.tprintf("###join_%d", id), false)
 	}
-	descriptors := VIEW_DESCRIPTORS
 	if v := workspace_view(ws, pv.drag_view); v != nil {
+		title, _ := view_title(app, pv.drag_view)
+		ui.tooltip_begin(s)
 		ui.set_next_text_color(s, {180, 220, 250, 255})
 		ui.set_next_font_size(s, 12 * dpi)
-		place_box(s, {mouse.x + 14 * dpi, mouse.y + 16 * dpi, 200 * dpi, 24 * dpi}, {.Draw_Text}, fmt.tprintf("Move %s###drag_label", descriptors[v.kind].name))
+		place_box(s, {mouse.x + 14 * dpi, mouse.y + 16 * dpi, 200 * dpi, 24 * dpi}, {.Draw_Text}, fmt.tprintf("Move %s###drag_label", title))
+		ui.tooltip_end(s)
 	}
 }
 
 // One drop site, shown (`visible`) only when the dragged view can land on
-// `target`; under the pointer it previews `preview` and, on release,
-// pushes the drop's command. Returns whether it is under the pointer.
+// `target`; under the pointer it previews `preview` and, dropped on (RAD's
+// drag drop), pushes the drop's command. Returns whether it is under the
+// pointer.
 @(private = "file")
 drop_site :: proc(app: ^App_State, s: ^ui.State, target: Drop_Target, rect, preview: Workspace_Rect, key: string, visible: bool) -> bool {
 	pv := &app.preview
@@ -380,9 +412,9 @@ drop_site :: proc(app: ^App_State, s: ^ui.State, target: Drop_Target, rect, prev
 	}
 	flags: ui.Box_Flags = {.Drop_Site}
 	if visible {
-		// a shown site fades in (onib's drop_zone)
+		// a shown site fades in at RAD's menu rate
 		flags += {.Draw_Background, .Draw_Border, .Draw_Text}
-		ui.set_next_opacity(s, ui.anim_f32(s, ui.key_from_string(0, fmt.tprintf("%s_open", key)), 1, {initial = 0, duration = 0.14, easing = .Cubic_Out}))
+		ui.set_next_opacity(s, ui.anim_f32(s, ui.key_from_string(0, fmt.tprintf("%s_open", key)), 1, {initial = 0, rate = MENU_RATE}))
 	}
 	ui.set_next_bg_color(s, COLOR_DROP)
 	ui.set_next_text_align(s, .Center)
@@ -397,7 +429,7 @@ drop_site :: proc(app: ^App_State, s: ^ui.State, target: Drop_Target, rect, prev
 	if preview.width > 0 && preview.height > 0 {
 		// the preview grows from its centre to the area the drop gives
 		grow :: proc(s: ^ui.State, key, edge: string, to, from: f32) -> f32 {
-			return ui.anim_f32(s, ui.key_from_string(0, fmt.tprintf("%s_%s", key, edge)), to, {initial = from, duration = 0.14, easing = .Cubic_Out})
+			return ui.anim_f32(s, ui.key_from_string(0, fmt.tprintf("%s_%s", key, edge)), to, {initial = from, rate = MENU_RATE})
 		}
 		cx, cy := preview.x + preview.width / 2, preview.y + preview.height / 2
 		x0, y0 := grow(s, key, "x0", preview.x, cx), grow(s, key, "y0", preview.y, cy)
@@ -405,7 +437,7 @@ drop_site :: proc(app: ^App_State, s: ^ui.State, target: Drop_Target, rect, prev
 		ui.set_next_bg_color(s, COLOR_DROP_PREVIEW)
 		place_box(s, {x0, y0, max(1, x1 - x0), max(1, y1 - y0)}, {.Draw_Background, .Draw_Border}, fmt.tprintf("%s_preview", key))
 	}
-	if platform.mouse_released(s.p, .Left) {
+	if pv.drag == .Dropping {
 		command_push(&app.commands, row.kind, row.regs)
 	}
 	return true

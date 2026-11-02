@@ -1,7 +1,9 @@
 package ui
 
 import "core:fmt"
-import "core:unicode/utf8"
+import "core:math"
+import "core:strings"
+import vg "deps:ovg"
 
 import platform "../platform"
 import render "../render"
@@ -47,48 +49,6 @@ panel :: proc(s: ^State, key: string, x, y, w, h: f32) -> bool {
 	b := build_box(s, {.Draw_Background, .Draw_Border, .Clip}, key)
 	push_parent(s, b)
 	return true
-}
-
-// scroll_list_begin builds one in-flow list boundary. The outer box owns the
-// background and border; the inset child owns clipping and wheel input. Rows
-// therefore cannot cover the border or escape its content rectangle.
-scroll_list_begin :: proc(s: ^State, key: string, inset: f32 = 3) -> Signal {
-	// RAD's scroll list always gives its top-level container explicit dimensions.
-	// In this port the surrounding layout owns those dimensions, so consume any
-	// caller override or fill the remaining parent extent by default.
-	if !stack_has_override(&s.pref_width) && !stack_has_override(&s.fixed_width) {
-		set_next_pref_width(s, fill())
-	}
-	if !stack_has_override(&s.pref_height) && !stack_has_override(&s.fixed_height) {
-		set_next_pref_height(s, fill())
-	}
-	set_next_child_layout_axis(s, .Y)
-	outer := build_box(s, {.Draw_Background, .Draw_Border}, key)
-	push_parent(s, outer)
-
-	spacer(s, px(inset))
-	set_next_pref_width(s, fill())
-	set_next_pref_height(s, fill())
-	set_next_child_layout_axis(s, .X)
-	middle := build_box(s, {}, fmt.tprintf("%s###middle", key))
-	push_parent(s, middle)
-
-	spacer(s, px(inset))
-	set_next_pref_width(s, fill())
-	set_next_pref_height(s, fill())
-	set_next_child_layout_axis(s, .Y)
-	content := build_box(s, {.Clip}, fmt.tprintf("%s###content", key))
-	signal := signal_from_box(s, content)
-	push_parent(s, content)
-	return signal
-}
-
-scroll_list_end :: proc(s: ^State, inset: f32 = 3) {
-	pop_parent(s) // content
-	spacer(s, px(inset))
-	pop_parent(s) // middle
-	spacer(s, px(inset))
-	pop_parent(s) // outer
 }
 
 ////////////////////////////////
@@ -163,9 +123,6 @@ selection_row_begin :: proc(
 		{.Clickable, .Click_To_Focus, .Draw_Background, .Draw_Hot_Effects, .Draw_Active_Effects},
 		key,
 	)
-	box.hot_color =
-		selected ? lerp_u8(s.theme.accent, s.theme.hot, 0.22) : lerp_u8(background, s.theme.accent, 0.28)
-	box.active_color = lerp_u8(box.hot_color, s.theme.active, 0.35)
 	signal := signal_from_box(s, box)
 	push_parent(s, box)
 	return signal
@@ -184,9 +141,10 @@ toggle_switch :: proc(s: ^State, toggled: ^bool, text: string, height: f32 = 18)
 	if !stack_has_override(&s.pref_height) && !stack_has_override(&s.fixed_height) {
 		set_next_pref_height(s, px(height))
 	}
+	set_next_bg_color(s, {0, 0, 0, 0})
 	container := build_box(
 		s,
-		{.Clickable, .Click_To_Focus, .Draw_Hot_Effects, .Draw_Active_Effects},
+		{.Clickable, .Click_To_Focus, .Draw_Background, .Draw_Hot_Effects, .Draw_Active_Effects},
 		fmt.tprintf("###toggle_%s", text),
 	)
 	sig := signal_from_box(s, container)
@@ -197,7 +155,7 @@ toggle_switch :: proc(s: ^State, toggled: ^bool, text: string, height: f32 = 18)
 		s,
 		key_from_string(container.key, "###toggle_t"),
 		toggled^ ? 1 : 0,
-		{initial = toggled^ ? 1 : 0, duration = 0.14, easing = .Cubic_Out},
+		{initial = toggled^ ? 1 : 0},
 	)
 
 	push_parent(s, container)
@@ -208,7 +166,7 @@ toggle_switch :: proc(s: ^State, toggled: ^bool, text: string, height: f32 = 18)
 		base := toggled^ ? s.theme.accent : s.theme.panel
 		set_next_pref_width(s, px(track_width))
 		set_next_pref_height(s, px(height))
-		set_next_bg_color(s, lerp_u8(base, s.theme.hot, container.hot_t * 0.35))
+		set_next_bg_color(s, base)
 		set_next_corner_radius(s, height * 0.5)
 		track := build_box(s, {.Draw_Background, .Draw_Border}, fmt.tprintf("###track_%s", text))
 		push_parent(s, track)
@@ -246,6 +204,7 @@ slider :: proc(s: ^State, value: ^f32, min_v, max_v: f32, key: string = "", heig
 		set_next_pref_height(s, px(height))
 	}
 	set_next_bg_color(s, s.theme.panel)
+	set_next_hover_cursor(s, .Left_Right)
 	track := build_box(
 		s,
 		{.Clickable, .Draw_Background, .Draw_Border},
@@ -346,113 +305,155 @@ progress_bar :: proc(s: ^State, key: string, value: f32, params: Progress_Bar_Pa
 ////////////////////////////////
 // Line edit
 
-// line_edit is a single-line text field. It consumes semantic text actions and
-// handles Backspace. `buf` is the editable byte buffer
-// and `cursor` the byte offset (kept at len(buf) here — end-insert). Focus is
-// explicit: whichever line_edit was last left-clicked receives input while it
-// owns State.keyboard_focus. Mouse-active state remains separate so focused
-// edits do not suppress hover interaction elsewhere.
+// A single-line text field, as RAD Debugger's rd_cell builds one: the field,
+// an edit box filling it, a scroll box (Clip and Allow_Overflow_X while
+// editing) and the text box after a half-em spacer. Its focus is rd_cell's:
+// the focus stacks' (focus.odin), or its navigation root's key. Focus active,
+// it is being edited: the text is kept whole, the scroll box's view offset
+// keeps the cursor between two ems from its left and one from its right, and
+// it takes Text, Edit and Navigate rows with no vertical step (the rest go on
+// to lists) through text_op_from_action, the frame in text-edit mode. Not
+// active, the text is cut to "..." and the view rests at 0; a double click,
+// its keyboard press, or typing while it is focus hot starts editing (its
+// root makes it active from the next frame) with all its text selected, and
+// editing, its keyboard press ends it. Editing, a press puts the cursor and
+// mark under the pointer and a drag moves the cursor.
+// As RAD's rd_cell flags: a cell draws its background unless No_Background,
+// and a border only with Border.
+Line_Edit_Flag :: enum u8 {
+	No_Background,
+	Border,
+}
+Line_Edit_Flags :: bit_set[Line_Edit_Flag;u8]
+line_edit :: proc(s: ^State, buf: ^[dynamic]u8, cursor, mark: ^int, cell: Line_Edit_Flags = {}) -> Signal {
+	key_str := fmt.tprintf("###edit_%p", buf)
+	key := key_from_string(active_seed_key(s), key_str)
+	auto_hot, auto_active := is_key_auto_focus_hot(s, key), is_key_auto_focus_active(s, key)
+	if auto_hot do push_focus_hot(s, .On)
+	if auto_active do push_focus_active(s, .On)
+	defer {if auto_hot do pop_focus_hot(s); if auto_active do pop_focus_active(s)}
+	focus_hot, focused := is_focus_hot(s), is_focus_active(s)
+	focused_disabled := !focused && top_focus_active(s) == .On
+	set_next_pref_width(s, fill())
+	set_next_pref_height(s, text_content(8))
+	set_next_bg_color(s, s.theme.panel)
+	set_next_child_layout_axis(s, .X)
+	flags := Box_Flags{.Clickable, .Click_To_Focus}
+	if .No_Background not_in cell do flags += {.Draw_Background}
+	if .Border in cell do flags += {.Draw_Border}
+	if auto_hot || auto_active do flags += {.Keyboard_Clickable}
+	if focused || focused_disabled do flags += {.Clip}
+	set_next_hover_cursor(s, .IBar if focused else .Pointer)
+	box := build_box(s, flags, key_str)
+	sig := signal_from_box(s, box)
+	started := false
+	if !focused {
+		typing := false
+		if focus_hot do for a in s.actions.rows do if !a.consumed && (a.text != "" || .Paste in a.flags) {typing = true; break}
+		if double_clicked(sig) || keyboard_pressed(sig) || typing {
+			set_auto_focus_active_key(s, key)
+			cursor^, mark^ = len(buf), 0
+			started = true
+		}
+	} else if keyboard_pressed(sig) {
+		set_auto_focus_active_key(s, 0)
+	}
+	cursor^, mark^ = clamp(cursor^, 0, len(buf)), clamp(mark^, 0, len(buf))
+	if focused || started {
+		s.text_edit_mode = true
+		for &a in s.actions.rows {
+			if a.consumed || a.kind != .Edit && a.kind != .Navigate && a.kind != .Text || a.delta.y != 0 do continue
+			op := text_op_from_action(a, string(buf[:]), {0, len(buf)}, cursor^, mark^)
+			if op.range[0] != op.range[1] || op.replace != "" do text_replace_range(buf, op.range, op.replace)
+			if .Copy in a.flags do platform.set_clipboard(op.copy)
+			cursor^, mark^ = op.cursor, op.mark
+			a.consumed = true
+		}
+	}
+	text := strings.clone(string(buf[:]), context.temp_allocator)
+	fs := box.font_size
+	push_parent(s, box)
+	set_next_pref_width(s, pct(1, 0)); set_next_pref_height(s, pct(1)); set_next_child_layout_axis(s, .X)
+	edit_box := build_box(s, {}, "edit_box")
+	push_parent(s, edit_box)
+	set_next_pref_width(s, children_sum(0)); set_next_pref_height(s, pct(1)); set_next_child_layout_axis(s, .X)
+	scroll := build_box(s, focused ? {.Allow_Overflow_X, .Clip} : {}, "scroll_box")
+	push_parent(s, scroll)
+	set_next_pref_width(s, px(fs * 0.5)); set_next_pref_height(s, pct(1))
+	build_box(s, {}, "")
+	set_next_pref_width(s, text_content(fs * 0.5, 0)); set_next_pref_height(s, pct(1))
+	text_box := build_box(s, {.Draw_Text} + (focused ? {.Disable_Text_Trunc} : {}), "###text_box")
+	text_box.str = text
+	mouse_off, cursor_off := 0, f32(0)
+	if focused || focused_disabled {
+		draw := new(Line_Edit_Draw, context.temp_allocator)
+		draw^ = {text = text, cursor = cursor^, mark = mark^, trail = !dragging(sig)}
+		box_equip_custom_draw(text_box, line_edit_draw, draw)
+		box_text_metrics_ensure(s, text_box)
+		mouse_off = render.slot_offset_at(s.font, text_box.text_slot, text, platform.mouse_pos(s.p).x - box_text_position(s, text_box).x)
+		cursor_off = line_edit_text_width(s, text[:cursor^], fs)
+	}
+	pop_parent(s); pop_parent(s); pop_parent(s)
+	if focused && dragging(sig) {
+		if pressed(sig) do mark^ = mouse_off
+		cursor^ = mouse_off
+	}
+	if !focused && focused_disabled && pressed(sig) do cursor^, mark^ = mouse_off, mouse_off
+	// The cursor kept in view: from two ems before it to one after.
+	if focused || focused_disabled {
+		visible := (box.rect.max.x - box.rect.min.x) - math.floor(fs * 2)
+		if visible > 0 {
+			lo, hi := max(0, cursor_off - fs * 2), max(0, cursor_off + fs)
+			view := scroll.view_off_target.x
+			scroll.view_off_target.x += min(lo - view, 0) + max(hi - (view + visible), 0)
+		}
+	} else {
+		scroll.view_off_target.x = 0; scroll.view_off.x = 0
+	}
+	return sig
+}
 line_edit_text_width :: proc(s: ^State, text: string, font_size: f32) -> f32 {
 	if s != nil && s.font != nil && s.font.text != nil {
 		return render.measure_text(s.font, text, font_size)
 	}
 	return f32(len(text)) * font_size * 0.6
 }
-
-line_edit :: proc(s: ^State, buf: ^[dynamic]u8, cursor: ^int) -> Signal {
-	set_next_pref_width(s, fill())
-	set_next_pref_height(s, text_content(8))
-	set_next_bg_color(s, s.theme.panel)
-	set_next_text_align(s, .Left)
-	key_str := fmt.tprintf("###edit_%p", buf)
-	box := build_box(s, {.Clickable, .Draw_Background, .Draw_Border, .Draw_Text, .Clip}, key_str)
-	sig := signal_from_box(s, box)
-
-	// Focus is sticky on click, independent from the mouse-active key.
-	if clicked(sig) {
-		s.keyboard_focus = box.key
+// What a focused field's text box draws over its text (RAD's
+// UI_LineEditDrawData).
+Line_Edit_Draw :: struct {
+	text:         string,
+	cursor, mark: int,
+	trail:        bool,
+}
+// As RAD's ui_line_edit_draw: the selection from the mark to the cursor, the
+// cursor, and a faint trail sweeping from where the cursor was, fading toward
+// that end.
+line_edit_draw :: proc(s: ^State, box: ^Box, c: ^vg.Canvas) {
+	d := (^Line_Edit_Draw)(box.custom_data)
+	fs := box.font_size
+	at := box_text_position(s, box)
+	off := line_edit_text_width(s, d.text[:d.cursor], fs)
+	animated := anim_f32(s, key_from_string(box.key, "###cursor_off_px"), off, {initial = off})
+	mark_off := line_edit_text_width(s, d.text[:d.mark], fs)
+	thick := max(1, math.floor(fs / 10))
+	field := box.parent.parent.rect
+	y0, y1 := field.min.y + fs * 0.5, field.max.y - fs * 0.5
+	rect :: proc(s: ^State, c: ^vg.Canvas, x0, y0, x1, y1, radius: f32, paint: vg.Paint) {
+		r := min(radius, (x1 - x0) / 2, (y1 - y0) / 2)
+		box_path(&s.path, x0, y0, x1 - x0, y1 - y0, {r, r, r, r})
+		vg.fill_path(c, &s.path, paint)
 	}
-	is_focused := s.keyboard_focus == box.key
-
-	cursor^=clamp(cursor^,0,len(buf))
-	if is_focused {
-		for &action in s.actions.rows {
-			if action.consumed do continue
-			#partial switch action.kind {
-			case .Text:
-				bytes,count:=utf8.encode_rune(action.text)
-				old:=len(buf); resize(buf,old+count)
-				for i:=old-1; i>=cursor^; i-=1 do buf[i+count]=buf[i]
-				copy(buf[cursor^:cursor^+count],bytes[:count])
-				cursor^+=count; action.consumed=true
-			case .Edit:
-				if action.delta.x<0 && cursor^>0 {
-					first:=cursor^-1
-					for first>0 && buf[first]&0xC0==0x80 do first-=1
-					count:=cursor^-first
-					for i in cursor^..<len(buf) do buf[i-count]=buf[i]
-					resize(buf,len(buf)-count); cursor^=first
-				}
-				action.consumed=true
-			case .Navigate:
-				if action.delta.x<0 && cursor^>0 {
-					cursor^-=1; for cursor^>0 && buf[cursor^]&0xC0==0x80 do cursor^-=1
-				} else if action.delta.x>0 && cursor^<len(buf) {
-					cursor^+=1; for cursor^<len(buf) && buf[cursor^]&0xC0==0x80 do cursor^+=1
-				}
-				if action.delta.x!=0 do action.consumed=true
-			}
-		}
+	cx := at.x + off
+	mx := at.x + mark_off
+	focus := box.parent.parent.focus_active_t
+	rect(s, c, min(cx, mx - thick), y0, max(cx + thick, mx + thick), y1, fs / 2, vg.paint_color(color(s.theme.selection, box.opacity * (focus * 0.2 + 0.8))))
+	rect(s, c, cx, y0, cx + thick, y1, 0, vg.paint_color(color(s.theme.accent, box.opacity * focus)))
+	if d.trail && off != animated {
+		lo, hi := at.x + min(off, animated), at.x + max(off, animated)
+		strong := color(s.theme.accent, box.opacity * focus * 0.25)
+		weak := strong; weak.a *= 0.1
+		left, right := strong, weak
+		if off > animated do left, right = weak, strong
+		rect(s, c, lo, y0, hi, y1, fs * 0.2, vg.paint_linear_gradient(lo, y0, hi, y0, left, right))
 	}
-
-	display := string(buf[:])
-	box.str = display
-	cursor^ = clamp(cursor^, 0, len(buf))
-	cursor_target := line_edit_text_width(s, string(buf[:cursor^]), box.font_size)
-	cursor_animated := anim_f32(
-		s,
-		key_from_string(box.key, "###cursor_off_px"),
-		cursor_target,
-		{initial = cursor_target, duration = 0.16, easing = .Cubic_Out},
-	)
-	if is_focused {
-		cursor_x := box.text_padding + cursor_target
-		animated_x := box.text_padding + cursor_animated
-		caret_h := max(box.font_size, 2)
-		caret_y := max(box.font_size * 0.2, 2)
-		caret_w := max(1, box.font_size / 10)
-
-		push_parent(s, box)
-		trail_min := min(cursor_x, animated_x)
-		trail_w := max(cursor_x, animated_x) - trail_min
-		if trail_w > 0.5 {
-			set_next_fixed_x(s, trail_min)
-			set_next_fixed_y(s, caret_y)
-			set_next_fixed_width(s, trail_w)
-			set_next_fixed_height(s, caret_h)
-			trail := build_box(s, {.Draw_Horizontal_Gradient}, "###cursor_trail")
-			strong := s.theme.accent
-			// RAD's current line-edit trail is one quarter of the cursor alpha,
-			// with the trailing edge reduced to one tenth of that value.
-			strong.a = u8(f32(strong.a) * 0.25)
-			weak := strong
-			weak.a = u8(f32(weak.a) * 0.1)
-			if cursor_x > animated_x {
-				trail.gradient_left = weak
-				trail.gradient_right = strong
-			} else {
-				trail.gradient_left = strong
-				trail.gradient_right = weak
-			}
-			trail.corner_radius = box.font_size * 0.2
-		}
-		set_next_fixed_x(s, cursor_x)
-		set_next_fixed_y(s, caret_y)
-		set_next_fixed_width(s, caret_w)
-		set_next_fixed_height(s, caret_h)
-		set_next_bg_color(s, s.theme.accent)
-		build_box(s, {.Draw_Background}, "###cursor")
-		pop_parent(s)
-	}
-	return sig
 }

@@ -1,5 +1,7 @@
 package ui
 
+import platform "../platform"
+
 // Scope-guard / container ergonomics
 // ===================================
 //
@@ -48,9 +50,27 @@ set_next_bg_color :: proc(s: ^State, v: [4]u8) {s.bg_color.next = v}
 set_next_text_color :: proc(s: ^State, v: [4]u8) {s.text_color.next = v}
 set_next_border_color :: proc(s: ^State, v: [4]u8) {s.border_color.next = v}
 set_next_corner_radius :: proc(s: ^State, v: f32) {s.corner_radius.next = v}
+set_next_squish :: proc(s: ^State, v: f32) {s.squish.next = v}
+set_next_visual_margin :: proc(s: ^State, v: [2]f32) {s.visual_margin.next = v}
 set_next_font_size :: proc(s: ^State, v: f32) {s.font_size.next = v}
+// The font size boxes built now take, in pixels (RAD's ui_top_font_size).
+top_font_size :: proc(s: ^State) -> f32 {return stack_top(&s.font_size, s.theme.default_font_px) * s.font_scale}
 set_next_text_padding :: proc(s: ^State, v: f32) {s.text_padding.next = v}
 set_next_opacity :: proc(s: ^State, v: f32) {s.opacity.next = v}
+// The next box's icon (its path data, drawn from the State's atlas with
+// Draw_Icon), as RAD Debugger's icon glyphs are a box's text.
+set_next_icon :: proc(s: ^State, v: string) {s.icon.next = v}
+// The pointer's shape over the next box, while it's hot or held (RAD's
+// ui_set_next_hover_cursor).
+set_next_hover_cursor :: proc(s: ^State, v: platform.Cursor) {s.hover_cursor.next = v}
+// The next box over `r` (x, y, width, height) in window pixels, whatever its
+// parents: fixed position relative to them, fixed size.
+set_next_rect :: proc(s: ^State, r: [4]f32) {
+	origin: [2]f32
+	for b := top_parent(s); b != nil; b = b.parent do origin += b.fixed_pos
+	set_next_fixed_x(s, r[0] - origin.x); set_next_fixed_y(s, r[1] - origin.y)
+	set_next_fixed_width(s, r[2]); set_next_fixed_height(s, r[3])
+}
 
 ////////////////////////////////
 // push_* / pop_* scoped overrides

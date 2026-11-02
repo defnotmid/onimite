@@ -9,7 +9,12 @@
 //     upwards-dependent (parent pct), downwards-dependent (children sum),
 //     violation solving (shrink by strictness), then final positions.
 //   - Interaction (`signal_from_box`) uses the box rect from the PREVIOUS
-//     frame, which is standard immediate-mode behaviour.
+//     frame, which is standard immediate-mode behaviour. As in RAD, a box
+//     takes the events it is for as its signal is computed (a press by the
+//     clickable box under it, a release by the box the press made active, a
+//     wheel tick by the scrollable box under it), so what is built first takes
+//     them first: a frame is built front to back, and drawn back to front
+//     (each parent's children last to first, see draw.odin).
 //   - Platform input is gathered into contiguous per-frame action rows. Keyed
 //     navigation roots consume those rows through the rebuilt box hierarchy.
 //
@@ -25,6 +30,7 @@ import "core:strings"
 
 import platform "../platform"
 import render "../render"
+import vg "deps:ovg"
 
 ////////////////////////////////
 // Keys
@@ -132,27 +138,61 @@ fill :: proc() -> Size {
 
 Box_Flag :: enum u32 {
 	Clickable, // participates in mouse hover/press/click
+	Keyboard_Clickable, // focus hot, an accept press is its Keyboard_Pressed (RAD's KeyboardClickable)
+	Scroll, // takes the wheel under the pointer (RAD's UI_BoxFlag_Scroll)
 	Drop_Site, // first compatible site under the pointer owns the drop
 	Click_To_Focus, // mouse press selects this box in its nearest nav root
 	Default_Focus_Nav_X,
 	Default_Focus_Nav_Y,
-	Modal_Input_Root,
 	Focus_Nav_Skip,
+	// Built while focus is On (focus.odin): hot, active, and disabled where an
+	// Off lies below (RAD's FocusHot, FocusActive and their Disabled flags).
+	Focus_Hot,
+	Focus_Active,
+	Focus_Hot_Disabled,
+	Focus_Active_Disabled,
 	Draw_Background,
 	Draw_Horizontal_Gradient,
-	Draw_Image, // onimite: `image`, contained in the box
 	Draw_Border,
 	Draw_Text,
+	Draw_Icon, // its icon from the State's atlas, in its text colour
+	Draw_Drop_Shadow, // a soft shadow beneath it, offset down and right (RAD's DrawDropShadow)
+	Draw_Background_Blur, // what lies beneath it blurred, under its background (RAD's DrawBackgroundBlur)
+	Draw_Fade_Top, // a shadow fading in at its top edge: more lies above (RAD's DrawFadeTop)
+	Draw_Fade_Bottom,
 	Draw_Hot_Effects, // brighten toward hot_t
 	Draw_Active_Effects, // brighten toward active_t
-	Clip, // push a scissor rect equal to this box's rect
+	Clip, // its custom draw and children are scissored to its rect, inset a pixel (RAD's Clip)
+	Disable_Text_Trunc, // its text is drawn whole, never cut to "..." (RAD's DisableTextTrunc)
+	// Its fuzzy_ranges of its text are lit behind it (RAD's HasFuzzyMatchRanges).
+	Has_Fuzzy_Match_Ranges,
 	Floating_X, // fixed_pos.x is absolute (set automatically by fixed_x)
 	Floating_Y,
 	Fixed_Width, // fixed_size.x is authoritative (bypasses pref_size)
 	Fixed_Height,
+	// Its children keep their sizes past its own on that axis, laid out
+	// from its view offset (RAD's AllowOverflowX/Y).
+	Allow_Overflow_X,
+	Allow_Overflow_Y,
+	// Its view offset's target stays within what its children span (RAD's ViewClampX/Y).
+	View_Clamp_X,
+	View_Clamp_Y,
+	// The wheel over it moves its view offset (RAD's ViewScrollX/Y): along
+	// the one axis it scrolls, either axis of the wheel.
+	View_Scroll_X,
+	View_Scroll_Y,
+	// Its subtree's boxes at its corners take its corners' radii (RAD's RoundChildrenByParent).
+	Round_Children_By_Parent,
+	// Its squish shrinks it toward its top-left corner, not its top's middle (RAD's SquishAnchored).
+	Squish_Anchored,
+	// Focus hot or active, it lights no focus overlay or no focus border
+	// (RAD's DisableFocusOverlay, DisableFocusBorder): a floating view's
+	// container, a search row.
+	Disable_Focus_Overlay,
+	Disable_Focus_Border,
 }
 
-Box_Flags :: bit_set[Box_Flag;u32]
+Box_Flags :: bit_set[Box_Flag;u64]
 
 Text_Align :: enum u8 {
 	Left,
@@ -168,8 +208,6 @@ Text_Align :: enum u8 {
 // (Key 0) live in State.frame_boxes and are freed each frame. Per-frame fields
 // (links, sizes, rect target) are reset by build_box; persistent fields
 // (hot_t, active_t, rect from last frame) survive.
-Custom_Draw :: #type proc(s: ^State, box: ^Box, data: rawptr) // onimite
-
 Box :: struct {
 	// intrusive tree (per-frame; nil-terminated)
 	first, last, next, prev, parent: ^Box,
@@ -179,6 +217,16 @@ Box :: struct {
 	key:                             Key,
 	flags:                           Box_Flags,
 	str:                             string, // display string (arena-owned this frame)
+	icon:                            string, // its icon's path data (Draw_Icon)
+	hover_cursor:                    platform.Cursor, // the pointer's shape while it's hot or held (RAD's hover_cursor)
+	// What the box draws itself with ovg, after its background, text and
+	// icon and before its children, its clip in place: RAD Debugger's custom
+	// draw (box_equip_custom_draw). Per frame.
+	custom_draw:                     Custom_Draw,
+	custom_data:                     rawptr,
+	// The byte ranges of its text a filter matched, lit behind it
+	// (box_equip_fuzzy_match_ranges). Per frame.
+	fuzzy_ranges:                    [][2]int,
 	text_align:                      Text_Align,
 	pref_size:                       [Axis2]Size,
 	child_layout_axis:               Axis2,
@@ -192,10 +240,13 @@ Box :: struct {
 	gradient_right:                  [4]u8,
 	text_color:                      [4]u8,
 	border_color:                    [4]u8,
-	hot_color:                       [4]u8,
-	active_color:                    [4]u8,
-	corner_radius:                   f32,
-	border_thickness:                f32,
+	// Per corner, as RAD's: 00 top-left, 01 bottom-left, 10 top-right, 11 bottom-right.
+	corner_radii:                    [4]f32,
+	squish:                          f32, // drawn scaled by 1 - squish about its pivot (RAD's squish)
+	// Its background, border and icon drawn this far inside its rect on
+	// each side, its rect still what takes the pointer (RAD's visual_margin).
+	visual_margin:                   [2]f32,
+	blur_size:                       f32, // how far a background blur spreads (RAD's blur_size)
 	font_size:                       f32,
 	text_padding:                    f32,
 	text_width:                      f32,
@@ -203,13 +254,6 @@ Box :: struct {
 	text_slot:                       int, // its text laid out this frame (render.text_slot), once measured
 	text_metrics_valid:              bool,
 	opacity:                         f32,
-	// onimite: an image drawn contained in the box (Draw_Image), and a
-	// procedure drawn after the box's own background, border and text and
-	// before its children, with the box's final rect (raddbg's custom draw);
-	// `custom_draw_data` must outlive build_end.
-	image:                           ^render.Image,
-	custom_draw:                     Custom_Draw,
-	custom_draw_data:                rawptr,
 
 	// computed layout (rect.min/max in pixels)
 	rect:                            struct {
@@ -218,11 +262,19 @@ Box :: struct {
 
 	// persistent state (survives across frames)
 	hot_t, active_t:                 f32,
+	// How far its children are scrolled, easing toward its target, and what
+	// they span (RAD's view_off, view_off_target, view_bounds).
+	view_off, view_off_target:       [2]f32,
+	view_bounds:                     [2]f32,
+	focus_hot_t, focus_active_t:     f32,
 	first_build_index:               u64,
 	last_build_index:                u64,
 	transient:                       bool, // Key 0: lives in frame arena
 	default_nav_focus_hot_key:       Key,
 	default_nav_focus_active_key:    Key,
+	// Set during a frame, taken as the next begins (RAD's next keys).
+	default_nav_focus_next_hot_key:    Key,
+	default_nav_focus_next_active_key: Key,
 }
 
 box_size :: proc(b: ^Box) -> [2]f32 {
@@ -236,35 +288,40 @@ Sig_Flag :: enum u32 {
 	Left_Pressed,
 	Left_Released,
 	Left_Clicked, // pressed then released while inside bounds
+	// Its button held since it pressed on this box (RAD's
+	// LeftDragging, MiddleDragging, RightDragging).
 	Left_Dragging,
+	Middle_Dragging,
+	Right_Dragging,
 	Right_Pressed,
 	Right_Clicked,
 	Middle_Pressed,
 	Middle_Clicked,
-	// onimite: the middle and right buttons held since they pressed on this
-	// box (the timeline and the video pan by them).
-	Middle_Dragging,
-	Right_Dragging,
 	Hovering, // this box owns the hot key this frame
 	Mouse_Over, // mouse is within rect (possibly occluded)
 	Keyboard_Pressed,
+	// Its press doubles (triples) its last press(es) within DOUBLE_CLICK_SECONDS,
+	// as RAD's press history gives them.
+	Left_Double_Clicked,
+	Middle_Double_Clicked,
+	Right_Double_Clicked,
+	Left_Triple_Clicked,
+	Middle_Triple_Clicked,
+	Right_Triple_Clicked,
 }
+DOUBLE_CLICK_SECONDS :: 0.4
 
 Sig_Flags :: bit_set[Sig_Flag;u32]
 
 // Signal is the interaction result for a box, computed against the box's
-// last-frame rect. `drag_delta` is mouse-now minus press-origin.
+// last-frame rect. `drag_delta` is mouse-now minus press-origin. `scroll` is
+// the wheel it took in RAD's steps (scroll_steps: three a notch), down and
+// right positive; with Shift held the axes swap (RAD's sig.scroll).
 Signal :: struct {
 	box:        ^Box,
 	flags:      Sig_Flags,
 	drag_delta: [2]f32,
-	scroll:     f32,
-	// onimite: the mouse's movement this frame while the box is dragged
-	// (any button), horizontal scrolling over it (right positive), and
-	// scrolling with Control held over it (zoom steps, in positive).
-	drag_motion: [2]f32,
-	scroll_x:    f32,
-	zoom:        f32,
+	scroll:     [2]f32,
 }
 
 clicked :: proc(s: Signal) -> bool {return(
@@ -276,9 +333,12 @@ released :: proc(s: Signal) -> bool {return .Left_Released in s.flags}
 hovering :: proc(s: Signal) -> bool {return .Hovering in s.flags}
 mouse_over :: proc(s: Signal) -> bool {return .Mouse_Over in s.flags}
 dragging :: proc(s: Signal) -> bool {return .Left_Dragging in s.flags}
+middle_dragging :: proc(s: Signal) -> bool {return .Middle_Dragging in s.flags}
+right_dragging :: proc(s: Signal) -> bool {return .Right_Dragging in s.flags}
+double_clicked :: proc(s: Signal) -> bool {return .Left_Double_Clicked in s.flags}
+keyboard_pressed :: proc(s: Signal) -> bool {return .Keyboard_Pressed in s.flags}
 right_clicked :: proc(s: Signal) -> bool {return .Right_Clicked in s.flags}
-middle_dragging :: proc(s: Signal) -> bool {return .Middle_Dragging in s.flags} // onimite
-right_dragging :: proc(s: Signal) -> bool {return .Right_Dragging in s.flags} // onimite
+middle_clicked :: proc(s: Signal) -> bool {return .Middle_Clicked in s.flags}
 
 ////////////////////////////////
 // Per-attribute stacks
@@ -321,7 +381,12 @@ stack_use :: proc(s: ^Stack($T), fallback: T) -> T {
 // State is the whole UI context. Create with `init`, destroy with `destroy`.
 // One State per window/UI surface. Threaded explicitly to every proc.
 State :: struct {
-	r:                  ^render.Renderer,
+	canvas:             ^vg.Canvas, // what the frame is drawn on (draw.odin)
+	// Where the frame is drawn (the app's frame image; nil, the screen) and
+	// its layers, which a backdrop blur reads (ovg's layer_backdrop_blur).
+	target:             vg.Render_Target,
+	layers:             vg.Layer_Stack,
+	path:               vg.Path, // scratch for what draw builds
 	p:                  ^platform.Platform,
 	font:               ^render.Font,
 
@@ -340,22 +405,33 @@ State :: struct {
 	hot:                Key,
 	hint:               string,
 	drop_hot:           Key,
-	active:             Key, // left-button active (the pressed widget)
-	keyboard_focus:     Key,
+	active:             [platform.Mouse_Button]Key, // per button, the box its press made active
+	// Per button, the boxes its last presses went to and when, newest first
+	// (RAD's press_key_history and press_timestamp_history_us).
+	press_keys:         [platform.Mouse_Button][3]Key,
+	press_times:        [platform.Mouse_Button][3]f64,
+	// Where the last press began, and what its owner kept of the state the
+	// drag started from (RAD's drag_start_mouse and drag state data:
+	// store_drag_struct, drag_struct).
 	drag_start:         [2]f32,
-	// onimite: the boxes the middle and right buttons pressed on.
-	middle_active:      Key,
-	right_active:       Key,
+	drag_data:          [dynamic]u8,
 	actions:            Action_Storage,
 	animations:         Animation_Storage,
 	is_animating:       bool,
-	modal_input_active: bool,
-	font_scale:         f32,
-	font_motion:        animation.Track,
+	font_scale:         f32, // every box's font size times this (the app's window font size)
 	default_nav_root:   Key,
+	// Text was being edited this frame, as RAD's text_edit_mode: a key that
+	// types a character then types it (view/keys.odin). Multi-line: Enter
+	// too.
+	text_edit_mode, text_edit_mode_multiline: bool,
 
 	// parent stack (explicit; not folded into the generic stacks)
 	parent_stack:       [dynamic]^Box,
+	// The root's first child, so it draws over everything: what a tooltip
+	// (tooltip_begin) builds goes in it, as RAD's tooltip root.
+	tooltip_root:       ^Box,
+	icons:              map[string]vg.Shape, // what Draw_Icon boxes fill: each icon's stroke, made once (icons_set)
+	scroll_list:        Scroll_List, // the list begun and not yet ended (scroll.odin)
 
 	// per-attribute stacks
 	pref_width:         Stack(Size),
@@ -371,48 +447,19 @@ State :: struct {
 	text_color:         Stack([4]u8),
 	border_color:       Stack([4]u8),
 	corner_radius:      Stack(f32),
+	squish:             Stack(f32),
+	visual_margin:      Stack([2]f32),
+	blur_size:          Stack(f32),
 	font_size:          Stack(f32),
 	text_padding:       Stack(f32),
 	opacity:            Stack(f32),
+	icon:               Stack(string),
+	hover_cursor:       Stack(platform.Cursor),
+	focus_hot:          Stack(Focus_Kind),
+	focus_active:       Stack(Focus_Kind),
 
 	// theme defaults
 	theme:              Theme,
-}
-
-box_in_modal_input_scope :: proc(box: ^Box) -> bool {
-	for ancestor := box; ancestor != nil; ancestor = ancestor.parent {
-		if .Modal_Input_Root in ancestor.flags {
-			return true
-		}
-	}
-	return false
-}
-
-key_is_in_modal_input_scope :: proc(s: ^State, key: Key) -> bool {
-	if s == nil || key == Key(0) {
-		return false
-	}
-	box, ok := s.box_table[key]
-	return ok && box_in_modal_input_scope(box)
-}
-
-modal_input_set :: proc(s: ^State, active: bool) {
-	if s == nil {
-		return
-	}
-	if active && !s.modal_input_active {
-		if !key_is_in_modal_input_scope(s, s.keyboard_focus) {
-			s.keyboard_focus = Key(0)
-		}
-		if !key_is_in_modal_input_scope(s, s.hot) {
-			s.hot = Key(0)
-		}
-		if !key_is_in_modal_input_scope(s, s.active) {
-			s.active = Key(0)
-		}
-		s.default_nav_root = Key(0)
-	}
-	s.modal_input_active = active
 }
 
 // Theme holds default colors + metrics. Kept simple and public so callers can
@@ -422,14 +469,26 @@ Theme :: struct {
 	panel:            [4]u8,
 	text:             [4]u8,
 	border:           [4]u8,
-	hot:              [4]u8,
 	active:           [4]u8,
+	hover:            [4]u8, // hover overlay and border brighten, as RAD's "hover"
 	accent:           [4]u8,
+	selection:        [4]u8, // selected text behind it, as RAD's "selection"
+	drop_shadow:      [4]u8, // shadows and edge fades, as RAD's drop_shadow
+	inactive:         [4]u8, // over what a floating view leaves beneath it, as RAD's "inactive background"
+	floating:         [4]u8, // a floating view's background: translucent, over its blur (RAD's "floating background")
+	floating_border:  [4]u8,
+	focus_overlay:    [4]u8, // over a clickable box focus hot, as RAD's "focus overlay"
+	focus_border:     [4]u8, // around a clickable box focus active, as RAD's "focus border"
+	match:            [4]u8, // behind a filter's matched letters, as RAD's "match background"
+	blur_size:        f32, // RAD's window blur size
 	default_font_px:  f32,
 	default_padding:  f32,
 	default_corner:   f32,
-	hot_anim_rate:    f32, // per-second approach rate toward target
+	// How often a second hot_t, active_t and a box's view offset halve their
+	// distance to their targets (RAD's catchall and scrolling rates, 60).
+	hot_anim_rate:    f32,
 	active_anim_rate: f32,
+	scroll_anim_rate: f32,
 }
 
 default_theme :: proc() -> Theme {
@@ -438,20 +497,34 @@ default_theme :: proc() -> Theme {
 		panel = {38, 42, 52, 255},
 		text = {224, 228, 236, 255},
 		border = {70, 78, 92, 255},
-		hot = {60, 68, 84, 255},
+		// onimite's own palette (v0.0.78's) in RAD's slots: its hot colour
+		// tints the hover, its lister the floating views (opaque, its
+		// border and backdrop), its accent the focus (an overlay that over
+		// the lister lands on its selected row's colour) and the selection.
 		active = {90, 130, 200, 255},
+		hover = {60, 68, 84, 255},
 		accent = {96, 150, 230, 255},
+		selection = {96, 150, 230, 90},
+		drop_shadow = {0, 0, 0, 150},
+		inactive = {0, 0, 0, 150},
+		floating = {28, 31, 38, 255},
+		floating_border = {92, 100, 116, 255},
+		focus_overlay = {96, 150, 230, 87},
+		focus_border = {96, 150, 230, 255},
+		match = {60, 68, 84, 255},
+		blur_size = 10,
 		default_font_px = 18,
 		default_padding = 6,
 		default_corner = 4,
-		hot_anim_rate = 45,
-		active_anim_rate = 55,
+		hot_anim_rate = 60,
+		active_anim_rate = 60,
+		scroll_anim_rate = 60,
 	}
 }
 
 // init wires a State to the renderer/platform/font and seeds the theme.
-init :: proc(s: ^State, r: ^render.Renderer, p: ^platform.Platform, font: ^render.Font) {
-	s.r = r
+init :: proc(s: ^State, canvas: ^vg.Canvas, p: ^platform.Platform, font: ^render.Font) {
+	s.canvas = canvas
 	s.p = p
 	s.font = font
 	s.box_table = make(map[Key]^Box)
@@ -475,6 +548,11 @@ destroy :: proc(s: ^State) {
 	}
 	delete(s.frame_boxes)
 	delete(s.parent_stack)
+	delete(s.drag_data)
+	if s.canvas != nil do vg.layer_stack_destroy(&s.layers, s.canvas)
+	vg.path_destroy(&s.path)
+	for _, &icon in s.icons do vg.shape_destroy(&icon)
+	delete(s.icons)
 	action_storage_destroy(&s.actions)
 	animation_storage_destroy(&s.animations)
 	stacks_delete(s)
@@ -494,9 +572,15 @@ stacks_delete :: proc(s: ^State) {
 	delete(s.text_color.items)
 	delete(s.border_color.items)
 	delete(s.corner_radius.items)
+	delete(s.squish.items)
+	delete(s.blur_size.items)
 	delete(s.font_size.items)
 	delete(s.text_padding.items)
 	delete(s.opacity.items)
+	delete(s.icon.items)
+	delete(s.hover_cursor.items)
+	delete(s.focus_hot.items)
+	delete(s.focus_active.items)
 }
 
 ////////////////////////////////
@@ -512,10 +596,17 @@ build_begin :: proc(s: ^State) {
 	s.is_animating = false
 	s.hint = ""
 	animation_storage_prune(&s.animations, s.build_index)
-	actions_gather_from_platform(&s.actions, s.p)
-	font_scale_process_actions(s)
-	default_nav_process_actions(s)
+	// The frame's input rows are made before the build, as RAD's events
+	// are before ui_begin_build: one a window event, in order (the app's
+	// key_route, through action_push_event for the pointer's).
+	default_nav_process(s)
 	s.default_nav_root = Key(0)
+	// What the navigation roots focused last frame takes effect now (RAD's
+	// next-default-nav-focus keys).
+	for _, b in s.box_table {
+		b.default_nav_focus_hot_key = b.default_nav_focus_next_hot_key
+		b.default_nav_focus_active_key = b.default_nav_focus_next_active_key
+	}
 
 	// free transient boxes from previous frame
 	for b in s.frame_boxes {
@@ -538,15 +629,25 @@ build_begin :: proc(s: ^State) {
 	stack_reset(&s.text_color)
 	stack_reset(&s.border_color)
 	stack_reset(&s.corner_radius)
+	stack_reset(&s.squish)
+	stack_reset(&s.blur_size)
 	stack_reset(&s.font_size)
 	stack_reset(&s.text_padding)
 	stack_reset(&s.opacity)
+	stack_reset(&s.icon)
+	stack_reset(&s.hover_cursor)
+	stack_reset(&s.focus_hot)
+	stack_reset(&s.focus_active)
 
-	// reset hot each frame if nothing is being actively held (raddbg does the
-	s.drop_hot = 0
-	// same: hot is re-derived from mouse position during signal computation).
-	if s.active == Key(0) {
+	// As RAD's ui_begin_build: hot is re-derived from the pointer as signals
+	// are computed, unless a box holds a button; drop-hot always is.
+	if s.active == {} {
 		s.hot = Key(0)
+	}
+	s.drop_hot = 0
+	// A box a button made active that is gone (pruned) holds nothing.
+	for &active in s.active {
+		if active != Key(0) && active not_in s.box_table do active = Key(0)
 	}
 
 	// root box: fills the framebuffer, lays children along X by default.
@@ -561,7 +662,14 @@ build_begin :: proc(s: ^State) {
 	root.fixed_pos = {0, 0}
 	s.root = root
 	push_parent(s, root)
+	// The tooltip root, the root's first child: it draws over everything.
+	set_next_fixed_x(s, 0); set_next_fixed_y(s, 0)
+	set_next_fixed_width(s, fbw); set_next_fixed_height(s, fbh)
+	s.tooltip_root = build_box(s, {}, "###ui_tooltips")
 }
+// Build into the tooltip root, over everything else, until tooltip_end.
+tooltip_begin :: proc(s: ^State) {push_parent(s, s.tooltip_root)}
+tooltip_end :: proc(s: ^State) {pop_parent(s)}
 
 stack_reset :: proc(s: ^Stack($T)) {
 	clear(&s.items)
@@ -581,10 +689,18 @@ build_end :: proc(s: ^State) {
 		layout_enforce_constraints(s.root, axis)
 		layout_position(s.root, axis)
 	}
+	view_animate(s, s.root, s.p.frame_time)
+	children_round(s.root)
+
+	// The pointer's shape, as RAD's ui_end_build: the box the left button
+	// holds, else the hot one, sets it, while the window has the focus or a
+	// box is held.
+	held := box_from_key(s, s.active[.Left])
+	under := held if held != nil else box_from_key(s, s.hot)
+	if s.p.input.focused || held != nil do platform.set_cursor(s.p, under.hover_cursor if under != nil else .Pointer)
 
 	// draw + animate
 	draw(s)
-	hint_draw(s)
 	animations_advance(s)
 
 	// prune keyed boxes untouched this frame
@@ -630,7 +746,6 @@ build_box :: proc(s: ^State, flags: Box_Flags, string_key: string) -> ^Box {
 
 	// reset per-frame fields (preserve persistent hot_t/active_t/rect)
 	box.first = nil
-	box.image, box.custom_draw, box.custom_draw_data = nil, nil, nil // onimite
 	box.last = nil
 	box.next = nil
 	box.prev = nil
@@ -638,6 +753,8 @@ build_box :: proc(s: ^State, flags: Box_Flags, string_key: string) -> ^Box {
 	box.child_count = 0
 	box.key = key
 	box.text_metrics_valid = false
+	box.custom_draw, box.custom_data = nil, nil // equipped again each frame it draws itself
+	box.fuzzy_ranges = nil
 
 	// link into tree
 	if parent != nil {
@@ -655,6 +772,7 @@ build_box :: proc(s: ^State, flags: Box_Flags, string_key: string) -> ^Box {
 
 	// flags: OR the pushed-flags stack with the explicit arg
 	box.flags = flags | stack_use(&s.flags, Box_Flags{})
+	focus_flags(s, box)
 
 	// sizing: fixed_* stacks override pref_size and set Floating/Fixed flags
 	if fx, ok := s.fixed_x.next.?; ok {
@@ -690,17 +808,20 @@ build_box :: proc(s: ^State, flags: Box_Flags, string_key: string) -> ^Box {
 	box.child_layout_axis = stack_use(&s.child_layout_axis, Axis2.Y)
 	box.text_align = stack_use(&s.text_align, Text_Align.Left)
 	box.font_size = stack_use(&s.font_size, s.theme.default_font_px) * s.font_scale
+	box.icon = stack_use(&s.icon, "")
+	box.hover_cursor = stack_use(&s.hover_cursor, platform.Cursor.Pointer)
 	box.text_padding = stack_use(&s.text_padding, s.theme.default_padding)
 	box.opacity = stack_use(&s.opacity, 1)
-	box.corner_radius = stack_use(&s.corner_radius, s.theme.default_corner)
+	r := stack_use(&s.corner_radius, s.theme.default_corner)
+	box.corner_radii = {r, r, r, r}
+	box.squish = stack_use(&s.squish, 0)
+	box.visual_margin = stack_use(&s.visual_margin, [2]f32{})
+	box.blur_size = stack_use(&s.blur_size, s.theme.blur_size)
 	box.bg_color = stack_use(&s.bg_color, s.theme.panel)
 	box.gradient_left = box.bg_color
 	box.gradient_right = box.bg_color
 	box.text_color = stack_use(&s.text_color, s.theme.text)
 	box.border_color = stack_use(&s.border_color, s.theme.border)
-	box.hot_color = s.theme.hot
-	box.active_color = s.theme.active
-	box.border_thickness = 1
 	box.min_size = {0, 0}
 
 	// display string (arena-lived for the frame via strings.clone in temp allocator)
@@ -805,6 +926,27 @@ box_text_metrics_ensure :: #force_inline proc(s: ^State, box: ^Box) {
 	box.text_metrics_valid = true
 }
 
+// Where a box's text starts, its baseline's left end, as RAD's
+// ui_box_text_position: centred or right-aligned text never starts left of
+// the box, so what doesn't fit is cut at the right.
+box_text_position :: proc(s: ^State, box: ^Box) -> [2]f32 {
+	box_text_metrics_ensure(s, box)
+	ascent := render.ascent(s.font, box.font_size)
+	descent := box.font_size - ascent
+	p: [2]f32
+	p.y = math.floor((box.rect.min.y + box.rect.max.y) / 2 + ascent / 2 - descent / 2)
+	switch box.text_align {
+	case .Left:
+		p.x = box.rect.min.x + box.text_padding
+	case .Center:
+		p.x = max(math.round((box.rect.min.x + box.rect.max.x) / 2 - box.text_width / 2), box.rect.min.x)
+	case .Right:
+		p.x = max(math.round(box.rect.max.x - box.text_width - box.text_padding), box.rect.min.x)
+	}
+	p.x = math.floor(p.x)
+	return p
+}
+
 // pass 1: standalone sizes (pixels, text content). Fixed_* already set size.
 layout_standalone :: proc(s: ^State, box: ^Box, axis: Axis2) {
 	if axis == .X && .Fixed_Width in box.flags {
@@ -885,9 +1027,13 @@ is_floating :: proc(b: ^Box, axis: Axis2) -> bool {
 
 // pass 4: solve violations. Along the layout axis, shrink children in
 // proportion to (size * (1-strictness)); off-axis, clamp each child to parent.
+// A box that allows overflow on the axis keeps its children's sizes, and its
+// fraction-sized children take their fraction of it again (RAD's
+// ui_layout_enforce_constraints).
 layout_enforce_constraints :: proc(box: ^Box, axis: Axis2) {
+	overflow := .Allow_Overflow_X in box.flags if axis == .X else .Allow_Overflow_Y in box.flags
 	// off-axis: clamp each child to the parent's size
-	if axis != box.child_layout_axis {
+	if axis != box.child_layout_axis && !overflow {
 		allowed := box.fixed_size[axis]
 		for c := box.first; c != nil; c = c.next {
 			if is_floating(c, axis) {
@@ -902,7 +1048,7 @@ layout_enforce_constraints :: proc(box: ^Box, axis: Axis2) {
 	}
 
 	// layout axis: distribute the total violation across squishable children
-	if axis == box.child_layout_axis {
+	if axis == box.child_layout_axis && !overflow {
 		total_allowed := box.fixed_size[axis]
 		total_size: f32 = 0
 		total_weighted: f32 = 0
@@ -926,6 +1072,12 @@ layout_enforce_constraints :: proc(box: ^Box, axis: Axis2) {
 		}
 	}
 
+	if overflow {
+		for c := box.first; c != nil; c = c.next {
+			if c.pref_size[axis].kind == .Parent_Pct do c.fixed_size[axis] = box.fixed_size[axis] * c.pref_size[axis].value
+		}
+	}
+
 	// enforce min sizes
 	for c := box.first; c != nil; c = c.next {
 		c.fixed_size[axis] = max(c.fixed_size[axis], c.min_size[axis])
@@ -936,26 +1088,66 @@ layout_enforce_constraints :: proc(box: ^Box, axis: Axis2) {
 	}
 }
 
-// pass 5: compute final rects. Children stack along the parent's layout axis;
-// floating children use their fixed_pos.
+// pass 5: compute final rects. Children stack along the parent's layout axis,
+// less the parent's view offset; floating children use their fixed_pos. What
+// the laid-out children span is the parent's view bounds (RAD's
+// ui_layout_position).
 layout_position :: proc(box: ^Box, axis: Axis2) {
 	layout_pos: f32 = 0
+	bounds: f32 = 0
 	for c := box.first; c != nil; c = c.next {
 		if !is_floating(c, axis) {
 			c.fixed_pos[axis] = layout_pos
 			if box.child_layout_axis == axis {
 				layout_pos += c.fixed_size[axis]
+				bounds += c.fixed_size[axis]
+			} else {
+				bounds = max(bounds, c.fixed_size[axis])
 			}
 		}
-		c.rect.min[axis] = box.rect.min[axis] + c.fixed_pos[axis]
+		c.rect.min[axis] = box.rect.min[axis] + c.fixed_pos[axis] - math.floor(box.view_off[axis])
 		c.rect.max[axis] = c.rect.min[axis] + c.fixed_size[axis]
 		// floor to whole pixels (raddbg does this to avoid text shimmer)
 		c.rect.min[axis] = math.floor(c.rect.min[axis])
 		c.rect.max[axis] = math.floor(c.rect.max[axis])
 	}
+	box.view_bounds[axis] = bounds
 	for c := box.first; c != nil; c = c.next {
 		layout_position(c, axis)
 	}
+}
+
+// As RAD's ui_end_build child rounding: in a box that rounds its children,
+// each box of its subtree at one of its corners takes that corner's radius.
+children_round :: proc(box: ^Box) {
+	if .Round_Children_By_Parent in box.flags do corners_take(box, box)
+	for c := box.first; c != nil; c = c.next do children_round(c)
+}
+@(private)
+corners_take :: proc(parent, b: ^Box) {
+	lo, hi := parent.rect.min, parent.rect.max
+	f :: math.floor
+	if f(b.rect.min.x) <= f(lo.x) && f(b.rect.min.y) <= f(lo.y) do b.corner_radii[0] = parent.corner_radii[0]
+	if f(b.rect.max.x) >= f(hi.x) && f(b.rect.min.y) <= f(lo.y) do b.corner_radii[2] = parent.corner_radii[2]
+	if f(b.rect.min.x) <= f(lo.x) && f(b.rect.max.y) >= f(hi.y) do b.corner_radii[1] = parent.corner_radii[1]
+	if f(b.rect.max.x) >= f(hi.x) && f(b.rect.max.y) >= f(hi.y) do b.corner_radii[3] = parent.corner_radii[3]
+	for c := b.first; c != nil; c = c.next do corners_take(parent, c)
+}
+// As RAD's ui_end_build animation: focus at once (its focus rate is 1), and
+// a view-clamped box's target stays within its view bounds, its view offset
+// easing toward the target and landing on it within two pixels.
+view_animate :: proc(s: ^State, box: ^Box, dt: f32) {
+	box.focus_hot_t = .Focus_Hot in box.flags && .Focus_Hot_Disabled not_in box.flags ? 1 : 0
+	box.focus_active_t = .Focus_Active in box.flags && .Focus_Active_Disabled not_in box.flags ? 1 : 0
+	limit := [2]f32{max(0, box.view_bounds.x - box.fixed_size.x), max(0, box.view_bounds.y - box.fixed_size.y)}
+	if .View_Clamp_X in box.flags do box.view_off_target.x = clamp(box.view_off_target.x, 0, limit.x)
+	if .View_Clamp_Y in box.flags do box.view_off_target.y = clamp(box.view_off_target.y, 0, limit.y)
+	for axis in 0 ..< 2 {
+		if abs(box.view_off_target[axis] - box.view_off[axis]) > 0.5 do s.is_animating = true
+		box.view_off[axis] = animation.approach(box.view_off[axis], box.view_off_target[axis], s.theme.scroll_anim_rate * math.LN2, dt)
+		if abs(box.view_off[axis] - box.view_off_target[axis]) < 2 do box.view_off[axis] = box.view_off_target[axis]
+	}
+	for c := box.first; c != nil; c = c.next do view_animate(s, c, dt)
 }
 
 ////////////////////////////////
@@ -965,14 +1157,27 @@ layout_position :: proc(box: ^Box, axis: Axis2) {
 // box's rect FROM LAST FRAME (this frame's rect is not yet final when widgets
 // query signals). Mouse position + edge-detected buttons come from platform.
 
+// The pointer's motion since the last press began (RAD's ui_drag_delta).
+drag_delta :: proc(s: ^State) -> [2]f32 {return platform.mouse_pos(s.p) - s.drag_start}
+// What a drag's owner keeps of the state it started from, as its press
+// stores it and its drag reads it back (RAD's ui_store_drag_struct and
+// ui_get_drag_struct): one value at a time, the last press's.
+store_drag_struct :: proc(s: ^State, v: ^$T) {
+	clear(&s.drag_data)
+	append(&s.drag_data, ..(transmute([^]u8)v)[:size_of(T)])
+}
+drag_struct :: proc(s: ^State, $T: typeid) -> ^T {
+	if len(s.drag_data) < size_of(T) do resize(&s.drag_data, size_of(T))
+	return (^T)(raw_data(s.drag_data))
+}
+// No box holds a button any more (RAD's ui_kill_action): a drag cancelled.
+kill_action :: proc(s: ^State) {s.active = {}}
+
 signal_from_box :: proc(s: ^State, box: ^Box) -> Signal {
 	sig := Signal {
 		box = box,
 	}
 	if box == nil {
-		return sig
-	}
-	if s.modal_input_active && !box_in_modal_input_scope(box) {
 		return sig
 	}
 
@@ -987,109 +1192,111 @@ signal_from_box :: proc(s: ^State, box: ^Box) -> Signal {
 			r_max.y = min(r_max.y, b.rect.max.y)
 		}
 	}
+	contains :: proc(lo, hi, p: [2]f32) -> bool {return p.x >= lo.x && p.x < hi.x && p.y >= lo.y && p.y < hi.y}
+
+	// The events this box is for, each taken here so no box asking later
+	// sees it (RAD's ui_signal_from_box): a press by the clickable box under
+	// it, a release by the box its press made active, a wheel tick by the
+	// scrollable box under it.
+	pressed_flag := [platform.Mouse_Button]Sig_Flag{.Left = .Left_Pressed, .Middle = .Middle_Pressed, .Right = .Right_Pressed}
+	clicked_flag := [platform.Mouse_Button]Sig_Flag{.Left = .Left_Clicked, .Middle = .Middle_Clicked, .Right = .Right_Clicked}
+	double_flag := [platform.Mouse_Button]Sig_Flag{.Left = .Left_Double_Clicked, .Middle = .Middle_Double_Clicked, .Right = .Right_Double_Clicked}
+	triple_flag := [platform.Mouse_Button]Sig_Flag{.Left = .Left_Triple_Clicked, .Middle = .Middle_Triple_Clicked, .Right = .Right_Triple_Clicked}
+	for &action in s.actions.rows {
+		if action.consumed do continue
+		in_bounds := contains(r_min, r_max, action.position)
+		#partial switch action.kind {
+		case .Mouse_Press:
+			if .Clickable not_in box.flags || !in_bounds do continue
+			s.hot = box.key
+			s.active[action.button] = box.key
+			sig.flags |= {pressed_flag[action.button]}
+			now := platform.time(s.p)
+			keys, times := &s.press_keys[action.button], &s.press_times[action.button]
+			if box.key == keys[0] && now - times[0] <= DOUBLE_CLICK_SECONDS do sig.flags |= {double_flag[action.button]}
+			if box.key == keys[0] && box.key == keys[1] && now - times[0] <= DOUBLE_CLICK_SECONDS && times[0] - times[1] <= DOUBLE_CLICK_SECONDS do sig.flags |= {triple_flag[action.button]}
+			keys[2], keys[1], keys[0] = keys[1], keys[0], box.key
+			times[2], times[1], times[0] = times[1], times[0], now
+			s.drag_start = action.position
+			if action.button == .Left {
+				// As RAD's: pressing a box in a navigation root focuses it there
+				// from the next frame.
+				nav_root := default_nav_root_from_box(box)
+				if nav_root != nil && .Click_To_Focus in box.flags {
+					nav_root.default_nav_focus_next_hot_key = box.key
+					if nav_root.default_nav_focus_active_key != box.key do nav_root.default_nav_focus_next_active_key = Key(0)
+				}
+			}
+			action.consumed = true
+		case .Mouse_Release:
+			if .Clickable not_in box.flags || s.active[action.button] != box.key do continue
+			s.active[action.button] = Key(0)
+			if action.button == .Left do sig.flags |= {.Left_Released}
+			if in_bounds {sig.flags |= {clicked_flag[action.button]}} else {s.hot = Key(0)}
+			action.consumed = true
+		case .Scroll:
+			// As RAD's: with no modifier or Shift alone, Shift swapping the
+			// axes. A Scroll box takes each event's steps (scroll_steps: a
+			// notch three); a view-scrolled one moves its view offset by the
+			// wheel's pixels (120 a notch), a lone axis taking either of the
+			// wheel's (RAD's view scrolling).
+			// (a view-scrolled box built before this frame: RAD's first-build
+			// guard)
+			view := box.flags & {.View_Scroll_X, .View_Scroll_Y} != {} && box.first_build_index != box.last_build_index
+			if .Scroll not_in box.flags && !view || action.modifiers - {.Shift} != {} || !in_bounds do continue
+			delta := action.scroll_delta
+			if .Shift in action.modifiers do delta = delta.yx
+			if .Scroll in box.flags do sig.scroll += scroll_steps(delta)
+			if view {
+				if .View_Scroll_X not_in box.flags {
+					if delta.y == 0 do delta.y = delta.x
+					delta.x = 0
+				}
+				if .View_Scroll_Y not_in box.flags {
+					if delta.x == 0 do delta.x = delta.y
+					delta.y = 0
+				}
+				box.view_off_target += delta
+			}
+			action.consumed = true
+		}
+	}
 
 	mp := platform.mouse_pos(s.p)
-	in_bounds := mp.x >= r_min.x && mp.x < r_max.x && mp.y >= r_min.y && mp.y < r_max.y
-
+	in_bounds := contains(r_min, r_max, mp)
 	if in_bounds {
 		sig.flags |= {.Mouse_Over}
 	}
-	if .Drop_Site in box.flags && box.key != 0 && in_bounds && s.drop_hot == 0 {
-		s.drop_hot = box.key
+	// The first drop site under the pointer is drop-hot; leaving it, none is.
+	if .Drop_Site in box.flags && box.key != 0 {
+		if in_bounds && (s.drop_hot == 0 || s.drop_hot == box.key) {s.drop_hot = box.key} else if !in_bounds && s.drop_hot == box.key {s.drop_hot = 0}
 	}
-
-	// Like RAD Debugger's UI_EventKind_Scroll path, the hovered box consumes
-	// the admitted scroll row. Sibling widgets and the camera cannot replay it.
-	sig.scroll = action_scroll_consume(s, false, r_min, r_max, true)
-	// onimite: horizontal scrolling and Control-scroll zoom, consumed alike.
-	sig.scroll_x = action_scroll_consume(s, false, r_min, r_max, true, horizontal = true)
-	sig.zoom = action_scroll_consume(s, true, r_min, r_max, true)
 
 	if .Clickable not_in box.flags {
 		return sig
 	}
 
-	nav_root := default_nav_root_from_box(box)
-	if nav_root != nil &&
-	   nav_root.default_nav_focus_hot_key == Key(0) &&
-	   .Focus_Nav_Skip not_in box.flags {
-		nav_root.default_nav_focus_hot_key = box.key
+	// active box (held) -> dragging, per button (RAD's LeftDragging<<k)
+	dragging_flag := [platform.Mouse_Button]Sig_Flag{.Left = .Left_Dragging, .Middle = .Middle_Dragging, .Right = .Right_Dragging}
+	for button in platform.Mouse_Button {
+		if s.active[button] == box.key || pressed_flag[button] in sig.flags do sig.flags |= {dragging_flag[button]}
 	}
+	if .Left_Dragging in sig.flags do sig.drag_delta = drag_delta(s)
 
-	// left press inside -> become hot + active, record drag origin
-	if platform.mouse_pressed(s.p, .Left) && in_bounds {
-		s.hot = box.key
-		s.active = box.key
-		s.drag_start = mp
-		sig.flags |= {.Left_Pressed}
-		if nav_root != nil && .Click_To_Focus in box.flags {
-			nav_root.default_nav_focus_hot_key = box.key
-			if nav_root.default_nav_focus_active_key != box.key {
-				nav_root.default_nav_focus_active_key = Key(0)
-			}
-		}
-	}
-	if platform.mouse_pressed(s.p, .Right) && in_bounds {
-		sig.flags |= {.Right_Pressed}
-		s.right_active = box.key // onimite
-	}
-	if platform.mouse_pressed(s.p, .Middle) && in_bounds {
-		sig.flags |= {.Middle_Pressed}
-		s.middle_active = box.key // onimite
-	}
-	// onimite: middle and right drags last while their button is held.
-	if s.middle_active == box.key {
-		if platform.mouse_down(s.p, .Middle) || .Middle_Pressed in sig.flags {
-			sig.flags |= {.Middle_Dragging}
-		} else {
-			s.middle_active = Key(0)
-		}
-	}
-	if s.right_active == box.key {
-		if platform.mouse_down(s.p, .Right) || .Right_Pressed in sig.flags {
-			sig.flags |= {.Right_Dragging}
-		} else {
-			s.right_active = Key(0)
+	// hover: the first clickable box under the pointer, while no other box
+	// is hot or holds a button
+	if in_bounds && (s.hot == Key(0) || s.hot == box.key) {
+		held := false
+		for active in s.active do held ||= active != Key(0) && active != box.key
+		if !held {
+			s.hot = box.key
+			sig.flags |= {.Hovering}
 		}
 	}
 
-	// left release while active
-	if platform.mouse_released(s.p, .Left) && s.active == box.key {
-		sig.flags |= {.Left_Released}
-		if in_bounds {
-			sig.flags |= {.Left_Clicked}
-		} else {
-			s.hot = Key(0)
-		}
-		s.active = Key(0)
-	}
-	if platform.mouse_released(s.p, .Right) && in_bounds {
-		sig.flags |= {.Right_Clicked}
-	}
-	if platform.mouse_released(s.p, .Middle) && in_bounds {
-		sig.flags |= {.Middle_Clicked}
-	}
-
-	// active box (held) -> dragging
-	if s.active == box.key || .Left_Pressed in sig.flags {
-		if platform.mouse_down(s.p, .Left) || .Left_Pressed in sig.flags {
-			sig.flags |= {.Left_Dragging}
-		}
-		sig.drag_delta = {mp.x - s.drag_start.x, mp.y - s.drag_start.y}
-	}
-	if sig.flags & {.Left_Dragging, .Middle_Dragging, .Right_Dragging} != {} {
-		sig.drag_motion = platform.mouse_delta(s.p) // onimite
-	}
-
-	// hover: mouse over and no other box owns hot/active
-	if in_bounds &&
-	   (s.hot == Key(0) || s.hot == box.key) &&
-	   (s.active == Key(0) || s.active == box.key) {
-		s.hot = box.key
-		sig.flags |= {.Hovering}
-	}
-
-	if default_nav_is_focus_hot(box) && action_pressed(s, .Accept) {
+	// Focus hot and keyboard clickable, an accept press is its keyboard press
+	// (RAD's ui_signal_from_box).
+	if .Keyboard_Clickable in box.flags && .Focus_Hot in box.flags && .Focus_Hot_Disabled not_in box.flags && action_pressed(s, .Accept) {
 		sig.flags |= {.Keyboard_Pressed}
 	}
 

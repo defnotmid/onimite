@@ -9,6 +9,8 @@ import platform "../platform"
 import render "../render"
 import "../animation"
 import ui "../ui"
+import vg "deps:ovg"
+import sdl "vendor:sdl3"
 
 // The preview's timeline: a time ruler over rows, one per item the worker
 // published (preview_tables.odin), each drawn the way its kind says: the
@@ -18,24 +20,24 @@ import ui "../ui"
 // per part. Hovering a row says what
 // it is, with the path `onimite show` takes. The bookmark, the hovered
 // frame and the playhead run over all of it. It zooms (Ctrl+wheel, +/-),
-// pans (wheel, horizontal wheel or touchpad, middle drag) and follows the
-// playhead; the wheel over rows that don't fit scrolls them. In a panel
-// at the side of another and taller than wide, time runs down and the
-// ruler, the scenes and the rows are columns side by side (`Time_Axis`).
+// pans (the wheel over the ruler and scenes, horizontal wheel or touchpad,
+// middle drag) and follows the playhead; the rows are RAD's scroll list
+// (the wheel over them and its bar scroll them). In a panel at the side of
+// another and taller than wide, time runs down and the ruler, the scenes and
+// the cues are columns side by side (`Time_Axis`), with no other rows. The
+// cues sit in the head with the ruler and the scenes, fixed while the rows
+// below scroll.
 //
-// It is one box whose custom draw paints everything from the published
-// tables in O(pixels): waveforms read one pyramid level per pixel column,
-// thumbnails come from the worker's cache by frame. Input on the box
-// becomes command rows.
+// Its track holds its head and its rows, each a box whose custom draw
+// paints from the published tables in O(pixels): waveforms read one pyramid
+// level per pixel column, thumbnails come from the worker's cache by frame.
+// Input on the boxes becomes command rows.
 
 TRACK_PAD :: 8
 TIMELINE_GAP :: 6
 RULER_HEIGHT :: 18
 // The ruler across when time runs down: its labels are side by side with it.
 RULER_WIDTH :: 44
-// Running down, the scenes and rows widen up to this many times to share
-// the panel's width.
-ACROSS_MAX :: 4
 SCENE_HEIGHT :: 48
 CUE_HEIGHT :: 14
 LANE_HEIGHT :: 24
@@ -80,13 +82,10 @@ Time_Axis :: struct {
 	corner:   [2]f32,
 	// Points the ruler takes across.
 	ruler:    f32,
-	// The scenes' and rows' points across per point of their height (above
-	// 1 when they share a wider panel than they need).
-	across:   f32,
 }
 
 // Time along x: the window's own axes.
-TIME_ALONG :: Time_Axis{ruler = RULER_HEIGHT, across = 1}
+TIME_ALONG :: Time_Axis{ruler = RULER_HEIGHT}
 
 // Whether the timeline in leaf `panel` runs down: the panel is at the side
 // of another (its split is left / right) and its `area` is taller than
@@ -97,15 +96,22 @@ timeline_vertical :: proc(ws: ^Workspace, panel: Panel_Id, area: Workspace_Rect)
 	return split != nil && split.axis == .X && area.height > area.width
 }
 
-// How the timeline lies in its `area` (pixels): along it, or (`vertical`)
-// down it, its columns sharing the area's width.
-timeline_axis :: proc(app: ^App_State, area: Workspace_Rect, dpi: f32, vertical: bool) -> Time_Axis {
-	if !vertical {
-		return TIME_ALONG
-	}
-	total := timeline_rows(app).points
-	room := area.width / dpi - 2 * TRACK_PAD - RULER_WIDTH
-	return {vertical = true, ruler = RULER_WIDTH, across = clamp(room / (SCENE_HEIGHT + total), 1, ACROSS_MAX)}
+// How the timeline lies: along its area, or (`vertical`) down it, its
+// columns sharing the area's width as the head's layout sizes them.
+timeline_axis :: proc(vertical: bool) -> Time_Axis {
+	return {vertical = true, ruler = RULER_WIDTH} if vertical else TIME_ALONG
+}
+
+// The cues' row (its item; -1: the video has no cues): the head's band.
+timeline_cues :: proc(app: ^App_State) -> int {
+	for it, i in app.preview.waves.items do if it.kind == .Cues do return i
+	return -1
+}
+
+// The cues' band in the head when time runs along, in points: CUE_HEIGHT
+// when the video has cues.
+timeline_cues_height :: proc(app: ^App_State) -> f32 {
+	return CUE_HEIGHT if timeline_cues(app) >= 0 else 0
 }
 
 // A point between the timeline's space and the window's.
@@ -135,47 +141,88 @@ axis_label_along :: proc(a: Time_Axis, width, line: f32) -> f32 {
 	return line if a.vertical else width
 }
 
-// Drawing in the timeline's space.
+// Drawing in the timeline's space, with ovg on the frame's canvas (the
+// box's custom draw), in the UI's scratch path.
 @(private = "file")
-fill :: proc(r: ^render.Renderer, a: Time_Axis, x, y, w, h: f32, c: [4]u8) {
-	wx, wy, ww, wh := axis_rect(a, x, y, w, h)
-	render.draw_rect(r, wx, wy, ww, wh, c)
+Pen :: struct {
+	s: ^ui.State,
+	c: ^vg.Canvas,
+	r: ^render.Renderer,
+	a: Time_Axis,
 }
 
 @(private = "file")
-fill_rounded :: proc(r: ^render.Renderer, a: Time_Axis, x, y, w, h, radius: f32, c: [4]u8) {
-	wx, wy, ww, wh := axis_rect(a, x, y, w, h)
-	render.draw_rect_rounded(r, wx, wy, ww, wh, radius, c)
+fill :: proc(p: Pen, x, y, w, h: f32, col: [4]u8) {
+	wx, wy, ww, wh := axis_rect(p.a, x, y, w, h)
+	vg.path_reset(&p.s.path)
+	vg.path_rect(&p.s.path, wx, wy, ww, wh)
+	vg.fill_path(p.c, &p.s.path, vg.paint_color(ui.color(col)))
 }
 
 @(private = "file")
-clip :: proc(r: ^render.Renderer, a: Time_Axis, x, y, w, h: f32) {
-	wx, wy, ww, wh := axis_rect(a, x, y, w, h)
-	render.clip_push(r, wx, wy, ww, wh)
+fill_rounded :: proc(p: Pen, x, y, w, h, radius: f32, col: [4]u8) {
+	wx, wy, ww, wh := axis_rect(p.a, x, y, w, h)
+	vg.path_reset(&p.s.path)
+	vg.path_rounded_rect(&p.s.path, wx, wy, ww, wh, radius)
+	vg.fill_path(p.c, &p.s.path, vg.paint_color(ui.color(col)))
+}
+
+// What is drawn until clip_end, scissored to the rect.
+@(private = "file")
+clip :: proc(p: Pen, x, y, w, h: f32) {
+	wx, wy, ww, wh := axis_rect(p.a, x, y, w, h)
+	vg.save(p.c)
+	vg.intersect_scissor(p.c, wx, wy, ww, wh)
 }
 
 @(private = "file")
-image :: proc(r: ^render.Renderer, a: Time_Axis, img: ^render.Image, x, y, w, h: f32) {
-	wx, wy, ww, wh := axis_rect(a, x, y, w, h)
-	render.draw_image_contain(r, img, wx, wy, ww, wh)
+clip_end :: proc(p: Pen) {vg.restore(p.c)}
+
+// A texture the worker made (`size` texels), contained in the rect.
+@(private = "file")
+image :: proc(p: Pen, texture: ^sdl.GPUTexture, size: [2]u32, x, y, w, h: f32) {
+	wx, wy, ww, wh := axis_rect(p.a, x, y, w, h)
+	if texture == nil || size.x == 0 || size.y == 0 || ww <= 0 || wh <= 0 do return
+	scale := min(ww / f32(size.x), wh / f32(size.y))
+	dw, dh := f32(size.x) * scale, f32(size.y) * scale
+	dx, dy := wx + (ww - dw) * 0.5, wy + (wh - dh) * 0.5
+	id := render.image_borrow(p.r, p.c, texture, size.x, size.y)
+	vg.path_reset(&p.s.path)
+	vg.path_rect(&p.s.path, dx, dy, dw, dh)
+	vg.fill_path(p.c, &p.s.path, vg.paint_image(id, dx, dy, dw, dh, 0))
+}
+
+// The texels `src` (x0, y0, x1, y1) of a texture the worker made (`size`
+// texels) stretched over a window rect: a stretch of a strip texture (a
+// spectrogram's rows).
+@(private = "file")
+image_src :: proc(p: Pen, texture: ^sdl.GPUTexture, size: [2]u32, src: [4]f32, x, y, w, h: f32) {
+	if texture == nil || w <= 0 || h <= 0 || src[2] <= src[0] || src[3] <= src[1] do return
+	sx, sy := w / (src[2] - src[0]), h / (src[3] - src[1])
+	id := render.image_borrow(p.r, p.c, texture, size.x, size.y)
+	vg.path_reset(&p.s.path)
+	vg.path_rect(&p.s.path, x, y, w, h)
+	vg.fill_path(p.c, &p.s.path, vg.paint_image(id, x - src[0] * sx, y - src[1] * sy, f32(size.x) * sx, f32(size.y) * sy, 0))
 }
 
 // Upright text starting at `at`.
 @(private = "file")
-text :: proc(s: ^ui.State, a: Time_Axis, str: string, at: [2]f32, px: f32, c: [4]u8) {
-	p := axis_point(a, at)
-	render.draw_text(s.r, s.font, str, p.x, p.y, px, c)
+text :: proc(p: Pen, str: string, at: [2]f32, px: f32, col: [4]u8) {
+	q := axis_point(p.a, at)
+	render.draw_text(p.c, p.s.font, str, q.x, q.y, px, ui.color(col), &p.s.path)
 }
 
 // An upright label: a tab `size` big (window pixels) starting at `at`,
 // its text at `text_at` (both in the timeline's space; the text keeps its
 // place in the tab).
 @(private = "file")
-label :: proc(s: ^ui.State, a: Time_Axis, str: string, at, size, text_at: [2]f32, radius, px: f32, tab, c: [4]u8) {
-	p := axis_point(a, at)
-	q := p + (text_at - at) if a.vertical else text_at
-	render.draw_rect_rounded(s.r, p.x, p.y, size.x, size.y, radius, tab)
-	render.draw_text(s.r, s.font, str, q.x, q.y, px, c)
+label :: proc(p: Pen, str: string, at, size, text_at: [2]f32, radius, px: f32, tab, col: [4]u8) {
+	q := axis_point(p.a, at)
+	t := q + (text_at - at) if p.a.vertical else text_at
+	vg.path_reset(&p.s.path)
+	vg.path_rounded_rect(&p.s.path, q.x, q.y, size.x, size.y, radius)
+	vg.fill_path(p.c, &p.s.path, vg.paint_color(ui.color(tab)))
+	render.draw_text(p.c, p.s.font, str, t.x, t.y, px, ui.color(col), &p.s.path)
 }
 
 timeline_row_open :: proc(app: ^App_State, item: Timeline_Item) -> bool {
@@ -186,9 +233,8 @@ timeline_row_open :: proc(app: ^App_State, item: Timeline_Item) -> bool {
 // (after RAD Debugger's): a block per open row, the top level's first, its
 // children counted where they live (the table's `kids`) and its open ones
 // found from their keys; then spans of row numbers over the blocks in
-// order. Consumers ask the spans: the total rows and points, a window of
-// rows (only those are read: rows_window), or the last first row that
-// still fills the area (rows_last_first).
+// order. Consumers ask the spans: the total rows and points, or a window of
+// rows (only those are read: rows_window).
 Row_Block :: struct {
 	kids:  []i32, // its children (items), in order
 	opens: []Block_Open, // by place, ascending
@@ -289,68 +335,12 @@ rows_window :: proc(r: ^Timeline_Rows, first, limit: int) -> []int {
 	return out[:]
 }
 
-// The last first row that still fills `room` points (0 when every row fits).
-rows_last_first :: proc(w: ^Wave_Table, r: ^Timeline_Rows, room: f32) -> int {
-	if r.points <= room {
-		return 0
-	}
-	acc: f32
-	n := r.total
-	#reverse for sp in r.spans {
-		kids := r.blocks[sp.block].kids
-		for i := sp.hi - 1; i >= sp.lo; i -= 1 {
-			h := row_height(w.items[kids[i]].kind)
-			if acc + h > room {
-				return n
-			}
-			acc += h
-			n -= 1
-		}
-	}
-	return 0
-}
-
-// The most rows `room` points can show (the shortest row's count, and one
-// partly shown at each edge).
-rows_fit :: proc(room: f32) -> int {
-	shortest := max(f32)
-	for h in TIMELINE_ROW_HEIGHT do shortest = min(shortest, h)
-	return int(room / shortest) + 2
-}
-
-// The timeline's view, and its rows' list (which follows its scroll).
-@(private = "file")
-timeline_list :: proc(app: ^App_State) -> (^View_Record, ^List) {
-	pv := &app.preview
-	id := workspace_find(&pv.workspace, .Timeline)
-	v := workspace_view(&pv.workspace, id)
-	if v == nil {
-		return nil, nil
-	}
-	return v, view_list(pv, id)
-}
-
-// Keeps the timeline's scroll inside its rows (after a group opens or
-// closes), and its list with it.
-timeline_rows_clamp :: proc(app: ^App_State) {
-	pv := &app.preview
-	v, l := timeline_list(app)
-	if v == nil {
-		return
-	}
-	r := timeline_rows(app)
-	limit := rows_last_first(&pv.waves, &r, min(r.points, pv.rows_room))
-	v.scroll = clamp(v.scroll, 0, limit)
-	animation.scroll_limit(&l.scroll, f32(limit))
-	animation.scroll_to(&l.scroll, f32(v.scroll))
-}
-
-// Points the rows below the scenes get in the timeline's `area` (pixels)
-// lying along `a`: what the box leaves across after the ruler and the
-// scenes.
-timeline_rows_room :: proc(a: Time_Axis, area: Workspace_Rect, dpi: f32) -> f32 {
-	across := area.width / dpi - 2 * TRACK_PAD if a.vertical else area.height / dpi - 2 * TIMELINE_GAP
-	return max((across - a.ruler) / a.across - SCENE_HEIGHT, 0)
+// Points the rows get in the timeline's `area` (pixels) lying along `a`:
+// below the ruler and the scenes what the track leaves; none when time runs
+// down (the timeline is its ruler and scenes alone).
+timeline_rows_room :: proc(app: ^App_State, a: Time_Axis, area: Workspace_Rect, dpi: f32) -> f32 {
+	if a.vertical do return 0
+	return max(area.height / dpi - 2 * TIMELINE_GAP - a.ruler - SCENE_HEIGHT - timeline_cues_height(app), 0)
 }
 
 // The timeline's natural height in points (before dpi scaling): the
@@ -360,7 +350,7 @@ timeline_height :: proc(app: ^App_State) -> f32 {
 		return 0
 	}
 	total := timeline_rows(app).points
-	return TIMELINE_GAP * 2 + RULER_HEIGHT + SCENE_HEIGHT + min(total, ROWS_AREA_MAX)
+	return TIMELINE_GAP * 2 + RULER_HEIGHT + SCENE_HEIGHT + timeline_cues_height(app) + min(total, ROWS_AREA_MAX)
 }
 
 // The scene segments; a video without scenes is one segment.
@@ -378,7 +368,9 @@ segments :: proc(app: ^App_State) -> []Preview_Scene {
 // of two and their halves again (1, 2, 3, 4, 6, 8, 12, ...), the smallest
 // that fits a thumbnail's width at this zoom. Gaps stay under a third of a
 // thumbnail, and zooming finds most frames of the neighbouring grids already
-// cached (the cache is keyed by frame).
+// cached (the cache is keyed by frame). A thumbnail fills the scenes' band
+// across (`scene_h` pixels; half of it each, on two rows) and keeps its
+// frame's aspect along time.
 @(private = "file")
 Thumb_Grid :: struct {
 	step:      int,
@@ -389,11 +381,11 @@ Thumb_Grid :: struct {
 }
 
 @(private = "file")
-thumb_grid :: proc(app: ^App_State, a: Time_Axis, ppf: f64, dpi: f32) -> Thumb_Grid {
+thumb_grid :: proc(app: ^App_State, a: Time_Axis, ppf: f64, scene_h, dpi: f32) -> Thumb_Grid {
 	pv := &app.preview
 	g: Thumb_Grid
 	g.two_rows = len(pv.timeline.scenes) > 1
-	g.thumb_h = (SCENE_HEIGHT - 4) * dpi * a.across
+	g.thumb_h = scene_h - 4 * dpi
 	if g.two_rows {
 		g.thumb_h *= 0.5
 	}
@@ -452,105 +444,328 @@ timeline_shown :: proc(app: ^App_State) -> bool {
 	return shown && !pv.timeline_collapsed && pv.timeline.frames > 0
 }
 
+// How the timeline's time maps onto a region of it (its head, its rows):
+// along `a`, from `x0` for `w` pixels, `first` the frame at x0, `ppf`
+// pixels a frame. The head runs along the timeline's axis; the rows always
+// run across (time along x), stacked in their list.
 @(private = "file")
-Timeline_Draw :: struct {
-	app:  ^App_State,
-	dpi:  f32,
-	axis: Time_Axis,
-	head: f32, // the playhead frame
+Time_Map :: struct {
+	a:              Time_Axis,
+	x0, w:          f32,
+	first, visible: f64,
+	ppf:            f64,
 }
 
-// The timeline in `area` (pixels), inset by TRACK_PAD and TIMELINE_GAP.
+@(private = "file")
+time_map :: proc(app: ^App_State, a: Time_Axis, x0, w: f32) -> Time_Map {
+	visible := view_frames(app)
+	return {a, x0, w, app.preview.view_first, visible, f64(max(w, 1)) / visible}
+}
+
+// The frame under `mouse` (window pixels).
+@(private = "file")
+frame_at :: proc(m: Time_Map, mouse: [2]f32) -> int {
+	return int(math.floor(m.first + f64(axis_point(m.a, mouse).x - m.x0) / m.ppf))
+}
+
+@(private = "file")
+Timeline_Draw :: struct {
+	app:     ^App_State,
+	dpi:     f32,
+	m:       Time_Map,
+	// A row's: its item and place among the rows, and the pixels of it
+	// scrolled out above its box (it draws whole, the list clipping it).
+	item:    int,
+	order:   int,
+	skipped: f32,
+}
+
+// The rows' list unit: RAD's scroll list scrolls whole rows of one height,
+// a timeline row being a block of them (RAD's row blocks), so every row
+// keeps its height (14, 18, 24, 48 points: 7, 9, 12, 24 units).
+ROW_UNIT :: 2
+
+// The timeline in `area` (pixels), inset by TRACK_PAD and TIMELINE_GAP,
+// laid out: its track holds its head (the ruler and the scenes, along its
+// axis) and, when time runs along, its rows below the scenes in the one RAD
+// scroll list, without keys (no cursor): each row a box, the
+// list's row blocks giving them their heights. A press scrubs, on a group's
+// name opens or closes it (timeline_pointer, for the track and every row
+// alike); a middle or right drag pans from where the camera was when it was
+// pressed (RAD's stored drag state and drag delta); the wheel scrolls the
+// rows over them, elsewhere pans; with Control over it it zooms (as RAD's
+// views take it while hovered). Focused, it takes the keys' events as the
+// preview's commands (VIEW_EVENTS).
 timeline_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32, area: Workspace_Rect) {
 	pv := &app.preview
 	c := &app.commands
+	// Focused, it takes the keys' events its boxes left as the preview's
+	// commands, as the video does (VIEW_EVENTS), collapsed too.
+	defer {
+		ui.push_focus(s, .On)
+		view_events_take(app, s)
+		ui.pop_focus(s)
+	}
 	if pv.timeline_collapsed {
 		return
 	}
+	id := workspace_find(&pv.workspace, .Timeline)
 	pad, gap := TRACK_PAD * dpi, TIMELINE_GAP * dpi
+	track_w := max(area.width - 2 * pad, 0)
+	a := pv.timeline_axis
+	ui.set_next_pref_width(s, ui.pct(1)); ui.set_next_pref_height(s, ui.pct(1, 0)); ui.set_next_child_layout_axis(s, .Y)
+	ui.push_parent(s, ui.build_box(s, {}, "###timeline_area"))
+	ui.spacer(s, ui.px(gap))
+	ui.set_next_pref_width(s, ui.pct(1)); ui.set_next_pref_height(s, ui.pct(1, 0)); ui.set_next_child_layout_axis(s, .X)
+	ui.push_parent(s, ui.build_box(s, {}, "###timeline_row"))
+	ui.spacer(s, ui.px(pad))
+	ui.set_next_pref_width(s, ui.pct(1, 0)); ui.set_next_pref_height(s, ui.pct(1))
 	ui.set_next_bg_color(s, COLOR_TRACK)
 	ui.set_next_corner_radius(s, 4 * dpi)
-	track := place_box(s, {area.x + pad, area.y + gap, max(area.width - 2 * pad, 0), max(area.height - 2 * gap, 0)}, {.Clickable, .Draw_Background, .Clip}, "###timeline")
-	sig := ui.signal_from_box(s, track)
-	a := pv.timeline_axis
+	ui.set_next_child_layout_axis(s, .Y)
+	track := ui.build_box(s, {.Clickable, .Scroll, .Draw_Background, .Clip}, "###timeline")
+	ui.push_parent(s, track)
 
-	// Last frame's rect (immediate-mode): what the pointer maps onto, in
-	// the timeline's space.
-	a.corner = track.rect.min
-	extent := axis_motion(a, track.rect.max - track.rect.min)
-	w := f64(extent.x)
-	visible := view_frames(app)
-	if w > 0 {
-		ppf := w / visible
-		frame_at :: proc(pv: ^Preview_State, track: ^ui.Box, x: f32, ppf: f64) -> int {
-			return int(math.floor(pv.view_first + f64(x - track.rect.min.x) / ppf))
-		}
-		mouse := axis_point(a, platform.mouse_pos(s.p))
-		hit, in_name := row_at(app, a, track, mouse, dpi)
-		if ui.pressed(sig) {
-			// A press on a group's name opens or closes it, and the drag it
-			// starts doesn't scrub.
-			pv.press_on_name = hit >= 0 && in_name && pv.waves.items[hit].children > 0
-			if pv.press_on_name {
-				command_push(c, .Timeline_Row_Toggle, {spec = text_of(pv.waves.text[:], pv.waves.items[hit].path)})
-			}
-		}
-		if (ui.dragging(sig) || ui.pressed(sig)) && !pv.press_on_name {
-			command_push(c, .Frame_Set, {count = frame_at(pv, track, mouse.x, ppf), flag = ui.dragging(sig)})
-		}
-		if ui.mouse_over(sig) {
-			command_push(c, .Cursor_Hover, {count = clamp(frame_at(pv, track, mouse.x, ppf), 0, preview_duration(app) - 1)})
-		}
-		if motion := axis_motion(a, sig.drag_motion); (ui.middle_dragging(sig) || ui.right_dragging(sig)) && motion.x != 0 {
-			command_push(c, .Timeline_Pan, {scalar = -f64(motion.x) / ppf, flag = true})
-		}
-		rows := timeline_rows(app)
-		shift := platform.shift_down(s.p)
-		if v, l := timeline_list(app); v != nil && sig.scroll != 0 && !shift && hit >= 0 && rows.points > pv.rows_room {
-			// the rows' list scrolls a row a tick (View_Scroll, as any view's)
-			step: f32 = -1 if sig.scroll > 0 else 1
-			command_push(c, .View_Scroll, {view = workspace_find(&pv.workspace, .Timeline), count = int(clamp(l.scroll.track.target + step, 0, l.scroll.maximum) + 0.5)})
-		} else if sig.scroll != 0 || sig.scroll_x != 0 {
-			command_push(c, .Timeline_Pan, {scalar = f64(sig.scroll_x - sig.scroll) * visible * 0.1})
-		}
-		if sig.zoom != 0 {
-			at := clamp(f64(mouse.x - track.rect.min.x) / w, 0, 1)
-			command_push(c, .Timeline_Zoom, {scalar = math.pow(1.25, f64(sig.zoom)), ratio = at, flag = true})
+	// The head: the ruler, the scenes and the cues across time (down the
+	// track when time runs along; side by side, the whole track, when it
+	// runs down), sized as RAD sizes boxes: the ruler its points, the scenes
+	// theirs or, running down, the rest (ParentPct, giving way), the cues
+	// theirs or, running down, their widest label (ChildrenSum of their
+	// labels' TextContent). The cues' band is the cues row's: a press
+	// scrubs, hovered it shows the row's tooltip.
+	ui.set_next_pref_width(s, ui.pct(1)); ui.set_next_pref_height(s, ui.pct(1) if a.vertical else ui.children_sum())
+	ui.set_next_child_layout_axis(s, .X if a.vertical else .Y)
+	head := ui.build_box(s, {}, "###timeline_head")
+	head_sig := ui.signal_from_box(s, head)
+	a.corner = head.rect.min
+	head_map := time_map(app, a, head.rect.min.x, axis_motion(a, head.rect.max - head.rect.min).x)
+	if !a.vertical {
+		head_map.w = max(track_w - ui.scroll_bar_width(s), 1)
+		head_map.ppf = f64(head_map.w) / head_map.visible
+	}
+	row_hovered := false
+	ui.push_parent(s, head)
+	ruler := across_box(s, a, ui.px(a.ruler * dpi), "###timeline_ruler")
+	if !a.vertical {
+		ui.push_parent(s, ruler)
+		timeline_zoom_view(app, s, dpi)
+		ui.pop_parent(s)
+	}
+	across_box(s, a, ui.pct(1, 0) if a.vertical else ui.px(SCENE_HEIGHT * dpi), "###timeline_scenes")
+	if cues := timeline_cues(app); cues >= 0 {
+		band := across_box(s, a, ui.children_sum() if a.vertical else ui.px(CUE_HEIGHT * dpi), "###timeline_cues", {.Clickable})
+		ui.push_parent(s, band)
+		cue_labels(app, s, dpi, head_map)
+		ui.pop_parent(s)
+		sig := ui.signal_from_box(s, band)
+		timeline_pointer(app, s, sig, head_map, cues)
+		if ui.hovering(sig) {
+			row_hovered = true
+			timeline_tip(app, s, dpi, cues)
 		}
 	}
+	ui.pop_parent(s)
+	rows_map := head_map
+	if !a.vertical {
+		hovered: bool
+		hovered, rows_map = timeline_rows_view(app, s, dpi, id, track_w)
+		row_hovered ||= hovered
+	}
+	ui.pop_parent(s) // the track
 
-	data := new(Timeline_Draw, context.temp_allocator)
-	data^ = {app, dpi, a, f32(pv.frame)}
-	track.custom_draw = timeline_draw
-	track.custom_draw_data = data
+	ui.spacer(s, ui.px(pad))
+	ui.pop_parent(s)
+	ui.spacer(s, ui.px(gap))
+	ui.pop_parent(s)
+
+	// The track takes what no row took: a press in the head (or below the
+	// rows) scrubs, the wheel pans.
+	sig := ui.signal_from_box(s, track)
+	mouse := platform.mouse_pos(s.p)
+	in_head := ui.mouse_over(head_sig)
+	m := head_map if in_head else rows_map
+	timeline_pointer(app, s, sig, m, -1)
+	if ui.mouse_over(sig) {
+		command_push(c, .Cursor_Hover, {count = clamp(frame_at(m, mouse), 0, preview_duration(app) - 1)})
+	}
+	// The wheel left by the rows pans a tenth of the view a notch, down or
+	// right forward, as the horizontal wheel does (Shift turns the wheel
+	// horizontal: the UI's); with Control, a notch up zooms in 1.25 times.
+	if pan := sig.scroll.x + sig.scroll.y; pan != 0 {
+		command_push(c, .Timeline_Pan, {scalar = f64(pan) / ui.NOTCH_STEPS * head_map.visible * 0.1})
+	}
+	if zoom := ui.action_scroll_take(s, {.Control}, any = true) if ui.hovering(sig) || row_hovered else 0; zoom != 0 {
+		at := clamp(f64(axis_point(m.a, mouse).x - m.x0) / f64(m.w), 0, 1)
+		command_push(c, .Timeline_Zoom, {scalar = math.pow(1.25, -f64(zoom) / ui.NOTCH_STEPS), ratio = at, flag = true})
+	}
+	track_data := new(Timeline_Draw, context.temp_allocator)
+	track_data^ = {app, dpi, head_map, -1, 0, 0}
+	ui.box_equip_custom_draw(track, track_draw, track_data)
+	head_data := new(Timeline_Draw, context.temp_allocator)
+	head_data^ = {app, dpi, head_map, -1, 0, 0}
+	ui.box_equip_custom_draw(head, head_draw, head_data)
 }
 
-// The row under `mouse` (an item index, -1 for none: the ruler, the scenes,
-// below the rows) and whether it is over the row's name, from the box's
-// last rect.
+// The rows below the scenes, in the one scroll list: a block of units
+// each (RAD's row blocks), `track_w` across; whether one is hovered, and how
+// time maps onto them.
 @(private = "file")
-row_at :: proc(app: ^App_State, a: Time_Axis, track: ^ui.Box, mouse: [2]f32, dpi: f32) -> (item: int, in_name: bool) {
+timeline_rows_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32, id: View_Id, track_w: f32) -> (row_hovered: bool, rows_map: Time_Map) {
 	pv := &app.preview
-	y := track.rect.min.y + (a.ruler + SCENE_HEIGHT * a.across) * dpi
-	r := timeline_rows(app)
-	shown := min(r.points, pv.rows_room)
-	_, l := timeline_list(app)
-	if l == nil || mouse.y < y || mouse.y >= y + shown * dpi * a.across {
-		return -1, false
+	rows := timeline_rows(app)
+	items := rows_window(&rows, 0, max(int))
+	blocks := make([]ui.Scroll_List_Row_Block, len(items), context.temp_allocator)
+	total := 0
+	for i, k in items {
+		blocks[k] = {int(row_height(pv.waves.items[i].kind)) / ROW_UNIT, 1}
+		total += blocks[k].row_count
 	}
-	first_row, fraction := animation.scroll_page(&l.scroll)
-	rows := rows_window(&r, first_row, rows_fit(shown))
-	if len(rows) > 0 && fraction > 0 {
-		y -= fraction * row_height(pv.waves.items[rows[0]].kind) * dpi * a.across
-	}
-	for i in rows {
-		h := row_height(pv.waves.items[i].kind) * dpi * a.across
-		if mouse.y < y + h {
-			return i, mouse.x - track.rect.min.x < axis_label_along(a, ROW_NAME_WIDTH, LANE_HEIGHT) * dpi
+	unit := ROW_UNIT * dpi
+	dim := [2]f32{track_w, min(rows.points, pv.rows_room) * dpi}
+	first_row, last_row := view_list_begin(app, s, dim, id, "###timeline_rows", total, unit)
+	rows_map = time_map(app, TIME_ALONG, s.scroll_list.content.rect.min.x, max(dim.x - ui.scroll_bar_width(s), 1))
+	if total > 0 {
+		k := ui.scroll_list_item_from_row(blocks, first_row)
+		for start := ui.scroll_list_row_from_item(blocks, k); k < len(items) && start < last_row; k += 1 {
+			units := blocks[k].row_count
+			skipped, chopped := max(0, first_row - start), max(0, start + units - last_row)
+			start += units
+			it := pv.waves.items[items[k]]
+			ui.set_next_pref_width(s, ui.pct(1)); ui.set_next_pref_height(s, ui.px(f32(units - skipped - chopped) * unit))
+			box := ui.build_box(s, {.Clickable}, fmt.tprintf("###timeline_row_%x", it.key))
+			sig := ui.signal_from_box(s, box)
+			timeline_pointer(app, s, sig, rows_map, items[k])
+			draw := new(Timeline_Draw, context.temp_allocator)
+			draw^ = {app, dpi, rows_map, items[k], k, f32(skipped) * unit}
+			ui.box_equip_custom_draw(box, row_draw, draw)
+			if ui.hovering(sig) {
+				row_hovered = true
+				timeline_tip(app, s, dpi, items[k])
+			}
 		}
-		y += h
 	}
-	return -1, false
+	view_list_end(app, s, id)
+	return
+}
+
+// What the hovered row (`item`; the cues' band in the head is the cues
+// row) is, and its path for `onimite show`, beside the pointer over
+// everything (the tooltip root).
+@(private = "file")
+timeline_tip :: proc(app: ^App_State, s: ^ui.State, dpi: f32, item: int) {
+	w := &app.preview.waves
+	it := w.items[item]
+	mouse := platform.mouse_pos(s.p)
+	tip := fmt.tprintf("%s   (onimite show %s)", text_of(w.text[:], it.summary), text_of(w.text[:], it.path))
+	ui.tooltip_begin(s)
+	ui.set_next_bg_color(s, {10, 11, 15, 235}); ui.set_next_text_color(s, {235, 238, 244, 255})
+	ui.set_next_font_size(s, 11 * dpi); ui.set_next_corner_radius(s, 3 * dpi)
+	ui.set_next_text_padding(s, 5 * dpi)
+	lh := render.line_height(s.font, 11 * dpi)
+	place(s, {mouse.x + 12 * dpi, mouse.y - lh - 10 * dpi, ui.line_edit_text_width(s, tip, 11 * dpi) + 10 * dpi, lh + 4 * dpi})
+	ui.build_box(s, {.Draw_Background, .Draw_Text}, fmt.tprintf("%s###timeline_tip", tip))
+	ui.tooltip_end(s)
+}
+
+// The timeline's own controls at its ruler's right end, over the ruler's
+// labels (RAD's top bar holds what acts on everything; a view's own
+// controls are the view's): Follow while zoomed in or not following, zoom
+// out, the zoom (a click fits it), zoom in. Running down, the ruler is too
+// narrow: the keys and Ctrl+wheel zoom it.
+@(private = "file")
+timeline_zoom_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32) {
+	pv := &app.preview
+	c := &app.commands
+	button :: proc(s: ^ui.State, text: string, dpi: f32, on := false) -> bool {
+		ui.set_next_pref_width(s, ui.text_content(math.floor(8 * dpi), 1)); ui.set_next_pref_height(s, ui.pct(1))
+		ui.set_next_visual_margin(s, {math.floor(dpi), math.floor(2 * dpi)})
+		if on do ui.set_next_bg_color(s, s.theme.active)
+		return ui.clicked(ui.button(s, text))
+	}
+	ui.spacer(s, ui.fill())
+	ui.set_next_pref_width(s, ui.children_sum()); ui.set_next_pref_height(s, ui.pct(1)); ui.set_next_child_layout_axis(s, .X)
+	ui.set_next_bg_color(s, RULER_BG); ui.set_next_corner_radius(s, 0)
+	ui.push_parent(s, ui.build_box(s, {.Draw_Background}, "###timeline_zoom"))
+	defer ui.pop_parent(s)
+	if pv.zoom > 1.01 || pv.detached {
+		if button(s, "Follow###follow", dpi, !pv.detached) do command_push(c, .Timeline_Follow, {flag = pv.detached})
+	}
+	if button(s, "-###zoom_out", dpi) do command_push(c, .Timeline_Zoom, {scalar = 1 / 1.5, count = pv.frame})
+	if button(s, fmt.tprintf("%d%%###zoom_fit", int(math.round(pv.zoom * 100))), dpi) do command_push(c, .Timeline_Fit)
+	if button(s, "+###zoom_in", dpi) do command_push(c, .Timeline_Zoom, {scalar = 1.5, count = pv.frame})
+}
+
+// A part of the head, `across` thick across time and along all of it
+// (ParentPct 1), its children laid out along time.
+@(private = "file")
+across_box :: proc(s: ^ui.State, a: Time_Axis, across: ui.Size, key: string, flags: ui.Box_Flags = {}) -> ^ui.Box {
+	if a.vertical {
+		ui.set_next_pref_width(s, across); ui.set_next_pref_height(s, ui.pct(1))
+	} else {
+		ui.set_next_pref_width(s, ui.pct(1)); ui.set_next_pref_height(s, across)
+	}
+	ui.set_next_child_layout_axis(s, .Y if a.vertical else .X)
+	return ui.build_box(s, flags, key)
+}
+
+// The cues' labels in their band (the parent): each a box its text's size
+// (TextContent), floating at its cue along time, so the band is as wide as
+// its widest when time runs down (ChildrenSum across). A label shows its
+// text in view and clear of the one before.
+@(private = "file")
+cue_labels :: proc(app: ^App_State, s: ^ui.State, dpi: f32, m: Time_Map) {
+	pv := &app.preview
+	fps := f64(preview_fps(app))
+	px := 11 * dpi * 0.85
+	free: f32 = 0
+	for c, i in pv.waves.cues {
+		at := f32((c.seconds * fps - m.first) * m.ppf)
+		name := text_of(pv.waves.text[:], c.name)
+		along := axis_label_along(m.a, render.measure_text(s.font, name, px), render.line_height(s.font, px))
+		shown := at >= 0 && at <= m.w && at + 3 * dpi >= free && at + along < m.w
+		if shown do free = at + along + 8 * dpi
+		if m.a.vertical {
+			ui.set_next_fixed_y(s, at + 3 * dpi)
+		} else {
+			ui.set_next_fixed_x(s, at + 3 * dpi)
+		}
+		ui.set_next_pref_width(s, ui.text_content(4 * dpi)); ui.set_next_pref_height(s, ui.text_content())
+		ui.set_next_font_size(s, px); ui.set_next_text_padding(s, 0)
+		ui.set_next_text_color(s, {250, 230, 160, 230})
+		label := ui.build_box(s, {.Draw_Text} if shown else {}, fmt.tprintf("%s###timeline_cue_%d", name, i))
+		if !shown do label.str = name // measured, not drawn: the band's width counts it
+	}
+}
+
+// One stage for the pointer on the timeline, the track's and each row's: a
+// press focuses the timeline's panel; on a group's name (`item`'s, across
+// its row's start) it opens or closes it, and the drag it starts doesn't
+// scrub; else a press or a drag scrubs (Frame_Set); a middle or right drag
+// pans from where the camera was when it was pressed.
+@(private = "file")
+timeline_pointer :: proc(app: ^App_State, s: ^ui.State, sig: ui.Signal, m: Time_Map, item: int) {
+	pv := &app.preview
+	c := &app.commands
+	mouse := platform.mouse_pos(s.p)
+	if ui.pressed(sig) {
+		focus_panel(app, workspace_find(&pv.workspace, .Timeline))
+		pv.press_on_name = false
+		if item >= 0 && pv.waves.items[item].children > 0 && axis_point(m.a, mouse).x - m.x0 < ROW_NAME_WIDTH * app.preview.dpi {
+			pv.press_on_name = true
+			command_push(c, .Timeline_Row_Toggle, {spec = text_of(pv.waves.text[:], pv.waves.items[item].path)})
+		}
+	}
+	if sig.flags & {.Middle_Pressed, .Right_Pressed} != {} {
+		start := pv.timeline_camera.first
+		ui.store_drag_struct(s, &start)
+	}
+	if (ui.dragging(sig) || ui.pressed(sig)) && !pv.press_on_name {
+		command_push(c, .Frame_Set, {count = frame_at(m, mouse), flag = ui.dragging(sig)})
+	}
+	if ui.middle_dragging(sig) || ui.right_dragging(sig) {
+		want := ui.drag_struct(s, f64)^ - f64(axis_motion(m.a, ui.drag_delta(s)).x) / m.ppf
+		if want != pv.timeline_camera.first do command_push(c, .Timeline_Pan, {scalar = want - pv.timeline_camera.first, flag = true})
+	}
 }
 
 // Ruler steps: frames below a second, then seconds and minutes.
@@ -571,31 +786,99 @@ ruler_step :: proc(fps: int, ppf: f64, min_px: f64) -> int {
 	return 3600 * fps
 }
 
+// The timeline's markers over a region `h` across from `y0` (the
+// timeline's space): the marks (ranges as bands, moments as lines, each with
+// its number at the top), the pending in point, the bookmark, the hovered
+// frame and the playhead; `top`: with what sits at the top (numbers, flags,
+// the playhead's head), `bottom`: with what sits at the bottom (the in
+// point's foot). One stage for the head, every row and the track below them.
 @(private = "file")
-timeline_draw :: proc(s: ^ui.State, box: ^ui.Box, data: rawptr) {
-	d := (^Timeline_Draw)(data)
+draw_markers :: proc(pen: Pen, d: ^Timeline_Draw, y0, h: f32, top, bottom: bool) {
+	pv := &d.app.preview
+	dpi := d.dpi
+	m := d.m
+	line_w := max(dpi, 1)
+	x_of :: proc(m: Time_Map, f: f64) -> f32 {return m.x0 + f32((f - m.first) * m.ppf)}
+	for mk in pv.marks {
+		x := x_of(m, f64(mk.at))
+		if mk.to >= 0 {
+			x1 := x_of(m, f64(mk.to + 1))
+			fill(pen, x, y0, max(x1 - x, line_w), h, {COLOR_MARK.r, COLOR_MARK.g, COLOR_MARK.b, 40})
+			if top do fill(pen, x, y0, max(x1 - x, line_w), 3 * dpi, COLOR_MARK)
+			fill(pen, x1 - line_w, y0, line_w, h, {COLOR_MARK.r, COLOR_MARK.g, COLOR_MARK.b, 160})
+		}
+		fill(pen, x, y0, line_w, h, {COLOR_MARK.r, COLOR_MARK.g, COLOR_MARK.b, 200})
+		if top do text(pen, fmt.tprintf("%d", mk.n), {x + 3 * dpi, y0 + 3 * dpi}, 11 * dpi, COLOR_MARK)
+	}
+	if pv.mark_in >= 0 {
+		x := x_of(m, f64(pv.mark_in))
+		fill(pen, x, y0, line_w, h, COLOR_MARK)
+		if top do fill(pen, x, y0, 7 * dpi, line_w * 2, COLOR_MARK)
+		if bottom do fill(pen, x, y0 + h - line_w * 2, 7 * dpi, line_w * 2, COLOR_MARK)
+	}
+	if pv.bookmark >= 0 {
+		x := x_of(m, f64(pv.bookmark))
+		fill(pen, x, y0, line_w, h, {COLOR_BOOKMARK.r, COLOR_BOOKMARK.g, COLOR_BOOKMARK.b, 200})
+		if top do fill(pen, x, y0, 8 * dpi, 7 * dpi, COLOR_BOOKMARK)
+	}
+	if pv.hover_valid {
+		fill(pen, x_of(m, f64(pv.hover_frame)), y0, line_w, h, COLOR_HOVER)
+	}
+	head := x_of(m, f64(pv.frame))
+	fill(pen, head - dpi, y0, 2 * dpi, h, COLOR_PLAYHEAD)
+	if top do fill(pen, head - 4 * dpi, y0, 8 * dpi, 5 * dpi, COLOR_PLAYHEAD)
+}
+
+// The track's draw, beneath its head and rows: the markers over it all (the
+// in point's foot at its bottom); and the frames the timeline shows ask
+// again this frame (thumbs_shown, bands_shown, filled by the draws after).
+@(private = "file")
+track_draw :: proc(s: ^ui.State, box: ^ui.Box, c: ^vg.Canvas) {
+	d := (^Timeline_Draw)(box.custom_data)
+	pv := &d.app.preview
+	clear(&pv.thumbs_shown)
+	clear(&pv.bands_shown)
+	a := d.m.a
+	a.corner = box.rect.min
+	pen := Pen{s, c, pv.renderer, a}
+	extent := axis_motion(a, box.rect.max - box.rect.min)
+	draw_markers(pen, d, box.rect.min.y, extent.y, false, true)
+}
+
+// The head's draw, each part where the head's layout put it (its boxes:
+// across_box): the ruler (major ticks with labels: m:ss, or m:ss:ff below
+// a second; minor ticks between), the scenes (overlapping ones on
+// alternating rows, with thumbnails: each grid frame laid out asked for,
+// thumbs_shown), the cues' band (its labels are its boxes), then the
+// markers over it.
+@(private = "file")
+head_draw :: proc(s: ^ui.State, box: ^ui.Box, c: ^vg.Canvas) {
+	d := (^Timeline_Draw)(box.custom_data)
+	ruler := box.first
+	scenes := ruler.next if ruler != nil else nil
+	if scenes == nil do return
 	app := d.app
 	pv := &app.preview
 	dpi := d.dpi
-	r := s.r
-	a := d.axis
+	m := d.m
+	a := m.a
 	a.corner = box.rect.min
-	// The box in the timeline's space: `w` along time, `h` across.
-	x0, y0 := box.rect.min.x, box.rect.min.y
-	extent := axis_motion(a, box.rect.max - box.rect.min)
-	w, h := extent.x, extent.y
+	pen := Pen{s, c, pv.renderer, a}
+	x0, y0 := m.x0, box.rect.min.y
+	w := m.w
+	h := axis_motion(a, box.rect.max - box.rect.min).y
 	fps := preview_fps(app)
-	first, visible := pv.view_first, view_frames(app)
-	ppf := f64(w) / visible
+	first, visible, ppf := m.first, m.visible, m.ppf
 	x_of :: proc(f, first, ppf: f64, x0: f32) -> f32 {
 		return x0 + f32((f - first) * ppf)
 	}
 	line_w := max(dpi, 1)
-
-	// Ruler: major ticks with labels (m:ss, or m:ss:ff below a second),
-	// minor ticks between.
-	ruler_h := a.ruler * dpi
-	fill(r, a, x0, y0, w, ruler_h, RULER_BG)
+	// A part's place across the head and its thickness.
+	part :: proc(a: Time_Axis, head, b: ^ui.Box) -> (at, thick: f32) {
+		return axis_motion(a, b.rect.min - head.rect.min).y, axis_motion(a, b.rect.max - b.rect.min).y
+	}
+	_, ruler_h := part(a, box, ruler)
+	fill(pen, x0, y0, axis_motion(a, box.rect.max - box.rect.min).x, ruler_h, RULER_BG)
 	step := ruler_step(fps, ppf, 70 * f64(dpi))
 	minor := step / 5 if step % 5 == 0 else (step / 2 if step % 2 == 0 else step)
 	if f64(minor) * ppf < 5 * f64(dpi) {
@@ -605,20 +888,17 @@ timeline_draw :: proc(s: ^ui.State, box: ^ui.Box, data: rawptr) {
 	for f := int(first) / minor * minor; f64(f) <= first + visible; f += minor {
 		x := x_of(f64(f), first, ppf, x0)
 		if f % step == 0 {
-			fill(r, a, x, y0 + ruler_h * 0.35, line_w, ruler_h * 0.65, {120, 128, 142, 255})
+			fill(pen, x, y0 + ruler_h * 0.35, line_w, ruler_h * 0.65, {120, 128, 142, 255})
 			secs := f / fps
 			label := fmt.tprintf("%d:%02d", secs / 60, secs % 60) if step % fps == 0 else fmt.tprintf("%d:%02d:%02d", secs / 60, secs % 60, f % fps)
-			text(s, a, label, {x + 3 * dpi, y0 + 1 * dpi}, font_px, COLOR_TEXT_DIM)
+			text(pen, label, {x + 3 * dpi, y0 + 1 * dpi}, font_px, COLOR_TEXT_DIM)
 		} else {
-			fill(r, a, x, y0 + ruler_h * 0.7, line_w, ruler_h * 0.3, {80, 86, 98, 255})
+			fill(pen, x, y0 + ruler_h * 0.7, line_w, ruler_h * 0.3, {80, 86, 98, 255})
 		}
 	}
-
-	// Scenes, overlapping ones on alternating rows, with thumbnails (each
-	// grid frame laid out asked for: thumbs_shown).
-	clear(&pv.thumbs_shown)
-	g := thumb_grid(app, a, ppf, dpi)
-	scene_y := y0 + ruler_h + 2 * dpi
+	scene_at, scene_h := part(a, box, scenes)
+	g := thumb_grid(app, a, ppf, scene_h, dpi)
+	scene_y := y0 + scene_at + 2 * dpi
 	for sc, i in segments(app) {
 		xa := x_of(f64(sc.start_frame), first, ppf, x0)
 		xb := x_of(f64(min(sc.end_frame, preview_duration(app))), first, ppf, x0)
@@ -630,8 +910,8 @@ timeline_draw :: proc(s: ^ui.State, box: ^ui.Box, data: rawptr) {
 		if cx1 <= cx0 {
 			continue
 		}
-		fill_rounded(r, a, xa, y, xb - xa - line_w, g.thumb_h, 3 * dpi, SCENE_COLORS[i % len(SCENE_COLORS)])
-		clip(r, a, cx0, y, cx1 - cx0, g.thumb_h)
+		fill_rounded(pen, xa, y, xb - xa - line_w, g.thumb_h, 3 * dpi, SCENE_COLORS[i % len(SCENE_COLORS)])
+		clip(pen, cx0, y, cx1 - cx0, g.thumb_h)
 		from, to := thumb_range(sc, g, first, visible)
 		for f := from; f < to; f += g.step {
 			append(&pv.thumbs_shown, f)
@@ -641,137 +921,77 @@ timeline_draw :: proc(s: ^ui.State, box: ^ui.Box, data: rawptr) {
 			if !found {
 				continue
 			}
-			img := render.Image{pv.thumbs[k].texture, pv.thumb_size.x, pv.thumb_size.y}
-			image(r, a, &img, x_of(f64(f), first, ppf, x0), y, g.thumb_w - line_w, g.thumb_h)
+			image(pen, pv.thumbs[k].texture, pv.thumb_size, x_of(f64(f), first, ppf, x0), y, g.thumb_w - line_w, g.thumb_h)
 		}
 		if name := scene_name(&pv.timeline, sc); name != "" {
 			fs := 12 * dpi
 			tw := render.measure_text(s.font, name, fs)
 			lh := render.line_height(s.font, fs)
-			label(s, a, name, {cx0 + 2 * dpi, y + 2 * dpi}, {tw + 8 * dpi, lh + 2 * dpi}, {cx0 + 6 * dpi, y + 3 * dpi}, 3 * dpi, fs, {0, 0, 0, 150}, {240, 242, 246, 255})
+			label(pen, name, {cx0 + 2 * dpi, y + 2 * dpi}, {tw + 8 * dpi, lh + 2 * dpi}, {cx0 + 6 * dpi, y + 3 * dpi}, 3 * dpi, fs, {0, 0, 0, 150}, {240, 242, 246, 255})
 		}
-		render.clip_pop(r)
+		clip_end(pen)
 	}
+	// The cues' band, after the scenes (beside them when time runs down).
+	if band := scenes.next; band != nil {
+		at, thick := part(a, box, band)
+		view := Row_View{s, d, a, pen, x0, w, first, ppf, f64(om.MIX_RATE) / f64(fps), line_w, font_px}
+		draw_cues(&view, y0 + at, thick)
+	}
+	draw_markers(pen, d, y0, h, true, false)
+}
 
-	// The rows below the scenes, each drawn the way its kind says (a bands
-	// row shown asks for its source's rows: bands_shown).
-	clear(&pv.bands_shown)
-	rows := timeline_rows(app)
-	shown := min(rows.points, pv.rows_room)
-	rows_y := y0 + ruler_h + SCENE_HEIGHT * dpi * a.across
-	clip(r, a, x0, rows_y, w, shown * dpi * a.across)
-	view := Row_View{s, d, a, x0, w, first, ppf, f64(om.MIX_RATE) / f64(fps), line_w, font_px}
-	window_mouse := platform.mouse_pos(s.p)
-	mouse := axis_point(a, window_mouse)
-	hovered := -1
-	// The rows' list eases to the timeline view's scroll; only the rows it
-	// shows are read.
-	first_row, fraction := 0, f32(0)
-	if v, l := timeline_list(app); v != nil {
-		animation.scroll_limit(&l.scroll, f32(rows_last_first(&pv.waves, &rows, shown)))
-		animation.scroll_to(&l.scroll, f32(v.scroll))
-		first_row, fraction = ui.scroll_page(s, &l.scroll)
+// A row's draw, the way its kind says (a bands row shown asks for its
+// source's rows: bands_shown), whole from where it starts (above its box
+// when scrolled partly out: the list clips it), then the markers over its
+// box.
+@(private = "file")
+row_draw :: proc(s: ^ui.State, box: ^ui.Box, c: ^vg.Canvas) {
+	d := (^Timeline_Draw)(box.custom_data)
+	app := d.app
+	pv := &app.preview
+	dpi := d.dpi
+	m := d.m
+	pen := Pen{s, c, pv.renderer, m.a}
+	fps := preview_fps(app)
+	font_px := 11 * dpi
+	view := Row_View{s, d, m.a, pen, m.x0, m.w, m.first, m.ppf, f64(om.MIX_RATE) / f64(fps), max(dpi, 1), font_px}
+	it := &pv.waves.items[d.item]
+	y := box.rect.min.y - d.skipped
+	rh := row_height(it.kind) * dpi
+	depth := 0
+	for p := it.parent; p >= 0; p = pv.waves.items[p].parent {
+		depth += 1
 	}
-	window := rows_window(&rows, first_row, rows_fit(shown))
-	y := rows_y
-	if len(window) > 0 && fraction > 0 {
-		y -= fraction * row_height(pv.waves.items[window[0]].kind) * dpi * a.across
-	}
-	for i, n in window {
-		it := &pv.waves.items[i]
-		rh := row_height(it.kind) * dpi * a.across
-		if y >= rows_y + shown * dpi * a.across {
-			break
+	switch it.kind {
+	case .Scenes, .Cues:
+	// the head's
+	case .Bands:
+		draw_bands(&view, it^, y, rh - 2 * dpi)
+		draw_row_name(&view, text_of(pv.waves.text[:], it.label), y, rh - 2 * dpi, 14 * dpi * f32(depth))
+	case .Group, .Track, .Part, .Notes, .Hits:
+		// a lane: its regions, each with its waveform (a notes view: its
+		// notes over them), its name (and level when it differs from what
+		// it sits under), open or closed when it has children
+		if it.kind == .Notes || it.kind == .Hits {
+			draw_notes(&view, it^, y, rh - 2 * dpi, d.order + 2)
+		} else {
+			draw_lane(&view, int(it.lane), y, rh - 2 * dpi, d.order + 2)
 		}
-		row_idx := first_row + n
-		switch it.kind {
-		case .Scenes:
-		case .Cues:
-			draw_cues(&view, y, rh)
-		case .Bands:
-			draw_bands(&view, it^, y, rh - 2 * dpi)
-			depth := 0
-			for p := it.parent; p >= 0; p = pv.waves.items[p].parent {
-				depth += 1
-			}
-			draw_row_name(&view, text_of(pv.waves.text[:], it.label), y, rh - 2 * dpi, 14 * dpi * f32(depth))
-		case .Group, .Track, .Part, .Notes, .Hits:
-			// a lane: its regions, each with its waveform (a notes view: its
-			// notes over them), its name (and level when it differs from what
-			// it sits under), open or closed when it has children
-			if it.kind == .Notes || it.kind == .Hits {
-				draw_notes(&view, it^, y, rh - 2 * dpi, row_idx + 2)
-			} else {
-				draw_lane(&view, int(it.lane), y, rh - 2 * dpi, row_idx + 2)
-			}
-			lane := pv.waves.lanes[it.lane]
-			name := text_of(pv.waves.text[:], it.label)
-			above: f32
-			if it.parent >= 0 && pv.waves.items[it.parent].lane >= 0 {
-				above = pv.waves.lanes[pv.waves.items[it.parent].lane].gain_db
-			}
-			if lane.gain_db != above {
-				name = fmt.tprintf("%s · %+.1f dB", name, lane.gain_db)
-			}
-			if it.children > 0 {
-				name = fmt.tprintf("%s %s  %d", "-" if timeline_row_open(app, it^) else "+", name, it.children)
-			}
-			depth := 0
-			for p := it.parent; p >= 0; p = pv.waves.items[p].parent {
-				depth += 1
-			}
-			draw_row_name(&view, name, y, rh - 2 * dpi, 14 * dpi * f32(depth))
+		lane := pv.waves.lanes[it.lane]
+		name := text_of(pv.waves.text[:], it.label)
+		above: f32
+		if it.parent >= 0 && pv.waves.items[it.parent].lane >= 0 {
+			above = pv.waves.lanes[pv.waves.items[it.parent].lane].gain_db
 		}
-		if mouse.y >= y && mouse.y < y + rh && mouse.x >= x0 && mouse.x < x0 + w {
-			hovered = i
+		if lane.gain_db != above {
+			name = fmt.tprintf("%s · %+.1f dB", name, lane.gain_db)
 		}
-		y += rh
-	}
-	render.clip_pop(r)
-	// What the hovered row is, and its path for `onimite show`: upright,
-	// beside the pointer and inside the box.
-	if hovered >= 0 {
-		it := pv.waves.items[hovered]
-		tip := fmt.tprintf("%s   (onimite show %s)", text_of(pv.waves.text[:], it.summary), text_of(pv.waves.text[:], it.path))
-		tw := render.measure_text(s.font, tip, font_px) + 10 * dpi
-		lh := render.line_height(s.font, font_px)
-		tx := clamp(window_mouse.x + 12 * dpi, box.rect.min.x, box.rect.max.x - tw)
-		ty := max(window_mouse.y - lh - 10 * dpi, box.rect.min.y)
-		render.draw_rect_rounded(r, tx, ty, tw, lh + 4 * dpi, 3 * dpi, {10, 11, 15, 235})
-		render.draw_text(r, s.font, tip, tx + 5 * dpi, ty + 2 * dpi, font_px, {235, 238, 244, 255})
-	}
-
-	// The marks (ranges as bands, moments as lines, each with its number)
-	// and the pending in point, then the bookmark, the hovered frame and the
-	// playhead over everything.
-	for m in pv.marks {
-		x := x_of(f64(m.at), first, ppf, x0)
-		if m.to >= 0 {
-			x1 := x_of(f64(m.to + 1), first, ppf, x0)
-			fill(r, a, x, y0, max(x1 - x, line_w), h, {COLOR_MARK.r, COLOR_MARK.g, COLOR_MARK.b, 40})
-			fill(r, a, x, y0, max(x1 - x, line_w), 3 * dpi, COLOR_MARK)
-			fill(r, a, x1 - line_w, y0, line_w, h, {COLOR_MARK.r, COLOR_MARK.g, COLOR_MARK.b, 160})
+		if it.children > 0 {
+			name = fmt.tprintf("%s %s  %d", "-" if timeline_row_open(app, it^) else "+", name, it.children)
 		}
-		fill(r, a, x, y0, line_w, h, {COLOR_MARK.r, COLOR_MARK.g, COLOR_MARK.b, 200})
-		render.draw_text(r, s.font, fmt.tprintf("%d", m.n), x + 3 * dpi, y0 + 3 * dpi, font_px, COLOR_MARK)
+		draw_row_name(&view, name, y, rh - 2 * dpi, 14 * dpi * f32(depth))
 	}
-	if pv.mark_in >= 0 {
-		x := x_of(f64(pv.mark_in), first, ppf, x0)
-		fill(r, a, x, y0, line_w, h, COLOR_MARK)
-		fill(r, a, x, y0, 7 * dpi, line_w * 2, COLOR_MARK)
-		fill(r, a, x, y0 + h - line_w * 2, 7 * dpi, line_w * 2, COLOR_MARK)
-	}
-	if pv.bookmark >= 0 {
-		x := x_of(f64(pv.bookmark), first, ppf, x0)
-		fill(r, a, x, y0, line_w, h, {COLOR_BOOKMARK.r, COLOR_BOOKMARK.g, COLOR_BOOKMARK.b, 200})
-		fill(r, a, x, y0, 8 * dpi, 7 * dpi, COLOR_BOOKMARK)
-	}
-	if pv.hover_valid {
-		fill(r, a, x_of(f64(pv.hover_frame), first, ppf, x0), y0, line_w, h, COLOR_HOVER)
-	}
-	head := x_of(f64(d.head), first, ppf, x0)
-	fill(r, a, head - dpi, y0, 2 * dpi, h, COLOR_PLAYHEAD)
-	fill(r, a, head - 4 * dpi, y0, 8 * dpi, 5 * dpi, COLOR_PLAYHEAD)
+	draw_markers(pen, d, box.rect.min.y, box.rect.max.y - box.rect.min.y, false, false)
 }
 
 // What drawing a row needs from the timeline's draw.
@@ -780,6 +1000,7 @@ Row_View :: struct {
 	s:                 ^ui.State,
 	d:                 ^Timeline_Draw,
 	a:                 Time_Axis,
+	pen:               Pen,
 	x0, w:             f32,
 	first, ppf:        f64,
 	samples_per_frame: f64,
@@ -791,14 +1012,13 @@ Row_View :: struct {
 // the limiter are not shown). A group's lane is its tracks' sound together.
 @(private = "file")
 draw_lane :: proc(v: ^Row_View, index: int, y, lane_h: f32, color_index: int) {
-	r := v.s.r
 	waves := &v.d.app.preview.waves
 	if index < 0 || index >= len(waves.lanes) {
 		return
 	}
 	lane := &waves.lanes[index]
 	dpi := v.d.dpi
-	fill(r, v.a, v.x0, y, v.w, lane_h, LANE_BG)
+	fill(v.pen, v.x0, y, v.w, lane_h, LANE_BG)
 	color := SCENE_COLORS[color_index % len(SCENE_COLORS)]
 	wave := [4]u8{u8(min(int(color.r) + 90, 255)), u8(min(int(color.g) + 90, 255)), u8(min(int(color.b) + 90, 255)), 255}
 	mid := y + lane_h * 0.5
@@ -812,7 +1032,7 @@ draw_lane :: proc(v: ^Row_View, index: int, y, lane_h: f32, color_index: int) {
 		if cx1 <= cx0 {
 			continue
 		}
-		fill_rounded(r, v.a, xa, y, xb - xa, lane_h, 3 * dpi, {color.r, color.g, color.b, 90})
+		fill_rounded(v.pen, xa, y, xb - xa, lane_h, 3 * dpi, {color.r, color.g, color.b, 90})
 		if reg.clip < 0 {
 			continue
 		}
@@ -830,20 +1050,18 @@ draw_lane :: proc(v: ^Row_View, index: int, y, lane_h: f32, color_index: int) {
 			env := om.track_envelope_peak(s0 - lane.start, s1 - lane.start, length, lane.fade_in, lane.fade_out, lane.curve)
 			top := mid - clamp(hi * env, -1, 1) * half
 			bottom := mid - clamp(lo * env, -1, 1) * half
-			fill(r, v.a, cx, top, col_w, max(bottom - top, v.line_w), wave)
+			fill(v.pen, cx, top, col_w, max(bottom - top, v.line_w), wave)
 		}
 	}
 }
 
 // A bands view: where its song plays, the song's band rows as the worker
 // made them into its texture (20 Hz at the bottom), a column per row; the
-// rows asked for while shown (bands_shown). Time across only: a tall
-// timeline names the view instead.
+// rows asked for while shown (bands_shown).
 @(private = "file")
 draw_bands :: proc(v: ^Row_View, it: Timeline_Item, y, h: f32) {
-	r := v.s.r
 	pv := &v.d.app.preview
-	fill(r, v.a, v.x0, y, v.w, h, LANE_BG)
+	fill(v.pen, v.x0, y, v.w, h, LANE_BG)
 	spans := pv.waves.band_spans[it.bands[0]:][:it.bands[1]]
 	if len(spans) == 0 {
 		return
@@ -852,14 +1070,13 @@ draw_bands :: proc(v: ^Row_View, it: Timeline_Item, y, h: f32) {
 	if !slice.contains(pv.bands_shown[:], source) {
 		append(&pv.bands_shown, source)
 	}
-	if v.a.vertical || int(source) >= len(pv.band_textures) {
+	if int(source) >= len(pv.band_textures) {
 		return
 	}
 	bt := pv.band_textures[source]
 	if bt.texture == nil || bt.rows == 0 {
 		return
 	}
-	img := render.Image{bt.texture, u32(bt.width), u32(bt.height)}
 	for sp in spans {
 		xa, xb := max(x_of_sample(v, sp.start), v.x0), min(x_of_sample(v, sp.end), v.x0 + v.w)
 		if xb <= xa {
@@ -881,7 +1098,7 @@ draw_bands :: proc(v: ^Row_View, it: Timeline_Item, y, h: f32) {
 			// blends bands, never the strips stacked above and below
 			src := [4]f32{f32(r0 - f64(strip * BAND_STRIP)), f32(strip * om.BAND_COUNT) + 0.5, f32(end - f64(strip * BAND_STRIP)), f32((strip + 1) * om.BAND_COUNT) - 0.5}
 			wx, wy, ww, wh := axis_rect(v.a, x0, y, x1 - x0, h)
-			render.draw_image_src(r, &img, src, wx, wy, ww, wh)
+			image_src(v.pen, bt.texture, {u32(bt.width), u32(bt.height)}, src, wx, wy, ww, wh)
 			r0 = end
 		}
 	}
@@ -892,17 +1109,16 @@ draw_bands :: proc(v: ^Row_View, it: Timeline_Item, y, h: f32) {
 // as marks, each as strong as it is played.
 @(private = "file")
 draw_notes :: proc(v: ^Row_View, it: Timeline_Item, y, lane_h: f32, color_index: int) {
-	r := v.s.r
 	waves := &v.d.app.preview.waves
 	dpi := v.d.dpi
-	fill(r, v.a, v.x0, y, v.w, lane_h, LANE_BG)
+	fill(v.pen, v.x0, y, v.w, lane_h, LANE_BG)
 	color := SCENE_COLORS[color_index % len(SCENE_COLORS)]
 	if it.lane >= 0 {
 		lane := waves.lanes[it.lane]
 		for reg in waves.regions[lane.regions[0]:][:lane.regions[1]] {
 			xa, xb := x_of_sample(v, reg.start), x_of_sample(v, reg.end)
 			if min(xb, v.x0 + v.w) > max(xa, v.x0) {
-				fill_rounded(r, v.a, xa, y, xb - xa, lane_h, 3 * dpi, {color.r, color.g, color.b, 50})
+				fill_rounded(v.pen, xa, y, xb - xa, lane_h, 3 * dpi, {color.r, color.g, color.b, 50})
 			}
 		}
 	}
@@ -921,11 +1137,11 @@ draw_notes :: proc(v: ^Row_View, it: Timeline_Item, y, lane_h: f32, color_index:
 		a := u8(clamp(90 + 165 * n.velocity, 0, 255))
 		ink := [4]u8{u8(min(int(color.r) + 110, 255)), u8(min(int(color.g) + 110, 255)), u8(min(int(color.b) + 110, 255)), a}
 		if it.kind == .Hits {
-			fill(r, v.a, xa, y + 2 * dpi, max(2 * dpi, min(xb - xa, 4 * dpi)), lane_h - 4 * dpi, ink)
+			fill(v.pen, xa, y + 2 * dpi, max(2 * dpi, min(xb - xa, 4 * dpi)), lane_h - 4 * dpi, ink)
 			continue
 		}
 		ny := y + (hi - n.pitch) * step
-		fill(r, v.a, xa, ny, max(xb - xa, dpi), max(step - dpi, dpi), ink)
+		fill(v.pen, xa, ny, max(xb - xa, dpi), max(step - dpi, dpi), ink)
 	}
 }
 
@@ -940,7 +1156,6 @@ x_of_sample :: proc(v: ^Row_View, s: int) -> f32 {
 // kept inside its row.
 @(private = "file")
 draw_row_name :: proc(v: ^Row_View, name: string, y, row_h, indent: f32, at := -1) {
-	r := v.s.r
 	dpi := v.d.dpi
 	label_h := render.line_height(v.s.font, v.font_px)
 	if row_h < label_h {
@@ -954,33 +1169,20 @@ draw_row_name :: proc(v: ^Row_View, name: string, y, row_h, indent: f32, at := -
 		return
 	}
 	tw := render.measure_text(v.s.font, name, v.font_px)
-	clip(r, v.a, v.x0, y, v.w, row_h)
-	label(v.s, v.a, name, {x + 2 * dpi, y + (row_h - label_h) * 0.5 - dpi}, {tw + 6 * dpi, label_h + 2 * dpi}, {x + 5 * dpi, y + (row_h - label_h) * 0.5}, 3 * dpi, v.font_px, {0, 0, 0, 140}, {235, 238, 244, 230})
-	render.clip_pop(r)
+	clip(v.pen, v.x0, y, v.w, row_h)
+	label(v.pen, name, {x + 2 * dpi, y + (row_h - label_h) * 0.5 - dpi}, {tw + 6 * dpi, label_h + 2 * dpi}, {x + 5 * dpi, y + (row_h - label_h) * 0.5}, 3 * dpi, v.font_px, {0, 0, 0, 140}, {235, 238, 244, 230})
+	clip_end(v.pen)
 }
 
-// The cues as marks with their names where there is room (inside the row).
+// The cues' band: a mark at each cue (their names are the band's boxes:
+// cue_labels).
 @(private = "file")
 draw_cues :: proc(v: ^Row_View, y, row_h: f32) {
-	r := v.s.r
 	pv := &v.d.app.preview
 	fps := f64(preview_fps(v.d.app))
-	fill(r, v.a, v.x0, y, v.w, row_h - v.d.dpi, LANE_BG)
-	clip(r, v.a, v.x0, y, v.w, row_h)
-	defer render.clip_pop(r)
-	free_x := v.x0
-	px := v.font_px * 0.85
+	fill(v.pen, v.x0, y, v.w, row_h - v.d.dpi, LANE_BG)
 	for c in pv.waves.cues {
 		x := v.x0 + f32((c.seconds * fps - v.first) * v.ppf)
-		if x < v.x0 || x > v.x0 + v.w {
-			continue
-		}
-		fill(r, v.a, x, y, v.line_w, row_h - v.d.dpi, {250, 204, 21, 220})
-		name := text_of(pv.waves.text[:], c.name)
-		along := axis_label_along(v.a, render.measure_text(v.s.font, name, px), render.line_height(v.s.font, px))
-		if x + 3 * v.d.dpi >= free_x && x + along < v.x0 + v.w {
-			text(v.s, v.a, name, {x + 3 * v.d.dpi, y}, px, {250, 230, 160, 230})
-			free_x = x + along + 8 * v.d.dpi
-		}
+		if x >= v.x0 && x <= v.x0 + v.w do fill(v.pen, x, y, v.line_w, row_h - v.d.dpi, {250, 204, 21, 220})
 	}
 }

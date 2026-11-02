@@ -399,59 +399,83 @@ subtitles, captions), [shaders.md](skills/onimite-video/references/shaders.md),
 
 `onimite preview video.lua [at]` opens a window with the video above a
 timeline (ruler, scenes with thumbnails, cue marks, each bus's sound as one
-lane that opens to a lane per track; hovering a row names it with the path
-`onimite show` takes) and plays it with sound, looping, as fframes' player
+lane that opens to a lane per track; hovering a row or the cue marks names
+it with the path `onimite show` takes) and plays it with sound, looping, as fframes' player
 does. Sound joins as the script's clips are built, without holding up the
 picture.
 Saving any file in the script's folder reloads it within a quarter second
 (changes in `media/` reload the media); an edit that fails to load is shown
 while the last good version keeps playing. The status line shows the GPU,
 the preview resolution, render time, latency and the problems found in the
-frames shown; a click opens them in the Watch.
+frames shown; a click opens them in the Watch. The bar above it holds
+play / pause, the time, loop and the bookmark at the left (hover an icon
+for its key), and Reload, the sound and its volume at the right. The timeline's zoom (and Follow, once zoomed) sits at the right end
+of its ruler.
 
 The video, the timeline and Watch views are tabs in panels, as in oasic:
 drag a tab onto another panel's tab strip, centre or edge to move it there
-or split the panel; drag a splitter to resize; `x` closes a tab; `+` lists
+or split the panel; drag a splitter to resize; a tab's X, a middle click on
+it or Ctrl+W (the focused panel's) closes a tab; the wheel over the tabs
+scrolls them sideways when they don't fit; `+` lists
 what opens in the panel (the video, the timeline, a Watch on each section,
 a split, closing it) and Ctrl+P every scene, cue and problem to go to, both
-filtered as you type. A timeline in a panel beside another and taller than
-wide runs top to bottom, its scenes and lanes as columns. The **Watch** lists the video's scenes (with
+filtered as you type (each space-separated word anywhere in a row, any
+case; rows keep their order). A timeline in a panel beside another and taller than
+wide runs its ruler, scenes and cues top to bottom, without its lanes: the
+scenes take the panel's width beside a column of cue names as wide as the
+longest. The cues stay with the ruler and the scenes while the lanes scroll. The timeline's lanes scroll as a list (the wheel over them, the scroll
+bar). The **Watch** lists the video's scenes (with
 the problems seen in each), cues (with their sync findings: drift, a `hit`
-with no sound near it), problems and media (thumbnails; failed files, sounds
-no track plays), each row coloured by its status; a click goes to its
-frame, and N jumps to the next row with a warning or an error.
+with no sound near it), problems, media (thumbnails; failed files, sounds
+no track plays) and marks, each section a tab of its own titled with its
+row count (in its worst row's colour when that is a warning or an error),
+each row coloured by its status; a click goes to its frame, and N jumps to
+the next row with a warning or an error. D and I open the problems' and the
+media's tab, the first Watch tab in a panel beside the video and the others
+after it (one already open is shown); `+` opens any section's in its panel.
 
 The window never waits on Lua, a fence or a file: a render worker owns the
 script, the media and the canvas and publishes frames through a mailbox
 (the newest request wins, so scrubbing drops stale frames), SDL's audio
 callback is the playback clock, and the UI thread only draws.
 
+The arrows, Home / End, Page Up / Down, Delete, Backspace, Enter and Space
+go to the focused panel (a click on a view focuses its panel): the video's
+and the timeline's are the keys below, a Watch's move its cursor row (Enter
+or Space goes to its frame), a field's edit its text. The letter keys work
+anywhere. A key works with exactly the modifiers it lists, and held it
+repeats. A wheel notch scrolls a list three rows.
+
 | key | |
 | --- | --- |
-| Space | play / pause (also a click on the video) |
-| Left / Right, J / K | previous / next frame (held: repeats) |
-| Ctrl+Left / Ctrl+Right | one second back / forward |
-| Home, 0, Shift+J, Shift+Left | the bookmark, then the first frame |
-| End, Shift+G, Shift+Right | last frame |
-| Page Down, S, W / Page Up, Shift+S, B | next / previous scene |
-| Up, L / Down, H | volume up / down |
-| Ctrl+Down, Ctrl+H | mute |
+| Space, Enter (video, timeline) | play / pause (also a click on the video) |
+| Left / Right (video, timeline), J / K | previous / next frame (held: repeats) |
+| Ctrl+Left / Ctrl+Right (video, timeline) | one second back / forward |
+| Home, Ctrl+Home, Shift+Left (video, timeline), 0, Shift+J | the bookmark, then the first frame |
+| End, Ctrl+End, Shift+Right (video, timeline), Shift+G | last frame |
+| Page Down / Page Up (video, timeline), S, W / Shift+S, B | next / previous scene |
+| Up / Down (video, timeline), L / H | volume up / down |
+| Ctrl+Down (video, timeline), Ctrl+H | mute |
 | M | set / clear the bookmark (reloads return to it) |
 | [ / ] | mark a range's in / out point, for the agent (`NAME.marks.json` beside the script or clip; `onimite show NAME marks`) |
 | P | mark a moment (again on it: unmark) |
-| Delete, Backspace | remove the mark under the playhead |
-| = / - | zoom the timeline (also Ctrl+wheel; a zoomed timeline you scroll stops following the playhead until Follow); Ctrl+0 fits it |
+| Delete, Backspace (video, timeline) | remove the mark under the playhead |
+| = / - | zoom the timeline (also Ctrl+wheel over it; a zoomed timeline you scroll stops following the playhead until Follow); Ctrl+0 fits it |
 | T | collapse / expand the timeline |
 | Z | fit the video in its panel (the wheel over the video zooms around the cursor, dragging pans) |
-| F | fullscreen |
-| D / I | the Watch on the problems / the media (the Watch button: open / close it) |
+| F, Ctrl+Enter | fullscreen |
+| D / I | the Watch's problems / media tab |
 | N / Shift+N | next / previous scene, cue, problem or media row with a warning or an error |
 | Shift+L | loop |
 | R | reload |
 | Ctrl+P | go to a scene, cue or problem (type to filter, Up/Down, Enter) |
-| Ctrl+F (over a Watch) | filter its rows (type; Esc leaves the field) |
+| Ctrl+F (in a Watch's panel: click it first) | filter its rows (type; Esc clears the filter and closes it) |
+| Alt+= / Alt+-, Ctrl+wheel (not over the video or the timeline) | the window's text a point larger / smaller |
+| Up / Down, Page Up / Down, Enter, Space (a focused Watch) | move its cursor row; Enter or Space goes to the row's frame |
+| Ctrl+C / Ctrl+X / Ctrl+V, Ctrl+A (in a field) | copy / cut / paste, select all |
 | Ctrl+O | open a script (or drop a `.lua` file) |
-| Esc / Q | close the list, then the Watch, leave fullscreen, then the window |
+| Esc | closes the list or a Watch's filter, or drops a dragged tab where it was |
+| Q | closes the window |
 
 `--exit-after N` closes after N window frames and prints frame timings;
 `ONIMITE_PREVIEW_CAPTURE=out.png` also writes the last frame.

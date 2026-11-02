@@ -1,5 +1,6 @@
 package onimite_app
 
+import "core:math"
 import ui "../ui"
 
 // The preview's workspace, after oasic's: panels that split, and views as
@@ -22,20 +23,19 @@ View_Kind :: enum u8 {
 }
 
 // What a view is called and shows (a Watch: what its sections' counts
-// count), whether the workspace holds at most one (the video and the
-// timeline are the preview's own; Watch views may be many), and whether it
-// opens on one of the Watch's sections.
+// count), and whether it opens on one of the Watch's sections. The
+// workspace holds at most one of each: the video, the timeline and a Watch
+// on each section.
 View_Descriptor :: struct {
 	name:     string,
 	about:    string,
-	single:   bool,
 	sections: bool,
 }
 
 VIEW_DESCRIPTORS :: [View_Kind]View_Descriptor {
-	.Video    = {"Video", "the rendered frame", true, false},
-	.Timeline = {"Timeline", "ruler, scenes, cues and sound", true, false},
-	.Watch    = {"Watch", "rows", false, true},
+	.Video    = {"Video", "the rendered frame", false},
+	.Timeline = {"Timeline", "ruler, scenes, cues and sound", false},
+	.Watch    = {"Watch", "rows", true},
 }
 
 Direction :: enum u8 {
@@ -76,7 +76,7 @@ View_Record :: struct {
 	panel:          Panel_Id,
 	previous, next: View_Id,
 	// Its first row shown (View_Scroll: a Watch's rows, the timeline's
-	// below the scenes); a Watch's section shown and its
+	// below the scenes); a Watch's section (fixed when it opens) and its
 	// filter (View_Filter, owned): the rows whose labels match.
 	section:        Watch_Section,
 	scroll:         int,
@@ -114,6 +114,9 @@ Workspace :: struct {
 	root, focused: Panel_Id,
 	// The open lister (preview_lister.odin).
 	lister:        Lister,
+	// A leaf's tab bar's height in pixels, from the last measure (its one
+	// computation: tabs_height of the window's font).
+	tab_height:    f32,
 }
 
 // The default arrangement: the video above the timeline, the timeline at
@@ -161,6 +164,16 @@ workspace_leaf :: proc(ws: ^Workspace, id: Panel_Id) -> ^Panel_Record {
 workspace_find :: proc(ws: ^Workspace, kind: View_Kind) -> View_Id {
 	for v, i in ws.views {
 		if v.live && v.kind == kind {
+			return View_Id(i + 1)
+		}
+	}
+	return 0
+}
+
+// The open Watch on `section` (0: none).
+workspace_find_watch :: proc(ws: ^Workspace, section: Watch_Section) -> View_Id {
+	for v, i in ws.views {
+		if v.live && v.kind == .Watch && v.section == section {
 			return View_Id(i + 1)
 		}
 	}
@@ -311,12 +324,12 @@ collapse_empty :: proc(ws: ^Workspace, panel: Panel_Id) {
 	}
 }
 
-// Opens a view of `kind` in leaf `panel` after `previous`, or (with a
-// direction) in a new panel on that side of it. A video or timeline
-// already open moves there instead. Returns the view.
+// Opens a view of `kind` (a Watch on `section`) in leaf `panel` after
+// `previous`, or (with a direction) in a new panel on that side of it. One
+// already open (the video, the timeline, the Watch on that section) moves
+// there instead. Returns the view.
 workspace_open :: proc(ws: ^Workspace, panel: Panel_Id, kind: View_Kind, direction := Direction.None, ratio: f32 = 0, previous := View_Id(0), section := Watch_Section.Scenes) -> View_Id {
-	descriptors := VIEW_DESCRIPTORS
-	if open := workspace_find(ws, kind); open != 0 && descriptors[kind].single {
+	if open := workspace_find_watch(ws, section) if kind == .Watch else workspace_find(ws, kind); open != 0 {
 		if p := workspace_leaf(ws, panel); p != nil && (p != workspace_panel(ws, workspace_view(ws, open).panel) || direction != .None) {
 			workspace_move(ws, open, panel, previous if previous != 0 || direction != .None else p.last, direction, ratio)
 		}
@@ -431,7 +444,11 @@ workspace_apply :: proc(ws: ^Workspace, kind: Command_Kind, regs: Command_Regs) 
 	case .View_Open:
 		workspace_open(ws, regs.panel, regs.view_kind, regs.direction, f32(regs.ratio), regs.previous, regs.section)
 	case .View_Close:
-		workspace_close_view(ws, regs.view)
+		// No view named: the focused panel's shown tab (RAD's close_tab,
+		// its tab register defaulting to it).
+		id := regs.view
+		if p := workspace_leaf(ws, ws.focused); id == 0 && p != nil do id = p.shown
+		workspace_close_view(ws, id)
 	case .View_Select:
 		workspace_select(ws, regs.view)
 	case .View_Move:
@@ -447,16 +464,24 @@ workspace_apply :: proc(ws: ^Workspace, kind: Command_Kind, regs: Command_Regs) 
 	}
 }
 
-// Points: a leaf's tab strip, a splitter, the least a side of a split gets.
-PANEL_TABS :: 24
+// A leaf's tab bar's height, in the font's size (RAD's tab_height setting:
+// it follows the window's font size); points: a splitter, the least a side
+// of a split gets.
+TAB_HEIGHT :: 3
 PANEL_SPLITTER :: 4
 PANEL_MIN :: 64
 
-// Lays the panels out in `rect` (pixels): each leaf's tabs above its
-// content, a splitter between a branch's sides. `natural` is the content
-// height in pixels a view would like (-1: none), for fitted branches.
-workspace_measure :: proc(ws: ^Workspace, rect: Workspace_Rect, dpi: f32, natural: [View_Kind]f32) {
-	tab, gap := PANEL_TABS * dpi, PANEL_SPLITTER * dpi
+// A leaf's tab bar's height in pixels at a font `font_px` big (RAD's
+// tab_bar_vheight).
+tabs_height :: proc(font_px: f32) -> f32 {return math.floor(TAB_HEIGHT * font_px)}
+
+// Lays the panels out in `rect` (pixels): each leaf's tabs (`tab` pixels
+// tall: tabs_height) above its content, a splitter between a branch's
+// sides. `natural` is the content height in pixels a view would like (-1:
+// none), for fitted branches.
+workspace_measure :: proc(ws: ^Workspace, rect: Workspace_Rect, dpi, tab: f32, natural: [View_Kind]f32) {
+	ws.tab_height = tab
+	gap := PANEL_SPLITTER * dpi
 	resize(&ws.areas, len(ws.panels))
 	for &a in ws.areas {
 		a = {}

@@ -1,6 +1,8 @@
 package onimite_app
 
 import "core:testing"
+import platform "../platform"
+import ui "../ui"
 
 // The default arrangement is the video over the timeline at its natural
 // height; a split, a move into the new panel and a drop on an edge change
@@ -14,10 +16,12 @@ test_workspace :: proc(t: ^testing.T) {
 	vp := workspace_view(&ws, video).panel
 	tp := workspace_view(&ws, timeline).panel
 	natural := [View_Kind]f32{.Video = -1, .Timeline = 100, .Watch = -1}
-	workspace_measure(&ws, {0, 0, 1000, 800}, 1, natural)
-	testing.expect_value(t, ws.areas[tp - 1].rect.height, 100 + PANEL_TABS)
-	testing.expect_value(t, ws.areas[vp - 1].content.y, PANEL_TABS)
-	testing.expect_value(t, ws.areas[vp - 1].rect.height, 800 - PANEL_SPLITTER - 100 - PANEL_TABS)
+	tabs := tabs_height(FONT_SIZE_DEFAULT) // the tab bar follows the font (RAD's tab_height, three)
+	testing.expect_value(t, tabs, 33)
+	workspace_measure(&ws, {0, 0, 1000, 800}, 1, tabs, natural)
+	testing.expect_value(t, ws.areas[tp - 1].rect.height, 100 + tabs)
+	testing.expect_value(t, ws.areas[vp - 1].content.y, tabs)
+	testing.expect_value(t, ws.areas[vp - 1].rect.height, 800 - PANEL_SPLITTER - 100 - tabs)
 
 	// A split leaves an empty panel on the right; moving the timeline there
 	// closes the panel it leaves.
@@ -44,10 +48,11 @@ test_workspace :: proc(t: ^testing.T) {
 	parent := workspace_panel(&ws, workspace_panel(&ws, vp).parent)
 	testing.expect_value(t, parent.children, [2]Panel_Id{left, vp})
 
-	// Tabs: a Watch joins the video's panel and shows; closing it shows the
-	// video again. The video, already open, moves where it is opened.
+	// Tabs: a Watch joins the video's panel after it, shown; closing it
+	// shows the video again. The video, already open, moves where it is
+	// opened.
 	workspace_apply(&ws, .View_Open, {panel = vp, view_kind = .Watch, previous = video})
-	watch := workspace_find(&ws, .Watch)
+	watch := workspace_find_watch(&ws, .Scenes)
 	testing.expect_value(t, workspace_panel(&ws, vp).shown, watch)
 	testing.expect_value(t, workspace_view(&ws, video).next, watch)
 	workspace_apply(&ws, .View_Close, {view = watch})
@@ -56,6 +61,108 @@ test_workspace :: proc(t: ^testing.T) {
 	testing.expect_value(t, workspace_find(&ws, .Video), video)
 	testing.expect_value(t, workspace_view(&ws, video).panel, left)
 	testing.expect_value(t, ws.root, left)
+}
+
+// The Watch's sections are tabs of their own, through the keys and the
+// command pipeline: D opens the problems' tab alone in a panel beside the
+// video; I opens the media's after it in that panel, D again shows the
+// problems' without opening another; a closed section's tab reopens after
+// the others; the + lister's Watch opens one tab in the asking panel, or
+// moves an open section's there rather than opening a second, and with
+// none open opens just the one picked.
+@(test)
+test_watch_sections_are_tabs :: proc(t: ^testing.T) {
+	app: App_State
+	app.commands = command_storage_make()
+	defer command_storage_destroy(&app.commands)
+	pv := &app.preview
+	defer preview_state_destroy(pv)
+	pv.active = true
+	workspace_init(&pv.workspace)
+	ws := &pv.workspace
+	s: ui.State
+	key :: proc(app: ^App_State, s: ^ui.State, k: platform.Key, mods: ui.Modifiers = {}) {
+		key_route(app, s, {key_press(k, mods)})
+		dispatch(app)
+	}
+	watch_views :: proc(ws: ^Workspace) -> (n: int, panel: Panel_Id, one_panel: bool) {
+		one_panel = true
+		for v in ws.views {
+			if !v.live || v.kind != .Watch do continue
+			if n > 0 && v.panel != panel do one_panel = false
+			n, panel = n + 1, v.panel
+		}
+		return
+	}
+	video := workspace_view(ws, workspace_find(ws, .Video)).panel
+	key(&app, &s, .D)
+	n, panel, one := watch_views(ws)
+	testing.expect_value(t, n, 1)
+	testing.expect(t, panel != video)
+	problems := workspace_find_watch(ws, .Problems)
+	testing.expect(t, problems != 0)
+	testing.expect_value(t, workspace_panel(ws, panel).shown, problems)
+	testing.expect_value(t, ws.focused, panel)
+	workspace_select(ws, workspace_find(ws, .Video))
+	key(&app, &s, .I)
+	n, _, one = watch_views(ws)
+	testing.expect_value(t, n, 2)
+	testing.expect(t, one)
+	media := workspace_find_watch(ws, .Media)
+	testing.expect_value(t, workspace_view(ws, problems).next, media)
+	testing.expect_value(t, workspace_panel(ws, panel).shown, media)
+	testing.expect_value(t, ws.focused, panel)
+	key(&app, &s, .D)
+	n, _, _ = watch_views(ws)
+	testing.expect_value(t, n, 2)
+	testing.expect_value(t, workspace_panel(ws, panel).shown, problems)
+
+	// A closed tab reopens after the others' when its section is shown.
+	command_push(&app.commands, .View_Close, {view = problems})
+	command_push(&app.commands, .Watch_Show, {section = .Problems})
+	dispatch(&app)
+	n, _, one = watch_views(ws)
+	testing.expect_value(t, n, 2)
+	testing.expect(t, one)
+	testing.expect_value(t, workspace_panel(ws, panel).last, workspace_find_watch(ws, .Problems))
+
+	// The + lister's Watch on the cues, from the video's panel: one tab,
+	// there; on the media, open, its tab moves there.
+	command_push(&app.commands, .View_Open, {panel = video, view_kind = .Watch, section = .Cues})
+	dispatch(&app)
+	n, _, one = watch_views(ws)
+	testing.expect_value(t, n, 3)
+	testing.expect(t, !one)
+	testing.expect_value(t, workspace_view(ws, workspace_find_watch(ws, .Cues)).panel, video)
+	command_push(&app.commands, .View_Open, {panel = video, view_kind = .Watch, section = .Media})
+	dispatch(&app)
+	n, _, _ = watch_views(ws)
+	testing.expect_value(t, n, 3)
+	testing.expect_value(t, workspace_find_watch(ws, .Media), media)
+	testing.expect_value(t, workspace_view(ws, media).panel, video)
+
+	// With none open, the + lister's Watch on the marks: that tab alone, in
+	// the asking panel (the video's), shown.
+	for v, i in ws.views do if v.live && v.kind == .Watch do command_push(&app.commands, .View_Close, {view = View_Id(i + 1)})
+	dispatch(&app)
+	n, _, _ = watch_views(ws)
+	testing.expect_value(t, n, 0)
+	command_push(&app.commands, .View_Open, {panel = video, view_kind = .Watch, section = .Marks})
+	dispatch(&app)
+	n, panel, _ = watch_views(ws)
+	testing.expect_value(t, n, 1)
+	testing.expect_value(t, panel, video)
+	marks := workspace_find_watch(ws, .Marks)
+	testing.expect_value(t, workspace_panel(ws, video).shown, marks)
+
+	// Ctrl+W (RAD's close_tab): the focused panel's shown tab closes, as
+	// its x closes it (View_Close).
+	testing.expect_value(t, ws.focused, video)
+	key(&app, &s, .W, {.Control})
+	testing.expect_value(t, workspace_find_watch(ws, .Marks), View_Id(0))
+	testing.expect(t, workspace_view(ws, marks) == nil)
+	n, _, _ = watch_views(ws)
+	testing.expect_value(t, n, 0)
 }
 
 // The timeline runs down only in a panel beside another and taller than
@@ -83,7 +190,7 @@ test_timeline_vertical :: proc(t: ^testing.T) {
 // corner: time along x lands down y, and the pointer maps back the same way.
 @(test)
 test_time_axis :: proc(t: ^testing.T) {
-	a := Time_Axis{vertical = true, corner = {100, 20}, ruler = RULER_WIDTH, across = 1}
+	a := Time_Axis{vertical = true, corner = {100, 20}, ruler = RULER_WIDTH}
 	testing.expect_value(t, axis_point(a, {130, 25}), [2]f32{105, 50})
 	testing.expect_value(t, axis_point(a, axis_point(a, {130, 25})), [2]f32{130, 25})
 	x, y, w, h := axis_rect(a, 130, 25, 40, 10)

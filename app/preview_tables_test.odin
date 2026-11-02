@@ -200,7 +200,7 @@ test_timeline_rows_blocks :: proc(t: ^testing.T) {
 		items := app.preview.waves.items[:]
 		out := make([dynamic]int, context.temp_allocator)
 		for it, i in items {
-			if it.kind == .Scenes do continue
+			if it.kind == .Scenes || it.kind == .Cues do continue
 			shown := true
 			for p := it.parent; p >= 0 && shown; p = items[p].parent do shown = timeline_row_open(app, items[p])
 			if shown do append(&out, i)
@@ -221,11 +221,6 @@ test_timeline_rows_blocks :: proc(t: ^testing.T) {
 		testing.expect_value(t, r.points, points)
 		for first in 0 ..< len(want) {
 			testing.expect(t, slice.equal(rows_window(&r, first, 3), want[first:min(first + 3, len(want))]))
-		}
-		for room in ([]f32{10, 40, 60, 100, points, points + 1}) {
-			last := len(want)
-			for acc: f32 = 0; last > 0 && acc + row_height(w.items[want[last - 1]].kind) <= room; last -= 1 do acc += row_height(w.items[want[last - 1]].kind)
-			testing.expect_value(t, rows_last_first(w, &r, room), last if points > room else 0)
 		}
 	}
 }

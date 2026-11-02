@@ -91,9 +91,9 @@ test_present_keys :: proc(t: ^testing.T) {
 	defer command_storage_destroy(&app.commands)
 	app.preview.present = true
 	press :: proc(app: ^App_State, key: platform.Key) -> Command_Kind {
-		actions := []ui.Action_Row{{kind = .Key, key = key}}
 		clear(&app.commands.pending.rows)
-		preview_keys(app, actions, false)
+		s: ui.State
+		key_route(app, &s, {key_press(key)})
 		return app.commands.pending.rows[0].row.kind if len(app.commands.pending.rows) == 1 else .None
 	}
 	testing.expect_value(t, press(&app, .Right), Command_Kind.Present_Next)
@@ -103,7 +103,7 @@ test_present_keys :: proc(t: ^testing.T) {
 	testing.expect_value(t, press(&app, .Page_Up), Command_Kind.Present_Previous)
 	testing.expect_value(t, press(&app, .B), Command_Kind.Blackout_Toggle)
 	testing.expect_value(t, press(&app, .P), Command_Kind.Playback_Toggle)
-	testing.expect_value(t, press(&app, .Escape), Command_Kind.Dismiss)
+	testing.expect_value(t, press(&app, .Escape), Command_Kind.Quit) // its own row
 }
 
 // A render's chapters: one per stop a presentation makes (a scene that

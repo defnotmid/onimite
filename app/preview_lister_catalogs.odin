@@ -57,8 +57,8 @@ LISTER_CATALOGS := [Lister_Catalog]Lister_Catalog_Descriptor {
 // (COMMAND_KINDS).
 PANEL_ACTIONS := [?]Command_Row{{.Panel_Split, {direction = .Right}}, {.Panel_Split, {direction = .Down}}, {.Panel_Close, {}}}
 
-// Each view kind to open in the panel (an open video or timeline moves
-// there); one opening on a section, once per Watch section.
+// Each view kind to open in the panel (an open video, timeline or Watch
+// section moves there); the Watch once per section.
 @(private = "file")
 view_count :: proc(src: Lister_Source) -> int {
 	n := 0

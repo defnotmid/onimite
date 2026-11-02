@@ -270,10 +270,12 @@ command_apply :: proc(app: ^App_State, row: Command_Row) -> Error {
 		return preview_open(app, regs)
 	case .Update:
 		return update_run(app, regs)
-	case .Playback_Toggle, .Playback_Set, .Frame_Set, .Frame_Step, .Frame_Start, .Seconds_Step, .Scene_Step, .Present_Next, .Present_Previous, .Blackout_Toggle, .Script_Reload, .Script_Open, .File_Dialog, .Loop_Toggle, .Loop_Set, .Mute_Toggle, .Mute_Set, .Volume_Set, .Volume_Step, .Bookmark_Toggle, .Mark_In, .Mark_Out, .Mark_Point, .Mark_Delete, .Timeline_Zoom, .Timeline_Fit, .Timeline_Pan, .Timeline_Follow, .Timeline_Toggle, .Timeline_Row_Toggle, .Video_Zoom, .Video_Pan, .Video_Fit, .Fullscreen_Toggle, .Cursor_Hover, .Dismiss, .Watch_Show, .Watch_Section_Set, .View_Scroll, .View_Filter, .Problem_Step, .Quit:
+	case .Playback_Toggle, .Playback_Set, .Frame_Set, .Frame_Step, .Frame_Start, .Seconds_Step, .Scene_Step, .Present_Next, .Present_Previous, .Blackout_Toggle, .Script_Reload, .Script_Open, .File_Dialog, .Loop_Toggle, .Loop_Set, .Mute_Toggle, .Mute_Set, .Volume_Set, .Volume_Step, .Bookmark_Toggle, .Mark_In, .Mark_Out, .Mark_Point, .Mark_Delete, .Timeline_Zoom, .Timeline_Fit, .Timeline_Pan, .Timeline_Follow, .Timeline_Toggle, .Timeline_Row_Toggle, .Video_Zoom, .Video_Pan, .Video_Fit, .Fullscreen_Toggle, .Cursor_Hover, .Watch_Show, .View_Scroll, .View_Filter, .Problem_Step, .Quit, .Font_Size_Increase, .Font_Size_Decrease:
 		preview_apply(app, row.kind, regs)
 	case .Panel_Split, .Panel_Close, .Panel_Resize, .View_Open, .View_Close, .View_Select, .View_Move, .Lister_Open, .Lister_Filter, .Lister_Close:
 		workspace_apply(&app.preview.workspace, row.kind, regs)
+	case .Search, .Accept, .Cancel, .Move_Left, .Move_Right, .Move_Up, .Move_Down, .Move_Left_Select, .Move_Right_Select, .Move_Up_Select, .Move_Down_Select, .Move_Left_Chunk, .Move_Right_Chunk, .Move_Up_Chunk, .Move_Down_Chunk, .Move_Up_Page, .Move_Down_Page, .Move_Up_Whole, .Move_Down_Whole, .Move_Left_Chunk_Select, .Move_Right_Chunk_Select, .Move_Up_Chunk_Select, .Move_Down_Chunk_Select, .Move_Up_Page_Select, .Move_Down_Page_Select, .Move_Up_Whole_Select, .Move_Down_Whole_Select, .Move_Up_Reorder, .Move_Down_Reorder, .Move_Home, .Move_End, .Move_Home_Select, .Move_End_Select, .Select_All, .Delete_Single, .Delete_Chunk, .Backspace_Single, .Backspace_Chunk, .Copy, .Cut, .Paste, .Insert_Text, .Move_Next, .Move_Prev:
+	// The window's keys run them at once (ui_command), never queued.
 	}
 	return nil
 }

@@ -1410,14 +1410,15 @@ bookmark_write :: proc(script_path: string, frame: int) {
 	_ = os.write_entire_file(path, transmute([]u8)fmt.tprintf("%d\n%s\n", frame, abs))
 }
 
-// The items' tree for the rows below the scenes: their children grouped by
+// The items' tree for the rows below the scenes (not the scenes' or the
+// cues', which the timeline's head draws): their children grouped by
 // parent (sized, then filled: a counting sort), each child's place among
 // its siblings and the points of those before it, each item's key.
 timeline_tree :: proc(t: ^Wave_Table) {
 	n := len(t.items)
 	counts := make([]i32, n + 1, context.temp_allocator) // by parent + 1 (0: the top)
 	for it in t.items {
-		if it.kind != .Scenes do counts[it.parent + 1] += 1
+		if it.kind != .Scenes && it.kind != .Cues do counts[it.parent + 1] += 1
 	}
 	starts := make([]i32, n + 1, context.temp_allocator)
 	total: i32
@@ -1431,7 +1432,7 @@ timeline_tree :: proc(t: ^Wave_Table) {
 	y := make([]f32, n + 1, context.temp_allocator)
 	for &it, i in t.items {
 		it.key = hash.fnv64a(transmute([]u8)text_of(t.text[:], it.path))
-		if it.kind == .Scenes do continue
+		if it.kind == .Scenes || it.kind == .Cues do continue
 		g := it.parent + 1
 		it.place, it.y = fill[g] - starts[g], y[g]
 		y[g] += row_height(it.kind)

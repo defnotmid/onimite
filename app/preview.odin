@@ -16,6 +16,7 @@ import script "../script"
 import "../animation"
 import ui "../ui"
 import vg "deps:ovg"
+import vgsdl "deps:ovg/sdlgpu"
 import odimg "deps:oicut/image"
 import sdl "vendor:sdl3"
 
@@ -90,18 +91,34 @@ Preview_State :: struct {
 	lister:             Lister_View,
 	// Per view (by View_Id - 1): the list its rows scroll in, which follows
 	// the view's scroll, and its filter as typed (preview_list.odin).
-	view_lists:         [dynamic]List,
+	view_lists:         [dynamic]View_List,
 	view_filters:       [dynamic]Filter_Field,
 	dpi:                f32,
-	// A tab being dragged (gesture state, not a command): its view, where
-	// the press began and whether it has moved far enough to be a drag.
+	// A tab being dragged (gesture state, not a command): RAD's drag/drop
+	// state and the view dragged.
+	drag:               Drag_State,
 	drag_view:          View_Id,
-	drag_start:         [2]f32,
-	drag_active:        bool,
+	// The window's font size in points (RAD's window font size:
+	// Font_Size_Increase, Font_Size_Decrease); the UI's text is sized by it
+	// over FONT_SIZE_DEFAULT.
+	font_size:          f32,
+	// The window's bars' height in pixels, the transport controls' and the
+	// status line's (preview_layout: from the window's font, its one
+	// computation).
+	bar_height:         f32,
 	// The panel tree apart from its ratios, and its ratios, last frame
 	// (panel_areas_ease).
 	panel_shape:        u64,
 	panel_ratios:       u64,
+	// A splitter is being dragged this frame (RAD's changing panel
+	// boundaries): a tab appearing takes its width at once.
+	panels_resizing:    bool,
+	// Where the dragged tab would drop among a panel's tabs this frame
+	// (after `after`, 0: first), the bar's slot (tabs_view).
+	drop_slot:          struct {
+		panel: Panel_Id,
+		after: View_Id,
+	},
 	fullscreen:         bool,
 	// --bare: the video alone on the whole window (bare_area, the only view
 	// shown), played once; the end of the video or Escape closes the window.
@@ -209,14 +226,20 @@ Preview_State :: struct {
 	watch:              Watch_Table,
 	waves:              Wave_Table,
 	media:              Media_Table,
-	media_images:       [dynamic]render.Image, // parallel to media.rows (image thumbnails)
+	media_images:       [dynamic]vg.Image_Id, // parallel to media.rows (image thumbnails, the window's canvas's)
 	media_uploaded:     int, // rows whose thumbnail texture exists (a few more per window frame)
 	thumbs:             [dynamic]Preview_Thumb, // sorted by frame
 	thumb_size:         [2]u32,
 	// The last load's failure as text (made when taken), "" after a good one.
 	reload_error:       string,
 	seen_reload:        u64,
-	video_image:        render.Image,
+	// The newest frame the worker published: its texture (the worker's,
+	// shown through a borrowed image) and size.
+	video_texture:      ^sdl.GPUTexture,
+	video_size:         [2]u32,
+	// The window's frame (preview_run's), whose borrowed images show the
+	// worker's textures.
+	renderer:           ^render.Renderer,
 	device_name:        string,
 	// Owned by the preview's run; shared with the worker and audio thread.
 	mailbox:            ^Mailbox,
@@ -233,10 +256,51 @@ Preview_State :: struct {
 // The UI's face: ovg's bundled Vera, not a second embedded copy.
 UI_FONT :: vg.DEFAULT_FONT_DATA
 
-PREVIEW_BG :: [4]f32{0.07, 0.078, 0.102, 1}
-BARE_BG :: [4]f32{0, 0, 0, 1}
-CONTROLS_HEIGHT :: 40
-STATUS_HEIGHT :: 26
+// What the window clears to (the UI theme's background): the preview's, or
+// black for --bare, --present and --live.
+PREVIEW_BG :: [4]u8{18, 20, 26, 255}
+BARE_BG :: [4]u8{0, 0, 0, 255}
+// The panels' own background (the controls, a Watch, an empty panel).
+COLOR_PANEL_BG :: [4]u8{24, 26, 32, 255}
+// RAD Debugger's menu animation rates (a floating view, panels sliding,
+// drop sites), its slow menu rate and its entity-alive rate (a row fading
+// in), as ui.Animation_Params rates.
+MENU_RATE :: 70 * math.LN2
+MENU_SLOW_RATE :: 50 * math.LN2
+ALIVE_RATE :: 30 * math.LN2
+// The window's font size in points: RAD's default (its font_size setting),
+// and RAD's range.
+FONT_SIZE_DEFAULT :: 11
+FONT_SIZE_MIN :: 6
+FONT_SIZE_MAX :: 72
+// The preview's icons: path data in the icons' 24 unit box (ui/icons.odin
+// strokes them into their boxes), in one table, as onib keeps its icon
+// sources in its tables.
+Preview_Icon :: enum u8 {
+	Search,
+	Close,
+	Play,
+	Pause,
+	Loop,
+	Bookmark,
+	Sound,
+	Muted,
+}
+PREVIEW_ICONS :: [Preview_Icon]string {
+	.Search = "M10 4 A6 6 0 1 0 10 16 A6 6 0 1 0 10 4 Z M14.5 14.5 L20 20",
+	.Close  = "M7 7 L17 17 M17 7 L7 17",
+	.Play   = "M8 5 L19 12 L8 19 Z",
+	.Pause  = "M9 5 L9 19 M15 5 L15 19",
+	.Loop     = "M17 2 L21 6 L17 10 M3 11 L3 9 A4 4 0 0 1 7 5 L21 5 M7 22 L3 18 L7 14 M21 13 L21 15 A4 4 0 0 1 17 19 L3 19",
+	.Bookmark = "M6 3 L18 3 L18 21 L12 16 L6 21 Z",
+	// a speaker with its waves, and with an X (muted)
+	.Sound    = "M11 5 L6 9 L2 9 L2 15 L6 15 L11 19 Z M15.5 8.5 A5 5 0 0 1 15.5 15.5 M19 5 A10 10 0 0 1 19 19",
+	.Muted    = "M11 5 L6 9 L2 9 L2 15 L6 15 L11 19 Z M16 9 L22 15 M22 9 L16 15",
+}
+
+// The window's bars (the transport controls, the status line), in the
+// font's size (RAD's top and bottom bars: three).
+BAR_HEIGHT :: 3
 // Points a Watch opened beside the video takes (at most 45% of it).
 WATCH_WIDTH :: 360
 VOLUME_STEP :: 0.1
@@ -362,29 +426,44 @@ preview_run :: proc(app: ^App_State, capture, drive, start_spec: string) -> Erro
 
 	p: platform.Platform
 	title := strings.clone_to_cstring(fmt.tprintf("onimite · %s", filepath.base(pv.script_path)), context.temp_allocator)
-	if err, detail := platform.init(&p, title, 1280, 820); err != nil {
+	// Mailbox where the window takes it, else vsync (the window paces its
+	// frames: preview_pace).
+	if err, detail := platform.init(&p, title, 1280, 820, .Auto); err != nil {
 		return fail(app, {code = .Window, window = err, spec = detail})
 	}
 	defer platform.shutdown(&p)
 
 	r: render.Renderer
-	if err := render.init(&r, p.device, p.window, p.width, p.height); err != nil {
-		return fail(app, {code = .Window_Drawing, drawing = err})
-	}
-	defer render.shutdown(&r)
-	defer media_images_release(pv, &r)
-
+	render.init(&r, p.device, p.window)
+	defer render.destroy(&r)
+	pv.renderer = &r
+	defer pv.renderer = nil
 	font, font_ok := render.font_load(UI_FONT)
 	if !font_ok {
 		return fail(app, {code = .Window_Drawing, drawing = .Font})
 	}
 	defer render.font_unload(&font)
+	gpu: vgsdl.SDL_Backend
+	if vgsdl.init(&gpu, p.device) != nil {
+		return fail(app, {code = .Window_Drawing, drawing = .Backend})
+	}
+	defer vgsdl.destroy(&gpu)
+	// One ovg canvas draws the whole frame.
+	canvas: vg.Canvas
+	vg.canvas_init(&canvas, vgsdl.backend(&gpu))
+	defer vg.canvas_destroy(&canvas)
+	defer media_images_release(pv, &canvas)
 
 	s: ui.State
-	ui.init(&s, &r, &p, &font)
+	ui.init(&s, &canvas, &p, &font)
 	defer ui.destroy(&s)
-	s.theme.default_font_px = 15 * p.dpi_scale
-	s.theme.default_padding = 6 * p.dpi_scale
+	// The icons the views draw: the UI's own (the scroll bar's) and the
+	// preview's (PREVIEW_ICONS).
+	ui.icons_set(&s, ui.ICONS[:])
+	preview_icons := PREVIEW_ICONS
+	ui.icons_set(&s, slice.enumerated_array(&preview_icons))
+	s.theme.background = BARE_BG if pv.bare else PREVIEW_BG
+	pv.font_size = FONT_SIZE_DEFAULT
 
 	pv.device_name = strings.clone("software" if app.software else string(sdl.GetGPUDeviceDriver(p.device)))
 	props := sdl.GetGPUDeviceProperties(p.device)
@@ -448,9 +527,6 @@ preview_run :: proc(app: ^App_State, capture, drive, start_spec: string) -> Erro
 	for platform.tick(&p) {
 		defer free_all(context.temp_allocator)
 		tick_began := time.tick_now()
-		if p.resized {
-			render.resize(&r, p.width, p.height)
-		}
 		frames += 1
 		if pv.exit_after > 0 && frames >= pv.exit_after {
 			platform.request_close(&p)
@@ -459,30 +535,42 @@ preview_run :: proc(app: ^App_State, capture, drive, start_spec: string) -> Erro
 		dt := clamp(f64(p.frame_time), 0, 0.25)
 
 		preview_playback_advance(app, dt)
-		preview_take_published(app, &r, now)
+		preview_take_published(app, &canvas, now)
 		preview_motion_advance(app, f32(dt))
 		preview_view_follow(app)
 		preview_layout(app, &p)
 
-		render.begin_frame(&r, BARE_BG if pv.bare else PREVIEW_BG)
-		ui.build_begin(&s)
-		ui.modal_input_set(&s, pv.workspace.lister.panel != 0)
-		preview_input(app, &s)
+		// The frame's input rows, made before the build as RAD's events are
+		// before ui_begin_build: the window's events in order, then the
+		// drive's.
+		preview_input(app, &s, &p)
 		if drive != "" {
 			preview_drive(app, &s, drive, frames)
 		}
 		preview_watch_files(app, now)
+		// The UI's text and padding at the window's display scale now (it
+		// moves displays), times its font size over RAD's default: at the
+		// default the window's font is RAD's 11 points, and what is sized
+		// from it (tabs, rows) keeps RAD's proportions.
+		s.theme.default_font_px = FONT_SIZE_DEFAULT * p.dpi_scale
+		s.theme.default_padding = 6 * p.dpi_scale
+		s.font_scale = pv.font_size / FONT_SIZE_DEFAULT
+		ui.build_begin(&s)
+		s.target = render.begin_frame(&r, &canvas, p.width, p.height)
 		preview_views(app, &s, &p)
 		ui.build_end(&s)
+		// A drop lasts the frame its button was released in.
+		if pv.drag == .Dropping do pv.drag, pv.drag_view = .Null, 0
 		built := time.tick_since(tick_began)
 		if capture != "" && pv.exit_after > 0 && frames >= pv.exit_after {
-			if pixels, ok := render.end_frame_capture(&r); ok {
+			if pixels, ok := render.end_frame_capture(&r, &canvas); ok {
 				odimg.write_png(capture, pixels, int(r.fb_w), int(r.fb_h))
 				delete(pixels)
 				fmt.eprintln("preview: captured", capture)
 			}
 		} else {
-			preview_pace(&r, render.end_frame(&r), &next_ns)
+			_, shown := render.end_frame(&r, &canvas)
+			preview_pace(&p, shown, &next_ns)
 		}
 
 		presented := time.tick_now()
@@ -581,13 +669,14 @@ preview_report :: proc(app: ^App_State) {
 // to frame 130, 75 and 340, then back to the start frame (40 window frames
 // apart; feedback buffers' checkpoints); "fullscreen" toggles fullscreen
 // every 60 window frames, from frame 30. The workspace: "watch" opens the
-// Watch on its cues (window frame 2), "media" on the media (as I does),
+// Watch's tab on its cues (window frame 2), "media" on the media (as I does),
 // "split" splits the video's panel to
-// the right (10), "move" moves the timeline into the empty panel (20),
+// the right, the new panel a third of it, so a timeline moved there is
+// taller than wide (10), "move" moves the timeline into the empty panel (20),
 // "drag" drops the timeline's tab on the left edge of the video's panel
-// (30), "pick" clicks the Watch's third row (40), "next" goes to the next
-// warning or error (45), "close" closes the Watch (50), "hover" moves the
-// mouse down and up the Watch's rows (from 10). The lister, as
+// (30), "pick" clicks the shown Watch tab's third row (40), "next" goes to
+// the next warning or error (45), "hover"
+// moves the mouse down and up the shown Watch tab's rows (from 10). The lister, as
 // keys and typing reach it (`preview_drive_lister`): "goto" and "openview".
 // A presentation: "present_next" moves on every 240 window frames from 300.
 @(private)
@@ -621,7 +710,7 @@ preview_drive :: proc(app: ^App_State, s: ^ui.State, drive: string, frames: int)
 		// Down and up the Watch's rows, a row's height every two window
 		// frames, as the mouse's motion reaches the widgets.
 		ws := &app.preview.workspace
-		if v := workspace_view(ws, workspace_find(ws, .Watch)); v != nil {
+		if v := workspace_view(ws, workspace_shown(ws, .Watch)); v != nil {
 			r := ws.areas[int(v.panel) - 1].content
 			k := (frames / 2) % 40
 			y := r.y + r.height * (f32(k if k < 20 else 40 - k) + 0.5) / 20
@@ -698,7 +787,7 @@ preview_drive_workspace :: proc(app: ^App_State, drive: string, frames: int) {
 		command_push(c, .Watch_Show, {section = .Media})
 	}
 	if frames == 10 && strings.contains(drive, "split") && video != nil {
-		command_push(c, .Panel_Split, {panel = video.panel, direction = .Right})
+		command_push(c, .Panel_Split, {panel = video.panel, direction = .Right, ratio = 2.0 / 3})
 	}
 	if frames == 20 && strings.contains(drive, "move") {
 		for p, i in ws.panels {
@@ -713,7 +802,7 @@ preview_drive_workspace :: proc(app: ^App_State, drive: string, frames: int) {
 		}
 	}
 	if frames == 40 && strings.contains(drive, "pick") {
-		if v := workspace_view(ws, workspace_find(ws, .Watch)); v != nil {
+		if v := workspace_view(ws, workspace_shown(ws, .Watch)); v != nil {
 			g := app.preview.watch.sections[v.section]
 			if g.count > 0 {
 				watch_row_click(app, app.preview.watch.rows[g.first + min(2, g.count - 1)])
@@ -723,14 +812,11 @@ preview_drive_workspace :: proc(app: ^App_State, drive: string, frames: int) {
 	if frames == 45 && strings.contains(drive, "next") {
 		command_push(c, .Problem_Step, {count = 1})
 	}
-	// "filter=QUERY" types QUERY into the Watch's filter (window frame 30).
+	// "filter=QUERY" types QUERY into the shown Watch tab's filter (window frame 30).
 	if frames == 30 && strings.contains(drive, "filter=") {
 		query := drive[strings.index(drive, "filter=") + len("filter="):]
 		if end := strings.index_any(query, " ,"); end >= 0 do query = query[:end]
-		command_push(c, .View_Filter, {view = workspace_find(ws, .Watch), spec = query})
-	}
-	if frames == 50 && strings.contains(drive, "close") {
-		command_push(c, .View_Close, {view = workspace_find(ws, .Watch)})
+		command_push(c, .View_Filter, {view = workspace_shown(ws, .Watch), spec = query})
 	}
 }
 
@@ -757,16 +843,11 @@ preview_drive_lister :: proc(app: ^App_State, s: ^ui.State, drive: string, frame
 			}
 		}
 	}
-	// A key as the window's input gathers it: the key map's row and the
-	// UI's (Down navigates, Enter accepts).
-	key :: proc(s: ^ui.State, k: platform.Key) {
-		append(&s.actions.rows, ui.Action_Row{kind = .Key, key = k})
-		#partial switch k {
-		case .Down:
-			append(&s.actions.rows, ui.Action_Row{kind = .Navigate, delta = {0, 1}, explicit_directional = true})
-		case .Enter:
-			append(&s.actions.rows, ui.Action_Row{kind = .Press, slot = .Accept})
-		}
+	// A key and typing as the window takes them (key_route): Down moves
+	// the lister's cursor, Enter accepts.
+	key :: proc(app: ^App_State, s: ^ui.State, k: platform.Key) {
+		press := [1]platform.Event{key_press(k)}
+		key_route(app, s, press[:])
 	}
 	switch frames {
 	case 60:
@@ -776,15 +857,13 @@ preview_drive_lister :: proc(app: ^App_State, s: ^ui.State, drive: string, frame
 			command_push(c, .Lister_Open, {panel = v.panel, lister = .Panel})
 		}
 	case 64:
-		for r in query {
-			append(&s.actions.rows, ui.Action_Row{kind = .Text, text = r})
-		}
+		key_route(app, s, text_events(query))
 	case 70:
 		if go_to {
-			key(s, .Down)
+			key(app, s, .Down)
 		}
 	case 80:
-		key(s, .Enter)
+		key(app, s, .Enter)
 	}
 }
 
@@ -819,9 +898,9 @@ preview_state_destroy :: proc(pv: ^Preview_State) {
 }
 
 @(private)
-media_images_release :: proc(pv: ^Preview_State, r: ^render.Renderer) {
-	for &img in pv.media_images {
-		render.image_destroy(r, &img)
+media_images_release :: proc(pv: ^Preview_State, c: ^vg.Canvas) {
+	for img in pv.media_images {
+		if vg.image_id_valid(img) do vg.delete_image(c, img)
 	}
 	clear(&pv.media_images)
 }
@@ -1124,7 +1203,6 @@ preview_apply :: proc(app: ^App_State, kind: Command_Kind, regs: Command_Regs) {
 		} else {
 			append(&pv.rows_open, h)
 		}
-		timeline_rows_clamp(app)
 	case .Video_Zoom:
 		// 2D zoom about the cursor (normalized panel units from the centre):
 		// the point under it keeps its place in the target; back at 1 the
@@ -1149,11 +1227,6 @@ preview_apply :: proc(app: ^App_State, kind: Command_Kind, regs: Command_Regs) {
 		pv.fullscreen = !pv.fullscreen
 	case .Watch_Show:
 		watch_show(app, regs.section)
-	case .Watch_Section_Set:
-		if v := workspace_view(&pv.workspace, regs.view); v != nil && v.kind == .Watch {
-			v.section = regs.section
-			v.scroll = 0
-		}
 	case .View_Scroll:
 		// A view's register: its first row shown, within its rows.
 		if v := workspace_view(&pv.workspace, regs.view); v != nil {
@@ -1161,10 +1234,12 @@ preview_apply :: proc(app: ^App_State, kind: Command_Kind, regs: Command_Regs) {
 			case .Watch:
 				v.scroll = clamp(regs.count, 0, max(pv.watch.sections[v.section].count - 1, 0))
 			case .Timeline:
-				v.scroll = max(regs.count, 0)
-				timeline_rows_clamp(app)
+				// its rows' list's: units of ROW_UNIT points, to its last
+				v.scroll = clamp(regs.count, 0, max(int(timeline_rows(app).points) / ROW_UNIT - 1, 0))
 			case .Video:
 			}
+			// A dragged thumb's: the list there at once (RAD's off = 0).
+			if regs.flag do animation.scroll_jump(&view_list(pv, regs.view).scroll, f32(v.scroll))
 		}
 	case .View_Filter:
 		if v := workspace_view(&pv.workspace, regs.view); v != nil && v.kind == .Watch {
@@ -1178,25 +1253,12 @@ preview_apply :: proc(app: ^App_State, kind: Command_Kind, regs: Command_Regs) {
 	case .Cursor_Hover:
 		pv.hover_frame = regs.count
 		pv.hover_valid = true
-	case .Dismiss:
-		// Closes the lister, then the Watch, then leaves fullscreen, then
-		// the window; the player closes at once.
-		ws := &pv.workspace
-		c := &app.commands
-		switch {
-		case pv.bare:
-			command_push(c, .Quit)
-		case ws.lister.panel != 0:
-			command_push(c, .Lister_Close)
-		case workspace_find(ws, .Watch) != 0:
-			command_push(c, .View_Close, {view = workspace_find(ws, .Watch)})
-		case pv.fullscreen:
-			command_push(c, .Fullscreen_Toggle)
-		case:
-			command_push(c, .Quit)
-		}
 	case .Quit:
 		pv.quit = true
+	case .Font_Size_Increase:
+		pv.font_size = clamp(pv.font_size + 1, FONT_SIZE_MIN, FONT_SIZE_MAX)
+	case .Font_Size_Decrease:
+		pv.font_size = clamp(pv.font_size - 1, FONT_SIZE_MIN, FONT_SIZE_MAX)
 	}
 }
 
@@ -1302,31 +1364,30 @@ present_scene_hold :: proc(app: ^App_State) -> om.Hold {
 	return app.preview.timeline.scenes[scene].hold if scene >= 0 else .Freeze
 }
 
-// Shows the Watch on `section`: the open one, else a new one beside the
-// video (WATCH_WIDTH wide), else in the focused panel.
+// Shows the Watch's tab on `section` and focuses its panel (RAD's views
+// grouped in a panel as tabs). One not open opens after the other Watch
+// tabs; with none open, in a panel of its own beside the video
+// (WATCH_WIDTH wide), else in the focused panel.
 @(private)
 watch_show :: proc(app: ^App_State, section: Watch_Section) {
 	pv := &app.preview
 	ws := &pv.workspace
-	id := workspace_find(ws, .Watch)
-	if id == 0 {
+	id := workspace_find_watch(ws, section)
+	if other := workspace_view(ws, workspace_find(ws, .Watch)); id == 0 && other != nil {
+		id = workspace_open(ws, other.panel, .Watch, previous = workspace_panel(ws, other.panel).last, section = section)
+	} else if id == 0 {
+		panel, direction, ratio := ws.focused, Direction.None, f32(0)
 		if video := workspace_view(ws, workspace_find(ws, .Video)); video != nil {
-			ratio: f32 = 0.55
+			panel, direction, ratio = video.panel, .Right, 0.55
 			if int(video.panel) <= len(ws.areas) {
 				if width := ws.areas[video.panel - 1].rect.width; width > 0 {
 					ratio = clamp(1 - WATCH_WIDTH * pv.dpi / width, 0.55, 0.8)
 				}
 			}
-			id = workspace_open(ws, video.panel, .Watch, .Right, ratio, section = section)
-		} else {
-			id = workspace_open(ws, ws.focused, .Watch, section = section)
 		}
+		id = workspace_open(ws, panel, .Watch, direction, ratio, section = section)
 	}
-	if v := workspace_view(ws, id); v != nil {
-		workspace_select(ws, id)
-		v.section = section
-		v.scroll = 0
-	}
+	workspace_select(ws, id)
 }
 
 // The frame of the next (`steps` > 0) or previous Watch row with a warning
@@ -1416,7 +1477,7 @@ preview_switch_script :: proc(app: ^App_State, path: string) {
 		// new script (the stop waits for the frame in progress).
 		mb := w.mb
 		// Its textures go with it: stop showing them.
-		pv.video_image = {}
+		pv.video_texture, pv.video_size = nil, {}
 		clear(&pv.thumbs)
 		worker_stop(w)
 		sync.mutex_lock(&mb.mutex)
@@ -1578,7 +1639,7 @@ preview_view_follow :: proc(app: ^App_State) {
 // timeline, the problems, waveforms, media and thumbnail tables, and the
 // load state.
 @(private)
-preview_take_published :: proc(app: ^App_State, r: ^render.Renderer, now: f64) {
+preview_take_published :: proc(app: ^App_State, c: ^vg.Canvas, now: f64) {
 	pv := &app.preview
 	mb := pv.mailbox
 	timeline_changed, media_changed := false, false
@@ -1592,7 +1653,7 @@ preview_take_published :: proc(app: ^App_State, r: ^render.Renderer, now: f64) {
 		}
 		pv.seen_publish = mb.published_seq
 		mb.displayed_slot = mb.slot
-		pv.video_image = {mb.slot_texture, mb.slot_size.x, mb.slot_size.y}
+		pv.video_texture, pv.video_size = mb.slot_texture, mb.slot_size
 		pv.shown_frame = mb.slot_frame
 		pv.shown_size = mb.slot_size
 		pv.render_ms = mb.render_ms
@@ -1675,7 +1736,7 @@ preview_take_published :: proc(app: ^App_State, r: ^render.Renderer, now: f64) {
 		pv.play_window = playing
 	}
 	if media_changed {
-		media_images_release(pv, r)
+		media_images_release(pv, c)
 		resize(&pv.media_images, len(pv.media.rows))
 		slice.zero(pv.media_images[:])
 		pv.media_uploaded = 0
@@ -1687,7 +1748,7 @@ preview_take_published :: proc(app: ^App_State, r: ^render.Renderer, now: f64) {
 		row := pv.media.rows[pv.media_uploaded]
 		if row.thumb_size.x > 0 {
 			w, h := u32(row.thumb_size.x), u32(row.thumb_size.y)
-			pv.media_images[pv.media_uploaded] = render.image_texture_make(r, w, h, pv.media.pixels[row.thumb:][:w * h * 4])
+			pv.media_images[pv.media_uploaded], _ = vg.create_image(c, vg.image_source_rgba(pv.media.pixels[row.thumb:][:w * h * 4], w, h))
 			uploads += 1
 		}
 	}
@@ -1875,21 +1936,25 @@ preview_layout :: proc(app: ^App_State, p: ^platform.Platform) {
 		return
 	}
 	natural := [View_Kind]f32{.Video = -1, .Timeline = timeline_height(app) * pv.dpi, .Watch = -1}
-	workspace_measure(&pv.workspace, workspace_rect(p), pv.dpi, natural)
+	// What is sized from the window's font, once: the window's bars and a
+	// leaf's tab bar.
+	font_px := pv.font_size * pv.dpi
+	pv.bar_height = math.floor(BAR_HEIGHT * font_px)
+	workspace_measure(&pv.workspace, workspace_rect(pv, p), pv.dpi, tabs_height(font_px), natural)
 	pv.rows_room = ROWS_AREA_MAX
 	pv.timeline_axis = TIME_ALONG
 	if area, shown := view_area(app, .Timeline); shown {
 		ws := &pv.workspace
 		vertical := timeline_vertical(ws, workspace_view(ws, workspace_shown(ws, .Timeline)).panel, area)
-		pv.timeline_axis = timeline_axis(app, area, pv.dpi, vertical)
-		pv.rows_room = timeline_rows_room(pv.timeline_axis, area, pv.dpi)
+		pv.timeline_axis = timeline_axis(vertical)
+		pv.rows_room = timeline_rows_room(app, pv.timeline_axis, area, pv.dpi)
 	}
 }
 
 // The window above the controls and the status line, in pixels.
 @(private)
-workspace_rect :: proc(p: ^platform.Platform) -> Workspace_Rect {
-	h := f32(p.height) - (CONTROLS_HEIGHT + STATUS_HEIGHT) * p.dpi_scale
+workspace_rect :: proc(pv: ^Preview_State, p: ^platform.Platform) -> Workspace_Rect {
+	h := f32(p.height) - 2 * pv.bar_height
 	return {0, 0, f32(p.width), max(h, 0)}
 }
 
@@ -1909,22 +1974,27 @@ view_area :: proc(app: ^App_State, kind: View_Kind) -> (area: Workspace_Rect, sh
 
 // ---- views ---------------------------------------------------------------------------
 
-// The window's input that no widget takes: the keys' rows, and a script
-// dropped on the window or picked in the open-file dialog.
+// The window's input before the build: the keys (preview_key_input), a
+// script dropped on the window or picked in the open-file dialog, and a
+// dragged tab's release (RAD's drag drop: the drop sites take it this
+// frame).
 @(private)
-preview_input :: proc(app: ^App_State, s: ^ui.State) {
-	// A field with the keys (a view's filter) takes them: the key map
-	// stands aside; the lister's modal keeps only its own bindings.
-	if s.keyboard_focus == 0 || s.modal_input_active {
-		preview_keys(app, s.actions.rows[:], s.modal_input_active)
-	}
-	for &a in s.actions.rows {
-		if a.kind == .Drop && !a.consumed && strings.has_suffix(strings.to_lower(a.path, context.temp_allocator), ".lua") {
-			a.consumed = true
-			command_push(&app.commands, .Script_Open, {path = a.path})
+preview_input :: proc(app: ^App_State, s: ^ui.State, p: ^platform.Platform) {
+	preview_key_input(app, s, p)
+	for path in platform.dropped_files(p) {
+		if strings.has_suffix(strings.to_lower(path, context.temp_allocator), ".lua") {
+			command_push(&app.commands, .Script_Open, {path = path})
 			break
 		}
 	}
+	drag_input(&app.preview, s)
+}
+
+// A dragged tab's release (the left button's, as the UI's rows carry it):
+// RAD's drop kickoff, before the build.
+@(private)
+drag_input :: proc(pv: ^Preview_State, s: ^ui.State) {
+	for a in s.actions.rows do if pv.drag == .Dragging && a.kind == .Mouse_Release && a.button == .Left do pv.drag = .Dropping
 }
 
 COLOR_TEXT :: [4]u8{232, 236, 242, 255}
@@ -1939,85 +2009,122 @@ COLOR_TRACK :: [4]u8{30, 33, 41, 255}
 // Scene segments and audio lanes cycle through these.
 SCENE_COLORS := [?][4]u8{{58, 96, 160, 255}, {92, 70, 150, 255}, {48, 120, 110, 255}, {140, 90, 60, 255}, {120, 60, 100, 255}}
 
-// The workspace's panels, then the controls and the status line, and
-// the lister over them.
+// Built front to back, as RAD Debugger's window: what is built first takes
+// the pointer first and draws on top. First the lister (a floating view),
+// then the workspace's panels, the controls and the status line. What the
+// views left of the wheel with Control becomes the window's font size
+// (RAD's top-level font size changing), and Cancel ends a tab's drag.
 @(private)
 preview_views :: proc(app: ^App_State, s: ^ui.State, p: ^platform.Platform) {
+	pv := &app.preview
 	dpi := p.dpi_scale
-	ui.set_next_pref_width(s, ui.fill())
-	ui.set_next_pref_height(s, ui.fill())
-	ui.column(s, "preview")
-	defer ui.pop_parent(s)
-
-	if area, _ := view_area(app, .Video); app.preview.bare {
+	if area, _ := view_area(app, .Video); pv.bare {
 		video_view(app, s, dpi, area)
-		return
+	} else {
+		lister_view(app, s, dpi, workspace_rect(pv, p))
+		// The window, laid out down it: the workspace's panels (at their
+		// places in the tree), the controls and the status line.
+		ui.set_next_pref_width(s, ui.pct(1)); ui.set_next_pref_height(s, ui.pct(1)); ui.set_next_child_layout_axis(s, .Y)
+		ui.push_parent(s, ui.build_box(s, {}, "###window"))
+		ui.set_next_pref_width(s, ui.pct(1)); ui.set_next_pref_height(s, ui.px(workspace_rect(pv, p).height))
+		ui.push_parent(s, ui.build_box(s, {}, "###workspace"))
+		panels_view(app, s, dpi)
+		ui.pop_parent(s)
+		controls_view(app, s, dpi)
+		status_view(app, s, dpi)
+		ui.pop_parent(s)
 	}
+	if pv.drag != .Null && ui.action_pressed(s, .Cancel) {
+		pv.drag, pv.drag_view = .Null, 0
+		ui.kill_action(s)
+	}
+	for &a in s.actions.rows {
+		if a.consumed || a.kind != .Scroll || a.modifiers != {.Control} do continue
+		a.consumed = true
+		// RAD's: up a point up, down a point down, an event a step.
+		if a.scroll_delta.y < 0 do command_push(&app.commands, .Font_Size_Increase)
+		if a.scroll_delta.y > 0 do command_push(&app.commands, .Font_Size_Decrease)
+	}
+}
 
-	// The panels place their boxes in window pixels: this box is at the origin.
-	ui.set_next_pref_width(s, ui.fill())
-	ui.set_next_pref_height(s, ui.px(workspace_rect(p).height))
-	ui.push_parent(s, ui.build_box(s, {}, "###workspace"))
-	panels_view(app, s, dpi)
-	ui.pop_parent(s)
-
-	controls_view(app, s, dpi)
-	status_view(app, s, dpi)
-	lister_view(app, s, dpi)
+// What the video's box draws: the worker's newest frame, through a
+// borrowed image, where the video camera puts it.
+@(private = "file")
+Video_Draw :: struct {
+	pv: ^Preview_State,
+	r:  ^render.Renderer,
 }
 
 @(private = "file")
-video_draw :: proc(s: ^ui.State, box: ^ui.Box, data: rawptr) {
-	pv := (^Preview_State)(data)
-	if !render.image_loaded(&pv.video_image) || pv.blackout {
+video_draw :: proc(s: ^ui.State, box: ^ui.Box, c: ^vg.Canvas) {
+	d := (^Video_Draw)(box.custom_data)
+	pv := d.pv
+	if pv.video_texture == nil || pv.blackout {
 		return
 	}
 	w := box.rect.max.x - box.rect.min.x
 	h := box.rect.max.y - box.rect.min.y
-	if w <= 0 || h <= 0 || pv.video_image.width <= 0 || pv.video_image.height <= 0 {
+	if w <= 0 || h <= 0 || pv.video_size.x <= 0 || pv.video_size.y <= 0 {
 		return
 	}
-	iw, ih := f32(pv.video_image.width), f32(pv.video_image.height)
+	iw, ih := f32(pv.video_size.x), f32(pv.video_size.y)
 	fit := min(w / iw, h / ih)
 	z := f32(max(pv.video_zoom, 1e-4))
 	dw, dh := iw * fit * z, ih * fit * z
 	cx := box.rect.min.x + w * (0.5 + f32(pv.video_pan.x))
 	cy := box.rect.min.y + h * (0.5 + f32(pv.video_pan.y))
-	render.draw_image_rect(s.r, &pv.video_image, cx - dw * 0.5, cy - dh * 0.5, dw, dh)
+	image := render.image_borrow(d.r, c, pv.video_texture, pv.video_size.x, pv.video_size.y)
+	vg.path_reset(&s.path)
+	vg.path_rect(&s.path, cx - dw * 0.5, cy - dh * 0.5, dw, dh)
+	vg.fill_path(c, &s.path, vg.paint_image(image, cx - dw * 0.5, cy - dh * 0.5, dw, dh, 0))
 }
 
 // The video, letterboxed in `area` with 2D wheel zoom and drag pan; a click
 // toggles playback and a double-click fits the camera (a live board's takes
-// none of it). Over it, what the worker is doing until the first frame
-// shows, and a failed reload.
+// none of it). A drag pans from where the camera was when it was pressed
+// (RAD's stored drag state and drag delta); the wheel with Control over it
+// zooms too (as RAD's views take it while hovered). Over it, what the worker
+// is doing until the first frame shows, and a failed reload.
 @(private)
 video_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32, area: Workspace_Rect) {
 	pv := &app.preview
 	c := &app.commands
-	video := place_box(s, area, {.Clickable, .Clip}, "###video")
-	video.custom_draw = video_draw
-	video.custom_draw_data = pv
+	ui.set_next_pref_width(s, ui.pct(1)); ui.set_next_pref_height(s, ui.pct(1, 0)); ui.set_next_child_layout_axis(s, .Y)
+	video := ui.build_box(s, {.Clickable, .Scroll, .Clip}, "###video")
+	draw := new(Video_Draw, context.temp_allocator)
+	draw^ = {pv, pv.renderer}
+	ui.box_equip_custom_draw(video, video_draw, draw)
 	sig := ui.signal_from_box(s, video)
 	w, h := video.rect.max.x - video.rect.min.x, video.rect.max.y - video.rect.min.y
-	if ui.pressed(sig) {
+	if sig.flags & {.Left_Pressed, .Middle_Pressed, .Right_Pressed} != {} {
 		pv.video_drag_moved = false
+		start := -pv.video_camera.center * pv.video_camera.zoom
+		ui.store_drag_struct(s, &start)
+	}
+	if ui.pressed(sig) && !pv.bare {
+		focus_panel(app, workspace_find(&pv.workspace, .Video))
 	}
 	if w > 0 && h > 0 && !pv.live {
 		if ui.dragging(sig) && (abs(sig.drag_delta.x) > 3 * dpi || abs(sig.drag_delta.y) > 3 * dpi) {
 			pv.video_drag_moved = true
 		}
 		if (pv.video_drag_moved && ui.dragging(sig)) || ui.middle_dragging(sig) || ui.right_dragging(sig) {
-			if sig.drag_motion != {} {
-				command_push(c, .Video_Pan, {at_xy = {sig.drag_motion.x / w, sig.drag_motion.y / h}})
+			d := ui.drag_delta(s)
+			want := ui.drag_struct(s, [2]f64)^ + {f64(d.x / w), f64(d.y / h)}
+			if at := -pv.video_camera.center * pv.video_camera.zoom; want != at {
+				command_push(c, .Video_Pan, {at_xy = {f32(want.x - at.x), f32(want.y - at.y)}})
 			}
 		}
-		if wheel := sig.zoom if sig.zoom != 0 else sig.scroll; wheel != 0 {
+		// A notch up zooms in 1.25 times.
+		wheel := sig.scroll.y
+		if ui.hovering(sig) do wheel += ui.action_scroll_take(s, {.Control}, any = true)
+		if wheel != 0 {
 			mouse := platform.mouse_pos(s.p)
 			at_xy := [2]f32 {
 				clamp((mouse.x - video.rect.min.x) / w, 0, 1),
 				clamp((mouse.y - video.rect.min.y) / h, 0, 1),
 			}
-			command_push(c, .Video_Zoom, {scalar = math.pow(1.25, f64(wheel)), at_xy = at_xy})
+			command_push(c, .Video_Zoom, {scalar = math.pow(1.25, -f64(wheel) / ui.NOTCH_STEPS), at_xy = at_xy})
 		}
 	}
 	if ui.clicked(sig) && !pv.video_drag_moved && !pv.live {
@@ -2026,8 +2133,32 @@ video_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32, area: Workspace_Rect
 	if pv.present && ui.right_clicked(sig) {
 		command_push(c, .Present_Previous)
 	}
+	// Focused, it takes the keys' events as the preview's commands (a
+	// frame, a second, the volume, a scene, the ends, a mark), as RAD's
+	// views take what their focus gets (a live board's takes none).
+	if !pv.live {
+		ui.push_focus(s, .On)
+		view_events_take(app, s)
+		ui.pop_focus(s)
+	}
+	// Over it, laid out down from its top a little in (centred while no
+	// frame shows): what the worker is doing, a failed reload.
+	ui.push_parent(s, video)
+	defer ui.pop_parent(s)
+	ui.spacer(s, ui.px(12 * dpi if pv.video_texture != nil else area.height * 0.5 - 16 * dpi))
+	label_row :: proc(s: ^ui.State, dpi: f32, text: string, bg, fg: [4]u8) {
+		ui.set_next_pref_width(s, ui.pct(1)); ui.set_next_pref_height(s, ui.children_sum()); ui.set_next_child_layout_axis(s, .X)
+		ui.push_parent(s, ui.build_box(s, {}, ""))
+		ui.spacer(s, ui.px(12 * dpi))
+		ui.set_next_bg_color(s, bg)
+		ui.set_next_text_color(s, fg)
+		ui.set_next_pref_width(s, ui.text_content(12 * dpi))
+		ui.set_next_pref_height(s, ui.text_content(10 * dpi))
+		ui.build_box(s, {.Draw_Background, .Draw_Text}, text)
+		ui.pop_parent(s)
+	}
 	// a live board shows the last good frame while it reloads
-	if (pv.loading && !pv.live) || !render.image_loaded(&pv.video_image) {
+	if (pv.loading && !pv.live) || pv.video_texture == nil {
 		label := "Rendering the first frame…"
 		if pv.loading {
 			phase := "running the script"
@@ -2040,134 +2171,138 @@ video_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32, area: Workspace_Rect
 			}
 			label = fmt.tprintf("Loading %s: %s · %.1f s", filepath.base(pv.script_path), phase, pv.load_seconds)
 		}
-		ui.push_parent(s, video)
-		ui.set_next_fixed_x(s, 12 * dpi)
-		ui.set_next_fixed_y(s, 12 * dpi if render.image_loaded(&pv.video_image) else area.height * 0.5 - 16 * dpi)
-		ui.set_next_bg_color(s, {30, 34, 44, 235})
-		ui.set_next_text_color(s, {225, 230, 240, 255})
-		ui.set_next_pref_width(s, ui.text_content(12 * dpi))
-		ui.set_next_pref_height(s, ui.text_content(10 * dpi))
-		ui.build_box(s, {.Draw_Background, .Draw_Text}, fmt.tprintf("%s###loading", label))
-		ui.pop_parent(s)
+		label_row(s, dpi, fmt.tprintf("%s###loading", label), {30, 34, 44, 235}, {225, 230, 240, 255})
 	}
 	// (a live board's goes to stderr only: the worker's warning)
 	if pv.reload_error != "" && !pv.live {
-		ui.push_parent(s, video)
 		first_line := pv.reload_error
 		if i := strings.index_byte(first_line, '\n'); i >= 0 {
 			first_line = first_line[:i]
 		}
-		ui.set_next_fixed_x(s, 12 * dpi)
-		ui.set_next_fixed_y(s, 12 * dpi)
-		ui.set_next_bg_color(s, {70, 24, 28, 235})
-		ui.set_next_text_color(s, {255, 220, 220, 255})
-		ui.set_next_pref_width(s, ui.text_content(12 * dpi))
-		ui.set_next_pref_height(s, ui.text_content(10 * dpi))
-		ui.build_box(s, {.Draw_Background, .Draw_Text}, fmt.tprintf("reload failed: %s###reload_error", first_line))
-		ui.pop_parent(s)
+		label_row(s, dpi, fmt.tprintf("reload failed: %s###reload_error", first_line), {70, 24, 28, 235}, {255, 220, 220, 255})
 	}
 }
 
-// The transport controls across the window, under the panels.
+// The transport controls across the window, under the panels: a media
+// player's bar (RAD has none; its layout approved) laid out by RAD's passes
+// (a children-sum column, a WidthFill column): at the left the playback
+// group (play/pause, the time, loop) and the bookmark (an icon); at the
+// right Reload, the sound (an icon) and its volume (the timeline's zoom is
+// the timeline's, at its ruler's end: timeline_zoom_view). Text buttons fill the
+// bar's height and are as wide as their text and RAD's padding (its menu
+// bar's text_dim(20), its text padding three tenths of an em), drawn inside
+// half an em of the bar's height and a quarter em across (visual margins);
+// icon buttons are square at the bar's height, drawn inside half an em (RAD's
+// top-bar icon buttons), and show their command and its key when hovered
+// (RAD's command tooltip, above them).
 @(private)
 controls_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32) {
 	pv := &app.preview
 	c := &app.commands
-	ui.set_next_pref_width(s, ui.fill())
-	ui.set_next_pref_height(s, ui.px(CONTROLS_HEIGHT * dpi))
-	ui.set_next_bg_color(s, s.theme.background)
-	ui.set_next_child_layout_axis(s, .X)
+	fs := ui.top_font_size(s)
+	h := pv.bar_height
+	ui.set_next_pref_width(s, ui.fill()); ui.set_next_pref_height(s, ui.px(h)); ui.set_next_child_layout_axis(s, .X)
+	ui.set_next_bg_color(s, COLOR_PANEL_BG)
 	ui.set_next_corner_radius(s, 0)
-	controls := ui.build_box(s, {.Draw_Background}, "###controls")
-	ui.push_parent(s, controls)
+	ui.push_parent(s, ui.build_box(s, {.Draw_Background}, "###controls"))
 	defer ui.pop_parent(s)
-	pad := ui.px(TRACK_PAD * dpi)
-
-	button_h := (CONTROLS_HEIGHT - 10) * dpi
-	button :: proc(s: ^ui.State, text: string, width, h, dpi: f32, on := false) -> bool {
-		ui.set_next_fixed_y(s, (CONTROLS_HEIGHT * dpi - h) * 0.5 - 2 * dpi)
-		ui.set_next_pref_width(s, ui.px(width * dpi))
-		ui.set_next_pref_height(s, ui.px(h))
-		if on {
-			ui.set_next_bg_color(s, s.theme.active)
-		}
+	ui.push_pref_height(s, ui.pct(1))
+	defer ui.pop_pref_height(s)
+	margin := [2]f32{math.floor(fs * 0.25), math.floor(fs * 0.5)}
+	button :: proc(s: ^ui.State, text: string, margin: [2]f32, on := false) -> bool {
+		ui.set_next_pref_width(s, ui.text_content(20, 1))
+		ui.set_next_visual_margin(s, margin)
+		ui.set_next_text_padding(s, math.floor(ui.top_font_size(s) * 0.3))
+		if on do ui.set_next_bg_color(s, s.theme.active)
 		return ui.clicked(ui.button(s, text))
 	}
-	gap :: proc(s: ^ui.State, dpi: f32) {ui.spacer(s, ui.px(4 * dpi))}
 	// A narrow window drops the buttons that have keys (D, R) and the scene
 	// from the time.
 	narrow := f32(s.p.width) / dpi < 1000
 
-	ui.spacer(s, pad)
-	if button(s, "Pause###play" if pv.playing else "Play###play", 72, button_h, dpi) {
-		command_push(c, .Playback_Toggle)
-	}
-	ui.spacer(s, pad)
-	ui.set_next_fixed_y(s, (CONTROLS_HEIGHT * dpi - button_h) * 0.5 - 2 * dpi)
-	ui.set_next_pref_width(s, ui.text_content(8 * dpi, 0))
-	ui.set_next_pref_height(s, ui.px(button_h))
+	// Left: play / pause, the time, loop, the bookmark.
+	ui.set_next_pref_width(s, ui.children_sum()); ui.set_next_child_layout_axis(s, .X)
+	ui.push_parent(s, ui.build_box(s, {}, "###controls_left"))
+	ui.spacer(s, ui.px(math.floor(fs * 0.5)))
+	space: Key_Binding // play / pause is Space's accept in the video or the timeline
+	for b in PREVIEW_KEYS do if b.kind == .Accept && b.key == .Space do space = b
+	if icon_button(s, .Pause if pv.playing else .Play, "###play", h, false, "Pause" if pv.playing else "Play", space) do command_push(c, .Playback_Toggle)
 	clock := fmt.tprintf("%s · f %d", clock_label(app, pv.frame), pv.frame) if narrow else time_label(app, pv.frame)
+	ui.set_next_pref_width(s, ui.text_content(math.floor(fs), 1)); ui.set_next_text_align(s, .Center)
 	ui.build_box(s, {.Draw_Text}, fmt.tprintf("%s###time", clock))
-	ui.spacer(s, ui.fill())
+	loop, _ := command_binding(.Loop_Toggle)
+	if icon_button(s, .Loop, "###loop", h, pv.loop, "Loop", loop) do command_push(c, .Loop_Toggle)
+	// The bookmark: on while one is set, its time in its tooltip.
+	mark, _ := command_binding(.Bookmark_Toggle)
+	mark_tip := "Mark" if pv.bookmark < 0 else fmt.tprintf("Mark · %s", clock_label(app, pv.bookmark))
+	if icon_button(s, .Bookmark, "###bookmark", h, pv.bookmark >= 0, mark_tip, mark) do command_push(c, .Bookmark_Toggle)
+	ui.pop_parent(s)
 
-	if !narrow && (pv.zoom > 1.01 || pv.detached) {
-		if button(s, "Follow###follow", 60, button_h, dpi, !pv.detached) {
-			command_push(c, .Timeline_Follow, {flag = pv.detached})
-		}
-		gap(s, dpi)
-	}
-	if button(s, "-###zoom_out", 28, button_h, dpi) {
-		command_push(c, .Timeline_Zoom, {scalar = 1 / 1.5, count = pv.frame})
-	}
-	if button(s, fmt.tprintf("%d%%###zoom_fit", int(math.round(pv.zoom * 100))), 56, button_h, dpi) {
-		command_push(c, .Timeline_Fit)
-	}
-	if button(s, "+###zoom_in", 28, button_h, dpi) {
-		command_push(c, .Timeline_Zoom, {scalar = 1.5, count = pv.frame})
-	}
-	ui.spacer(s, pad)
-	mark := "Mark###bookmark" if pv.bookmark < 0 || narrow else fmt.tprintf("Mark %s###bookmark", clock_label(app, pv.bookmark))
-	if button(s, mark, 64 if pv.bookmark < 0 || narrow else 118, button_h, dpi, pv.bookmark >= 0) {
-		command_push(c, .Bookmark_Toggle)
-	}
-	gap(s, dpi)
-	if button(s, "Loop###loop", 56, button_h, dpi, pv.loop) {
-		command_push(c, .Loop_Toggle)
-	}
-	gap(s, dpi)
-	if button(s, "Muted###mute" if pv.muted else "Sound###mute", 64, button_h, dpi, pv.muted) {
-		command_push(c, .Mute_Toggle)
-	}
-	gap(s, dpi)
-	slider_h := 10 * dpi
-	ui.set_next_fixed_y(s, (CONTROLS_HEIGHT * dpi - slider_h) * 0.5 - 2 * dpi)
-	ui.set_next_pref_width(s, ui.px(90 * dpi))
-	ui.set_next_pref_height(s, ui.px(slider_h))
+	// Right: reload, the sound and its volume.
+	ui.set_next_pref_width(s, ui.fill()); ui.set_next_child_layout_axis(s, .X)
+	ui.push_parent(s, ui.build_box(s, {}, "###controls_right"))
+	ui.spacer(s, ui.fill())
+	if !narrow && button(s, "Reload###reload", margin) do command_push(c, .Script_Reload, {flag = true})
+	// The sound: a speaker, its waves or (muted, on) an X.
+	mute, _ := command_binding(.Mute_Toggle)
+	if icon_button(s, .Muted if pv.muted else .Sound, "###mute", h, pv.muted, "Unmute" if pv.muted else "Mute", mute) do command_push(c, .Mute_Toggle)
+	// The volume slider, eight ems long, its middle the bar's.
+	slider_h := math.floor(fs * 0.6)
+	ui.set_next_pref_width(s, ui.px(math.floor(fs * 8))); ui.set_next_child_layout_axis(s, .Y)
+	ui.push_parent(s, ui.build_box(s, {}, "###volume_column"))
+	ui.spacer(s, ui.px((h - slider_h) * 0.5))
+	ui.set_next_pref_width(s, ui.pct(1)); ui.set_next_pref_height(s, ui.px(slider_h))
 	ui.set_next_corner_radius(s, 0)
 	// The volume as shown (0 while muted); a change sends the command.
 	volume: f32 = 0 if pv.muted else pv.volume
 	before := volume
 	ui.slider(s, &volume, 0, 1, "###volume", slider_h)
-	if volume != before {
-		command_push(c, .Volume_Set, {scalar = f64(volume)})
-	}
-	ui.spacer(s, pad)
-	if !narrow {
-		// The Watch opens on the problems, or closes.
-		watch := workspace_find(&pv.workspace, .Watch)
-		if button(s, "Watch###watch", 64, button_h, dpi, watch != 0) {
-			if watch != 0 {
-				command_push(c, .View_Close, {view = watch})
-			} else {
-				command_push(c, .Watch_Show, {section = .Problems})
-			}
-		}
-		gap(s, dpi)
-		if button(s, "Reload###reload", 72, button_h, dpi) {
-			command_push(c, .Script_Reload, {flag = true})
-		}
-		ui.spacer(s, pad)
-	}
+	ui.pop_parent(s)
+	if volume != before do command_push(c, .Volume_Set, {scalar = f64(volume)})
+	ui.spacer(s, ui.px(math.floor(fs * 0.5)))
+	ui.pop_parent(s)
+}
+
+// An icon button, square at the bar's height `h` and drawn inside half an
+// em, rounded an em (RAD's top-bar icon buttons); `on`, in the active
+// colour. Hovered, its command's tooltip.
+@(private)
+icon_button :: proc(s: ^ui.State, icon: Preview_Icon, key: string, h: f32, on: bool, title: string, binding: Key_Binding) -> bool {
+	fs := ui.top_font_size(s)
+	icons := PREVIEW_ICONS
+	ui.set_next_pref_width(s, ui.px(h))
+	ui.set_next_visual_margin(s, {math.floor(fs * 0.5), math.floor(fs * 0.5)})
+	ui.set_next_corner_radius(s, fs); ui.set_next_icon(s, icons[icon])
+	if on do ui.set_next_bg_color(s, s.theme.active)
+	b := ui.build_box(s, {.Clickable, .Draw_Background, .Draw_Border, .Draw_Icon, .Draw_Hot_Effects, .Draw_Active_Effects}, key)
+	sig := ui.signal_from_box(s, b)
+	if ui.hovering(sig) do command_tooltip(s, b, title, binding)
+	return ui.clicked(sig)
+}
+
+// RAD's command tooltip (its hover regs' command name): the command's name
+// and its key's chip in a row, a floating view's colours, over everything
+// (the tooltip root) just above `anchor` (RAD's sits below and is pushed
+// back into the window: here the bar is the window's bottom).
+@(private)
+command_tooltip :: proc(s: ^ui.State, anchor: ^ui.Box, title: string, binding: Key_Binding) {
+	fs := ui.top_font_size(s)
+	row := math.floor(fs * 2)
+	ui.tooltip_begin(s)
+	defer ui.tooltip_end(s)
+	ui.set_next_fixed_x(s, anchor.rect.min.x); ui.set_next_fixed_y(s, anchor.rect.min.y - row - math.floor(fs * 0.5))
+	ui.set_next_pref_width(s, ui.children_sum()); ui.set_next_pref_height(s, ui.px(row)); ui.set_next_child_layout_axis(s, .X)
+	ui.set_next_bg_color(s, s.theme.floating); ui.set_next_border_color(s, s.theme.floating_border)
+	ui.set_next_corner_radius(s, math.floor(fs * 0.3))
+	ui.push_parent(s, ui.build_box(s, {.Draw_Background, .Draw_Border}, "###command_tooltip"))
+	defer ui.pop_parent(s)
+	ui.push_pref_height(s, ui.pct(1))
+	defer ui.pop_pref_height(s)
+	ui.spacer(s, ui.px(math.floor(fs * 0.5)))
+	ui.set_next_pref_width(s, ui.text_content(5, 1))
+	ui.build_box(s, {.Draw_Text}, fmt.tprintf("%s###command_tooltip_title", title))
+	binding_chip(s, binding)
+	ui.spacer(s, ui.px(math.floor(fs * 0.5)))
 }
 
 // "01:03.20"
@@ -2215,12 +2350,6 @@ status_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32) {
 	if pv.hover_valid {
 		hover = fmt.tprintf(" · hover %s", time_label(app, pv.hover_frame))
 	}
-	ui.set_next_pref_width(s, ui.fill())
-	ui.set_next_pref_height(s, ui.px(STATUS_HEIGHT * dpi))
-	ui.set_next_bg_color(s, {18, 19, 24, 255})
-	ui.set_next_text_color(s, COLOR_ERROR if errors > 0 else (COLOR_WARNING if warnings > 0 else COLOR_TEXT_DIM))
-	ui.set_next_font_size(s, 13 * dpi)
-	ui.set_next_corner_radius(s, 0)
 	work := ""
 	switch {
 	case pv.loading:
@@ -2236,7 +2365,7 @@ status_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32) {
 		size = fmt.tprintf(" · %d×%d (%d%% of %d×%d)", pv.shown_size.x, pv.shown_size.y, int(math.round(f64(pv.shown_size.x) * 100 / f64(pv.timeline.width))), pv.timeline.width, pv.timeline.height)
 	}
 	text := fmt.tprintf(
-		"%s%s · %.2f ms/frame, latency %.1f ms, %.0f fps%s · %s%s%s%s%s###status",
+		"%s%s · %.2f ms/frame, latency %.1f ms, %.0f fps%s · %s%s%s%s%s###status_text",
 		pv.device_name,
 		size,
 		pv.render_ms,
@@ -2249,8 +2378,22 @@ status_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32) {
 		" · no audio device" if pv.audio_stream == nil else "",
 		hover,
 	)
-	b := ui.build_box(s, {.Clickable, .Draw_Background, .Draw_Text, .Draw_Hot_Effects}, text)
-	if ui.clicked(ui.signal_from_box(s, b)) {
+	// RAD's bottom bar: a bar tall, its status an em in, at its text's
+	// width (RAD's text_dim(10)), in the window's font: the weak colour, a
+	// warning's or an error's while the frames shown have them. A click
+	// shows the problems.
+	ui.set_next_pref_width(s, ui.fill()); ui.set_next_pref_height(s, ui.px(pv.bar_height)); ui.set_next_child_layout_axis(s, .X)
+	ui.set_next_bg_color(s, {18, 19, 24, 255})
+	ui.set_next_corner_radius(s, 0)
+	bar := ui.build_box(s, {.Clickable, .Draw_Background, .Draw_Hot_Effects}, "###status")
+	ui.push_parent(s, bar)
+	ui.spacer(s, ui.px(math.floor(ui.top_font_size(s))))
+	ui.set_next_text_color(s, COLOR_ERROR if errors > 0 else (COLOR_WARNING if warnings > 0 else COLOR_TEXT_DIM))
+	ui.set_next_text_align(s, .Left); ui.set_next_text_padding(s, 0)
+	ui.set_next_pref_width(s, ui.text_content(10, 1)); ui.set_next_pref_height(s, ui.pct(1))
+	ui.build_box(s, {.Draw_Text}, text)
+	ui.pop_parent(s)
+	if ui.clicked(ui.signal_from_box(s, bar)) {
 		command_push(&app.commands, .Watch_Show, {section = .Problems})
 	}
 }
@@ -2273,25 +2416,21 @@ mark_add :: proc(pv: ^Preview_State, at, to: int) {
 // window nobody sees sleeps a while; a frame not shown, briefly (a
 // swapchain image comes back soon). A mailbox window's frames are spaced a
 // display refresh apart (as FIFO's vsync wait spaces them): it sleeps to
-// the next frame's start (`next_ns`), from the display's mode now (the
-// window may have moved displays).
+// the next frame's start (`next_ns`), a refresh of the window's display
+// (the platform's, kept as the window moves displays).
 @(private = "file")
-preview_pace :: proc(r: ^render.Renderer, shown: bool, next_ns: ^u64) {
-	if sdl.GetWindowFlags(r.window) & {.HIDDEN, .MINIMIZED, .OCCLUDED} != {} {
+preview_pace :: proc(p: ^platform.Platform, shown: bool, next_ns: ^u64) {
+	if sdl.GetWindowFlags(p.window) & {.HIDDEN, .MINIMIZED, .OCCLUDED} != {} {
 		sdl.Delay(16)
 		return
 	}
-	if !r.mailbox {
+	if p.present_mode != .MAILBOX {
 		if !shown {
 			sdl.Delay(2)
 		}
 		return
 	}
-	hz: f32 = 60
-	if mode := sdl.GetCurrentDisplayMode(sdl.GetDisplayForWindow(r.window)); mode != nil && mode.refresh_rate > 0 {
-		hz = mode.refresh_rate
-	}
-	period := u64(1e9 / hz)
+	period := u64(p.refresh_ns)
 	now := sdl.GetTicksNS()
 	if next_ns^ > now {
 		sdl.DelayPrecise(next_ns^ - now)

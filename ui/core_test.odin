@@ -3,6 +3,8 @@ package ui
 import "../animation"
 
 import platform "../platform"
+import "../render"
+import "core:fmt"
 import "core:testing"
 
 @(test)
@@ -16,257 +18,234 @@ test_action_rows_are_consumed_once :: proc(t: ^testing.T) {
 	testing.expect(t, !action_pressed(&s, .Accept), "consumed action must not fire twice")
 }
 
+// A test frame's pointer event: a button pressed or released at the
+// pointer, as the platform's pump makes one.
+test_button :: proc(p: ^platform.Platform, b: platform.Mouse_Button, down: bool) {
+	p.input.mb_down[b] = down
+	append(&p.input.events, platform.Event{kind = .Mouse_Press if down else .Mouse_Release, button = b, position = p.input.mouse})
+}
+// A test frame's wheel event at the pointer, in RAD's units (120 a notch,
+// down positive).
+test_wheel :: proc(p: ^platform.Platform, delta: [2]f32) {
+	append(&p.input.events, platform.Event{kind = .Scroll, position = p.input.mouse, delta = delta})
+}
+// A test frame's events read as its rows (the pointer's, through
+// action_push_event as the app's key_route makes them), then gone, as the
+// next pump's.
+test_gather :: proc(s: ^State) {
+	action_storage_clear(&s.actions)
+	for e in platform.events(s.p) do action_push_event(&s.actions, e)
+	clear(&s.p.input.events)
+}
+
+// The wheel with Control held is one row, taken once: by a hovered view
+// (Control among its modifiers) or what the window leaves (exactly Control),
+// in RAD's steps (three a notch).
 @(test)
-test_ctrl_wheel_gathers_one_consumable_scroll_action :: proc(t: ^testing.T) {
-	p: platform.Platform
-	p.input.key_down[.LCtrl] = true
-	p.input.wheel = 1
+test_ctrl_wheel_is_one_row_taken_once :: proc(t: ^testing.T) {
 	s: State
 	s.actions = action_storage_make()
 	defer action_storage_destroy(&s.actions)
-	actions_gather_from_platform(&s.actions, &p)
-
-	testing.expect_value(t, action_scroll_consume(&s, true), f32(1))
-	testing.expect_value(t, action_scroll_consume(&s, true), f32(0))
+	append(&s.actions.rows, Action_Row{kind = .Scroll, scroll_delta = {0, -120}, modifiers = {.Control, .Shift}}, Action_Row{kind = .Scroll, scroll_delta = {0, 120}, modifiers = {.Control}})
+	testing.expect_value(t, action_scroll_take(&s, {.Control}), f32(3))
+	testing.expect_value(t, action_scroll_take(&s, {.Control}), f32(0))
+	testing.expect_value(t, action_scroll_take(&s, {.Control}, any = true), f32(-3))
 }
 
+// RAD's wheel step (ui_signal_from_box): an event's delta over 40, toward
+// zero, at least one either way: three a notch, one for a touchpad's
+// fraction of one.
 @(test)
-test_scroll_action_is_consumed_only_by_the_hovered_bounds :: proc(t: ^testing.T) {
+test_wheel_steps_three_a_notch :: proc(t: ^testing.T) {
+	testing.expect_value(t, scroll_steps({0, 120}), [2]f32{0, 3})
+	testing.expect_value(t, scroll_steps({0, -120}), [2]f32{0, -3})
+	testing.expect_value(t, scroll_steps({0, 100}), [2]f32{0, 2})
+	testing.expect_value(t, scroll_steps({12, -12}), [2]f32{1, -1})
+	testing.expect_value(t, NOTCH_STEPS, 3)
+}
+
+// As RAD's ui_signal_from_box: a Scroll box takes the wheel with no modifier
+// or Shift alone, Shift swapping its axes; with Control it is left for the
+// views and the window.
+@(test)
+test_scroll_box_takes_the_wheel_shift_swaps_axes :: proc(t: ^testing.T) {
+	p := platform.Platform{width = 200, height = 200}
 	s: State
+	s.p = &p
 	s.actions = action_storage_make()
 	defer action_storage_destroy(&s.actions)
-	append(&s.actions.rows, Action_Row{kind = .Scroll, position = {50, 50}, scroll_delta = -2})
-
-	testing.expect_value(t, action_scroll_consume(&s, false, {0, 0}, {25, 25}, true), f32(0))
-	testing.expect_value(t, action_scroll_consume(&s, false, {25, 25}, {75, 75}, true), f32(-2))
-	testing.expect_value(t, action_scroll_consume(&s, false, {25, 25}, {75, 75}, true), f32(0))
+	box := Box{key = Key(1), flags = {.Scroll}, rect = {min = {0, 0}, max = {100, 100}}}
+	// Two notches down: six steps; with Shift, six right (RAD's swap).
+	append(&s.actions.rows, Action_Row{kind = .Scroll, position = {50, 50}, scroll_delta = {0, 240}})
+	testing.expect_value(t, signal_from_box(&s, &box).scroll, [2]f32{0, 6})
+	append(&s.actions.rows, Action_Row{kind = .Scroll, position = {50, 50}, scroll_delta = {0, 240}, modifiers = {.Shift}})
+	testing.expect_value(t, signal_from_box(&s, &box).scroll, [2]f32{6, 0})
+	append(&s.actions.rows, Action_Row{kind = .Scroll, position = {50, 50}, scroll_delta = {0, 240}, modifiers = {.Control}})
+	testing.expect_value(t, signal_from_box(&s, &box).scroll, [2]f32{0, 0})
+	testing.expect_value(t, action_scroll_take(&s, {.Control}), f32(6))
+	// Outside it, the wheel is left.
+	append(&s.actions.rows, Action_Row{kind = .Scroll, position = {150, 50}, scroll_delta = {0, 120}})
+	testing.expect_value(t, signal_from_box(&s, &box).scroll, [2]f32{0, 0})
 }
 
+// As RAD's: each button pressed on a box drags it while held (LeftDragging,
+// MiddleDragging, RightDragging), across frames, and the drag's start state
+// is what its press stored (ui_store_drag_struct), read back with the
+// pointer's motion since (ui_drag_delta).
 @(test)
-test_manual_list_scroll_cancels_cursor_containment_until_selection_moves :: proc(t: ^testing.T) {
-	scroll_index: animation.Scroll
-	contain_selection := true
-	list_scroll_apply(&scroll_index, &contain_selection, -2, 20)
-	testing.expect_value(t, scroll_index.track.target, f32(4))
-	testing.expect(t, !contain_selection, "manual wheel movement must own the scroll position")
-
-	list_scroll_contain_selection(&scroll_index, &contain_selection, 0, 5, 20)
-	testing.expect_value(t, scroll_index.track.target, f32(4))
-
-	contain_selection = true
-	list_scroll_contain_selection(&scroll_index, &contain_selection, 0, 5, 20)
-	testing.expect_value(t, scroll_index.track.target, f32(0))
-	testing.expect(t, !contain_selection, "selection containment is a one-shot request")
-}
-
-@(test)
-test_typed_text_gathers_as_claimable_text_actions :: proc(t: ^testing.T) {
-	p: platform.Platform
-	append(&p.input.text, "vn1")
-	defer delete(p.input.text)
-	s: State
-	s.actions = action_storage_make()
-	defer action_storage_destroy(&s.actions)
-	actions_gather_from_platform(&s.actions, &p)
-
-	// Each rune is a separate claimable row, in order.
-	testing.expect(t, action_text_rune_consume(&s, 'v'), "expected text row for 'v'")
-	testing.expect(t, action_text_rune_consume(&s, 'n'), "expected text row for 'n'")
-	testing.expect(t, action_text_rune_consume(&s, '1'), "expected text row for '1'")
-	testing.expect(t, !action_text_rune_consume(&s, 'v'), "a claimed rune must not fire twice")
-}
-
-@(test)
-test_control_chord_does_not_leak_a_printable_character :: proc(t: ^testing.T) {
-	p: platform.Platform
-	p.input.key_down[.LCtrl] = true
-	append(&p.input.text, u8('a'))
-	defer delete(p.input.text)
-	s: State
-	s.actions = action_storage_make()
-	defer action_storage_destroy(&s.actions)
-	actions_gather_from_platform(&s.actions, &p)
-
-	testing.expect(
-		t,
-		!action_text_rune_consume(&s, 'a'),
-		"a control chord is a command, and must not also reach a focused edit",
-	)
-}
-
-@(test)
-test_ctrl_n_and_ctrl_p_gather_vertical_navigation_without_text :: proc(t: ^testing.T) {
-	p: platform.Platform
-	s: State
-	s.actions = action_storage_make()
-	defer action_storage_destroy(&s.actions)
-	p.input.key_down[.LCtrl] = true
-
-	p.input.key_down[.N] = true
-	p.input.key_hit[.N] = true
-	append(&p.input.text, u8('n'))
-	actions_gather_from_platform(&s.actions, &p)
-	testing.expect_value(t, action_navigation_delta(&s), [2]i32{0, 1})
-	testing.expect(t, !action_text_rune_consume(&s, 'n'), "Ctrl-N must not leak text")
-
-	p.input.key_down[.N] = false
-	p.input.key_hit[.N] = false
-	p.input.key_down[.P] = true
-	p.input.key_hit[.P] = true
-	p.input.key_hit[.P] = true
-	clear(&p.input.text)
-	append(&p.input.text, u8('p'))
-	actions_gather_from_platform(&s.actions, &p)
-	testing.expect_value(t, action_navigation_delta(&s), [2]i32{0, -1})
-	testing.expect(t, !action_text_rune_consume(&s, 'p'), "Ctrl-P must not leak text")
-
-	delete(p.input.text)
-}
-
-@(test)
-test_file_open_shortcuts_gather_distinct_semantic_actions :: proc(t: ^testing.T) {
-	p: platform.Platform
-	s: State
-	s.actions = action_storage_make()
-	defer action_storage_destroy(&s.actions)
-	p.input.key_down[.LCtrl] = true
-	p.input.key_down[.O] = true
-	p.input.key_hit[.O] = true
-	actions_gather_from_platform(&s.actions, &p)
-	testing.expect(
-		t,
-		action_pressed(&s, .File_Browser_Open_Back),
-		"Ctrl+O should open a GDS or go back in the open browser",
-	)
-
-	p.input.key_down[.LShift] = true
-	actions_gather_from_platform(&s.actions, &p)
-	testing.expect(
-		t,
-		action_pressed(&s, .File_Browser_Open_Timing),
-		"Ctrl+Shift+O should open the timing-file browser",
-	)
-	testing.expect(
-		t,
-		!action_pressed(&s, .File_Browser_Open_Back),
-		"the timing chord must not also publish the GDS action",
-	)
-}
-
-@(test)
-test_backspace_gathers_edit_action_on_press_and_repeat :: proc(t: ^testing.T) {
-	p: platform.Platform
-	s: State
-	s.actions = action_storage_make()
-	defer action_storage_destroy(&s.actions)
-
-	p.input.key_down[.Backspace] = true
-	p.input.key_hit[.Backspace] = true
-	actions_gather_from_platform(&s.actions, &p)
-	testing.expect_value(t, action_edit_delta(&s), [2]i32{-1, 0})
-
-	// Held: no fresh press edge, but auto-repeat must still delete, so a held
-	// backspace clears a filter box rather than stalling after one character.
-	p.input.key_hit[.Backspace] = false
-	p.input.key_repeat[.Backspace] = true
-	actions_gather_from_platform(&s.actions, &p)
-	testing.expect_value(t, action_edit_delta(&s), [2]i32{-1, 0})
-
-	p.input.key_repeat[.Backspace] = false
-	actions_gather_from_platform(&s.actions, &p)
-	testing.expect_value(t, action_edit_delta(&s), [2]i32{0, 0})
-}
-
-@(test)
-test_accept_and_cancel_gather_from_enter_and_escape :: proc(t: ^testing.T) {
-	p: platform.Platform
-	s: State
-	s.actions = action_storage_make()
-	defer action_storage_destroy(&s.actions)
-
-	p.input.key_down[.Enter] = true
-	p.input.key_hit[.Enter] = true
-	p.input.key_down[.Escape] = true
-	p.input.key_hit[.Escape] = true
-	actions_gather_from_platform(&s.actions, &p)
-	testing.expect(t, action_pressed(&s, .Accept), "Enter should gather accept")
-	testing.expect(t, action_pressed(&s, .Cancel), "Escape should gather cancel")
-}
-
-@(test)
-test_any_key_or_mouse_press_gathers_dismiss_action :: proc(t: ^testing.T) {
-	p: platform.Platform
-	s: State
-	s.actions = action_storage_make()
-	defer action_storage_destroy(&s.actions)
-
-	p.input.key_hit[.A] = true
-	actions_gather_from_platform(&s.actions, &p)
-	testing.expect(t, action_pressed(&s, .Dismiss), "any key should gather dismiss")
-
-	p.input.key_hit[.A] = false
-	p.input.mb_down[.Left] = true
-	actions_gather_from_platform(&s.actions, &p)
-	testing.expect(t, action_pressed(&s, .Dismiss), "any mouse button should gather dismiss")
-}
-
-@(test)
-test_font_scale_adjustment_is_central_and_clamped :: proc(t: ^testing.T) {
-	p := platform.Platform {
-		frame_time = 0.2,
+test_middle_and_right_drags_hold_their_box :: proc(t: ^testing.T) {
+	p := platform.Platform{width = 200, height = 200}
+	s: State; init(&s, nil, &p, nil); defer destroy(&s)
+	defer delete(p.input.events)
+	frame :: proc(s: ^State) -> Signal {
+		test_gather(s)
+		build_begin(s)
+		set_next_rect(s, {0, 0, 100, 100})
+		sig := signal_from_box(s, build_box(s, {.Clickable}, "###pan"))
+		build_end(s)
+		return sig
 	}
-	s := State {
-		font_scale = 1,
-		p          = &p,
-		actions    = action_storage_make(),
-	}
-	defer action_storage_destroy(&s.actions)
-	append(&s.actions.rows, Action_Row{kind = .Scroll, scroll_delta = 1, control = true})
-	font_scale_process_actions(&s)
-	testing.expect_value(t, s.font_scale, f32(1.1))
-
-	clear(&s.actions.rows)
-	append(&s.actions.rows, Action_Row{kind = .Scroll, scroll_delta = 100, control = true})
-	font_scale_process_actions(&s)
-	testing.expect_value(t, s.font_scale, f32(FONT_SCALE_MAX))
+	p.input.mouse = {50, 50}
+	frame(&s)
+	test_button(&p, .Middle, true)
+	sig := frame(&s)
+	testing.expect(t, .Middle_Pressed in sig.flags && middle_dragging(sig) && !dragging(sig))
+	start := [2]f32{7, 9}
+	store_drag_struct(&s, &start)
+	p.input.mouse = {150, 70} // past the box: the drag holds it
+	sig = frame(&s)
+	testing.expect(t, middle_dragging(sig))
+	testing.expect_value(t, drag_delta(&s), [2]f32{100, 20})
+	testing.expect_value(t, drag_struct(&s, [2]f32)^, start)
+	test_button(&p, .Middle, false)
+	sig = frame(&s)
+	testing.expect(t, !middle_dragging(sig))
+	p.input.mouse = {50, 50}
+	frame(&s)
+	test_button(&p, .Right, true)
+	sig = frame(&s)
+	testing.expect(t, right_dragging(sig) && .Right_Pressed in sig.flags)
 }
 
+// As RAD's hover cursor: the hot box's shape, kept by the box the left
+// button holds past its edge, the arrow off every box; with the window
+// unfocused only a held box sets it.
+@(test)
+test_hover_cursor_follows_hot_then_held_box :: proc(t: ^testing.T) {
+	p := platform.Platform{width = 200, height = 200}
+	p.input.focused = true
+	s: State; init(&s, nil, &p, nil); defer destroy(&s)
+	defer delete(p.input.events)
+	frame :: proc(s: ^State) {
+		test_gather(s)
+		build_begin(s)
+		set_next_rect(s, {0, 0, 100, 10})
+		set_next_hover_cursor(s, .Up_Down)
+		signal_from_box(s, build_box(s, {.Clickable}, "###split"))
+		build_end(s)
+	}
+	p.input.mouse = {50, 5}
+	frame(&s); frame(&s) // its rect is last frame's: hot on the second
+	testing.expect_value(t, p.cursor, platform.Cursor.Up_Down)
+	p.input.mouse = {50, 150}
+	frame(&s)
+	testing.expect_value(t, p.cursor, platform.Cursor.Pointer)
+	p.input.mouse = {50, 5}
+	test_button(&p, .Left, true)
+	frame(&s)
+	p.input.mouse = {50, 150} // dragged past its edge: it holds the shape
+	frame(&s)
+	testing.expect_value(t, p.cursor, platform.Cursor.Up_Down)
+	test_button(&p, .Left, false)
+	frame(&s)
+	testing.expect_value(t, p.cursor, platform.Cursor.Pointer)
+	p.input.focused = false
+	p.input.mouse = {50, 5}
+	frame(&s)
+	testing.expect_value(t, p.cursor, platform.Cursor.Pointer)
+}
+
+// As RAD's ui_scroll_list with Nav and Snap: focus active, Down and Up move
+// the cursor a row, round past either end, Page three rows short of what is
+// in view; the cursor scrolls into view with a row below it.
+@(test)
+test_scroll_list_cursor_moves_round_and_snaps :: proc(t: ^testing.T) {
+	p := platform.Platform{width = 200, height = 200}
+	s: State; init(&s, nil, &p, nil); defer destroy(&s)
+	scroll: animation.Scroll
+	cursor := 0
+	frame :: proc(s: ^State, scroll: ^animation.Scroll, cursor: ^int, rows: ..Action_Row) {
+		action_storage_clear(&s.actions)
+		append(&s.actions.rows, ..rows)
+		build_begin(s)
+		push_focus(s, .On)
+		scroll_list_begin(s, "###list", {100, 100}, scroll, 20, 20, cursor)
+		scroll_list_end(s)
+		pop_focus(s)
+		build_end(s)
+	}
+	up :: Action_Row{kind = .Navigate, delta_unit = .Char, delta = {0, -1}}
+	down :: Action_Row{kind = .Navigate, delta_unit = .Char, delta = {0, 1}}
+	page_down :: Action_Row{kind = .Navigate, delta_unit = .Page, delta = {0, 1}}
+	frame(&s, &scroll, &cursor, up)
+	testing.expect_value(t, cursor, 19) // round to the last
+	testing.expect_value(t, scroll.track.target, f32(16)) // a row below it in view
+	frame(&s, &scroll, &cursor, down)
+	testing.expect_value(t, cursor, 0)
+	testing.expect_value(t, scroll.track.target, f32(0))
+	frame(&s, &scroll, &cursor, page_down, down, down)
+	testing.expect_value(t, cursor, 4)
+	testing.expect_value(t, scroll.track.target, f32(1)) // a row below it in view
+	// Focus not active: the rows are left.
+	action_storage_clear(&s.actions)
+	append(&s.actions.rows, down)
+	build_begin(&s)
+	scroll_list_begin(&s, "###list", {100, 100}, &scroll, 20, 20, &cursor)
+	scroll_list_end(&s)
+	build_end(&s)
+	testing.expect_value(t, cursor, 4)
+	testing.expect(t, !s.actions.rows[0].consumed)
+}
+
+// As RAD's default navigation: in a navigation root built while focus is
+// active, a vertical step moves its focus to the next or previous clickable
+// box, from the next frame; a box focused by key is focus hot.
 @(test)
 test_default_navigation_follows_box_hierarchy :: proc(t: ^testing.T) {
-	root := Box {
-		key   = Key(1),
-		flags = {.Default_Focus_Nav_Y},
+	p := platform.Platform{width = 200, height = 200}
+	s: State; init(&s, nil, &p, nil); defer destroy(&s)
+	keys: [3]Key
+	hot: [3]bool
+	frame :: proc(s: ^State, keys: ^[3]Key, hot: ^[3]bool, step: i32) {
+		action_storage_clear(&s.actions)
+		if step != 0 do append(&s.actions.rows, Action_Row{kind = .Navigate, delta_unit = .Char, delta = {0, step}})
+		build_begin(s)
+		push_focus(s, .On)
+		set_next_rect(s, {0, 0, 100, 90})
+		root := build_box(s, {.Default_Focus_Nav_Y}, "###root")
+		push_parent(s, root)
+		push_focus(s, .Null)
+		for i in 0 ..< 3 {
+			set_next_rect(s, {0, f32(i) * 30, 100, 30})
+			b := build_box(s, {.Clickable}, fmt.tprintf("###item_%d", i))
+			keys[i], hot[i] = b.key, .Focus_Hot in b.flags
+		}
+		pop_focus(s)
+		pop_parent(s)
+		pop_focus(s)
+		build_end(s)
 	}
-	first := Box {
-		key   = Key(2),
-		flags = {.Clickable},
-	}
-	second := Box {
-		key   = Key(3),
-		flags = {.Clickable},
-	}
-	third := Box {
-		key   = Key(4),
-		flags = {.Clickable},
-	}
-	root.first = &first
-	root.last = &third
-	first.parent = &root
-	first.next = &second
-	second.parent = &root
-	second.prev = &first
-	second.next = &third
-	third.parent = &root
-	third.prev = &second
-	root.default_nav_focus_hot_key = second.key
-
-	testing.expect(t, default_nav_apply_delta(&root, {0, 1}), "expected down navigation")
-	testing.expect_value(t, root.default_nav_focus_hot_key, third.key)
-	testing.expect(t, default_nav_apply_delta(&root, {0, -1}), "expected up navigation")
-	testing.expect_value(t, root.default_nav_focus_hot_key, second.key)
-	_ = default_nav_apply_delta(&root, {0, -1})
-	_ = default_nav_apply_delta(&root, {0, -1})
-	testing.expect_value(t, root.default_nav_focus_hot_key, first.key)
+	frame(&s, &keys, &hot, 0)
+	frame(&s, &keys, &hot, 1) // down: the first item
+	frame(&s, &keys, &hot, 0)
+	testing.expect(t, hot == {true, false, false}, "the first item is focused")
+	frame(&s, &keys, &hot, 1)
+	frame(&s, &keys, &hot, 1)
+	frame(&s, &keys, &hot, 0)
+	testing.expect(t, hot == {false, false, true}, "two down: the third")
+	frame(&s, &keys, &hot, -1)
+	frame(&s, &keys, &hot, 0)
+	testing.expect(t, hot == {false, true, false}, "up: the second")
 }
 
 @(test)
@@ -292,13 +271,13 @@ test_button_preserves_caller_layout_overrides :: proc(t: ^testing.T) {
 }
 
 @(test)
-test_keyboard_focus_does_not_block_mouse_hover :: proc(t: ^testing.T) {
+test_focus_does_not_block_mouse_hover :: proc(t: ^testing.T) {
 	p := platform.Platform{}
 	p.input.mouse = {200, 10}
 	s := State {
-		p              = &p,
-		keyboard_focus = Key(99),
+		p = &p,
 	}
+	push_focus(&s, .On); defer delete(s.focus_hot.items); defer delete(s.focus_active.items)
 	box := Box {
 		key = Key(1),
 		flags = {.Clickable},
@@ -307,7 +286,7 @@ test_keyboard_focus_does_not_block_mouse_hover :: proc(t: ^testing.T) {
 
 	sig := signal_from_box(&s, &box)
 	testing.expect(t, .Mouse_Over in sig.flags, "full row should own its mouse bounds")
-	testing.expect(t, .Hovering in sig.flags, "keyboard focus must not suppress row hover")
+	testing.expect(t, .Hovering in sig.flags, "focus must not suppress row hover")
 }
 
 @(test)
@@ -323,96 +302,54 @@ test_keyed_animation_advances_and_resets_after_reappearing :: proc(t: ^testing.T
 	defer animation_storage_destroy(&s.animations)
 	key := key_from_string(Key(0), "###test_animation")
 
-	initial := anim_f32(&s, key, 1, {initial = 0, duration = 0.2, easing = .Cubic_Out})
+	initial := anim_f32(&s, key, 1, {initial = 0})
 	testing.expect_value(t, initial, f32(0))
 	animations_advance(&s)
 	testing.expect(t, s.animations.rows[0].current > 0, "animation should advance after the build")
 
 	s.build_index = 2
-	continued := anim_f32(&s, key, 1, {initial = 0, duration = 0.2, easing = .Cubic_Out})
+	continued := anim_f32(&s, key, 1, {initial = 0})
 	testing.expect(t, continued > 0, "continuously touched animation should preserve state")
 
 	s.build_index = 4
-	reappeared := anim_f32(&s, key, 1, {initial = 0, duration = 0.2, easing = .Cubic_Out})
+	reappeared := anim_f32(&s, key, 1, {initial = 0})
 	testing.expect_value(t, reappeared, f32(0))
 }
 
+// As RAD's rd_cell: focused, the field clips, its scroll box lets the text
+// overflow, the text is kept whole and drawn with the cursor, and the view
+// follows the cursor; unfocused, the text is cut and the view rests at 0.
 @(test)
-test_modal_surface_uses_shared_open_animation :: proc(t: ^testing.T) {
-	p := platform.Platform {
-		width      = 800,
-		height     = 600,
-		frame_time = 1.0 / 60.0,
+test_line_edit_focused_scrolls_to_its_cursor :: proc(t: ^testing.T) {
+	p := platform.Platform{width = 800, height = 600, frame_time = 1}
+	font, ok := render.font_load(#load("../assets/fonts/JetBrainsMono-Regular.ttf")); assert(ok); defer render.font_unload(&font)
+	s: State; init(&s, nil, &p, &font); defer destroy(&s)
+	buf := make([dynamic]u8); defer delete(buf)
+	append(&buf, "a long line of text that runs well past the field")
+	cursor, mark := len(buf), len(buf)
+	frame :: proc(s: ^State, buf: ^[dynamic]u8, cursor, mark: ^int, focused := false) -> Signal {
+		build_begin(s)
+		push_focus(s, focused ? .On : .Off)
+		set_next_rect(s, {10, 10, 120, 30})
+		sig := line_edit(s, buf, cursor, mark)
+		pop_focus(s)
+		build_end(s)
+		return sig
 	}
-	s: State
-	init(&s, nil, &p, nil)
-	defer destroy(&s)
-	build_begin(&s)
-	surface := modal_surface_begin(
-		&s,
-		"###test_modal",
-		{
-			open = true,
-			width = 400,
-			height = 200,
-			background = {20, 20, 20, 255},
-			border = {80, 80, 80, 255},
-			backdrop = {0, 0, 0, 160},
-			vertical_squish = 0.1,
-		},
-	)
-	defer modal_surface_end(&s)
-
-	testing.expect_value(t, surface.open_t, f32(0))
-	testing.expect_value(t, surface.panel.fixed_size.x, f32(400))
-	testing.expect_value(t, surface.panel.fixed_size.y, f32(180))
-	testing.expect_value(t, surface.panel.opacity, f32(0))
-}
-
-@(test)
-test_line_edit_semantic_text_action_draws_animated_cursor_trail :: proc(t: ^testing.T) {
-	p := platform.Platform {
-		width      = 800,
-		height     = 600,
-		frame_time = 1.0 / 60.0,
-	}
-	s: State
-	init(&s, nil, &p, nil)
-	defer destroy(&s)
-	buf := make([dynamic]u8)
-	defer delete(buf)
-	cursor := 0
-
-	build_begin(&s)
-	first := line_edit(&s, &buf, &cursor)
-	s.keyboard_focus = first.box.key
-	animations_advance(&s)
-
-	append(&p.input.text, u8('a'))
-	defer delete(p.input.text)
-	build_begin(&s)
-	second := line_edit(&s, &buf, &cursor)
-
-	testing.expect_value(t, string(buf[:]), "a")
-	testing.expect_value(t, second.box.child_count, 2)
-	testing.expect(
-		t,
-		.Draw_Horizontal_Gradient in second.box.first.flags,
-		"first typed character should draw a cursor trail",
-	)
-	testing.expect_value(t, second.box.first.gradient_right.a, u8(63))
-
-	clear(&p.input.text)
-	p.input.key_down[.Backspace] = true
-	p.input.key_hit[.Backspace] = true
-	build_begin(&s)
-	_ = line_edit(&s, &buf, &cursor)
-	testing.expect_value(t, string(buf[:]), "")
-	for action in s.actions.rows {
-		if action.kind == .Edit {
-			testing.expect(t, action.consumed, "focused line edit should consume edit action")
-		}
-	}
+	sig := frame(&s, &buf, &cursor, &mark)
+	text := sig.box.first.first.last
+	testing.expect(t, .Clip not_in sig.box.flags && .Disable_Text_Trunc not_in text.flags, "unfocused: cut, not clipped")
+	for _ in 0 ..< 3 do sig = frame(&s, &buf, &cursor, &mark, focused = true)
+	scroll := sig.box.first.first
+	text = scroll.last
+	testing.expect(t, .Clip in sig.box.flags && scroll.flags >= {.Allow_Overflow_X, .Clip}, "focused: clipped, overflowing")
+	testing.expect(t, .Disable_Text_Trunc in text.flags && text.custom_draw == line_edit_draw, "focused: whole, with its cursor")
+	testing.expect(t, scroll.view_off.x > 0 && text.rect.max.x <= sig.box.rect.max.x + s.theme.default_font_px, "scrolled to the cursor at the end")
+	sig = frame(&s, &buf, &cursor, &mark)
+	testing.expect_value(t, sig.box.first.first.view_off.x, f32(0))
+	// Not edited, its text box no longer draws a cursor: a box's custom draw
+	// is the frame's that equips it.
+	testing.expect(t, sig.box.first.first.last.custom_draw == nil, "no stale cursor draw")
 }
 
 @(test)
@@ -439,54 +376,6 @@ test_selection_row_owns_visual_state_for_its_cells :: proc(t: ^testing.T) {
 }
 
 @(test)
-test_scroll_list_separates_the_in_flow_border_from_clipped_row_content :: proc(t: ^testing.T) {
-	p := platform.Platform {
-		width  = 800,
-		height = 600,
-	}
-	s: State
-	init(&s, nil, &p, nil)
-	defer destroy(&s)
-	build_begin(&s)
-	set_next_pref_width(&s, px(300))
-	set_next_pref_height(&s, px(160))
-	_ = row(&s, "###list_wrap")
-	spacer(&s, px(12))
-	signal := scroll_list_begin(&s, "###list")
-	set_next_pref_width(&s, fill())
-	set_next_pref_height(&s, px(22))
-	row_box := build_box(&s, {.Draw_Background}, "###row")
-	scroll_list_end(&s)
-	spacer(&s, px(12))
-	pop_parent(&s)
-	pop_parent(&s)
-	for axis in Axis2 {
-		layout_standalone(&s, s.root, axis)
-		layout_upwards_dependent(&s, s.root, axis)
-		layout_downwards_dependent(s.root, axis)
-		layout_enforce_constraints(s.root, axis)
-		layout_position(s.root, axis)
-	}
-
-	content := signal.box
-	middle := content.parent
-	outer := middle.parent
-	testing.expect(t, outer != nil && .Draw_Border in outer.flags)
-	testing.expect(t, .Floating_X not_in outer.flags && .Floating_Y not_in outer.flags)
-	testing.expect(t, .Clip in content.flags)
-	testing.expect(t, .Draw_Border not_in content.flags)
-	testing.expect_value(t, content.child_count, 1)
-	testing.expect(t, content.rect.max.x > content.rect.min.x)
-	testing.expect(t, content.rect.max.y > content.rect.min.y)
-	testing.expect(t, row_box.rect.max.x > row_box.rect.min.x)
-	testing.expect(t, row_box.rect.max.y > row_box.rect.min.y)
-	testing.expect(t, row_box.rect.min.x >= content.rect.min.x)
-	testing.expect(t, row_box.rect.min.y >= content.rect.min.y)
-	testing.expect(t, row_box.rect.max.x <= content.rect.max.x)
-	testing.expect(t, row_box.rect.max.y <= content.rect.max.y)
-}
-
-@(test)
 test_toggle_switch_owns_track_and_thumb_presentation :: proc(t: ^testing.T) {
 	p := platform.Platform {
 		width  = 800,
@@ -506,67 +395,56 @@ test_toggle_switch_owns_track_and_thumb_presentation :: proc(t: ^testing.T) {
 	testing.expect(t, track.first != nil && .Draw_Background in track.first.flags)
 }
 
+// As RAD Debugger's ui_signal_from_box: each event is taken by the first box
+// it is for, as signals are computed. Built front to back, the box in front
+// takes the press, the hover and the wheel; the one beneath gets none, and
+// the release goes to the box the press made active.
 @(test)
-test_modal_input_scope_blocks_underlying_widgets :: proc(t: ^testing.T) {
-	p: platform.Platform
-	p.input.mb_down[.Left] = true
-	p.input.mouse = {20, 20}
-	s := State {
-		p                  = &p,
-		modal_input_active = true,
-	}
-	underlying := Box {
-		key = Key(1),
-		flags = {.Clickable},
-		rect = {min = {0, 0}, max = {100, 100}},
-	}
-	modal_root := Box {
-		key   = Key(2),
-		flags = {.Modal_Input_Root},
-	}
-	modal_child := Box {
-		parent = &modal_root,
-		key = Key(3),
-		flags = {.Clickable},
-		rect = {min = {0, 0}, max = {100, 100}},
-	}
-
-	underlying_signal := signal_from_box(&s, &underlying)
-	testing.expect(t, .Left_Pressed not_in underlying_signal.flags)
-	modal_signal := signal_from_box(&s, &modal_child)
-	testing.expect(t, .Left_Pressed in modal_signal.flags)
-}
-
-@(test)
-test_modal_transition_preserves_focus_assigned_during_open_frame :: proc(t: ^testing.T) {
+test_the_box_built_first_takes_the_pointer :: proc(t: ^testing.T) {
+	p := platform.Platform{width = 200, height = 200}
+	defer delete(p.input.events)
+	p.input.mouse = {50, 50}
+	test_button(&p, .Left, true)
+	test_wheel(&p, {0, 120})
 	s: State
-	s.box_table = make(map[Key]^Box)
-	defer delete(s.box_table)
-	modal_root := Box {
-		key   = Key(1),
-		flags = {.Modal_Input_Root},
-	}
-	modal_edit := Box {
-		parent = &modal_root,
-		key    = Key(2),
-	}
-	underlying := Box {
-		key = Key(3),
-	}
-	s.box_table[modal_root.key] = &modal_root
-	s.box_table[modal_edit.key] = &modal_edit
-	s.box_table[underlying.key] = &underlying
-
-	s.keyboard_focus = modal_edit.key
-	s.hot = modal_edit.key
-	modal_input_set(&s, true)
-	testing.expect_value(t, s.keyboard_focus, modal_edit.key)
-	testing.expect_value(t, s.hot, modal_edit.key)
-
-	s.modal_input_active = false
-	s.keyboard_focus = underlying.key
-	s.hot = underlying.key
-	modal_input_set(&s, true)
-	testing.expect_value(t, s.keyboard_focus, Key(0))
-	testing.expect_value(t, s.hot, Key(0))
+	s.p = &p
+	s.actions = action_storage_make()
+	defer action_storage_destroy(&s.actions)
+	test_gather(&s)
+	front := Box{key = Key(1), flags = {.Clickable, .Scroll}, rect = {min = {25, 25}, max = {75, 75}}}
+	back := Box{key = Key(2), flags = {.Clickable, .Scroll}, rect = {min = {0, 0}, max = {100, 100}}}
+	a, b := signal_from_box(&s, &front), signal_from_box(&s, &back)
+	testing.expect(t, .Left_Pressed in a.flags && .Hovering in a.flags && a.scroll.y == 3)
+	testing.expect(t, .Left_Pressed not_in b.flags && .Hovering not_in b.flags && b.scroll.y == 0)
+	testing.expect(t, .Mouse_Over in b.flags) // over it, though occluded
+	testing.expect_value(t, s.active[.Left], front.key)
+	// The release, wherever it falls, is the active box's alone.
+	test_button(&p, .Left, false)
+	test_gather(&s)
+	b, a = signal_from_box(&s, &back), signal_from_box(&s, &front)
+	testing.expect(t, .Left_Clicked not_in b.flags && .Left_Clicked in a.flags)
+	testing.expect_value(t, s.active[.Left], Key(0))
+	// A box that does not scroll lets the wheel pass to the one beneath.
+	test_wheel(&p, {0, -120})
+	test_gather(&s)
+	label := Box{key = Key(3), flags = {.Clickable}, rect = {min = {25, 25}, max = {75, 75}}}
+	testing.expect_value(t, signal_from_box(&s, &label).scroll.y, f32(0))
+	testing.expect_value(t, signal_from_box(&s, &back).scroll.y, f32(-3))
+	// A press and its release in one frame (a tap): a click where they
+	// happened, wherever the pointer is when the frame reads them.
+	p.input.mouse = {50, 50}
+	test_button(&p, .Left, true)
+	test_button(&p, .Left, false)
+	p.input.mouse = {150, 150}
+	test_gather(&s)
+	a = signal_from_box(&s, &front)
+	testing.expect(t, .Left_Pressed in a.flags && .Left_Clicked in a.flags)
+	testing.expect_value(t, s.active[.Left], Key(0))
+	// Two presses in one frame are two.
+	test_button(&p, .Left, true); test_button(&p, .Left, false)
+	test_button(&p, .Left, true); test_button(&p, .Left, false)
+	test_gather(&s)
+	presses := 0
+	for r in s.actions.rows do if r.kind == .Mouse_Press do presses += 1
+	testing.expect_value(t, presses, 2)
 }
