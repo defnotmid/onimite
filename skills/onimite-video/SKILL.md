@@ -285,10 +285,12 @@ Apple's software codecs), Vulkan Video on Linux and Windows, Media Foundation on
 H.265 with Microsoft's HEVC Video Extensions installed), else the system's FFmpeg
 (libavcodec, loaded when needed; its encoder is whichever that FFmpeg has, libx264 or
 libopenh264). A release carries no H.264 / H.265 codec of its own: on a machine with none of
-these `render` writes PNGs but no MP4, and says so.
-`--draft`: half resolution (unless `--scale`), QP 32, one-second GOP. A scaled size rounds to
-even (1080x1350 at half is 540x676). `--h265`, `--qp N`
-(0 best .. 51), `--native` and `--slices N` (oicut's own encoder instead of the system's, and its
+these, `render` to an MP4 fails and says so; `-o DIR` still writes PNGs. `--codec av1` writes AV1
+MP4 with oicut's own encoder in every build and on every machine, needing no system codec:
+royalty-free, larger than H.264 at the same quality; browsers play it.
+`--draft`: half resolution (unless `--scale`), QP 32 (AV1: 24), one-second GOP. A scaled size rounds to
+even (1080x1350 at half is 540x676). `--codec h264|h265|av1`, `--qp N`
+(1 best .. 51; default 23, AV1 12: its quantizer is coarser, so the same number looks worse), `--native` and `--slices N` (oicut's own encoder instead of the system's, and its
 H.264 slices: only in a build with `-define:OICUT_PATENTED=true`; a release refuses them before
 loading the script), `--software` (draw on the CPU; also for machines without a usable GPU), `--scale S`,
 `--threads N` (default one per core: a quarter render songs, audio and `say()` lines, the
@@ -335,7 +337,7 @@ with commas.
 | `onion RANGE [-n 6] [-o onion.png]` | a movement's trajectory and easing |
 | `motion SPECS` | how fast each thing moves at a moment: its speed in video pixels a frame where it moves most, its centre's direction, the script line that drew it, and what appears within the shutter. It builds the frame again at the shutter's opening (the video's `motion_blur` shutter, or a quarter frame earlier: a 180° one) and pairs each draw with itself there by its place among its siblings (kind and content first, then kind: a counter whose text changes is the same text; a group only with one the same function draws, so a group that appears among others doesn't take one's place); a draw that wasn't there doesn't move and is listed as appearing. Speeds come from the clock (`f.seconds`, `animate`, `physics_at`): anything moved by `f.index` reads as still, and nothing moves on the first frame of the video or a scene. A path's points changing (a morph) doesn't count as motion, only its groups' transforms; a 3D view moves as a box |
 | `preview [AT] [--paused] [--no-loop] [--mute] [--bare] [--fullscreen] [--present] [--exit-after N]` | real-time window with sound and hot reload, for the user (`--bare`: the video alone, no controls, panels or timeline, played once, then the window closes, Escape sooner; `--fullscreen`: open fullscreen; both together play a script full screen like a screensaver; `--present`: a presentation, bare and fullscreen, playing each scene and waiting at its end (`scene{ hold = ... }`) for Right, Space, Page Down or a click (clickers send these), Left, Page Up or a right click back a scene, B black, P pause, Escape closes; `--exit-after N`: close after N window frames). Playback that misses frames steps down to 75, 50, 35 or 25% of the window's size (a step that doesn't help is undone: the script isn't limited by pixels) and back up once it keeps up; the status line shows the size; a paused frame renders at full size, so judge detail paused. The window opens before the script loads (it loads once, in the window): a script that fails shows its error there until an edit fixes it, and an `AT` that names nothing warns and starts as without it |
-| `render [RANGE] [-o out.mp4 \| dir] [--draft] [--h265] [--qp N] [--native] [--slices N]` | encode the video or a part (an MP4 carries a chapter per scene, or per slide when scenes `hold = false` into the next), or write PNGs |
+| `render [RANGE] [-o out.mp4 \| dir] [--draft] [--codec h264\|h265\|av1] [--qp N] [--native] [--slices N]` | encode the video or a part (an MP4 carries a chapter per scene, or per slide when scenes `hold = false` into the next), or write PNGs |
 | `render --batch rows.json\|rows.csv [-o out/{name}.mp4] [--rows a..b \| --only N]` | one video per data row, the row as `props` |
 | `snapshot SPECS [--update] [--dir _frame_snapshots] [--threshold 16] [--max-diff 0.001]` | compare frames with approved PNGs; writes `.actual.png`/`.diff.png`, exit 2 on a difference; a PNG of another size (another `--scale`) is the error `snapshot_size` |
 | `audio analyze [RANGE] [--waveform w.png]` | loudness (LUFS, LRA), true peak, clipping, silence, per scene |

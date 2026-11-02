@@ -5,6 +5,7 @@ import "core:os"
 import "core:reflect"
 import "core:strconv"
 import "core:strings"
+import enc "../encode"
 
 // The commands of the command line and the MCP server are the kinds with
 // .Command_Line / .Mcp_Tool in COMMAND_KINDS; each names its arguments, an
@@ -80,8 +81,8 @@ Render_Args :: struct {
 	using range_arg:      Range_Arg,
 	output:               string `cli:"-o|--output|--out" reg:"path" arg:"PATH" about:"the .mp4, or a directory for PNGs; with a batch, a name template with {field} from the row and {index}, the row number" default:"out.mp4; with a batch, out/{index}.mp4"`,
 	draft:                bool   `flag:"Draft" about:"half size, fastest encoding"`,
-	h265:                 bool   `reg:"option" about:"H.265 instead of H.264"`,
-	qp:                   int    `reg:"count" arg:"N" about:"quantizer, 0 best .. 51"`,
+	codec:                enc.Codec `reg:"option" about:"the video codec: h264 and h265 through the system's encoders, av1 through oicut's own, on every machine" default:"h264"`,
+	qp:                   int    `reg:"count" arg:"N" about:"quantizer, 1 best .. 51 (AV1's is coarser: the same number looks worse)" default:"23, av1 12; with --draft 32, av1 24"`,
 	native:               bool   `flag:"Native" about:"oicut's native encoder instead of the system's (VideoToolbox, Vulkan Video, Media Foundation, libavcodec); only in a build with -define:OICUT_PATENTED=true, refused otherwise"`,
 	slices:               int    `arg:"N" about:"H.264 slices oicut's native encoder codes in parallel; the file depends on it (more: faster, slightly larger), never on the machine; the system's encoders ignore it; only in a build with the native encoder, refused otherwise" default:"4" check:"Positive" invalid:"needs a count of at least 1"`,
 	batch:                string `reg:"props" arg:"ROWS" about:"a .json array or .csv of rows: one video per row, the row as props; a failing row is reported, the others still render"`,

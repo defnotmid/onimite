@@ -452,8 +452,8 @@ vs_release :: proc(data: rawptr, clip: int, stream: int) {
 	sync.mutex_unlock(&w.mutex)
 }
 
-// Whether oicut decodes `codec` natively in this build: ProRes and VP9
-// always, H.264 and H.265 only with -define:OICUT_PATENTED=true, AV1 never.
+// Whether oicut decodes `codec` natively in this build: ProRes, VP9 and AV1
+// always, H.264 and H.265 only with -define:OICUT_PATENTED=true.
 @(private = "file")
 native_decodes :: proc "contextless" (codec: video.Video_Codec) -> bool {
 	switch codec {
@@ -461,11 +461,9 @@ native_decodes :: proc "contextless" (codec: video.Video_Codec) -> bool {
 		return native.OICUT_NATIVE_H264
 	case .H265:
 		return native.OICUT_NATIVE_H265
-	case .ProRes, .VP9:
-		return true
-	case .AV1:
+	case .ProRes, .VP9, .AV1:
 	}
-	return false
+	return true
 }
 
 // ---- the decode thread ----------------------------------------------------------

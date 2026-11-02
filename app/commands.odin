@@ -173,7 +173,7 @@ Command_Descriptor :: struct {
 COMMAND_KINDS := [Command_Kind]Command_Descriptor {
 	.None = {},
 	.Render = {
-		help = "regs.spec a range, regs.path the output (.mp4, or a directory for PNGs), regs.option codec (0 H.264, 1 H.265), regs.count qp (0 default), .Native / .Draft in regs.flags",
+		help = "regs.spec a range, regs.path the output (.mp4, or a directory for PNGs), regs.option codec (enc.Codec), regs.count qp (0 default), .Native / .Draft in regs.flags",
 		domain = .Script, flags = FRONT, args = Render_Args,
 		about = "the video to a file (.mp4 with the audio mix and a chapter per scene, or a directory of PNGs)",
 	},

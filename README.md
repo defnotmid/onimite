@@ -127,10 +127,12 @@ onimite is built from sibling Odin projects and Odin's vendor packages:
   macOS, in hardware or Apple's software codecs; Vulkan Video on Linux and
   Windows; Media Foundation on Windows: H.264, and H.265 with Microsoft's HEVC
   Video Extensions; else the system's FFmpeg, libavcodec, loaded at run time
-  and never bundled), or PNG frames. Releases carry no H.264 / H.265 codec of
-  their own: oicut's native one is only in a build with
-  `-define:OICUT_PATENTED=true`. With none of those on the machine a release
-  writes PNG frames but no MP4. Frames build on all cores and draw on the GPU
+  and never bundled), AV1 MP4 through oicut's own encoder in every build
+  (`--codec av1`: royalty-free, needs no codec on the machine, larger than
+  H.264 at the same quality), or PNG frames. Releases carry no H.264 / H.265
+  codec of their own: oicut's native one is only in a build with
+  `-define:OICUT_PATENTED=true`. With none of those on the machine, `render`
+  to an MP4 says so and names `--codec av1` and PNG frames. Frames build on all cores and draw on the GPU
   (or on the CPU with `--software`); the output does not depend on the thread
   count.
 - **Checking without watching**: PNG frames, contact sheets, onion skins,
@@ -305,8 +307,9 @@ onimite preview  video.lua [at] [--paused] [--no-loop] [--mute] [--bare] [--full
 onimite update   [--check]                                # replace this release with the latest (--check: only say)
 ```
 
-- `render`: `--draft` is half resolution (unless `--scale`), QP 32 and a
-  one second GOP; `--h265`, `--qp N`; in a build with
+- `render`: `--draft` is half resolution (unless `--scale`), QP 32 (AV1: 24)
+  and a one second GOP; `--codec h264|h265|av1`, `--qp N` (default 23; AV1:
+  12, as its quantizer is coarser); in a build with
   `-define:OICUT_PATENTED=true` (not the releases, which refuse them),
   `--native` (oicut's native encoder instead of the system's) and `--slices N`
   (its H.264 slices, default 4: more encode faster in a slightly larger file;

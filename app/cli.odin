@@ -787,7 +787,22 @@ Render_Result :: struct {
 	findings:        []Finding   `json:"findings"`,
 }
 
-DRAFT_QP :: 32
+// The quantizer without --qp, per codec, and with --draft. oicut's AV1 takes
+// qp as base_q_idx 5*qp, coarser than H.264's at the same number: 12 and 24
+// land near H.264's 23 and 32 in PSNR on the examples, in larger files.
+@(rodata)
+DEFAULT_QP := [enc.Codec]i32 {
+	.H264 = 23,
+	.H265 = 23,
+	.AV1  = 12,
+}
+
+@(rodata)
+DRAFT_QP := [enc.Codec]i32 {
+	.H264 = 32,
+	.H265 = 32,
+	.AV1  = 24,
+}
 
 @(private)
 video_render :: proc(app: ^App_State, regs: Command_Regs) -> Error {
@@ -845,7 +860,7 @@ video_render_to :: proc(app: ^App_State, regs: Command_Regs, fa: mem.Allocator) 
 	began := time.tick_now()
 	// The native encoder's flags in a build without it: refused before the
 	// script loads.
-	codec: enc.Codec = .H265 if regs.option == 1 else .H264
+	codec := enc.Codec(regs.option)
 	if (.Native in regs.flags || regs.slices > 0) && !enc.native_built_in(codec) {
 		return {}, fail(app, {code = .Encoder, encoder = {code = .Native_Missing, codec = codec}})
 	}
@@ -860,8 +875,8 @@ video_render_to :: proc(app: ^App_State, regs: Command_Regs, fa: mem.Allocator) 
 		ensure_parent(out)
 	}
 	qp := i32(regs.count)
-	if draft && qp == 0 {
-		qp = DRAFT_QP
+	if qp == 0 {
+		qp = DRAFT_QP[codec] if draft else DEFAULT_QP[codec]
 	}
 
 	e: enc.Encoder

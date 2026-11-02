@@ -4,8 +4,9 @@
 // Vulkan Video on Linux and Windows; Media Foundation on Windows: H.264,
 // H.265 with the HEVC Video Extensions; else the system's libavcodec,
 // loaded at run time), or by oicut's native encoders in a build with
-// -define:OICUT_PATENTED=true (`native_built_in`, `--native`); the audio mix
-// becomes an interleaved AAC track.
+// -define:OICUT_PATENTED=true (`native_built_in`, `--native`); AV1 always by
+// oicut's own encoder, in every build, its tiles on the task pool. The audio
+// mix becomes an interleaved AAC track.
 //
 // The work runs off the caller's thread so rendering never waits on
 // encoding: `write_nv12` queues the caller's frame as it is (GPU_NV12's
@@ -32,6 +33,14 @@ import om "../onimite"
 Codec :: enum u8 {
 	H264,
 	H265,
+	AV1,
+}
+
+@(rodata)
+CODEC_NAME := [Codec]string {
+	.H264 = "H.264",
+	.H265 = "H.265",
+	.AV1  = "AV1",
 }
 
 // What failed. Text is made at the edge (`error_message`) from ERROR_TEXT,
@@ -46,6 +55,8 @@ Error :: enum u8 {
 	Finish,
 	// `software` in a build without the native encoder.
 	Native_Missing,
+	// No encoder on this machine admits the codec (H.264 / H.265).
+	No_Encoder,
 	// GPU conversion (gpu_nv12.odin).
 	Gpu_Unsupported,
 	Gpu_Submit,
@@ -76,6 +87,7 @@ ERROR_TEXT := [Error]string {
 	.Frame           = "encode frame {frame}: {movie} {detail}",
 	.Finish          = "finish: {movie} {detail}",
 	.Native_Missing  = "the native {codec} encoder (--native, --slices) is not built in (-define:OICUT_PATENTED=true): {codec} encodes through VideoToolbox (macOS), Vulkan Video (Linux, Windows), Media Foundation (Windows) or the system's libavcodec",
+	.No_Encoder      = "no {codec} encoder on this machine ({detail}): --codec av1 encodes on every machine (oicut's own encoder), or -o DIR writes PNG frames",
 	.Gpu_Unsupported = "the GPU can not convert frames to I420",
 	.Gpu_Submit      = "can not convert the frame on the GPU",
 	.Gpu_Map         = "can not read the converted frame back",
@@ -102,7 +114,7 @@ error_message :: proc(f: Failure, allocator := context.allocator) -> string {
 		case "detail":
 			strings.write_string(b, f.detail)
 		case "codec":
-			strings.write_string(b, "H.265" if f.codec == .H265 else "H.264")
+			strings.write_string(b, CODEC_NAME[f.codec])
 		case:
 			return false
 		}
@@ -113,7 +125,7 @@ error_message :: proc(f: Failure, allocator := context.allocator) -> string {
 
 Options :: struct {
 	codec:          Codec,
-	// Constant quantizer, 1 (best) to 51; 0 selects 23.
+	// Constant quantizer, 1 (best) to 51; 0 selects oicut's 23.
 	qp:             i32,
 	// Frames between keyframes; 0 is about one second.
 	gop:            int,
@@ -144,10 +156,25 @@ Chapter :: video.Chapter
 // The native encoder's H.264 slices by default (oicut's own default).
 NATIVE_SLICES :: 4
 
-// Whether this build has oicut's native encoder for `codec`: only with
-// -define:OICUT_PATENTED=true (or OICUT_NATIVE_H264 / OICUT_NATIVE_H265).
+// Whether this build has oicut's native encoder for `codec`: AV1 always,
+// H.264 and H.265 only with -define:OICUT_PATENTED=true (or
+// OICUT_NATIVE_H264 / OICUT_NATIVE_H265).
 native_built_in :: proc "contextless" (codec: Codec) -> bool {
-	return native.OICUT_NATIVE_H265 if codec == .H265 else native.OICUT_NATIVE_H264
+	switch codec {
+	case .H264:
+		return native.OICUT_NATIVE_H264
+	case .H265:
+		return native.OICUT_NATIVE_H265
+	case .AV1:
+	}
+	return true
+}
+
+@(rodata, private)
+VIDEO_CODEC := [Codec]video.Video_Codec {
+	.H264 = .H264,
+	.H265 = .H265,
+	.AV1  = .AV1,
 }
 
 // Frames in flight between the renderer and the encoder thread.
@@ -215,7 +242,7 @@ open :: proc(e: ^Encoder, path: string, width, height, fps: int, opts: Options =
 		return set_error(e, {code = .Odd_Size, width = width, height = height})
 	}
 	cfg := video.default_writer_config(width, height, fps, 1)
-	cfg.codec = .H265 if opts.codec == .H265 else .H264
+	cfg.codec = VIDEO_CODEC[opts.codec]
 	cfg.qp = int(opts.qp)
 	cfg.gop = opts.gop
 	cfg.preference = .Native if opts.software else .Automatic
@@ -233,9 +260,10 @@ open :: proc(e: ^Encoder, path: string, width, height, fps: int, opts: Options =
 		cfg.audio_bit_rate = opts.audio_bit_rate if opts.audio_bit_rate > 0 else 192_000
 	}
 	if err := video.create(&e.writer, path, cfg); err != .None {
-		set_error(e, {code = .Create, path = path, movie = err, detail = e.writer.error_detail})
+		code: Error = .No_Encoder if err == .Unsupported && opts.codec != .AV1 else .Create
+		set_error(e, {code = code, path = path, movie = err, detail = e.writer.error_detail, codec = opts.codec})
 		video.destroy(&e.writer)
-		return .Create
+		return code
 	}
 	_, e.backend = video.video_backend(&e.writer)
 	e.worker = thread.create_and_start_with_poly_data(e, encode_loop, context)

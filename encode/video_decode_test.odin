@@ -1,5 +1,6 @@
 package onimite_encode
 
+import "core:fmt"
 import "core:log"
 import "core:os"
 import "core:sync"
@@ -255,4 +256,70 @@ frame_checksum :: proc(f: om.Video_Frame) -> u64 {
 		h = h * 31 + checksum(p)
 	}
 	return h
+}
+
+// AV1, oicut's own encoder in every build: frames written at the default
+// draft-free quantizer read back at the size and count written, close to
+// what went in, and the same by seek as in order.
+@(test)
+test_av1_round_trip :: proc(t: ^testing.T) {
+	W, H, N :: 128, 96, 24
+	tmp := os.get_env("TMPDIR", context.temp_allocator)
+	path := fmt.tprintf("%s/onimite_av1_test.mp4", tmp if tmp != "" else "/tmp")
+	defer os.remove(path)
+
+	// A diagonal gradient moving a pixel a frame, flat grey chroma.
+	frames := make([]u8, i420_size(W, H) * N)
+	defer delete(frames)
+	for i in 0 ..< N {
+		f := frames[i * i420_size(W, H):][:i420_size(W, H)]
+		for y in 0 ..< H {
+			for x in 0 ..< W {
+				f[y * W + x] = u8(16 + (x + y + i) * 2 % 200)
+			}
+		}
+		for &c in f[W * H:] {
+			c = 128
+		}
+	}
+
+	e: Encoder
+	testing.expect_value(t, open(&e, path, W, H, 30, {codec = .AV1, qp = 12}), nil)
+	for i in 0 ..< N {
+		testing.expect_value(t, write_i420(&e, frames[i * i420_size(W, H):][:i420_size(W, H)], W), nil)
+	}
+	testing.expect_value(t, close(&e), nil)
+	destroy(&e)
+
+	d: Video_Decoders
+	video_decoders_init(&d, native = true)
+	defer video_decoders_destroy(&d)
+	src := video_source(&d)
+	sync.lock(&vulkan_start)
+	clip, info, why, err := src.open(src.data, path)
+	sync.unlock(&vulkan_start)
+	testing.expectf(t, err == nil && clip >= 0, "%v", why)
+	testing.expect_value(t, info.width, W)
+	testing.expect_value(t, info.height, H)
+	testing.expect_value(t, info.frames, N)
+
+	sums: [N]u64
+	for i in 0 ..< N {
+		f := src.request(src.data, clip, 0, (f64(i) + 0.5) / info.fps, .Block)
+		testing.expect(t, f.ok && f.index == i)
+		sums[i] = frame_checksum(f)
+		// Luma within a few levels of the source on average.
+		want := frames[i * i420_size(W, H):][:W * H]
+		diff := 0
+		for v, k in f.planes[0][:W * H] {
+			diff += abs(int(v) - int(want[k]))
+		}
+		testing.expectf(t, f64(diff) / (W * H) < 2, "frame %d: mean luma error %.2f", i, f64(diff) / (W * H))
+		src.release(src.data, clip, 0)
+	}
+	for i in ([?]int{17, 2, 23, 0, 11}) {
+		f := src.request(src.data, clip, 0, (f64(i) + 0.5) / info.fps, .Block)
+		testing.expectf(t, f.ok && f.index == i && frame_checksum(f) == sums[i], "frame %d differs after seeking", i)
+		src.release(src.data, clip, 0)
+	}
 }

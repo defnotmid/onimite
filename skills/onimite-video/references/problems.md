@@ -128,7 +128,8 @@ message lists both), `spec_no_scenes`, `spec_ambiguous`, `spec_past_scene`,
 `create_dir`, `write`, `parts_read` (`audio parts --against`: the file is not an earlier `--json` of it), `png_many_frames` (`frame -o x.png` with more than one frame), `command_needs` (a command without an argument it needs, e.g. an MCP `onion` with an empty `range`; the message names it), `command_domain` (a command where it can not run, e.g. a preview command with no preview window open), `no_sheet_frames`, `snapshot_size` (`snapshot`: an approved PNG has
 another size than the frame, e.g. checked at another `--scale`; the message gives both
 sizes; `--update` accepts the new size), `encoder` (the MP4 writer:
-odd dimensions, the file, a frame, the GPU conversion), `read_back` (a frame could not be
+odd dimensions, no H.264 / H.265 encoder on the machine (the message names `--codec av1`, which
+encodes everywhere), the file, a frame, the GPU conversion), `read_back` (a frame could not be
 read back from the GPU), `batch_read`,
 `batch_json`, `batch_not_array`, `batch_not_object`, `batch_csv`, `batch_no_header`,
 `batch_rows`, `output_no_field`, `output_not_scalar`, `no_track` (`--track` names no track),

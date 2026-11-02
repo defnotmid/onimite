@@ -128,7 +128,7 @@ Every fframes feature and where onimite stands. ✅ done · 🔨 in progress ·
 | fframes | onimite | |
 | --- | --- | --- |
 | H.264 / H.265 MP4, hardware when available | ✅ oicut (Vulkan Video or native) | ✅ |
-| WebM (VP9/AV1), alpha video output | | ➖ oicut has no VP9/AV1/ProRes encoder (WebM and alpha clips decode as inputs) |
+| WebM (VP9/AV1), alpha video output | | ➖ AV1 is written in MP4 (`render --codec av1`, oicut's own encoder); no WebM or alpha output (WebM and alpha clips decode as inputs) |
 
 ## Examples
 
