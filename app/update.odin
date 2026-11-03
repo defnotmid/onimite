@@ -1,8 +1,7 @@
 package onimite_app
 
 import "core:bytes"
-import "core:compress/gzip"
-import "core:compress/zlib"
+import "core:compress/deflate"
 import "core:crypto/sha2"
 import "core:encoding/endian"
 import "core:encoding/hex"
@@ -344,12 +343,12 @@ update_unpack :: proc(name: string, data: []u8, dir: string) -> string {
 	if strings.has_suffix(name, ".zip") {
 		return zip_unpack(data, dir)
 	}
-	buf: bytes.Buffer
-	defer bytes.buffer_destroy(&buf)
-	if err := gzip.load_from_bytes(data, &buf); err != nil {
+	tar: [dynamic]u8
+	defer delete(tar)
+	if err := deflate.inflate_gzip(&tar, data); err != nil {
 		return fmt.tprintf("not a gzip file (%v)", err)
 	}
-	return tar_unpack(bytes.buffer_to_bytes(&buf), dir)
+	return tar_unpack(tar[:], dir)
 }
 
 // The path inside the release of archive entry `name`: without the top
@@ -527,12 +526,12 @@ zip_unpack :: proc(data: []u8, dir: string) -> string {
 				return problem
 			}
 		case 8:
-			buf: bytes.Buffer
-			defer bytes.buffer_destroy(&buf)
-			if err := zlib.inflate_from_byte_array_raw(body, &buf, expected_output_size = size); err != nil {
+			file: [dynamic]u8
+			defer delete(file)
+			if err := deflate.inflate_raw(&file, body, expected_output_size = size); err != nil {
 				return fmt.tprintf("can not inflate %s (%v)", name, err)
 			}
-			if problem := archive_write(dir, rel, bytes.buffer_to_bytes(&buf), os.Permissions_Read_All + {.Write_User}); problem != "" {
+			if problem := archive_write(dir, rel, file[:], os.Permissions_Read_All + {.Write_User}); problem != "" {
 				return problem
 			}
 		case:

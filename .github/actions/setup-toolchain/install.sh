@@ -71,7 +71,7 @@ install_odin() {
 	# into whatever ODIN_ROOT the environment already has.
 	if [ "$platform" = linux ]; then
 		export ODIN_ROOT="$odin_dir"
-		# Fetches Box2D's source and builds it with cmake; its trailing WASM
+		# Fetches Box2D's source and builds it with cc; its trailing WASM
 		# build fails without a WASM toolchain, which the script tolerates.
 		bash "$odin_dir/vendor/box2d/build_box2d.sh"
 	fi

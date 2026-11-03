@@ -166,7 +166,8 @@ mkdir -p build    # a fresh clone has no build/ (gitignored); Odin will not crea
 odin build . -collection:deps=.. -o:speed -out:build/onimite
 ```
 
-`deps` is the parent directory holding `ovg`, `oglyph`, `ocurves`, `oksl`, `oicut`, `ottis`, `o3d` and `odawg`. Use
+`deps` is the parent directory holding `ovg`, `oglyph`, `ocurves`, `oksl`, `oicut`, `ottis`, `o3d` and `odawg`. It
+needs Odin dev-2026-11a or later (CI's pin is in `.github/actions/setup-toolchain`). Use
 `-o:speed`: unoptimized builds are many times slower. On Linux the binary
 links the system SDL3 (`pacman -S sdl3`, `apt install libsdl3-dev` on Ubuntu
 25.04+, otherwise build SDL 3 from source as `.github/actions/setup-toolchain`
@@ -176,7 +177,7 @@ ships SDL3 for Windows. Odin's Linux release ships some vendor C libraries
 as source; build them once:
 
 ```sh
-bash "$(odin root)/vendor/box2d/build_box2d.sh"   # needs cmake; fetches Box2D 3.1.1 (its WASM step may fail: harmless)
+bash "$(odin root)/vendor/box2d/build_box2d.sh"   # needs a C compiler; fetches Box2D 3.2.0 (its WASM step may fail: harmless)
 ```
 
 Tests (every package that has them, as CI runs them):

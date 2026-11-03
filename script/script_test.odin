@@ -1441,6 +1441,38 @@ video { width = 32, height = 32, fps = 10, duration = 1 }
 	testing.expect_value(t, len(f.script.load_problems), 0)
 }
 
+// physics{} joints start where they are made: a hinge held at zero by its
+// limit and a weld keep the angle their body had, both bodies turned, under
+// gravity (each body's joint frame lines up with the world at the anchor,
+// Box2D 3.2's local frames for 3.1's anchors and reference angle).
+@(test)
+test_physics_joints_start_at_rest :: proc(t: ^testing.T) {
+	f: Fixture
+	defer fixture_destroy(&f)
+	fixture_init(t, &f, `
+local sim = shared("joints", function()
+  return physics { duration = 1, gravity = 2000, bodies = {
+    { static = true, name = "post", box = { 40, 40 }, x = 300, y = 300, angle = 20 },
+    { name = "arm", box = { 160, 20 }, x = 380, y = 300, angle = 50 },
+    { static = true, name = "wall", box = { 40, 40 }, x = 700, y = 300, angle = -10 },
+    { name = "plate", box = { 120, 30 }, x = 760, y = 300, angle = 45 },
+  }, joints = {
+    { "hinge", a = "post", b = "arm", at = { 300, 300 }, limit = { 0, 0 } },
+    { "weld", a = "wall", b = "plate", at = { 700, 300 } },
+  } }
+end)
+local _, _, arm = physics_at(sim, "arm", 1)
+local _, _, plate = physics_at(sim, "plate", 1)
+assert(math.abs(arm - 50) < 3, string.format("the hinged arm turned to %.2f°", arm))
+assert(math.abs(plate - 45) < 3, string.format("the welded plate turned to %.2f°", plate))
+video { width = 32, height = 32, fps = 10, duration = 1 }
+`)
+	if !fixture_load(t, &f) {
+		return
+	}
+	testing.expect_value(t, len(f.script.load_problems), 0)
+}
+
 // physics3d{}, physics3d_at (and physics_at dispatch), physics3d_instances,
 // primitive/compound/model colliders, 3D joints, kicks, shared{} cloning and
 // self-checks (overlap, offscreen, unsettled and unused fields).

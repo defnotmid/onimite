@@ -8,10 +8,10 @@ description: >-
 inputs:
   odin-version:
     description: Odin release tag. The code is developed against this nightly.
-    default: dev-2026-10
+    default: dev-2026-11a
   sdl-version:
     description: SDL3 release built on Linux and macOS (Windows uses the SDL3.dll Odin ships).
-    default: 3.4.16
+    default: 3.4.18
   lua-version:
     description: Lua built as a static library on macOS (Linux links Odin's bundled liblua54.a, Windows its lua54.dll).
     default: 5.4.8

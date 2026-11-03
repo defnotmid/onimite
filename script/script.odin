@@ -4,9 +4,8 @@
 package onimite_script
 
 import "base:runtime"
-import "core:bytes"
 import "core:c"
-import "core:compress/gzip"
+import "core:compress/deflate"
 import "core:encoding/json"
 import "core:fmt"
 import "core:hash"
@@ -2136,14 +2135,19 @@ l_gunzip :: proc "c" (L: ^lua.State) -> c.int {
 	if !filepath.is_abs(name) {
 		path, _ = filepath.join({filepath.dir(s.path), name}, context.temp_allocator)
 	}
-	buf: bytes.Buffer
-	defer bytes.buffer_destroy(&buf)
-	if err := gzip.load_from_file(path, &buf); err != nil {
-		msg := fmt.tprintf("gunzip(%q): %v", name, err)
+	packed, read_err := os.read_entire_file(path, context.allocator)
+	defer delete(packed)
+	data: [dynamic]u8
+	defer delete(data)
+	problem := fmt.tprint(read_err) if read_err != nil else ""
+	if problem == "" {
+		if err := deflate.inflate_gzip(&data, packed); err != nil do problem = fmt.tprint(err)
+	}
+	if problem != "" {
+		msg := fmt.tprintf("gunzip(%q): %s", name, problem)
 		lua.pushlstring(L, cstring(raw_data(msg)), c.size_t(len(msg)))
 		return c.int(lua.error(L))
 	}
-	data := bytes.buffer_to_bytes(&buf)
 	lua.pushlstring(L, cstring(raw_data(data)), c.size_t(len(data)))
 	return 1
 }

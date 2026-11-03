@@ -21,6 +21,31 @@ render_svg_scene :: proc(f: Frame, ctx: ^Context) {
 	rect(ctx, {x = 200, y = 10, w = 20, h = 20, fill = Color{1, 1, 1, 1}})
 }
 
+// An element keeps every attribute, the tenth too: Odin dev-2026-11's
+// core:encoding/xml (which ovg's import reads with) kept only the first 8
+// of an element in a small file and said nothing, so a fill given last
+// drew black. A compiler or ovg bump that loses attributes fails here.
+@(test)
+test_svg_keeps_every_attribute :: proc(t: ^testing.T) {
+	SVG_TEN :: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40">` +
+		`<rect x="0" y="0" width="40" height="40" id="r" class="c" opacity="1" stroke="none" stroke-width="0" fill="#0000ff"/></svg>`
+	render_ten :: proc(f: Frame, ctx: ^Context) {
+		svg(ctx, {markup = SVG_TEN, x = 0, y = 0, w = 40, h = 40})
+	}
+	@(static) scenes: [1]Scene
+	scenes = [1]Scene{{name = "Ten", duration = Frames(1), render = render_ten}}
+	v := Video{width = 40, height = 40, fps = 30, background = WHITE, scenes = scenes[:]}
+	media: Media
+	media_init(&media)
+	defer media_destroy(&media)
+	r: Renderer
+	testing.expect_value(t, renderer_init(&r, &v, &media), Error.None)
+	defer renderer_destroy(&r)
+	px := render_frame(&r, 0)
+	i := (20 * 40 + 20) * 4
+	testing.expect_value(t, [4]u8{px[i], px[i + 1], px[i + 2], px[i + 3]}, [4]u8{0, 0, 255, 255})
+}
+
 @(test)
 test_svg_node :: proc(t: ^testing.T) {
 	@(static) scenes: [1]Scene

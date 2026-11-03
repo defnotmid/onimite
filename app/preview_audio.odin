@@ -157,7 +157,8 @@ audio_callback :: proc "c" (userdata: rawptr, stream: ^sdl.AudioStream, addition
 	defer free_all(context.temp_allocator)
 	a := (^Audio_Shared)(userdata)
 	gen := sync.atomic_load_explicit(&a.seek_gen, .Acquire)
-	if gen != a.applied_gen {
+	// applied_gen is only written here (this thread): a relaxed load reads it.
+	if gen != sync.atomic_load_explicit(&a.applied_gen, .Relaxed) {
 		to := sync.atomic_load_explicit(&a.seek_to, .Relaxed)
 		a.position = clamp(to, 0, a.total - 1) if a.total > 0 else max(to, 0)
 	}

@@ -39,17 +39,18 @@ test_convex_pieces :: proc(t: ^testing.T) {
 	}
 }
 
-// The local overrides of vendor:box3d's quaternion helpers agree with Odin's
-// quaternion math (identity included: the broken port doubled vectors there).
+// vendor:box3d's quaternion helpers (fixed in Odin dev-2026-11) and the
+// local InvMulQuat override agree with Odin's quaternion math (identity
+// included: the broken ports doubled vectors there).
 @(test)
-test_b3_overrides :: proc(t: ^testing.T) {
+test_b3_quaternions :: proc(t: ^testing.T) {
 	qs := []b3.Quat{1, linalg.normalize(b3.Quat(quaternion(x = 0.3, y = -0.5, z = 0.2, w = 0.8))), linalg.normalize(b3.Quat(quaternion(x = -0.7, y = 0.1, z = 0.4, w = -0.2)))}
 	v := b3.Vec3{0.3, -1.2, 2.5}
 	for q1 in qs {
-		testing.expect(t, linalg.length(b3_rotate_vector(q1, v) - linalg.quaternion_mul_vector3(q1, v)) < 1e-5)
-		testing.expect(t, linalg.length(b3_inv_rotate_vector(q1, v) - linalg.quaternion_mul_vector3(conj(q1), v)) < 1e-5)
+		testing.expect(t, linalg.length(b3.RotateVector(q1, v) - linalg.quaternion_mul_vector3(q1, v)) < 1e-5)
+		testing.expect(t, linalg.length(b3.InvRotateVector(q1, v) - linalg.quaternion_mul_vector3(conj(q1), v)) < 1e-5)
 		xf := b3.Transform{p = {1, 2, 3}, q = q1}
-		testing.expect(t, linalg.length(b3_inv_transform_point(xf, b3_transform_point(xf, v)) - v) < 1e-5)
+		testing.expect(t, linalg.length(b3.InvTransformPoint(xf, b3.TransformPoint(xf, v)) - v) < 1e-5)
 		for q2 in qs {
 			d := b3_inv_mul_quat(q1, q2) - conj(q1) * q2
 			testing.expect(t, abs(d.x) + abs(d.y) + abs(d.z) + abs(d.w) < 1e-5)

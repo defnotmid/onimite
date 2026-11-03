@@ -387,7 +387,7 @@ l_physics :: proc "c" (L: ^lua.State) -> c.int {
 				check_overlap(L, s, bodies, i, &contact_data)
 			}
 			if !body.leaves && tracks.reach[i] == 0 {
-				box := b2.Body_ComputeAABB(body.id)
+				box := b2.Body_ComputeBounds(body.id)
 				p := b2.Body_GetPosition(body.id)
 				far := [2]f32{max(p.x - box.lowerBound.x, box.upperBound.x - p.x), max(p.y - box.lowerBound.y, box.upperBound.y - p.y)}
 				tracks.reach[i] = math.sqrt(far.x * far.x + far.y * far.y) * PHYSICS_SCALE
@@ -728,14 +728,14 @@ attach_shape2d :: proc(L: ^lua.State, s: ^Script, label: string, body_id: b2.Bod
 			lua.L_error(L, "physics: bodies[%d].box needs a positive { w, h }", i32(i + 1))
 		}
 		box := b2.MakeOffsetBox(size.x, size.y, offset, rot)
-		_ = b2.CreatePolygonShape(body_id, shape, &box)
+		_ = b2.CreatePolygonShape(body_id, shape, box)
 	case field(L, t, "circle") == c.int(lua.Type.NUMBER):
 		r := f32(lua.tonumber(L, -1)) / PHYSICS_SCALE
 		if !(r > 0) {
 			lua.L_error(L, "physics: bodies[%d].circle needs a positive radius", i32(i + 1))
 		}
 		circle := b2.Circle{center = offset, radius = r}
-		_ = b2.CreateCircleShape(body_id, shape, &circle)
+		_ = b2.CreateCircleShape(body_id, shape, circle)
 	case field(L, t, "polygon") == c.int(lua.Type.TABLE):
 		points: [b2.MAX_POLYGON_VERTICES]b2.Vec2
 		count := int(lua.rawlen(L, -1)) / 2
@@ -753,7 +753,7 @@ attach_shape2d :: proc(L: ^lua.State, s: ^Script, label: string, body_id: b2.Bod
 			lua.L_error(L, "physics: bodies[%d].polygon has no area (points in a line or too close)", i32(i + 1))
 		}
 		polygon := b2.MakeOffsetPolygon(hull, offset, rot)
-		_ = b2.CreatePolygonShape(body_id, shape, &polygon)
+		_ = b2.CreatePolygonShape(body_id, shape, polygon)
 	case field(L, t, "outline") == c.int(lua.Type.LIGHTUSERDATA):
 		// The outline in the body's frame (its own coordinates: make it about
 		// (0, 0)), split into convex pieces of at most 8 corners, a polygon
@@ -791,7 +791,7 @@ attach_shape2d :: proc(L: ^lua.State, s: ^Script, label: string, body_id: b2.Bod
 					continue
 				}
 				polygon := b2.MakeOffsetPolygon(hull, offset, rot)
-				_ = b2.CreatePolygonShape(body_id, shape, &polygon)
+				_ = b2.CreatePolygonShape(body_id, shape, polygon)
 				made += 1
 				for j in 0 ..< int(hull.count) {
 					p0, p1 := hull.points[j], hull.points[(j + 1) % int(hull.count)]
@@ -831,6 +831,13 @@ read_joint :: proc(L: ^lua.State, s: ^Script, world: b2.WorldId, ground: b2.Body
 	if ids[0] == ids[1] {
 		lua.L_error(L, "physics: joints[%d] needs two different bodies (a, b; a missing one is the world)", i32(j + 1))
 	}
+	// Body `id`'s frame for a joint at world point `at`, lined up with the
+	// world: both bodies' frames coincide where the joint is made, so it
+	// starts at angle 0 (Box2D 3.2's local frames; 3.1 took local anchors
+	// and a reference angle).
+	frame :: proc(id: b2.BodyId, at: b2.Vec2) -> b2.Transform {
+		return {p = b2.Body_GetLocalPoint(id, at), q = b2.InvertRot(b2.Body_GetRotation(id))}
+	}
 	// An anchor: `key` in pixels, else body k's centre.
 	anchor :: proc(L: ^lua.State, t: c.int, key: cstring, id: b2.BodyId) -> b2.Vec2 {
 		if field(L, t, key) == c.int(lua.Type.TABLE) {
@@ -847,9 +854,7 @@ read_joint :: proc(L: ^lua.State, s: ^Script, world: b2.WorldId, ground: b2.Body
 		at := anchor(L, t, "at", ids[1])
 		def := b2.DefaultRevoluteJointDef()
 		def.bodyIdA, def.bodyIdB = ids[0], ids[1]
-		def.localAnchorA = b2.Body_GetLocalPoint(ids[0], at)
-		def.localAnchorB = b2.Body_GetLocalPoint(ids[1], at)
-		def.referenceAngle = b2.Rot_GetAngle(b2.Body_GetRotation(ids[1])) - b2.Rot_GetAngle(b2.Body_GetRotation(ids[0]))
+		def.localFrameA, def.localFrameB = frame(ids[0], at), frame(ids[1], at)
 		def.collideConnected = collide
 		if field(L, t, "limit") == c.int(lua.Type.TABLE) {
 			lim := read_pair(L, -1) * (math.PI / 180)
@@ -865,9 +870,7 @@ read_joint :: proc(L: ^lua.State, s: ^Script, world: b2.WorldId, ground: b2.Body
 		at := anchor(L, t, "at", ids[1])
 		def := b2.DefaultWeldJointDef()
 		def.bodyIdA, def.bodyIdB = ids[0], ids[1]
-		def.localAnchorA = b2.Body_GetLocalPoint(ids[0], at)
-		def.localAnchorB = b2.Body_GetLocalPoint(ids[1], at)
-		def.referenceAngle = b2.Rot_GetAngle(b2.Body_GetRotation(ids[1])) - b2.Rot_GetAngle(b2.Body_GetRotation(ids[0]))
+		def.localFrameA, def.localFrameB = frame(ids[0], at), frame(ids[1], at)
 		def.collideConnected = collide
 		_ = b2.CreateWeldJoint(world, def)
 	case "rod", "rope", "spring":
@@ -876,8 +879,7 @@ read_joint :: proc(L: ^lua.State, s: ^Script, world: b2.WorldId, ground: b2.Body
 		d := to - from
 		def := b2.DefaultDistanceJointDef()
 		def.bodyIdA, def.bodyIdB = ids[0], ids[1]
-		def.localAnchorA = b2.Body_GetLocalPoint(ids[0], from)
-		def.localAnchorB = b2.Body_GetLocalPoint(ids[1], to)
+		def.localFrameA, def.localFrameB = frame(ids[0], from), frame(ids[1], to)
 		def.length = get_num(L, t, "length", math.sqrt(d.x * d.x + d.y * d.y) * PHYSICS_SCALE) / PHYSICS_SCALE
 		def.collideConnected = collide
 		switch kind {
