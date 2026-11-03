@@ -8,78 +8,71 @@ import platform "../platform"
 import render "../render"
 import ui "../ui"
 
-@(private = "file")
-watch_add :: proc(w: ^Watch_Table, section: Watch_Section, frame: int, label: string) {
-	g := &w.sections[section]
-	if g.count == 0 {
-		g.first = len(w.rows)
-	}
-	g.count += 1
-	append(&w.rows, Watch_Row{section = section, frame = frame, label = text_push(&w.text, label)})
-}
-
-// A mode lists its catalogs in order: the view descriptors (a Watch once
-// per section) and the panel's actions, or the rows of the sections
-// that are places to go. A filter keeps the options whose group and label
-// the one matcher finds it in (RAD's fuzzy_match_find), in the catalogs'
-// order.
+// A mode lists its catalogs in order: the view descriptors (a Watch tab
+// per table of WATCH_TABS, then an expression Watch) and the panel's
+// actions, or a command's query's rows (Go_To's: scenes, cues, problems,
+// marks). A filter keeps the options whose group and label the one matcher
+// finds it in (RAD's fuzzy_match_find), in the catalogs' order; a query's
+// rows, those whose labels it finds it in (their collections filter them).
 @(test)
 test_lister_options :: proc(t: ^testing.T) {
 	defer free_all(context.temp_allocator)
 	ws: Workspace
 	defer workspace_destroy(&ws)
 	workspace_init(&ws)
-	w: Watch_Table
-	defer watch_table_destroy(&w)
-	watch_add(&w, .Scenes, 0, "Intro")
-	watch_add(&w, .Scenes, 90, "Scene Two")
-	watch_add(&w, .Cues, 48, "drop")
-	watch_add(&w, .Problems, -1, "media/logo.png failed to load")
-	watch_add(&w, .Media, 12, "logo.png")
+	tables: Video_Tables
+	defer video_tables_destroy(&tables)
+	test_tables(&tables, {{"Intro", 0}, {"Scene Two", 90}}, {{"drop", 48}}, "media/logo.png failed to load")
+	waves: Wave_Table
 	video := workspace_view(&ws, workspace_find(&ws, .Video)).panel
-	list :: proc(ws: ^Workspace, w: ^Watch_Table, panel: Panel_Id, mode: Lister_Mode, query: string) -> (matches: [dynamic]Lister_Option, total: int) {
-		rows := lister_rows({w, 30, panel}, mode, query)
+	list :: proc(tables: ^Video_Tables, waves: ^Wave_Table, panel: Panel_Id, mode: Lister_Mode, query: string) -> (matches: [dynamic]Lister_Option, total: int) {
+		rows := lister_rows({reader = {tables = tables, waves = waves}, fps = 30, panel = panel, command = .Go_To}, mode, query)
 		matches = make([dynamic]Lister_Option, context.temp_allocator)
 		for i in 0 ..< rows.count do append(&matches, lister_option(&rows, i))
 		return matches, rows.total
 	}
 
-	add, total := list(&ws, &w, video, .Panel, "")
-	testing.expect_value(t, total, 2 + len(Watch_Section) + len(PANEL_ACTIONS))
+	add, total := list(&tables, &waves, video, .Panel, "")
+	testing.expect_value(t, total, 2 + len(WATCH_TABS) + 1 + len(PANEL_ACTIONS))
 	testing.expect_value(t, add[0].label, "Video")
 	testing.expect_value(t, add[0].row.kind, Command_Kind.View_Open)
 	testing.expect_value(t, add[0].row.regs.panel, video)
 	testing.expect_value(t, add[3].label, "Watch: Cues")
-	testing.expect_value(t, add[3].row.regs.section, Watch_Section.Cues)
+	testing.expect_value(t, add[3].summary, "1 cue")
+	testing.expect_value(t, add[3].row.regs.spec, "video:cues")
 	testing.expect_value(t, add[6].label, "Watch: Marks")
-	testing.expect_value(t, add[7].label, "Split right")
-	testing.expect_value(t, add[7].row.regs.panel, video)
+	testing.expect_value(t, add[7].label, "Watch")
+	testing.expect_value(t, add[7].row.regs.spec, "")
+	testing.expect_value(t, add[8].label, "Split right")
+	testing.expect_value(t, add[8].row.regs.panel, video)
 
-	// Places first; Media rows are not places.
-	go_to, _ := list(&ws, &w, video, .Go_To, "")
+	// Go_To's query: its rows in their collections' order, each filling
+	// the command's frame.
+	go_to, _ := list(&tables, &waves, video, .Query, "")
 	testing.expect_value(t, go_to[0].group, "Scene")
 	testing.expect_value(t, go_to[0].label, "Intro")
-	testing.expect_value(t, go_to[1].row.kind, Command_Kind.Frame_Set)
+	testing.expect_value(t, go_to[1].row.kind, Command_Kind.Go_To)
 	testing.expect_value(t, go_to[1].row.regs.count, 90)
 	testing.expect_value(t, go_to[1].summary, "00:03.00 · f 90")
 	testing.expect_value(t, go_to[2].group, "Cue")
-	// A problem at no frame opens the Watch on its section.
-	testing.expect_value(t, go_to[3].row.kind, Command_Kind.Watch_Show)
-	testing.expect_value(t, go_to[3].row.regs.section, Watch_Section.Problems)
-	testing.expect_value(t, go_to[4].group, "View")
+	// A problem at no frame fills nothing.
+	testing.expect_value(t, go_to[3].group, "Problem")
+	testing.expect_value(t, go_to[3].row.kind, Command_Kind.None)
+	testing.expect_value(t, go_to[3].summary, "at no frame")
+	testing.expect_value(t, len(go_to), 4)
 
 	// Matched, case ignored, in the catalogs' order.
-	sc, _ := list(&ws, &w, video, .Go_To, "SC")
-	testing.expect_value(t, len(sc), 3)
-	testing.expect_value(t, sc[0].label, "Intro")
-	testing.expect_value(t, sc[1].label, "Scene Two")
-	testing.expect_value(t, sc[2].label, "Watch: Scenes")
-	cues, _ := list(&ws, &w, video, .Panel, "cues")
+	sc, _ := list(&tables, &waves, video, .Query, "SC")
+	testing.expect_value(t, len(sc), 1)
+	testing.expect_value(t, sc[0].label, "Scene Two")
+	views, _ := list(&tables, &waves, video, .Panel, "SC")
+	testing.expect_value(t, views[0].label, "Watch: Scenes")
+	cues, _ := list(&tables, &waves, video, .Panel, "cues")
 	testing.expect_value(t, cues[0].label, "Watch: Cues")
-	drop, _ := list(&ws, &w, video, .Go_To, "drop")
+	drop, _ := list(&tables, &waves, video, .Query, "drop")
 	testing.expect_value(t, len(drop), 1)
 	testing.expect_value(t, drop[0].row.regs.count, 48)
-	none, _ := list(&ws, &w, video, .Go_To, "zzz")
+	none, _ := list(&tables, &waves, video, .Query, "zzz")
 	testing.expect_value(t, len(none), 0)
 
 	// RAD's matcher: substrings, parts in any order, each outside the ones
@@ -101,28 +94,26 @@ test_lister_query_keeps_order :: proc(t: ^testing.T) {
 	ws: Workspace
 	defer workspace_destroy(&ws)
 	workspace_init(&ws)
-	w: Watch_Table
-	defer watch_table_destroy(&w)
-	watch_add(&w, .Scenes, 0, "Outro media")
-	watch_add(&w, .Cues, 48, "media drop")
-	watch_add(&w, .Problems, -1, "media/logo.png failed to load")
-	watch_add(&w, .Marks, 60, "Media")
+	tables: Video_Tables
+	defer video_tables_destroy(&tables)
+	test_tables(&tables, {{"Outro media", 0}, {"Media", 60}}, {{"media drop", 48}}, "media/logo.png failed to load")
+	waves: Wave_Table
 	panel := workspace_view(&ws, workspace_find(&ws, .Video)).panel
-	labels :: proc(w: ^Watch_Table, panel: Panel_Id, query: string) -> []string {
-		rows := lister_rows({w, 30, panel}, .Go_To, query)
+	labels :: proc(tables: ^Video_Tables, waves: ^Wave_Table, panel: Panel_Id, query: string) -> []string {
+		rows := lister_rows({reader = {tables = tables, waves = waves}, fps = 30, panel = panel, command = .Go_To}, .Query, query)
 		out := make([dynamic]string, context.temp_allocator)
 		for i in 0 ..< rows.count do append(&out, lister_option(&rows, i).label)
 		return out[:]
 	}
-	// "media" is a whole word in the last mark and a better match there,
+	// "media" is a whole word in the second scene and a better match there,
 	// yet the rows keep their order.
-	got := labels(&w, panel, "media")
-	testing.expect(t, len(got) >= 4 && got[0] == "Outro media" && got[1] == "media drop" && got[2] == "media/logo.png failed to load" && got[3] == "Media")
-	got = labels(&w, panel, `LOGO MEDIA\`) // a backslash for the slash
+	got := labels(&tables, &waves, panel, "media")
+	testing.expect(t, len(got) == 4 && got[0] == "Outro media" && got[1] == "Media" && got[2] == "media drop" && got[3] == "media/logo.png failed to load")
+	got = labels(&tables, &waves, panel, `LOGO MEDIA\`) // a backslash for the slash
 	testing.expect(t, len(got) == 1 && got[0] == "media/logo.png failed to load")
-	got = labels(&w, panel, "png fail")
+	got = labels(&tables, &waves, panel, "png fail")
 	testing.expect(t, len(got) == 1)
-	testing.expect_value(t, len(labels(&w, panel, "png zzz")), 0)
+	testing.expect_value(t, len(labels(&tables, &waves, panel, "png zzz")), 0)
 }
 
 // The lister through its action rows: Down moves the selection, Enter
@@ -138,9 +129,7 @@ test_lister_keys :: proc(t: ^testing.T) {
 	workspace_init(&pv.workspace)
 	workspace_measure(&pv.workspace, {0, 0, 1280, 700}, 1, tabs_height(FONT_SIZE_DEFAULT), {.Video = -1, .Timeline = 100, .Watch = -1})
 	pv.timeline.fps = 30
-	watch_add(&pv.watch, .Scenes, 0, "Intro")
-	watch_add(&pv.watch, .Scenes, 90, "Two")
-	watch_add(&pv.watch, .Cues, 48, "drop")
+	test_tables(&pv.tables, {{"Intro", 0}, {"Two", 90}}, {{"drop", 48}})
 	p: platform.Platform
 	p.width, p.height = 1280, 800
 	font, font_ok := render.font_load(UI_FONT)
@@ -172,7 +161,7 @@ test_lister_keys :: proc(t: ^testing.T) {
 		return rows
 	}
 
-	workspace_apply(&pv.workspace, .Lister_Open, {lister = .Go_To})
+	workspace_apply(&pv.workspace, .Lister_Open, {lister = .Query, command = .Go_To})
 	testing.expect(t, pv.workspace.lister.panel != 0)
 	testing.expect_value(t, len(frame(&app, &s)), 0)
 	// A floating view's container lights no focus overlay; its search row
@@ -186,13 +175,13 @@ test_lister_keys :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(frame(&app, &s, {kind = .Navigate, delta_unit = .Char, delta = {0, 1}})), 0)
 	accepted := frame(&app, &s, {kind = .Press, slot = .Accept})
 	testing.expect_value(t, len(accepted), 2)
-	testing.expect_value(t, accepted[0].kind, Command_Kind.Frame_Set)
+	testing.expect_value(t, accepted[0].kind, Command_Kind.Go_To)
 	testing.expect_value(t, accepted[0].regs.count, 90)
 	testing.expect_value(t, accepted[1].kind, Command_Kind.Lister_Close)
 	testing.expect_value(t, pv.workspace.lister.panel, Panel_Id(0))
 
 	// Typing filters; Enter accepts the first match.
-	workspace_apply(&pv.workspace, .Lister_Open, {lister = .Go_To})
+	workspace_apply(&pv.workspace, .Lister_Open, {lister = .Query, command = .Go_To})
 	frame(&app, &s)
 	typed := frame(&app, &s, {kind = .Text, text = "d"}, {kind = .Text, text = "r"})
 	testing.expect_value(t, len(typed), 1)
@@ -324,9 +313,7 @@ test_keys_reach_the_focused_panel :: proc(t: ^testing.T) {
 	workspace_init(&pv.workspace)
 	pv.font_size = FONT_SIZE_DEFAULT // the window's font, as the preview opens with
 	pv.timeline.fps = 30
-	watch_add(&pv.watch, .Cues, 10, "one")
-	watch_add(&pv.watch, .Cues, 48, "two")
-	watch_add(&pv.watch, .Cues, 90, "three")
+	test_tables(&pv.tables, cues = {{"one", 10}, {"two", 48}, {"three", 90}})
 	p: platform.Platform
 	p.width, p.height, p.dpi_scale = 1280, 800, 1
 	font, font_ok := render.font_load(UI_FONT)
@@ -359,27 +346,22 @@ test_keys_reach_the_focused_panel :: proc(t: ^testing.T) {
 		clear(&batch.text)
 		return rows[:]
 	}
-	kinds :: proc(rows: []Command_Row) -> bit_set[Command_Kind] {
-		out: bit_set[Command_Kind]
-		for r in rows do out += {r.kind}
-		return out
-	}
-	watch_show(&app, .Cues)
-	watch := workspace_find_watch(&pv.workspace, .Cues)
+	watch_show(&app, "video:cues")
+	watch := workspace_find_watch(&pv.workspace, "video:cues")
 	testing.expect_value(t, pv.workspace.focused, workspace_view(&pv.workspace, watch).panel)
 	frame(&app, &s)
 	frame(&app, &s)
 	rows := frame(&app, &s, .Down)
 	testing.expect_value(t, view_list(pv, watch).cursor, 1)
-	testing.expect(t, .Volume_Step not_in kinds(rows))
+	testing.expect(t, !test_has(rows, .Volume_Step))
 	rows = frame(&app, &s, .Left)
 	testing.expect_value(t, len(rows), 0)
 	rows = frame(&app, &s, .Enter)
-	testing.expect(t, len(rows) == 1 && rows[0].kind == .Frame_Set && rows[0].regs.count == 48)
+	testing.expect(t, len(rows) == 1 && rows[0].kind == .Go_To && rows[0].regs.count == 48)
 	rows = frame(&app, &s, .Down)
 	rows = frame(&app, &s, .Space)
-	testing.expect(t, len(rows) == 1 && rows[0].kind == .Frame_Set && rows[0].regs.count == 90)
-	testing.expect(t, .Playback_Toggle not_in kinds(rows))
+	testing.expect(t, len(rows) == 1 && rows[0].kind == .Go_To && rows[0].regs.count == 90)
+	testing.expect(t, !test_has(rows, .Playback_Toggle))
 	// The video's panel focused: the same keys are its.
 	workspace_select(&pv.workspace, workspace_find(&pv.workspace, .Video))
 	frame(&app, &s)
@@ -665,7 +647,7 @@ test_tab_width_follows_its_title :: proc(t: ^testing.T) {
 	workspace_init(&pv.workspace)
 	pv.font_size = FONT_SIZE_DEFAULT // the window's font, as the preview opens with
 	pv.timeline.fps = 30
-	watch_add(&pv.watch, .Cues, 10, "one")
+	test_tables(&pv.tables, cues = {{"one", 10}})
 	p: platform.Platform
 	p.width, p.height, p.dpi_scale = 1280, 800, 1
 	font, font_ok := render.font_load(UI_FONT)
@@ -715,9 +697,9 @@ test_tab_width_follows_its_title :: proc(t: ^testing.T) {
 		for _, b in s.box_table do if b.str == title && b.parent != nil do return b.parent
 		return nil
 	}
-	widths: [Watch_Section]f32
-	for section in Watch_Section {
-		tab := workspace_find_watch(ws, section)
+	widths: [Test_Tab]f32
+	for section in Test_Tab {
+		tab := workspace_find_watch(ws, tab_of(section))
 		title, _ := view_title(&app, tab)
 		want := render.measure_text(&font, title, fs) + TAB_CLOSE * fs + fs
 		widths[section] = tab_width(&app, &s, tab)
@@ -732,14 +714,14 @@ test_tab_width_follows_its_title :: proc(t: ^testing.T) {
 	testing.expect(t, widths[.Marks] < widths[.Scenes])
 
 	// Every tab's last box is its X, clickable, an icon.
-	for section in Watch_Section {
-		title, _ := view_title(&app, workspace_find_watch(ws, section))
+	for section in Test_Tab {
+		title, _ := view_title(&app, workspace_find_watch(ws, tab_of(section)))
 		b := tab_box(&s, title)
 		testing.expect(t, b != nil && b.last != nil && .Clickable in b.last.flags && .Draw_Icon in b.last.flags)
 	}
 	// A click on the cues' X (the problems' tab shown) closes the cues.
-	shown := workspace_find_watch(ws, .Problems)
-	cues_title, _ := view_title(&app, workspace_find_watch(ws, .Cues))
+	shown := workspace_find_watch(ws, tab_of(.Problems))
+	cues_title, _ := view_title(&app, workspace_find_watch(ws, tab_of(.Cues)))
 	x := tab_box(&s, cues_title).last
 	at := (x.rect.min + x.rect.max) / 2
 	press :: proc(b: platform.Mouse_Button) -> platform.Event {return {kind = .Mouse_Press, button = b}}
@@ -747,11 +729,11 @@ test_tab_width_follows_its_title :: proc(t: ^testing.T) {
 	frame(&app, &s, at)
 	frame(&app, &s, at, press(.Left))
 	frame(&app, &s, at, release(.Left))
-	testing.expect_value(t, workspace_find_watch(ws, .Cues), View_Id(0))
+	testing.expect_value(t, workspace_find_watch(ws, tab_of(.Cues)), View_Id(0))
 	testing.expect_value(t, workspace_panel(ws, workspace_view(ws, shown).panel).shown, shown)
 	// A middle click on the marks' tab (its title) closes it.
 	for _ in 0 ..< 30 do frame(&app, &s, {}) // the tabs ease into their new places
-	marks_title, _ := view_title(&app, workspace_find_watch(ws, .Marks))
+	marks_title, _ := view_title(&app, workspace_find_watch(ws, tab_of(.Marks)))
 	title_box: ^ui.Box
 	for _, b in s.box_table do if b.str == marks_title do title_box = b
 	testing.expect(t, title_box != nil)
@@ -760,12 +742,12 @@ test_tab_width_follows_its_title :: proc(t: ^testing.T) {
 		frame(&app, &s, at)
 		frame(&app, &s, at, press(.Middle))
 		frame(&app, &s, at, release(.Middle))
-		testing.expect_value(t, workspace_find_watch(ws, .Marks), View_Id(0))
-		testing.expect(t, workspace_find_watch(ws, .Problems) == shown)
+		testing.expect_value(t, workspace_find_watch(ws, tab_of(.Marks)), View_Id(0))
+		testing.expect(t, workspace_find_watch(ws, tab_of(.Problems)) == shown)
 	}
 	// A middle click on the scenes' X is the X's alone: one close, the tab
 	// neither shown nor closed twice.
-	scenes := workspace_find_watch(ws, .Scenes)
+	scenes := workspace_find_watch(ws, tab_of(.Scenes))
 	scenes_title, _ := view_title(&app, scenes)
 	x = tab_box(&s, scenes_title).last
 	at = (x.rect.min + x.rect.max) / 2
@@ -774,7 +756,7 @@ test_tab_width_follows_its_title :: proc(t: ^testing.T) {
 	released := frame(&app, &s, at, release(.Middle))
 	testing.expect_value(t, count(pressed, .View_Select) + count(released, .View_Select), 0)
 	testing.expect_value(t, count(pressed, .View_Close) + count(released, .View_Close), 1)
-	testing.expect_value(t, workspace_find_watch(ws, .Scenes), View_Id(0))
+	testing.expect_value(t, workspace_find_watch(ws, tab_of(.Scenes)), View_Id(0))
 
 	// The + toggles its lister on press: open, held and let go open; pressed
 	// again, closed, and let go closed.
@@ -823,7 +805,7 @@ test_tab_bar_scrolls_sideways :: proc(t: ^testing.T) {
 	defer delete(p.input.events)
 	watch_open_all(&app, .Problems)
 	ws := &pv.workspace
-	panel := workspace_view(ws, workspace_find_watch(ws, .Problems)).panel
+	panel := workspace_view(ws, workspace_find_watch(ws, tab_of(.Problems))).panel
 	frame :: proc(app: ^App_State, s: ^ui.State, at: [2]f32, wheel: f32 = 0) {
 		p := s.p
 		clear(&p.input.events)
@@ -838,7 +820,7 @@ test_tab_bar_scrolls_sideways :: proc(t: ^testing.T) {
 	}
 	for _ in 0 ..< 3 do frame(&app, &s, {})
 	// The bar: the Watch's first tab's parent.
-	title, _ := view_title(&app, workspace_find_watch(ws, .Scenes))
+	title, _ := view_title(&app, workspace_find_watch(ws, tab_of(.Scenes)))
 	bar: ^ui.Box
 	for _, b in s.box_table do if b.str == title && b.parent != nil do bar = b.parent.parent
 	testing.expect(t, bar != nil)
@@ -904,8 +886,8 @@ test_tab_drag_ends_leave_no_hollow_tab :: proc(t: ^testing.T) {
 	}
 	// Where a tab's title is (its title box), and whether the tab is built
 	// whole (not hollow: its title there).
-	title_at :: proc(app: ^App_State, s: ^ui.State, section: Watch_Section) -> (at: [2]f32, whole: bool) {
-		title, _ := view_title(app, workspace_find_watch(&app.preview.workspace, section))
+	title_at :: proc(app: ^App_State, s: ^ui.State, section: Test_Tab) -> (at: [2]f32, whole: bool) {
+		title, _ := view_title(app, workspace_find_watch(&app.preview.workspace, tab_of(section)))
 		for _, b in s.box_table do if b.str == title && b.parent != nil && b.last_build_index == s.build_index {
 			return (b.rect.min + b.rect.max) / 2, true
 		}
@@ -947,7 +929,7 @@ test_tab_drag_ends_leave_no_hollow_tab :: proc(t: ^testing.T) {
 	there := [2]f32{video.x + video.width - 20, video.y + ws.tab_height / 2}
 	frame(&app, &s, there, true)
 	frame(&app, &s, there, false)
-	testing.expect_value(t, workspace_view(ws, workspace_find_watch(ws, .Scenes)).panel, workspace_view(ws, workspace_find(ws, .Video)).panel)
+	testing.expect_value(t, workspace_view(ws, workspace_find_watch(ws, tab_of(.Scenes))).panel, workspace_view(ws, workspace_find(ws, .Video)).panel)
 	after(t, &app, &s, there, "another panel")
 	// Escape.
 	at = start(t, &app, &s)
@@ -1074,10 +1056,10 @@ test_controls_bar_play_and_time :: proc(t: ^testing.T) {
 	}
 }
 
-// Every Watch section's tab, in order in one panel, `shown`'s shown: a
+// Every Watch tab on a table, in order in one panel, `shown`'s shown: a
 // tab bar full enough to size, scroll and drag tabs in.
 @(private = "file")
-watch_open_all :: proc(app: ^App_State, shown: Watch_Section) {
-	for section in Watch_Section do watch_show(app, section)
-	watch_show(app, shown)
+watch_open_all :: proc(app: ^App_State, shown: Test_Tab) {
+	for section in Test_Tab do watch_show(app, tab_of(section))
+	watch_show(app, tab_of(shown))
 }

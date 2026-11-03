@@ -234,21 +234,11 @@ timeline_row_open :: proc(app: ^App_State, item: Timeline_Item) -> bool {
 // children counted where they live (the table's `kids`) and its open ones
 // found from their keys; then spans of row numbers over the blocks in
 // order. Consumers ask the spans: the total rows and points, or a window of
-// rows (only those are read: rows_window).
+// rows (only those are read: rows_window). Its blocks' opens and spans are
+// the Watch's (Block_Open, Row_Span: eval_rows.odin).
 Row_Block :: struct {
 	kids:  []i32, // its children (items), in order
 	opens: []Block_Open, // by place, ascending
-}
-
-Block_Open :: struct {
-	at, block: int, // a child's place among its siblings, and its block
-}
-
-// Rows [lo, hi) of block `block`'s children; with `opens`, its last row's
-// block follows.
-Row_Span :: struct {
-	block, lo, hi: int,
-	opens:         bool,
 }
 
 Timeline_Rows :: struct {

@@ -171,7 +171,7 @@ Preview_State :: struct {
 	// What the UI took from the mailbox (owned copies).
 	seen_publish:       u64,
 	seen_timeline:      u64,
-	seen_watch:         u64,
+	seen_tables:        u64,
 	seen_waves:         u64,
 	seen_media:         u64,
 	seen_thumbs:        u64,
@@ -223,7 +223,10 @@ Preview_State :: struct {
 	load_phase:         Load_Phase,
 	load_files:         int,
 	load_seconds:       f64,
-	watch:              Watch_Table,
+	// The video's tables (the evaluator's), the expression a Watch is
+	// typing, the timeline's table (its tracks too) and the media's.
+	tables:             Video_Tables,
+	watch_edit:         Watch_Edit,
 	waves:              Wave_Table,
 	media:              Media_Table,
 	media_images:       [dynamic]vg.Image_Id, // parallel to media.rows (image thumbnails, the window's canvas's)
@@ -285,6 +288,8 @@ Preview_Icon :: enum u8 {
 	Bookmark,
 	Sound,
 	Muted,
+	Collapsed,
+	Expanded,
 }
 PREVIEW_ICONS :: [Preview_Icon]string {
 	.Search = "M10 4 A6 6 0 1 0 10 16 A6 6 0 1 0 10 4 Z M14.5 14.5 L20 20",
@@ -296,6 +301,10 @@ PREVIEW_ICONS :: [Preview_Icon]string {
 	// a speaker with its waves, and with an X (muted)
 	.Sound    = "M11 5 L6 9 L2 9 L2 15 L6 15 L11 19 Z M15.5 8.5 A5 5 0 0 1 15.5 15.5 M19 5 A10 10 0 0 1 19 19",
 	.Muted    = "M11 5 L6 9 L2 9 L2 15 L6 15 L11 19 Z M16 9 L22 15 M22 9 L16 15",
+	// an expander's: closed (pointing on) and open (pointing down), RAD's
+	// right and down arrows
+	.Collapsed = "M9 6 L15 12 L9 18",
+	.Expanded  = "M6 9 L12 15 L18 9",
 }
 
 // The window's bars (the transport controls, the status line), in the
@@ -653,7 +662,7 @@ preview_report :: proc(app: ^App_State) {
 		len(pv.thumbs),
 		len(pv.waves.lanes),
 		len(pv.media.rows),
-		pv.watch.sections[.Problems].count,
+		len(pv.tables.problems),
 		", rendering" if pv.rendering else "",
 		fmt.tprintf(", reload error: %s", pv.reload_error) if pv.reload_error != "" else "",
 	)
@@ -752,7 +761,7 @@ preview_drive :: proc(app: ^App_State, s: ^ui.State, drive: string, frames: int)
 		case 30:
 			command_push(c, .Mark_Point)
 		case 32:
-			command_push(c, .Watch_Show, {section = .Marks})
+			command_push(c, .Watch_Show, {spec = "video:marks"})
 		}
 	}
 	if strings.contains(drive, "seek") {
@@ -781,10 +790,10 @@ preview_drive_workspace :: proc(app: ^App_State, drive: string, frames: int) {
 	video := workspace_view(ws, workspace_find(ws, .Video))
 	timeline := workspace_find(ws, .Timeline)
 	if frames == 2 && strings.contains(drive, "watch") {
-		command_push(c, .Watch_Show, {section = .Cues})
+		command_push(c, .Watch_Show, {spec = "video:cues"})
 	}
 	if frames == 2 && strings.contains(drive, "media") {
-		command_push(c, .Watch_Show, {section = .Media})
+		command_push(c, .Watch_Show, {spec = "video:media"})
 	}
 	if frames == 10 && strings.contains(drive, "split") && video != nil {
 		command_push(c, .Panel_Split, {panel = video.panel, direction = .Right, ratio = 2.0 / 3})
@@ -803,9 +812,12 @@ preview_drive_workspace :: proc(app: ^App_State, drive: string, frames: int) {
 	}
 	if frames == 40 && strings.contains(drive, "pick") {
 		if v := workspace_view(ws, workspace_shown(ws, .Watch)); v != nil {
-			g := app.preview.watch.sections[v.section]
-			if g.count > 0 {
-				watch_row_click(app, app.preview.watch.rows[g.first + min(2, g.count - 1)])
+			// its third row's frame, as a click on it goes there
+			blocks := watch_blocks(app, v)
+			rows := make([dynamic]View_Row, context.temp_allocator)
+			blocks_window(&blocks, min(2, max(blocks.total - 1, 0)), 1, &rows)
+			if len(rows) > 0 {
+				if f := row_frame(&blocks.r, rows[0].value); f >= 0 do command_push(c, .Go_To, {count = f})
 			}
 		}
 	}
@@ -821,10 +833,11 @@ preview_drive_workspace :: proc(app: ^App_State, drive: string, frames: int) {
 }
 
 // The drive's lister steps, as Ctrl+P, the + and typed keys reach it:
-// "goto" opens it on the places to go (window frame 60), types its filter
-// ("goto=QUERY", default "scene"; 64), moves the selection down (70) and
-// picks with Enter (80); "openview" opens it on the views of the video's
-// panel (60), types "cues" (64) and picks with Enter (80).
+// "goto" presses Ctrl+P (Go_To's query: the scenes, cues, problems and
+// marks; window frame 60), types its filter ("goto=QUERY", default none;
+// 64), moves the selection down (70) and picks with Enter (80); "openview"
+// opens it on the views of the video's panel (60), types "cues" (64) and
+// picks with Enter (80).
 @(private = "file")
 preview_drive_lister :: proc(app: ^App_State, s: ^ui.State, drive: string, frames: int) {
 	c := &app.commands
@@ -835,7 +848,7 @@ preview_drive_lister :: proc(app: ^App_State, s: ^ui.State, drive: string, frame
 	}
 	query := "cues"
 	if go_to {
-		query = "scene"
+		query = ""
 		if i := strings.index(drive, "goto="); i >= 0 {
 			query = drive[i + len("goto="):]
 			if end := strings.index_any(query, " ,"); end >= 0 {
@@ -852,7 +865,8 @@ preview_drive_lister :: proc(app: ^App_State, s: ^ui.State, drive: string, frame
 	switch frames {
 	case 60:
 		if go_to {
-			command_push(c, .Lister_Open, {lister = .Go_To})
+			press := [1]platform.Event{key_press(.P, {.Control})}
+			key_route(app, s, press[:])
 		} else if v := workspace_view(ws, workspace_find(ws, .Video)); v != nil {
 			command_push(c, .Lister_Open, {panel = v.panel, lister = .Panel})
 		}
@@ -877,7 +891,8 @@ preview_state_destroy :: proc(pv: ^Preview_State) {
 	delete(pv.script_props)
 	delete(pv.reload_error)
 	delete(pv.device_name)
-	watch_table_destroy(&pv.watch)
+	video_tables_destroy(&pv.tables)
+	delete(pv.watch_edit.text)
 	workspace_destroy(&pv.workspace)
 	delete(pv.lister.query)
 	wave_table_destroy(&pv.waves)
@@ -1226,13 +1241,17 @@ preview_apply :: proc(app: ^App_State, kind: Command_Kind, regs: Command_Regs) {
 	case .Fullscreen_Toggle:
 		pv.fullscreen = !pv.fullscreen
 	case .Watch_Show:
-		watch_show(app, regs.section)
+		watch_show(app, regs.spec)
+	case .Go_To:
+		pv.detached = false
+		preview_seek(app, regs.count)
 	case .View_Scroll:
 		// A view's register: its first row shown, within its rows.
 		if v := workspace_view(&pv.workspace, regs.view); v != nil {
 			switch v.kind {
 			case .Watch:
-				v.scroll = clamp(regs.count, 0, max(pv.watch.sections[v.section].count - 1, 0))
+				blocks := watch_blocks(app, v)
+				v.scroll = clamp(regs.count, 0, max(blocks.total - 1 + int(!v.scoped), 0))
 			case .Timeline:
 				// its rows' list's: units of ROW_UNIT points, to its last
 				v.scroll = clamp(regs.count, 0, max(int(timeline_rows(app).points) / ROW_UNIT - 1, 0))
@@ -1364,17 +1383,17 @@ present_scene_hold :: proc(app: ^App_State) -> om.Hold {
 	return app.preview.timeline.scenes[scene].hold if scene >= 0 else .Freeze
 }
 
-// Shows the Watch's tab on `section` and focuses its panel (RAD's views
+// Shows the Watch tab on `expression` and focuses its panel (RAD's views
 // grouped in a panel as tabs). One not open opens after the other Watch
 // tabs; with none open, in a panel of its own beside the video
 // (WATCH_WIDTH wide), else in the focused panel.
 @(private)
-watch_show :: proc(app: ^App_State, section: Watch_Section) {
+watch_show :: proc(app: ^App_State, expression: string) {
 	pv := &app.preview
 	ws := &pv.workspace
-	id := workspace_find_watch(ws, section)
+	id := workspace_find_watch(ws, expression)
 	if other := workspace_view(ws, workspace_find(ws, .Watch)); id == 0 && other != nil {
-		id = workspace_open(ws, other.panel, .Watch, previous = workspace_panel(ws, other.panel).last, section = section)
+		id = workspace_open(ws, other.panel, .Watch, previous = workspace_panel(ws, other.panel).last, expression = expression)
 	} else if id == 0 {
 		panel, direction, ratio := ws.focused, Direction.None, f32(0)
 		if video := workspace_view(ws, workspace_find(ws, .Video)); video != nil {
@@ -1385,23 +1404,25 @@ watch_show :: proc(app: ^App_State, section: Watch_Section) {
 				}
 			}
 		}
-		id = workspace_open(ws, panel, .Watch, direction, ratio, section = section)
+		id = workspace_open(ws, panel, .Watch, direction, ratio, expression = expression)
 	}
 	workspace_select(ws, id)
 }
 
-// The frame of the next (`steps` > 0) or previous Watch row with a warning
-// or an error after (before) the playhead, wrapping around; the playhead
-// when there is none.
+// The frame of the next (`steps` > 0) or previous scene, cue, problem or
+// media file with a warning or an error after (before) the playhead,
+// wrapping around; the playhead when there is none.
 @(private)
 problem_step_target :: proc(app: ^App_State, steps: int) -> int {
 	pv := &app.preview
+	t := &pv.tables
+	frames := make([dynamic]int, context.temp_allocator)
+	for r in t.scenes do if r.status >= .Warning do append(&frames, r.start)
+	for r in t.cues do if r.status >= .Warning do append(&frames, r.frame)
+	for r in t.problems do if r.status >= .Warning && r.first >= 0 do append(&frames, r.first)
+	for r in t.media do if r.status >= .Warning && r.first >= 0 do append(&frames, r.first)
 	near, wrap := -1, -1
-	for row in pv.watch.rows {
-		if row.status < .Warning || row.frame < 0 {
-			continue
-		}
-		f := row.frame
+	for f in frames {
 		if steps > 0 {
 			if f > pv.frame && (near < 0 || f < near) {
 				near = f
@@ -1675,9 +1696,9 @@ preview_take_published :: proc(app: ^App_State, c: ^vg.Canvas, now: f64) {
 		}
 		timeline_changed = true
 	}
-	if mb.watch_seq != pv.seen_watch {
-		pv.seen_watch = mb.watch_seq
-		watch_table_copy(&pv.watch, &mb.watch)
+	if mb.tables_seq != pv.seen_tables {
+		pv.seen_tables = mb.tables_seq
+		video_tables_copy(&pv.tables, &mb.tables)
 	}
 	if mb.waves_seq != pv.seen_waves {
 		pv.seen_waves = mb.waves_seq
@@ -2336,12 +2357,7 @@ status_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32) {
 	pv := &app.preview
 	// Problems since the load, not per frame: the line holds still while
 	// frames with and without findings alternate.
-	errors, warnings := 0, 0
-	g := pv.watch.sections[.Problems]
-	for row in pv.watch.rows[g.first:][:g.count] {
-		errors += int(row.status == .Error)
-		warnings += int(row.status == .Warning)
-	}
+	errors, warnings := pv.tables.errors, pv.tables.warnings
 	problems := "no problems"
 	if errors + warnings > 0 {
 		problems = fmt.tprintf("%d errors, %d warnings", errors, warnings)
@@ -2394,7 +2410,7 @@ status_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32) {
 	ui.build_box(s, {.Draw_Text}, text)
 	ui.pop_parent(s)
 	if ui.clicked(ui.signal_from_box(s, bar)) {
-		command_push(&app.commands, .Watch_Show, {section = .Problems})
+		command_push(&app.commands, .Watch_Show, {spec = "video:problems"})
 	}
 }
 

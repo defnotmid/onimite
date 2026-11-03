@@ -188,15 +188,15 @@ tab_width :: proc(app: ^App_State, s: ^ui.State, tab: View_Id) -> f32 {
 
 // A view's title (RAD's title from its cfg): what the tabs, the dragged
 // tab's label and the lister call it, in its colour (alpha 0: the theme's
-// text). A Watch's is its section's name and count, in its worst status's
-// colour.
+// text). A Watch tab's is its table's title and count, in its worst
+// status's colour (watch_title).
 view_title :: proc(app: ^App_State, id: View_Id) -> (title: string, color: [4]u8) {
 	v := workspace_view(&app.preview.workspace, id)
 	if v == nil {
 		return
 	}
 	if v.kind == .Watch {
-		return watch_title(&app.preview.watch, v.section)
+		return watch_title(app, v)
 	}
 	descriptors := VIEW_DESCRIPTORS
 	return descriptors[v.kind].name, {}

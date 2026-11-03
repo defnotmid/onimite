@@ -13,16 +13,17 @@ import ui "../ui"
 // group, a label, a summary and the command row accepting it pushes;
 // what a lister lists is its mode's row in LISTER_MODES (its catalogs, in
 // order, preview_lister_catalogs.odin), built on demand from the tables the
-// preview already has. The state is the mode, the panel it was opened for
-// and the filter; the view keeps only a draft of the filter, the
-// selection and the scroll, and pushes rows: the filter, the option
-// accepted, closing.
+// preview already has. The state is the mode, the panel it was opened for,
+// the command whose query it is (a Query) and the filter; the view keeps
+// only a draft of the filter, the selection and the scroll, and pushes
+// rows: the filter, the option accepted, closing.
 
 Lister :: struct {
 	// The leaf it was opened for (0: closed).
-	panel: Panel_Id,
-	mode:  Lister_Mode,
-	query: [dynamic]u8,
+	panel:   Panel_Id,
+	mode:    Lister_Mode,
+	command: Command_Kind,
+	query:   [dynamic]u8,
 }
 
 // One option: its group (what kind of thing it is) and label, which the
@@ -33,9 +34,9 @@ Lister_Option :: struct {
 	row:                   Command_Row,
 }
 
-lister_open :: proc(l: ^Lister, panel: Panel_Id, mode: Lister_Mode) {
+lister_open :: proc(l: ^Lister, panel: Panel_Id, mode: Lister_Mode, command := Command_Kind.None) {
 	lister_close(l)
-	l.panel, l.mode = panel, mode
+	l.panel, l.mode, l.command = panel, mode, command
 }
 
 lister_filter_set :: proc(l: ^Lister, query: string) {
@@ -60,7 +61,8 @@ Lister_Ref :: struct {
 // every option of its catalogs in order, counted where they live and read
 // by place (lister_ref); filtered, every option's group and label read and
 // the matches of the one matcher (fuzzy_find, RAD's) kept in their
-// catalogs' order: nothing is ranked.
+// catalogs' order: nothing is ranked. A query's rows are filtered in their
+// collections instead (its catalog `filters`): their labels, as a Watch's.
 Lister_Rows :: struct {
 	src:      Lister_Source,
 	catalogs: []Lister_Catalog,
@@ -73,8 +75,16 @@ Lister_Rows :: struct {
 
 lister_rows :: proc(src: Lister_Source, mode: Lister_Mode, query: string) -> (r: Lister_Rows) {
 	r.src, r.catalogs = src, LISTER_MODES[mode].catalogs
+	if mode == .Query {
+		// the command's query's rows, scoped (each item's rows the top level)
+		inputs := make([]Watch_Input, 1, context.temp_allocator)
+		inputs[0] = {COMMAND_KINDS[src.command].query, 0}
+		blocks := new(View_Blocks, context.temp_allocator)
+		blocks^ = view_blocks(src.reader, {inputs = inputs, scoped = true, filter = query})
+		r.src.blocks = blocks
+	}
 	for catalog in r.catalogs {
-		r.counts[catalog] = LISTER_CATALOGS[catalog].count(src)
+		r.counts[catalog] = LISTER_CATALOGS[catalog].count(r.src)
 		r.total += r.counts[catalog]
 	}
 	r.count = r.total
@@ -85,8 +95,11 @@ lister_rows :: proc(src: Lister_Source, mode: Lister_Mode, query: string) -> (r:
 	found := make([dynamic]Lister_Ref, context.temp_allocator)
 	for catalog in r.catalogs {
 		for i in 0 ..< r.counts[catalog] {
-			o := LISTER_CATALOGS[catalog].option(src, i)
-			if fuzzy_find(lister_text(o), query) do append(&found, Lister_Ref{catalog, i})
+			if !LISTER_CATALOGS[catalog].filters {
+				o := LISTER_CATALOGS[catalog].option(r.src, i)
+				if !fuzzy_find(lister_text(o), query) do continue
+			}
+			append(&found, Lister_Ref{catalog, i})
 		}
 	}
 	r.matches, r.count = found[:], len(found)
@@ -163,8 +176,9 @@ lister_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32, content: Workspace_
 	}
 	v.shown = true
 	mode := LISTER_MODES[l.mode]
+	if l.mode == .Query do mode.title = fmt.tprintf("%s %s", COMMAND_KINDS[l.command].label, COMMAND_KINDS[l.command].about)
 	query := string(l.query[:])
-	rows := lister_rows({&pv.watch, preview_fps(app), l.panel}, l.mode, query)
+	rows := lister_rows({reader = preview_reader(app), fps = preview_fps(app), panel = l.panel, command = l.command}, l.mode, query)
 
 	// RAD's rectangle: sized by its rows (and its search row) up to a limit.
 	fs := ui.top_font_size(s)
@@ -220,7 +234,10 @@ lister_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32, content: Workspace_
 		v.selected = 0
 		animation.scroll_to(&v.list, 0)
 	}
+	// A row that fills nothing (a query's row its command can't take: a
+	// problem at no frame) leaves the lister open.
 	accept :: proc(c: ^Command_Storage, o: Lister_Option) {
+		if o.row.kind == .None do return
 		command_push(c, o.row.kind, o.row.regs)
 		command_push(c, .Lister_Close)
 	}

@@ -1,6 +1,8 @@
 package onimite_app
 
+import "core:fmt"
 import "core:math"
+import "core:strings"
 import ui "../ui"
 
 // The preview's workspace, after oasic's: panels that split, and views as
@@ -22,21 +24,25 @@ View_Kind :: enum u8 {
 	Watch,
 }
 
-// What a view is called and shows (a Watch: what its sections' counts
-// count), and whether it opens on one of the Watch's sections. The
-// workspace holds at most one of each: the video, the timeline and a Watch
-// on each section.
+// What a view is called and shows, and whether it opens as a Watch: on one
+// of the video's tables (WATCH_TABS), or empty, for the expressions you
+// type. The workspace holds at most one video, one timeline and one Watch
+// on each table; expression Watches, as many as are opened.
 View_Descriptor :: struct {
-	name:     string,
-	about:    string,
-	sections: bool,
+	name:    string,
+	about:   string,
+	watches: bool,
 }
 
 VIEW_DESCRIPTORS :: [View_Kind]View_Descriptor {
 	.Video    = {"Video", "the rendered frame", false},
 	.Timeline = {"Timeline", "ruler, scenes, cues and sound", false},
-	.Watch    = {"Watch", "rows", true},
+	.Watch    = {"Watch", "the expressions you type, each a row that unfolds", true},
 }
+
+// The Watch tabs on the video's tables: each the Watch of one fixed
+// expression, scoped (its rows are the top level).
+WATCH_TABS :: [?]string{"video:scenes", "video:cues", "video:problems", "video:media", "video:marks"}
 
 Direction :: enum u8 {
 	None,
@@ -76,11 +82,19 @@ View_Record :: struct {
 	panel:          Panel_Id,
 	previous, next: View_Id,
 	// Its first row shown (View_Scroll: a Watch's rows, the timeline's
-	// below the scenes); a Watch's section (fixed when it opens) and its
-	// filter (View_Filter, owned): the rows whose labels match.
-	section:        Watch_Section,
+	// below the scenes) and a Watch's filter (View_Filter, owned): the
+	// top-level rows whose labels match.
 	scroll:         int,
 	filter:         [dynamic]u8,
+	// A Watch's expressions (owned) in order: scoped, its one expression's
+	// rows are its top level (a tab on one of the video's tables, fixed
+	// when it opens); else each is a row of its own (the expression
+	// Watch). Its open rows by their keys (owned), and the next
+	// expression's id.
+	inputs:         [dynamic]Watch_Input,
+	scoped:         bool,
+	expanded:       [dynamic]string,
+	next_input:     u32,
 }
 
 // Where a panel is this window frame, in pixels: its whole area, below its
@@ -132,7 +146,7 @@ workspace_init :: proc(ws: ^Workspace) {
 }
 
 workspace_destroy :: proc(ws: ^Workspace) {
-	for &v in ws.views do delete(v.filter)
+	for &v in ws.views do view_record_free(&v)
 	delete(ws.panels)
 	delete(ws.views)
 	delete(ws.areas)
@@ -170,14 +184,24 @@ workspace_find :: proc(ws: ^Workspace, kind: View_Kind) -> View_Id {
 	return 0
 }
 
-// The open Watch on `section` (0: none).
-workspace_find_watch :: proc(ws: ^Workspace, section: Watch_Section) -> View_Id {
+// The open Watch tab on `expression` (0: none).
+workspace_find_watch :: proc(ws: ^Workspace, expression: string) -> View_Id {
 	for v, i in ws.views {
-		if v.live && v.kind == .Watch && v.section == section {
+		if v.live && v.kind == .Watch && v.scoped && len(v.inputs) == 1 && v.inputs[0].source == expression {
 			return View_Id(i + 1)
 		}
 	}
 	return 0
+}
+
+// What a view owns, freed (a closed view stays a tombstone).
+@(private = "file")
+view_record_free :: proc(v: ^View_Record) {
+	delete(v.filter)
+	for input in v.inputs do delete(input.source)
+	delete(v.inputs)
+	for key in v.expanded do delete(key)
+	delete(v.expanded)
 }
 
 // The open view of `kind` when its panel shows it (0: none or hidden).
@@ -324,12 +348,15 @@ collapse_empty :: proc(ws: ^Workspace, panel: Panel_Id) {
 	}
 }
 
-// Opens a view of `kind` (a Watch on `section`) in leaf `panel` after
-// `previous`, or (with a direction) in a new panel on that side of it. One
-// already open (the video, the timeline, the Watch on that section) moves
-// there instead. Returns the view.
-workspace_open :: proc(ws: ^Workspace, panel: Panel_Id, kind: View_Kind, direction := Direction.None, ratio: f32 = 0, previous := View_Id(0), section := Watch_Section.Scenes) -> View_Id {
-	if open := workspace_find_watch(ws, section) if kind == .Watch else workspace_find(ws, kind); open != 0 {
+// Opens a view of `kind` (a Watch: a tab on `expression`, scoped; with none,
+// an expression Watch) in leaf `panel` after `previous`, or (with a
+// direction) in a new panel on that side of it. One already open (the
+// video, the timeline, the Watch tab on that expression) moves there
+// instead. Returns the view.
+workspace_open :: proc(ws: ^Workspace, panel: Panel_Id, kind: View_Kind, direction := Direction.None, ratio: f32 = 0, previous := View_Id(0), expression := "") -> View_Id {
+	open := workspace_find(ws, kind)
+	if kind == .Watch do open = workspace_find_watch(ws, expression) if expression != "" else 0
+	if open != 0 {
 		if p := workspace_leaf(ws, panel); p != nil && (p != workspace_panel(ws, workspace_view(ws, open).panel) || direction != .None) {
 			workspace_move(ws, open, panel, previous if previous != 0 || direction != .None else p.last, direction, ratio)
 		}
@@ -346,8 +373,13 @@ workspace_open :: proc(ws: ^Workspace, panel: Panel_Id, kind: View_Kind, directi
 	if direction != .None {
 		target = workspace_split(ws, panel, direction, ratio)
 	}
-	append(&ws.views, View_Record{live = true, kind = kind, section = section})
+	append(&ws.views, View_Record{live = true, kind = kind})
 	id := View_Id(len(ws.views))
+	if kind == .Watch && expression != "" {
+		v := workspace_view(ws, id)
+		append(&v.inputs, Watch_Input{strings.clone(expression), 0})
+		v.scoped, v.next_input = true, 1
+	}
 	view_attach(ws, id, target, previous if direction == .None else 0)
 	return id
 }
@@ -357,8 +389,8 @@ workspace_close_view :: proc(ws: ^Workspace, id: View_Id) {
 	if v == nil {
 		return
 	}
-	delete(v.filter)
-	v.filter = {}
+	view_record_free(v)
+	v.filter, v.inputs, v.expanded = {}, {}, {}
 	panel := v.panel
 	view_detach(ws, id)
 	v^ = {}
@@ -442,7 +474,7 @@ workspace_apply :: proc(ws: ^Workspace, kind: Command_Kind, regs: Command_Regs) 
 			p.fit = false
 		}
 	case .View_Open:
-		workspace_open(ws, regs.panel, regs.view_kind, regs.direction, f32(regs.ratio), regs.previous, regs.section)
+		workspace_open(ws, regs.panel, regs.view_kind, regs.direction, f32(regs.ratio), regs.previous, regs.spec)
 	case .View_Close:
 		// No view named: the focused panel's shown tab (RAD's close_tab,
 		// its tab register defaulting to it).
@@ -453,14 +485,60 @@ workspace_apply :: proc(ws: ^Workspace, kind: Command_Kind, regs: Command_Regs) 
 		workspace_select(ws, regs.view)
 	case .View_Move:
 		workspace_move(ws, regs.view, regs.panel, regs.previous, regs.direction, f32(regs.ratio))
+	case .Watch_Expand, .Watch_Input_Add, .Watch_Input_Set, .Watch_Input_Remove, .Watch_Input_Move:
+		if v := workspace_view(ws, regs.view); v != nil && v.kind == .Watch do watch_apply(v, kind, regs)
 	case .Lister_Open:
 		if panel := regs.panel if regs.panel != 0 else ws.focused; workspace_leaf(ws, panel) != nil {
-			lister_open(&ws.lister, panel, regs.lister)
+			lister_open(&ws.lister, panel, regs.lister, regs.command)
 		}
 	case .Lister_Filter:
 		lister_filter_set(&ws.lister, regs.spec)
 	case .Lister_Close:
 		lister_close(&ws.lister)
+	}
+}
+
+// A Watch's own commands: a row opened or closed (Watch_Expand, its key in
+// regs.spec), and, in an expression Watch, an expression added at a place
+// (regs.count; past the end: last), set, removed or moved to another place
+// (regs.option). Its open rows below a removed expression go with it.
+@(private = "file")
+watch_apply :: proc(v: ^View_Record, kind: Command_Kind, regs: Command_Regs) {
+	#partial switch kind {
+	case .Watch_Expand:
+		for key, i in v.expanded {
+			if key == regs.spec {
+				delete(key)
+				ordered_remove(&v.expanded, i)
+				return
+			}
+		}
+		append(&v.expanded, strings.clone(regs.spec))
+	case .Watch_Input_Add:
+		if v.scoped do return
+		inject_at(&v.inputs, clamp(regs.count, 0, len(v.inputs)), Watch_Input{strings.clone(regs.spec), v.next_input})
+		v.next_input += 1
+	case .Watch_Input_Set:
+		if v.scoped || regs.count < 0 || regs.count >= len(v.inputs) do return
+		delete(v.inputs[regs.count].source)
+		v.inputs[regs.count].source = strings.clone(regs.spec)
+	case .Watch_Input_Remove:
+		if v.scoped || regs.count < 0 || regs.count >= len(v.inputs) do return
+		prefix := fmt.tprintf("i%d", v.inputs[regs.count].id)
+		for i := len(v.expanded) - 1; i >= 0; i -= 1 {
+			if key := v.expanded[i]; key == prefix || strings.has_prefix(key, prefix) && (key[len(prefix)] == '/' || key[len(prefix)] == ',') {
+				delete(key)
+				ordered_remove(&v.expanded, i)
+			}
+		}
+		delete(v.inputs[regs.count].source)
+		ordered_remove(&v.inputs, regs.count)
+	case .Watch_Input_Move:
+		if v.scoped || regs.count < 0 || regs.count >= len(v.inputs) do return
+		to := clamp(regs.option, 0, len(v.inputs) - 1)
+		input := v.inputs[regs.count]
+		ordered_remove(&v.inputs, regs.count)
+		inject_at(&v.inputs, to, input)
 	}
 }
 

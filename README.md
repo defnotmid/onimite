@@ -417,22 +417,46 @@ drag a tab onto another panel's tab strip, centre or edge to move it there
 or split the panel; drag a splitter to resize; a tab's X, a middle click on
 it or Ctrl+W (the focused panel's) closes a tab; the wheel over the tabs
 scrolls them sideways when they don't fit; `+` lists
-what opens in the panel (the video, the timeline, a Watch on each section,
-a split, closing it) and Ctrl+P every scene, cue and problem to go to, both
-filtered as you type (each space-separated word anywhere in a row, any
-case; rows keep their order). A timeline in a panel beside another and taller than
+what opens in the panel (the video, the timeline, a Watch tab on each of
+the video's tables, an expression Watch, a split, closing it) and Ctrl+P
+the scenes, cues, problems and marks to go to, both filtered as you type
+(each space-separated word anywhere in a row's name, any case; rows keep
+their order). A timeline in a panel beside another and taller than
 wide runs its ruler, scenes and cues top to bottom, without its lanes: the
 scenes take the panel's width beside a column of cue names as wide as the
 longest. The cues stay with the ruler and the scenes while the lanes scroll. The timeline's lanes scroll as a list (the wheel over them, the scroll
-bar). The **Watch** lists the video's scenes (with
-the problems seen in each), cues (with their sync findings: drift, a `hit`
-with no sound near it), problems, media (thumbnails; failed files, sounds
-no track plays) and marks, each section a tab of its own titled with its
-row count (in its worst row's colour when that is a warning or an error),
-each row coloured by its status; a click goes to its frame, and N jumps to
-the next row with a warning or an error. D and I open the problems' and the
-media's tab, the first Watch tab in a panel beside the video and the others
-after it (one already open is shown); `+` opens any section's in its panel.
+bar). The **Watch** is a debugger's watch window over the video's tables:
+each row an expression with its value. Its tabs on the tables
+(`video:scenes`, `video:cues`, `video:problems`, `video:media`,
+`video:marks`) list the scenes (with the problems seen in each), cues (with
+their sync findings: drift, a `hit` with no sound near it), problems, media
+(thumbnails; failed files, sounds no track plays) and marks, each tab titled
+with its row count (in its worst row's colour when that is a warning or an
+error), each row coloured by its status; a click goes to its frame, and N
+jumps to the next row with a warning or an error. D and I open the
+problems' and the media's tab, the first Watch tab in a panel beside the
+video and the others after it (one already open is shown); `+` opens any
+table's in its panel. A row's arrow (or a press on it) unfolds it into its
+members, as a debugger's watch does: a scene into its `name`, `start`,
+`end`, `cue`, `source`, `hold`, `status` and its `problems`, which unfold
+in turn; a problem into what it says and the `scenes` it was seen in.
+
+An **expression Watch** (`+`, "Watch") holds the expressions you type, one
+a row: type (or paste) on its last row to add one, Enter commits, Esc
+drops the edit; on an expression's row Enter (or a click) edits it, Delete
+removes it, Alt+Up / Alt+Down move it, Ctrl+C copies its expression. The
+language is small: the roots `scenes`, `cues`, `problems`, `media`,
+`marks` and `tracks` (the timeline's groups, tracks and parts);
+`.member` (`scenes.Race.start`, `cues.drop.frame`); a row by its name in
+the member form (`scenes.Race`), or in quotes when the name isn't a plain
+word (`scenes["Big Finish"]`, `media["logo.png"]`); a row by its place
+(`scenes[3]`, from 0); `video:` before a root names the video's tables
+(`video:scenes`); a comma lists several (`scenes, cues`). Two rows with one
+name are an error that names each one's place (`2 scenes named Race:
+scenes[3], scenes[7]`); `.domain` of a field with fixed choices lists them
+(`scenes.Race.hold.domain`), and `.status` of a table is its worst row's.
+A row's expression is what Ctrl+C copies, ready to paste into another
+Watch or to quote to an agent.
 
 The window never waits on Lua, a fence or a file: a render worker owns the
 script, the media and the canvas and publishes frames through a mailbox
@@ -442,7 +466,7 @@ callback is the playback clock, and the UI thread only draws.
 The arrows, Home / End, Page Up / Down, Delete, Backspace, Enter and Space
 go to the focused panel (a click on a view focuses its panel): the video's
 and the timeline's are the keys below, a Watch's move its cursor row (Enter
-or Space goes to its frame), a field's edit its text. The letter keys work
+or Space goes to its frame, or edits an expression), a field's edit its text. The letter keys work
 anywhere. A key works with exactly the modifiers it lists, and held it
 repeats. A wheel notch scrolls a list three rows.
 
@@ -468,10 +492,11 @@ repeats. A wheel notch scrolls a list three rows.
 | N / Shift+N | next / previous scene, cue, problem or media row with a warning or an error |
 | Shift+L | loop |
 | R | reload |
-| Ctrl+P | go to a scene, cue or problem (type to filter, Up/Down, Enter) |
+| Ctrl+P | go to a scene, cue, problem or mark (Go to: type to filter its names, Up/Down, Enter) |
 | Ctrl+F (in a Watch's panel: click it first) | filter its rows (type; Esc clears the filter and closes it) |
 | Alt+= / Alt+-, Ctrl+wheel (not over the video or the timeline) | the window's text a point larger / smaller |
-| Up / Down, Page Up / Down, Enter, Space (a focused Watch) | move its cursor row; Enter or Space goes to the row's frame |
+| Up / Down, Page Up / Down, Enter, Space (a focused Watch) | move its cursor row; Enter or Space goes to the row's frame (on an expression: edits it) |
+| typing, Ctrl+V / Delete / Alt+Up, Alt+Down / Ctrl+C (an expression Watch) | add or edit an expression / remove it / move it / copy a row's expression |
 | Ctrl+C / Ctrl+X / Ctrl+V, Ctrl+A (in a field) | copy / cut / paste, select all |
 | Ctrl+O | open a script (or drop a `.lua` file) |
 | Esc | closes the list or a Watch's filter, or drops a dragged tab where it was |

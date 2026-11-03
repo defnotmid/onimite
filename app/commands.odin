@@ -78,6 +78,7 @@ Command_Kind :: enum u8 {
 	Fullscreen_Toggle,
 	Cursor_Hover,
 	Watch_Show,
+	Go_To,
 	View_Scroll,
 	View_Filter,
 	Problem_Step,
@@ -138,6 +139,11 @@ Command_Kind :: enum u8 {
 	View_Close,
 	View_Select,
 	View_Move,
+	Watch_Expand,
+	Watch_Input_Add,
+	Watch_Input_Set,
+	Watch_Input_Remove,
+	Watch_Input_Move,
 	Lister_Open,
 	Lister_Filter,
 	Lister_Close,
@@ -216,6 +222,19 @@ Command_Descriptor :: struct {
 	missing:  string,
 	images:   Mcp_Images,
 	mcp_note: string,
+	// How its operand is asked for (RAD Debugger's q_expr): the lister over
+	// the rows of `query`, a picked row filling register `slot` from what
+	// it is (command_run, query_choose).
+	query:    string,
+	slot:     Reg_Slot,
+}
+
+// The register a row picked for a query fills, from its kind (RAD's
+// RD_RegSlot, rd_regs_fill_slot_from_eval): a frame, regs.count (the
+// row's frame, row_frame).
+Reg_Slot :: enum u8 {
+	None,
+	Frame,
 }
 
 @(rodata)
@@ -369,10 +388,15 @@ COMMAND_KINDS := [Command_Kind]Command_Descriptor {
 	.Video_Fit = {help = "fit the video in its panel", domain = .Preview},
 	.Fullscreen_Toggle = {domain = .Preview},
 	.Cursor_Hover = {help = "regs.count the frame under the mouse on the timeline; lasts one window frame", domain = .Preview},
-	.Watch_Show = {help = "regs.section: shows that section's Watch tab and focuses its panel; one not open opens after the other Watch tabs, or with none open in a panel of its own beside the video", domain = .Preview},
+	.Watch_Show = {help = "regs.spec an expression (video:problems): shows the Watch tab on it and focuses its panel; one not open opens after the other Watch tabs, or with none open in a panel of its own beside the video", domain = .Preview},
+	.Go_To = {
+		help = "regs.count a frame: the playhead goes there. Run without one (Ctrl+P), its query asks for it: the lister over scenes, cues, problems and marks, a picked row filling it with the row's frame (RAD Debugger's goto_name)",
+		domain = .Preview, label = "Go to", about = "a scene, cue, problem or mark",
+		query = "scenes, cues, problems, marks", slot = .Frame,
+	},
 	.View_Scroll = {help = "regs.view a view (a Watch, the timeline's rows below the scenes), regs.count its first row shown (regs.flag: there at once, as a dragged scroll thumb)", domain = .Preview},
 	.View_Filter = {help = "regs.view a Watch, regs.spec its filter: the rows whose labels hold each of its space-separated parts, any case, a slash either way (the one matcher, RAD Debugger's), in their order", domain = .Preview},
-	.Problem_Step = {help = "regs.count: to the next (-1: previous) Watch row with a warning or error after the playhead, wrapping around", domain = .Preview},
+	.Problem_Step = {help = "regs.count: to the next (-1: previous) scene, cue, problem or media file with a warning or error after the playhead, wrapping around", domain = .Preview},
 	.Quit = {domain = .Preview},
 	.Font_Size_Increase = {help = "the window's font size a point up, to 72 (RAD Debugger's inc_window_font_size; Alt+=, and the wheel with Control over nothing that takes it)", domain = .Preview},
 	.Font_Size_Decrease = {help = "the window's font size a point down, to 6 (dec_window_font_size; Alt+-)", domain = .Preview},
@@ -426,11 +450,16 @@ COMMAND_KINDS := [Command_Kind]Command_Descriptor {
 	},
 	.Panel_Close = {help = "regs.panel a leaf, with its views", domain = .Workspace, label = "Close panel", about = "with its views"},
 	.Panel_Resize = {help = "regs.panel a split, regs.ratio its first side's share", domain = .Workspace},
-	.View_Open = {help = "regs.view_kind (a Watch on regs.section) in regs.panel after regs.previous, or with regs.direction in a new panel on that side (regs.ratio as Panel_Split); an open video, timeline or Watch on that section moves there instead", domain = .Workspace},
+	.View_Open = {help = "regs.view_kind (a Watch: the tab on regs.spec, an expression; none, an expression Watch) in regs.panel after regs.previous, or with regs.direction in a new panel on that side (regs.ratio as Panel_Split); an open video, timeline or Watch tab on that expression moves there instead", domain = .Workspace},
 	.View_Close = {help = "regs.view (0: the focused panel's shown tab, as Ctrl+W, RAD's close_tab); a panel it leaves empty closes", domain = .Workspace},
 	.View_Select = {help = "regs.view: the tab its panel shows", domain = .Workspace},
 	.View_Move = {help = "regs.view into regs.panel after regs.previous (0: first), or with regs.direction into a new panel on that side; what a tab dropped somewhere pushes", domain = .Workspace},
-	.Lister_Open = {help = "regs.lister the mode (what it lists), for leaf regs.panel (0: the focused one)", domain = .Workspace},
+	.Watch_Expand = {help = "regs.view a Watch, regs.spec a row's key: opens the row into its members or rows, or closes it", domain = .Workspace},
+	.Watch_Input_Add = {help = "regs.view an expression Watch, regs.spec an expression added at place regs.count (past the end: last)", domain = .Workspace},
+	.Watch_Input_Set = {help = "regs.view an expression Watch, regs.count an expression's place, regs.spec its new text", domain = .Workspace},
+	.Watch_Input_Remove = {help = "regs.view an expression Watch, regs.count the place of the expression removed", domain = .Workspace},
+	.Watch_Input_Move = {help = "regs.view an expression Watch, regs.count an expression's place, regs.option the place it moves to", domain = .Workspace},
+	.Lister_Open = {help = "regs.lister the mode (what it lists; Query: regs.command's query), for leaf regs.panel (0: the focused one)", domain = .Workspace},
 	.Lister_Filter = {help = "regs.spec the lister's filter", domain = .Workspace},
 	.Lister_Close = {domain = .Workspace},
 }
@@ -546,8 +575,8 @@ Command_Regs :: struct {
 	previous:   View_Id,
 	direction:  Direction,
 	view_kind:  View_Kind,
-	section:    Watch_Section,
 	lister:     Lister_Mode,
+	command:    Command_Kind,
 }
 
 Command_Row :: struct {

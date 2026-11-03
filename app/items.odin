@@ -9,8 +9,9 @@ import script "../script"
 
 // What the video's parts are called and what they say, for every view of
 // them: `onimite show` (text and --json are two prints of one result),
-// `inspect`'s findings, and the preview's timeline rows and Watch rows. A
-// view never words an item itself.
+// `inspect`'s findings, the preview's timeline rows and the evaluator's
+// rows (value_text, which the Watch shows). A view never words an item
+// itself.
 
 // A placed track in one line: its file, span, scene, bus, level, pan,
 // fades, where in the file it starts, voice and ducking, and its cue.
@@ -49,13 +50,21 @@ track_summary :: proc(p: om.Placed_Track) -> string {
 
 // A scene in one line: its frames and seconds, its cue and script line.
 scene_summary :: proc(s: om.Scene_Info, fps: f64) -> string {
-	cue := fmt.tprintf("  cue %s", s.scene.cue) if s.scene.cue != "" else ""
-	return fmt.tprintf("frames %d..%d (%.2fs..%.2fs)%s  %s", s.start_frame, s.end_frame, f64(s.start_frame) / fps, f64(s.end_frame) / fps, cue, s.scene.source)
+	return scene_frames_summary(s.start_frame, s.end_frame, s.scene.cue, s.scene.source, fps)
+}
+
+scene_frames_summary :: proc(start, end: int, cue, source: string, fps: f64) -> string {
+	on := fmt.tprintf("  cue %s", cue) if cue != "" else ""
+	return fmt.tprintf("frames %d..%d (%.2fs..%.2fs)%s  %s", start, end, f64(start) / fps, f64(end) / fps, on, source)
 }
 
 // A cue in one line: its time, frame and script line.
 cue_summary :: proc(c: script.Cue, fps: int) -> string {
-	return fmt.tprintf("%.3fs (frame %d)  %s", c.seconds, om.frame_at(c.seconds, fps), c.at)
+	return cue_time_summary(c.seconds, om.frame_at(c.seconds, fps), c.at)
+}
+
+cue_time_summary :: proc(seconds: f64, frame: int, at: string) -> string {
+	return fmt.tprintf("%.3fs (frame %d)  %s", seconds, frame, at)
 }
 
 // When a finding was seen, in which scenes ("Warning 1.20s..1.40s (frames
@@ -166,16 +175,15 @@ media_first_frame :: proc(placed: []om.Placed_Track, name: string, fps: int) -> 
 	return first
 }
 
-// ---- the preview's Watch rows ----------------------------------------------------------
+// ---- the evaluator's rows (value_text) ---------------------------------------------------
 
-// A scene: its name; the problems seen in it, its length and what `show`
-// says of it.
-scene_watch :: proc(s: om.Scene_Info, fps: int, problems: int) -> (label, detail: string) {
-	detail = fmt.tprintf("%.2fs long  %s", f64(s.end_frame - s.start_frame) / f64(fps), scene_summary(s, f64(fps)))
+// A scene row: the problems seen in it, its length and what `show` says of it.
+scene_row_text :: proc(name: string, start, end: int, cue, source: string, problems: int, fps: int) -> string {
+	detail := fmt.tprintf("%.2fs long  %s", f64(end - start) / f64(fps), scene_frames_summary(start, end, cue, source, f64(fps)))
 	if problems > 0 {
 		detail = fmt.tprintf("%d problem%s  %s", problems, "" if problems == 1 else "s", detail)
 	}
-	return s.scene.name, detail
+	return detail
 }
 
 // A mark: its number; when it is (a moment, or a range and its length).
@@ -188,26 +196,28 @@ mark_watch :: proc(m: Mark, fps: int) -> (label, detail: string) {
 	return label, fmt.tprintf("%.2fs to %.2fs  %.2fs long", from, to, to - from)
 }
 
-// A cue: its name; its sync finding (`finding`, "" for none) and what
-// `show` says of it.
-cue_watch :: proc(c: script.Cue, fps: int, finding: string) -> (label, detail: string) {
-	detail = cue_summary(c, fps)
-	if c.hit != "" {
-		detail = fmt.tprintf("%s  hit %s", detail, c.hit)
+// A cue row: its sync finding (`finding`, "" for none) and what `show`
+// says of it.
+cue_row_text :: proc(seconds: f64, frame: int, at, hit, finding: string) -> string {
+	detail := cue_time_summary(seconds, frame, at)
+	if hit != "" {
+		detail = fmt.tprintf("%s  hit %s", detail, hit)
 	}
 	if finding != "" {
 		detail = fmt.tprintf("%s  %s", finding, detail)
 	}
-	return c.name, detail
+	return detail
 }
 
-// A finding: its message; when it was seen and the script line.
-finding_watch :: proc(f: Finding) -> (label, detail: string) {
-	detail = finding_when(f)
-	if f.source != "" {
-		detail = fmt.tprintf("%s  %s", detail, f.source)
+// A problem row: when it was seen (finding_when) and the script line.
+problem_row_text :: proc(severity: om.Severity, first, last, frames: int, scenes: []string, source: string, fps: int) -> string {
+	f := Finding{severity = severity_name(severity), first_frame = max(first, 0), last_frame = max(last, 0), frames = frames, scenes = scenes, source = source}
+	f.first_seconds, f.last_seconds = f32(f.first_frame) / f32(fps), f32(f.last_frame) / f32(fps)
+	detail := finding_when(f)
+	if source != "" {
+		detail = fmt.tprintf("%s  %s", detail, source)
 	}
-	return f.message, detail
+	return detail
 }
 
 // A media item: its name; what it is and where it is first used. Only

@@ -23,7 +23,8 @@ test_preview_keys :: proc(t: ^testing.T) {
 		app.preview.workspace.lister.panel = 1 if modal else 0
 		key_route(app, s, {key_press(key, mods, repeat)})
 		app.preview.workspace.lister.panel = 0
-		return app.commands.pending.rows[0].row if len(app.commands.pending.rows) == 1 else {}
+		batch := &app.commands.pending
+		return command_row_of(batch, batch.rows[0]) if len(batch.rows) == 1 else {}
 	}
 	event :: proc(s: ^ui.State) -> ui.Action_Row {return s.actions.rows[0] if len(s.actions.rows) == 1 else {}}
 	testing.expect_value(t, press(&app, &s, .J).kind, Command_Kind.Frame_Step)
@@ -33,8 +34,12 @@ test_preview_keys :: proc(t: ^testing.T) {
 	testing.expect_value(t, press(&app, &s, .S, {.Shift}).regs.count, -1)
 	testing.expect_value(t, press(&app, &s, .O, {.Control}).kind, Command_Kind.File_Dialog)
 	testing.expect_value(t, press(&app, &s, .Q, {.Control}).kind, Command_Kind.None)
-	testing.expect_value(t, press(&app, &s, .D).regs.section, Watch_Section.Problems)
-	testing.expect_value(t, press(&app, &s, .I).regs.section, Watch_Section.Media)
+	testing.expect_value(t, press(&app, &s, .D).regs.spec, "video:problems")
+	testing.expect_value(t, press(&app, &s, .I).regs.spec, "video:media")
+	// Ctrl+P runs Go_To as RAD's RunCommand: without its frame, its query
+	// asks for it (the lister on the command's query).
+	go_to := press(&app, &s, .P, {.Control})
+	testing.expect(t, go_to.kind == .Lister_Open && go_to.regs.lister == .Query && go_to.regs.command == .Go_To)
 	testing.expect_value(t, press(&app, &s, .N).kind, Command_Kind.Problem_Step)
 	testing.expect_value(t, press(&app, &s, .N, {.Shift}).regs.count, -1)
 	// Exactly its modifiers: Control+Shift+O is no row's.
@@ -70,10 +75,10 @@ test_preview_keys :: proc(t: ^testing.T) {
 	testing.expect(t, ui.action_pressed(&s, .Cancel))
 	press(&app, &s, .Up, {.Alt})
 	testing.expect(t, event(&s).delta == {0, -1} && .Reorder in event(&s).flags)
-	// Ctrl+P opens the lister on the places to go; while it is up, only the
+	// Ctrl+P opens the lister on Go_To's query; while it is up, only the
 	// UI's keys (and `modal` rows) run, Search dropped (the lister has the keys).
 	testing.expect_value(t, press(&app, &s, .P, {.Control}).kind, Command_Kind.Lister_Open)
-	testing.expect_value(t, press(&app, &s, .P, {.Control}).regs.lister, Lister_Mode.Go_To)
+	testing.expect_value(t, press(&app, &s, .P, {.Control}).regs.lister, Lister_Mode.Query)
 	testing.expect_value(t, press(&app, &s, .O, {.Control}, modal = true).kind, Command_Kind.None)
 	press(&app, &s, .Down, modal = true)
 	testing.expect_value(t, event(&s).delta, [2]i32{0, 1})
@@ -147,8 +152,8 @@ test_search_focuses_the_focused_watch_filter :: proc(t: ^testing.T) {
 	key_route(&app, &s, ctrl_f)
 	testing.expect_value(t, len(app.commands.pending.rows), 0)
 	testing.expect_value(t, len(pv.view_filters), 0)
-	watch_show(&app, .Cues)
-	watch := workspace_find_watch(&pv.workspace, .Cues)
+	watch_show(&app, tab_of(.Cues))
+	watch := workspace_find_watch(&pv.workspace, tab_of(.Cues))
 	key_route(&app, &s, ctrl_f)
 	testing.expect(t, view_filter_field(pv, watch).focused)
 	testing.expect_value(t, len(app.commands.pending.rows), 0)

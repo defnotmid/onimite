@@ -57,10 +57,12 @@ Present :: enum u8 {
 	Immediate,
 }
 
-// The pointer's shapes, as RAD Debugger's WM_Cursor: the arrow, a text
-// field's I-beam, and a divider's or slider's resize arrows.
+// The pointer's shapes, as RAD Debugger's WM_Cursor: the arrow, an
+// expander's pointing hand, a text field's I-beam, and a divider's or
+// slider's resize arrows.
 Cursor :: enum u8 {
 	Pointer,
+	Hand_Point,
 	IBar,
 	Left_Right,
 	Up_Down,
@@ -95,7 +97,7 @@ init :: proc(p: ^Platform, title: cstring, w, h: i32, present := Present.Auto) -
 	}
 	p.input.focused = .INPUT_FOCUS in sdl.GetWindowFlags(p.window)
 	p.input.moved_ns = sdl.GetTicksNS()
-	SYSTEM_CURSORS :: [Cursor]sdl.SystemCursor{.Pointer = .DEFAULT, .IBar = .TEXT, .Left_Right = .EW_RESIZE, .Up_Down = .NS_RESIZE}
+	SYSTEM_CURSORS :: [Cursor]sdl.SystemCursor{.Pointer = .DEFAULT, .Hand_Point = .POINTER, .IBar = .TEXT, .Left_Right = .EW_RESIZE, .Up_Down = .NS_RESIZE}
 	for kind, c in SYSTEM_CURSORS do p.cursors[c] = sdl.CreateSystemCursor(kind)
 	// SPIR-V (Vulkan) and MSL (Metal) only: ovg and the UI commit no DXIL,
 	// so Windows runs SDL_GPU on Vulkan.

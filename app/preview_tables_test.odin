@@ -76,6 +76,27 @@ test_timeline_items :: proc(t: ^testing.T) {
 	testing.expect_value(t, items[2].parent, 1)
 	testing.expect_value(t, path(&b, 4), "track/0")
 	testing.expect_value(t, items[4].parent, -1)
+	// The tracks' rows, as the timeline shows them: the bus's group (its
+	// tracks its children) and the lone track, at the top; each its item's
+	// name and path, its fields typed.
+	w := &b.table
+	testing.expect_value(t, len(w.tracks), 4)
+	testing.expect_value(t, w.track_top[1], 2)
+	group := w.tracks[w.track_kids[w.track_top[0]]]
+	testing.expect(t, group.kind == .Group && text_of(w.text[:], group.path) == "bus/sfx" && group.children[1] == 2 && group.plays == 2 && group.gain_db == -6)
+	early := w.tracks[w.track_kids[group.children[0]]]
+	testing.expect(t, early.kind == .Track && text_of(w.text[:], early.src) == "early" && early.start == 1000.0 / om.MIX_RATE)
+	tables: Video_Tables
+	defer video_tables_destroy(&tables)
+	r := Reader{tables = &tables, waves = w}
+	defer free_all(context.temp_allocator)
+	v, error := evaluate(&r, `tracks["bus sfx"].tracks.early.bus`)
+	testing.expect(t, error == "" && v.text == "sfx")
+	v, error = evaluate(&r, "tracks.music.gain_db")
+	testing.expect(t, error == "" && v.kind == .Number)
+	// Laid out again (clips landed), the rows are made anew, not added.
+	wave_builder_lanes(&b, placed, {1, 2, 0}, &video, 3, nil)
+	testing.expect_value(t, len(b.table.tracks), 4)
 	for wave_builder_pending(&b) {
 		wave_builder_step(&b)
 	}
@@ -97,11 +118,13 @@ test_timeline_items :: proc(t: ^testing.T) {
 	}
 }
 
-// The Watch's rows: a scene with the problems seen in it, a cue its sync
-// finding names (by family too), the problems grouped like `inspect`'s and
-// most severe first, the load's at no frame.
+// The tables' producers: a scene with the problems seen in it (its
+// status their worst), a cue its sync finding names (by family too), the
+// problems grouped like `inspect`'s and most severe first, the load's at
+// no frame, each worded as the Watch words it.
 @(test)
-test_watch_rows :: proc(t: ^testing.T) {
+test_table_producers :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
 	intro, outro := om.Scene{name = "Intro"}, om.Scene{name = "Outro"}
 	scenes := []om.Scene_Info{{0, &intro, 0, 30, 30, false}, {1, &outro, 30, 60, 30, true}}
 	tl := om.Timeline{scenes, 60}
@@ -119,28 +142,33 @@ test_watch_rows :: proc(t: ^testing.T) {
 	testing.expect(t, finding_add(&findings, nil, LOAD_FRAME, load))
 	cues := []script.Cue{{"drop", 1.5, "", "video.lua:9"}, {"beat[2]", 0.5, "", "video.lua:10"}}
 	sync := []om.Diagnostic{{severity = .Warning, code = .Cue_Drift, name = "beat[*]", a = "3 of 3 animate keys", b = "their cues", w = -0.5}}
-	table: Watch_Table
-	defer watch_table_destroy(&table)
-	watch_table_build(&table, {timeline = &tl, fps = 30, findings = &findings, cues = cues, sync = sync})
-	row :: proc(t: ^Watch_Table, section: Watch_Section, i: int) -> Watch_Row {return t.rows[t.sections[section].first + i]}
-	label :: proc(t: ^Watch_Table, section: Watch_Section, i: int) -> string {return text_of(t.text[:], row(t, section, i).label)}
+	tables: Video_Tables
+	defer video_tables_destroy(&tables)
+	video_tables_build(&tables, {timeline = &tl, fps = 30, findings = &findings, cues = cues, sync = sync})
+	waves: Wave_Table
+	r := Reader{tables = &tables, waves = &waves}
+	text :: proc(t: ^Video_Tables, span: Text_Span) -> string {return text_of(t.text[:], span)}
 
-	testing.expect_value(t, table.sections[.Scenes].count, 2)
-	testing.expect_value(t, row(&table, .Scenes, 0).status, Watch_Status.Warning)
-	testing.expect_value(t, row(&table, .Scenes, 1).status, Watch_Status.Ok)
-	testing.expect_value(t, row(&table, .Scenes, 1).frame, 30)
-	testing.expect_value(t, row(&table, .Cues, 0).status, Watch_Status.Ok)
-	testing.expect_value(t, row(&table, .Cues, 0).frame, 45)
-	testing.expect_value(t, row(&table, .Cues, 1).status, Watch_Status.Warning)
-	testing.expect_value(t, table.sections[.Cues].worst, Watch_Status.Warning)
-	testing.expect_value(t, table.sections[.Problems].count, 2)
-	testing.expect_value(t, row(&table, .Problems, 0).status, Watch_Status.Error)
-	testing.expect_value(t, row(&table, .Problems, 0).frame, -1)
-	testing.expect_value(t, label(&table, .Problems, 0), `video.lua:3: the track plays "music.mp3", which is not in the media`)
-	testing.expect_value(t, row(&table, .Problems, 1).frame, 12)
-	testing.expect_value(t, label(&table, .Problems, 1), `text "title" is cut off by the canvas edge (x=10 y=0 w=0 h=0)`)
-	testing.expect_value(t, text_of(table.text[:], row(&table, .Problems, 1).detail), "Warning 0.40s..0.67s (frames 12..20, seen in 3) [Intro]")
-	testing.expect_value(t, table.sections[.Media].count, 0)
+	testing.expect_value(t, len(tables.scenes), 2)
+	testing.expect_value(t, tables.scenes[0].status, Status.Warning)
+	testing.expect_value(t, tables.scenes[1].status, Status.Ok)
+	testing.expect_value(t, tables.scenes[1].start, 30)
+	testing.expect_value(t, tables.scenes[0].problems, [2]i32{0, 1})
+	testing.expect_value(t, tables.cues[0].status, Status.Ok)
+	testing.expect_value(t, tables.cues[0].frame, 45)
+	testing.expect_value(t, tables.cues[1].status, Status.Warning)
+	testing.expect_value(t, tables.worst[.Cues], Status.Warning)
+	testing.expect_value(t, len(tables.problems), 2)
+	testing.expect_value(t, tables.problems[0].status, Status.Error)
+	testing.expect_value(t, tables.problems[0].first, -1)
+	testing.expect_value(t, text(&tables, tables.problems[0].message), `video.lua:3: the track plays "music.mp3", which is not in the media`)
+	testing.expect_value(t, tables.problems[1].first, 12)
+	testing.expect_value(t, tables.problems[1].scenes, [2]i32{0, 1})
+	testing.expect_value(t, text(&tables, tables.problems[1].message), `text "title" is cut off by the canvas edge (x=10 y=0 w=0 h=0)`)
+	testing.expect_value(t, value_text(&r, {kind = .Problem, ref = {.Problem, 1}}), "Warning 0.40s..0.67s (frames 12..20, seen in 3) [Intro]")
+	testing.expect_value(t, tables.errors, 1)
+	testing.expect_value(t, tables.warnings, 1)
+	testing.expect_value(t, len(tables.media), 0)
 }
 
 // Marks written beside a clip read back as they were (moments and ranges,

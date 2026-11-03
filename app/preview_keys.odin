@@ -51,7 +51,7 @@ PREVIEW_KEYS := [?]Key_Binding {
 	{key = .Equal, kind = .Timeline_Zoom, regs = {scalar = 1.5, count = -1}},
 	{key = .Minus, kind = .Timeline_Zoom, regs = {scalar = 1 / 1.5, count = -1}},
 	{key = .R, kind = .Script_Reload, regs = {flag = true}},
-	{key = .D, kind = .Watch_Show, regs = {section = .Problems}},
+	{key = .D, kind = .Watch_Show, regs = {spec = "video:problems"}},
 	{key = .N, mods = {.Shift}, kind = .Problem_Step, regs = {count = -1}},
 	{key = .N, kind = .Problem_Step, regs = {count = 1}},
 	{key = .M, kind = .Bookmark_Toggle},
@@ -62,8 +62,8 @@ PREVIEW_KEYS := [?]Key_Binding {
 	{key = .Enter, mods = {.Control}, kind = .Fullscreen_Toggle}, // RAD's toggle_fullscreen
 	{key = .T, kind = .Timeline_Toggle},
 	{key = .Z, kind = .Video_Fit},
-	{key = .I, kind = .Watch_Show, regs = {section = .Media}},
-	{key = .P, mods = {.Control}, kind = .Lister_Open, regs = {lister = .Go_To}},
+	{key = .I, kind = .Watch_Show, regs = {spec = "video:media"}},
+	{key = .P, mods = {.Control}, kind = .Go_To}, // its query asks where (command_run)
 	{key = .W, mods = {.Control}, kind = .View_Close}, // RAD's close_tab: the focused panel's shown tab
 	{key = .F, mods = {.Control}, kind = .Search},
 	{key = .Q, kind = .Quit},
@@ -199,7 +199,8 @@ key_route :: proc(app: ^App_State, s: ^ui.State, events: []platform.Event) {
 
 // Runs the first row of the mode's tables for a key press: its key with
 // exactly its modifiers (RAD's binding); while the lister is up only the
-// UI's rows. False when none ran.
+// UI's rows. A preview command runs as RAD's RunCommand (command_run: one
+// with a query asks for its operand). False when none ran.
 key_binding_run :: proc(app: ^App_State, s: ^ui.State, e: platform.Event) -> bool {
 	modal := app.preview.workspace.lister.panel != 0
 	tables := [2][]Key_Binding{{}, PREVIEW_KEYS[:]}
@@ -218,7 +219,7 @@ key_binding_run :: proc(app: ^App_State, s: ^ui.State, e: platform.Event) -> boo
 			if ui_kind {
 				ui_command(app, s, b.kind, b.regs)
 			} else {
-				command_push(&app.commands, b.kind, b.regs)
+				command_run(app, b.kind, b.regs)
 			}
 			return true
 		}

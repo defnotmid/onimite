@@ -51,8 +51,8 @@ test_workspace :: proc(t: ^testing.T) {
 	// Tabs: a Watch joins the video's panel after it, shown; closing it
 	// shows the video again. The video, already open, moves where it is
 	// opened.
-	workspace_apply(&ws, .View_Open, {panel = vp, view_kind = .Watch, previous = video})
-	watch := workspace_find_watch(&ws, .Scenes)
+	workspace_apply(&ws, .View_Open, {panel = vp, view_kind = .Watch, previous = video, spec = tab_of(.Scenes)})
+	watch := workspace_find_watch(&ws, tab_of(.Scenes))
 	testing.expect_value(t, workspace_panel(&ws, vp).shown, watch)
 	testing.expect_value(t, workspace_view(&ws, video).next, watch)
 	workspace_apply(&ws, .View_Close, {view = watch})
@@ -63,13 +63,14 @@ test_workspace :: proc(t: ^testing.T) {
 	testing.expect_value(t, ws.root, left)
 }
 
-// The Watch's sections are tabs of their own, through the keys and the
-// command pipeline: D opens the problems' tab alone in a panel beside the
-// video; I opens the media's after it in that panel, D again shows the
-// problems' without opening another; a closed section's tab reopens after
-// the others; the + lister's Watch opens one tab in the asking panel, or
-// moves an open section's there rather than opening a second, and with
-// none open opens just the one picked.
+// The Watch's tabs on the video's tables are tabs of their own, through the
+// keys and the command pipeline: D opens the problems' tab alone in a panel
+// beside the video; I opens the media's after it in that panel, D again
+// shows the problems' without opening another; a closed table's tab reopens
+// after the others; the + lister's Watch on a table opens one tab in the
+// asking panel, or moves an open one's there rather than opening a second,
+// and with none open opens just the one picked; its expression Watch opens a
+// new one each time.
 @(test)
 test_watch_sections_are_tabs :: proc(t: ^testing.T) {
 	app: App_State
@@ -99,7 +100,7 @@ test_watch_sections_are_tabs :: proc(t: ^testing.T) {
 	n, panel, one := watch_views(ws)
 	testing.expect_value(t, n, 1)
 	testing.expect(t, panel != video)
-	problems := workspace_find_watch(ws, .Problems)
+	problems := workspace_find_watch(ws, tab_of(.Problems))
 	testing.expect(t, problems != 0)
 	testing.expect_value(t, workspace_panel(ws, panel).shown, problems)
 	testing.expect_value(t, ws.focused, panel)
@@ -108,7 +109,7 @@ test_watch_sections_are_tabs :: proc(t: ^testing.T) {
 	n, _, one = watch_views(ws)
 	testing.expect_value(t, n, 2)
 	testing.expect(t, one)
-	media := workspace_find_watch(ws, .Media)
+	media := workspace_find_watch(ws, tab_of(.Media))
 	testing.expect_value(t, workspace_view(ws, problems).next, media)
 	testing.expect_value(t, workspace_panel(ws, panel).shown, media)
 	testing.expect_value(t, ws.focused, panel)
@@ -117,28 +118,28 @@ test_watch_sections_are_tabs :: proc(t: ^testing.T) {
 	testing.expect_value(t, n, 2)
 	testing.expect_value(t, workspace_panel(ws, panel).shown, problems)
 
-	// A closed tab reopens after the others' when its section is shown.
+	// A closed tab reopens after the others' when its table is shown.
 	command_push(&app.commands, .View_Close, {view = problems})
-	command_push(&app.commands, .Watch_Show, {section = .Problems})
+	command_push(&app.commands, .Watch_Show, {spec = tab_of(.Problems)})
 	dispatch(&app)
 	n, _, one = watch_views(ws)
 	testing.expect_value(t, n, 2)
 	testing.expect(t, one)
-	testing.expect_value(t, workspace_panel(ws, panel).last, workspace_find_watch(ws, .Problems))
+	testing.expect_value(t, workspace_panel(ws, panel).last, workspace_find_watch(ws, tab_of(.Problems)))
 
 	// The + lister's Watch on the cues, from the video's panel: one tab,
 	// there; on the media, open, its tab moves there.
-	command_push(&app.commands, .View_Open, {panel = video, view_kind = .Watch, section = .Cues})
+	command_push(&app.commands, .View_Open, {panel = video, view_kind = .Watch, spec = tab_of(.Cues)})
 	dispatch(&app)
 	n, _, one = watch_views(ws)
 	testing.expect_value(t, n, 3)
 	testing.expect(t, !one)
-	testing.expect_value(t, workspace_view(ws, workspace_find_watch(ws, .Cues)).panel, video)
-	command_push(&app.commands, .View_Open, {panel = video, view_kind = .Watch, section = .Media})
+	testing.expect_value(t, workspace_view(ws, workspace_find_watch(ws, tab_of(.Cues))).panel, video)
+	command_push(&app.commands, .View_Open, {panel = video, view_kind = .Watch, spec = tab_of(.Media)})
 	dispatch(&app)
 	n, _, _ = watch_views(ws)
 	testing.expect_value(t, n, 3)
-	testing.expect_value(t, workspace_find_watch(ws, .Media), media)
+	testing.expect_value(t, workspace_find_watch(ws, tab_of(.Media)), media)
 	testing.expect_value(t, workspace_view(ws, media).panel, video)
 
 	// With none open, the + lister's Watch on the marks: that tab alone, in
@@ -147,22 +148,29 @@ test_watch_sections_are_tabs :: proc(t: ^testing.T) {
 	dispatch(&app)
 	n, _, _ = watch_views(ws)
 	testing.expect_value(t, n, 0)
-	command_push(&app.commands, .View_Open, {panel = video, view_kind = .Watch, section = .Marks})
+	command_push(&app.commands, .View_Open, {panel = video, view_kind = .Watch, spec = tab_of(.Marks)})
 	dispatch(&app)
 	n, panel, _ = watch_views(ws)
 	testing.expect_value(t, n, 1)
 	testing.expect_value(t, panel, video)
-	marks := workspace_find_watch(ws, .Marks)
+	marks := workspace_find_watch(ws, tab_of(.Marks))
 	testing.expect_value(t, workspace_panel(ws, video).shown, marks)
 
 	// Ctrl+W (RAD's close_tab): the focused panel's shown tab closes, as
 	// its x closes it (View_Close).
 	testing.expect_value(t, ws.focused, video)
 	key(&app, &s, .W, {.Control})
-	testing.expect_value(t, workspace_find_watch(ws, .Marks), View_Id(0))
+	testing.expect_value(t, workspace_find_watch(ws, tab_of(.Marks)), View_Id(0))
 	testing.expect(t, workspace_view(ws, marks) == nil)
 	n, _, _ = watch_views(ws)
 	testing.expect_value(t, n, 0)
+
+	// The + lister's expression Watch: a new one each time.
+	command_push(&app.commands, .View_Open, {panel = video, view_kind = .Watch})
+	command_push(&app.commands, .View_Open, {panel = video, view_kind = .Watch})
+	dispatch(&app)
+	n, _, _ = watch_views(ws)
+	testing.expect_value(t, n, 2)
 }
 
 // The timeline runs down only in a panel beside another and taller than

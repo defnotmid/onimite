@@ -387,7 +387,7 @@ are not kept). A failing command is an error result with its code; an `inspect` 
 
 The arrows, Home/End, PgUp/PgDn, Delete, Backspace, Enter and Space act on the focused panel (click
 a view to focus it): in the video or the timeline they are the keys below; in a Watch they move its
-cursor row (Enter or Space goes to its frame). Letter keys work anywhere. Alt+=/Alt+- size the window's text.
+cursor row (Enter or Space goes to its frame, or edits an expression). Letter keys work anywhere. Alt+=/Alt+- size the window's text.
 Space or Enter play/pause · Left/Right or J/K step a frame · Ctrl+Left/Right one second · Home/0
 (Shift+J, Shift+Left) the bookmark, then the start · End (Shift+G, Shift+Right) last frame ·
 PgDn/S/W, PgUp/B/Shift+S next/previous scene · M set the bookmark (reloads return to it) ·
@@ -404,8 +404,19 @@ cursor and dragging pans (a click still plays/pauses); Ctrl+wheel over the video
 sizes the window's text. Views are tabs in panels (X, a middle click or Ctrl+W closes one): drag a tab to another panel or
 its edge, `+` lists the views to open in that panel and its splits (type to filter). A timeline
 in a panel at the side, taller than wide, runs its ruler, scenes and cues top to bottom, without its lanes (the scenes take the width beside a column of cue names); the lanes scroll as a list (wheel, scroll bar). Filters match each space-separated
-word anywhere in a row (any case; rows keep their order). The Watch's sections are tabs, each with its row count: scenes, cues (with drift / missing-hit
-findings), problems, media (failed, unused sounds) and marks; D/I open its problems' / media's tab (the first beside the video, the others after it), `+` any section's in its panel; a click on a row goes to its frame. A
+word anywhere in a row's name (any case; rows keep their order). The Watch is a debugger's watch window over
+the video's tables: its tabs (`video:scenes`, `video:cues`, `video:problems`, `video:media`, `video:marks`) list
+scenes, cues (with drift / missing-hit findings), problems, media (failed, unused sounds) and marks, each titled with
+its row count; D/I open the problems' / media's tab (the first beside the video, the others after it), `+` any
+table's in its panel; a click on a row goes to its frame; a row's arrow unfolds it into its members (a scene's
+`name`, `start`, `end`, `cue`, `source`, `hold`, `status`, `problems`). An expression Watch (`+` → Watch) takes
+expressions you type, a row each (type or paste on its last row, Enter commits, Esc drops it; Enter on one edits it,
+Delete removes it, Alt+Up/Down moves it, Ctrl+C copies a row's expression). Expressions: the roots `scenes`, `cues`,
+`problems`, `media`, `marks`, `tracks`; `.member` (`scenes.Race.start`); a row by name in the member form
+(`scenes.Race`) or quoted when it isn't a plain word (`scenes["Big Finish"]`, `media["logo.png"]`); by place
+(`scenes[3]`, from 0); `video:` names the video's tables (`video:scenes`); a comma lists several. Two rows with one
+name are an error naming each place (`2 scenes named Race: scenes[3], scenes[7]`); `.domain` lists a field's choices.
+When the user quotes a Watch row's expression (Ctrl+C copies it), that names exactly what they point at. A
 script that fails to load shows its error in the window while the last good version keeps
 playing.
 
