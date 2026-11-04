@@ -168,7 +168,7 @@ view_header :: proc(app: ^App_State, s: ^ui.State, view: View_Id, dpi: f32) -> f
 	ui.push_focus(s, .On)
 	panel_focused := ui.is_focus_active(s)
 	ui.pop_focus(s)
-	if field.open && panel_focused && ui.action_pressed(s, .Cancel) {
+	if field.open && panel_focused && pv.watch_edit.view != view && ui.action_pressed(s, .Cancel) {
 		clear(&field.text); field.cursor, field.mark = 0, 0
 		field.open, field.focused = false, false
 	} else if focused && ui.action_pressed(s, .Accept) {

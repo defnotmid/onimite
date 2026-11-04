@@ -174,6 +174,9 @@ clip_builds_finished :: proc(b: ^Clip_Builds) -> bool {
 
 // Frees `b` once clip_builds_idle; undrained clips go with it.
 clip_builds_destroy :: proc(b: ^Clip_Builds) {
+	if b.pool != nil {
+		om.pool_drain_done(b.pool)
+	}
 	for &j in b.jobs {
 		clip_job_close(&j)
 	}

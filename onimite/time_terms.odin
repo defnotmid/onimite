@@ -34,7 +34,7 @@ term_media_seconds :: proc(t: Time_Term, m: ^Media) -> (f64, bool) {
 	}
 	#partial switch t.kind {
 	case .Audio:
-		if clip, found := m.audio[t.name]; found {
+		if clip, found := media_audio(m, t.name); found {
 			return f64(clip.frames) / MIX_RATE, true
 		}
 		// a song lasts to the end of its last section

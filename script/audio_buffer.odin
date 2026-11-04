@@ -67,7 +67,7 @@ register_audio_buffer_methods :: proc(s: ^Script) {
 @(private)
 l_audio_buffer :: proc "c" (L: ^lua.State) -> c.int {
 	seconds := f64(lua.L_checknumber(L, 1))
-	if seconds < 0 || seconds > 6 * 3600 {
+	if !(seconds >= 0 && seconds <= 6 * 3600) {
 		lua.L_error(L, "audio_buffer(seconds): 0 to 6 hours")
 	}
 	frames := int(seconds * om.MIX_RATE)
@@ -89,8 +89,11 @@ l_buffer_add :: proc "c" (L: ^lua.State) -> c.int {
 	lua.L_checktype(L, 3, i32(lua.Type.TABLE))
 	pan := f32(lua.L_optnumber(L, 4, 0))
 	n := int(lua.L_optinteger(L, 5, lua.Integer(lua.rawlen(L, 3))))
+	if math.is_nan(t0) || math.is_inf(t0, 0) {
+		return 0
+	}
 	out := buffer_samples(b)
-	first := int(math.floor(t0 * om.MIX_RATE))
+	first := int(clamp(math.floor(t0 * om.MIX_RATE), -1e9, 1e9))
 	gl, gr := 1 - pan, 1 + pan
 	for k in max(0, -first) ..< n {
 		i := first + k
@@ -114,8 +117,11 @@ l_buffer_add_stereo :: proc "c" (L: ^lua.State) -> c.int {
 	lua.L_checktype(L, 3, i32(lua.Type.TABLE))
 	lua.L_checktype(L, 4, i32(lua.Type.TABLE))
 	n := int(lua.L_optinteger(L, 5, lua.Integer(lua.rawlen(L, 3))))
+	if math.is_nan(t0) || math.is_inf(t0, 0) {
+		return 0
+	}
 	out := buffer_samples(b)
-	first := int(math.floor(t0 * om.MIX_RATE))
+	first := int(clamp(math.floor(t0 * om.MIX_RATE), -1e9, 1e9))
 	for k in max(0, -first) ..< n {
 		i := first + k
 		if i >= b.frames {

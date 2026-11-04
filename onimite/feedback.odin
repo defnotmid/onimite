@@ -406,6 +406,7 @@ feedback_catch_up :: proc(r: ^Renderer, index: int, rec: ^Frame_Record = nil) {
 	}
 	for g in start ..< index {
 		build_frame(r, g)
+		r.ctx.frame.index = index
 		diagnostics_clear(&r.ctx)
 		draw_sim(r)
 		if r.recording {
@@ -425,7 +426,7 @@ feedback_catch_up :: proc(r: ^Renderer, index: int, rec: ^Frame_Record = nil) {
 	}
 	if start < index {
 		fb.drawn = NO_FRAME
-		build_frame(r, index)
+		build_frame_shown(r, index)
 	}
 }
 
@@ -433,6 +434,7 @@ feedback_catch_up :: proc(r: ^Renderer, index: int, rec: ^Frame_Record = nil) {
 // before the built frame.
 @(private = "file")
 draw_sim :: proc(r: ^Renderer) {
+	r.shader_state.draw_gen += 1
 	fb := &r.shader_state.feedback
 	lib := &r.ctx.shaders
 	frame := r.ctx.frame.global_index

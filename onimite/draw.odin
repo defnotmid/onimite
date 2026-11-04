@@ -345,6 +345,7 @@ draw_tree :: proc(r: ^Renderer) {
 // and returns its premultiplied pixels, borrowed until the next render.
 // The SVG export rasterizes video clips and shaders with it.
 render_node :: proc(r: ^Renderer, i: i32, box: vg.Rect, pw, ph: u32) -> []u8 {
+	r.shader_state.draw_gen += 1
 	c := &r.canvas
 	vg.set_size(c, pw, ph)
 	vg.reset(c)
@@ -760,6 +761,16 @@ pattern_paint :: proc(r: ^Renderer, pat: Pattern, box: vg.Rect) -> (vg.Paint, bo
 	pw := max(u32(math.ceil(w * s)), 1)
 	ph := max(u32(math.ceil(h * s)), 1)
 	tile := vg.layer_pattern_begin(&r.layers, c, pw, ph)
+	r.clip_depth += 1
+	defer r.clip_depth -= 1
+	r.offscreen += 1
+	defer r.offscreen -= 1
+	crisp, feather := r.crisp_depth, r.feather
+	r.crisp_depth, r.feather = 0, 0
+	defer {
+		r.crisp_depth = crisp
+		r.feather = feather
+	}
 	vg.save(c)
 	vg.reset_transform(c)
 	vg.reset_scissor(c)

@@ -1425,7 +1425,7 @@ l_path :: proc "c" (L: ^lua.State) -> c.int {
 	fields_begin(L, 1)
 	leaf_transform(L, ctx)
 	field(L, 1, "d")
-	asset := (^om.Path_Asset)(lua.touserdata(L, -1)) if lua.type(L, -1) == .LIGHTUSERDATA else nil
+	asset := check_outline(L, -1, "path") if lua.type(L, -1) == .LIGHTUSERDATA else nil
 	lua.pop(L, 1)
 	rule := asset.fill_rule if asset != nil else vg.Fill_Rule.Non_Zero
 	switch get_str(L, 1, "fill_rule", "") {
@@ -2308,12 +2308,12 @@ read_stroke :: proc(L: ^lua.State, t: c.int, ctx: ^om.Context) -> (s: om.Stroke)
 	}
 	field(L, t, "stroke_dasharray")
 	if lua.isnumber(L, -1) {
-		d := make([]f32, 1, ctx.tree.arena if ctx != nil else context.temp_allocator)
+		d := make([]f32, 1, context.temp_allocator)
 		d[0] = f32(lua.tonumber(L, -1))
 		s.dash = d
 	} else if lua.istable(L, -1) {
 		n := int(lua.rawlen(L, -1))
-		d := make([]f32, n, ctx.tree.arena if ctx != nil else context.temp_allocator)
+		d := make([]f32, n, context.temp_allocator)
 		for &v, i in d {
 			lua.rawgeti(L, -1, lua.Integer(i + 1))
 			v = f32(lua.tonumber(L, -1))
@@ -2422,8 +2422,7 @@ read_stops :: proc(L: ^lua.State, t: c.int, ctx: ^om.Context) -> []vg.Gradient_S
 		return nil
 	}
 	n := int(lua.rawlen(L, -1))
-	alloc := ctx.tree.arena if ctx != nil else context.temp_allocator
-	stops := make([]vg.Gradient_Stop, n, alloc)
+	stops := make([]vg.Gradient_Stop, n, context.temp_allocator)
 	for &st, i in stops {
 		lua.rawgeti(L, -1, lua.Integer(i + 1))
 		lua.rawgeti(L, -1, 1)

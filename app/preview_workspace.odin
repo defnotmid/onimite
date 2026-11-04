@@ -305,6 +305,7 @@ workspace_close_panel :: proc(ws: ^Workspace, panel: Panel_Id) {
 	for id := p.first; id != 0; {
 		v := workspace_view(ws, id)
 		id = v.next
+		view_record_free(v)
 		v^ = {}
 	}
 	p.first, p.last, p.shown = 0, 0, 0

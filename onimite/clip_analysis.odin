@@ -43,7 +43,7 @@ Clip_Analysis_Entry :: struct {
 // The onsets of clip `name` (borrowed until the media is destroyed or the
 // clip replaced); false when there is no such clip.
 media_onsets :: proc(m: ^Media, name: string) -> (r: oanalyze.Onsets, ok: bool) {
-	clip, has := m.audio[name]
+	clip, has := media_audio(m, name)
 	if !has {
 		return {}, false
 	}
@@ -62,7 +62,7 @@ media_onsets :: proc(m: ^Media, name: string) -> (r: oanalyze.Onsets, ok: bool) 
 // a video frame at `fps`, made on first ask, with steps `rows` (first,
 // last) filled from the clip; nil when there is no such clip.
 media_clip_table :: proc(m: ^Media, name: string, kind: orender.Table_Kind, fps: int, rows: [2]int, size := 0, shape := oanalyze.Window.None) -> ^Sound_Table {
-	clip, has := m.audio[name]
+	clip, has := media_audio(m, name)
 	if !has {
 		return nil
 	}
@@ -116,12 +116,23 @@ clip_table_fill :: proc(st: ^Sound_Table, clip: Audio_Clip, first, last: int) {
 		return
 	}
 	t := &st.table
-	from := orender.row_start(t, lo)
-	to := min(orender.row_start(t, hi) + orender.table_window(t), clip.frames)
-	l, r := channels_from_interleaved(clip.samples[2 * from:2 * max(to, from)])
-	orender.table_fill_steps(t, lo, hi + 1, from, l, r)
-	for k in lo ..= hi {
-		sync.atomic_store(&st.filled[k], 1)
+	for step := lo; step <= hi; {
+		if st.filled[step] != 0 {
+			step += 1
+			continue
+		}
+		end := step + 1
+		for end <= hi && st.filled[end] == 0 {
+			end += 1
+		}
+		from := orender.row_start(t, step)
+		to := min(orender.row_start(t, end - 1) + orender.table_window(t), clip.frames)
+		l, r := channels_from_interleaved(clip.samples[2 * from:2 * max(to, from)])
+		orender.table_fill_steps(t, step, end, from, l, r)
+		for k in step ..< end {
+			sync.atomic_store(&st.filled[k], 1)
+		}
+		step = end
 	}
 }
 

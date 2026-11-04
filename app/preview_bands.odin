@@ -194,7 +194,7 @@ upload_levels :: proc(device: ^sdl.GPUDevice, bt: ^Band_Texture, levels: []u8, r
 worker_bands_retire :: proc(w: ^Render_Worker) {
 	for v in w.band_views {
 		if v.texture.texture != nil {
-			append(&w.thumb_retired, v.texture.texture)
+			append(&w.band_retired, v.texture.texture)
 		}
 		delete(v.levels)
 		delete(v.drawn)

@@ -60,6 +60,7 @@ GPU_NV12_Slot :: struct {
 	fence:    ^sdl.GPUFence,
 	frame:    int,
 	mapped:   bool,
+	data:     []u8,
 	// The encoder's number for the frame once handed to it (`write_nv12`).
 	queued:   i64,
 }
@@ -202,6 +203,7 @@ gpu_nv12_release :: proc(g: ^GPU_NV12) {
 	if s.mapped {
 		sdl.UnmapGPUTransferBuffer(g.device, s.transfer)
 		s.mapped = false
+		s.data = nil
 	}
 	g.head = (g.head + 1) % GPU_NV12_SLOTS
 	g.count -= 1
@@ -262,10 +264,14 @@ slot_map :: proc(g: ^GPU_NV12, s: ^GPU_NV12_Slot) -> ([]u8, Error) {
 		sdl.ReleaseGPUFence(g.device, s.fence)
 		s.fence = nil
 	}
+	if s.mapped {
+		return s.data, nil
+	}
 	p := ([^]u8)(sdl.MapGPUTransferBuffer(g.device, s.transfer, false))
 	if p == nil {
 		return nil, .Gpu_Map
 	}
 	s.mapped = true
-	return p[:g.size], nil
+	s.data = p[:g.size]
+	return s.data, nil
 }

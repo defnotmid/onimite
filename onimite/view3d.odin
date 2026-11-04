@@ -1181,7 +1181,9 @@ view3d_videos :: proc(r: ^Renderer, n: View3d, job: ^View3d_Job) {
 		if name == "" || !is_video || v.handles[clip] < 0 {
 			return
 		}
+		sync.shared_lock(&r.media.view3d.lock)
 		texture := r.media.view3d.textures_of[name]
+		sync.shared_unlock(&r.media.view3d.lock)
 		for b in job.videos {
 			if b.texture == texture {
 				return
@@ -1702,6 +1704,7 @@ view3d_bind_content :: proc(r: ^Renderer, job: ^View3d_Job, i: int, content: i32
 	}
 	v := &r.media.view3d
 	{
+		context.allocator = v.allocator
 		sync.guard(&v.lock)
 		for len(v.externals) <= i {
 			append(&v.externals, o3d.texture_add_external(&v.textures, 1, 1))

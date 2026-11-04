@@ -573,4 +573,8 @@ test_the_box_built_first_takes_the_pointer :: proc(t: ^testing.T) {
 	presses := 0
 	for r in s.actions.rows do if r.kind == .Mouse_Press do presses += 1
 	testing.expect_value(t, presses, 2)
+	// An unkeyed transient clickable box does not report dragging while idle.
+	anon := Box{key = Key(0), flags = {.Clickable}, rect = {min = {0, 0}, max = {100, 100}}}
+	anon_sig := signal_from_box(&s, &anon)
+	testing.expect(t, (.Left_Dragging not_in anon_sig.flags) && (.Middle_Dragging not_in anon_sig.flags) && (.Right_Dragging not_in anon_sig.flags))
 }

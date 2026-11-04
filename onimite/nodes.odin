@@ -235,6 +235,7 @@ Path :: struct {
 // paths a script builds at load: every frame builder of a render shares
 // one (read-only), and drawing copies it instead of parsing text.
 Path_Asset :: struct {
+	morph:     bool,
 	path:      vg.Path,
 	// How it fills when path{} doesn't say (an outline of an even-odd SVG).
 	fill_rule: vg.Fill_Rule,

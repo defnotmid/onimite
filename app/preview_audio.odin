@@ -51,8 +51,10 @@ Audio_Shared :: struct {
 	advancing:     bool,
 	applied_gen:   u32,
 	fed:           i64,
-	// The callback's own: the next sample handed to SDL, and scratch.
+	// The callback's own: the next sample handed to SDL, the floor set by the
+	// last seek, and scratch.
 	position:      i64,
+	seek_floor:    i64,
 	scratch:       [AUDIO_CHUNK * 2]f32,
 	// The SDL stream and the device's own buffer (frames).
 	sdl_stream:    ^sdl.AudioStream,
@@ -100,6 +102,7 @@ audio_swap :: proc(a: ^Audio_Shared, stream: ^om.Mix_Stream, total: i64) {
 	if total >= 0 {
 		a.total = total
 		a.position = clamp(a.position, 0, max(total - 1, 0))
+		a.seek_floor = min(a.seek_floor, a.position)
 	}
 	if a.sdl_stream != nil {
 		sdl.UnlockAudioStream(a.sdl_stream)
@@ -161,6 +164,7 @@ audio_callback :: proc "c" (userdata: rawptr, stream: ^sdl.AudioStream, addition
 	if gen != sync.atomic_load_explicit(&a.applied_gen, .Relaxed) {
 		to := sync.atomic_load_explicit(&a.seek_to, .Relaxed)
 		a.position = clamp(to, 0, a.total - 1) if a.total > 0 else max(to, 0)
+		a.seek_floor = a.position
 	}
 	state := transmute(bit_set[Audio_State;u32])sync.atomic_load_explicit(&a.state, .Acquire)
 	gain := transmute(f32)sync.atomic_load_explicit(&a.gain, .Relaxed)
@@ -180,6 +184,7 @@ audio_callback :: proc "c" (userdata: rawptr, stream: ^sdl.AudioStream, addition
 					break
 				}
 				a.position = 0
+				a.seek_floor = 0
 			}
 			run := min(n - k, int(a.total - a.position))
 			if .Muted not_in state && a.stream != nil {
@@ -199,7 +204,7 @@ audio_callback :: proc "c" (userdata: rawptr, stream: ^sdl.AudioStream, addition
 	heard := a.position
 	if playing {
 		queued := i64(sdl.GetAudioStreamQueued(stream)) / (2 * size_of(f32))
-		heard = max(a.position - queued - a.device_frames, 0)
+		heard = max(a.position - queued - a.device_frames, a.seek_floor, 0)
 	}
 	sync.atomic_store_explicit(&a.heard, heard, .Relaxed)
 	sync.atomic_store_explicit(&a.advancing, playing, .Relaxed)
@@ -220,7 +225,7 @@ audio_open :: proc(a: ^Audio_Shared) -> ^sdl.AudioStream {
 	spec_out: sdl.AudioSpec
 	frames: c.int
 	if sdl.GetAudioDeviceFormat(sdl.GetAudioStreamDevice(stream), &spec_out, &frames) {
-		a.device_frames = i64(frames)
+		a.device_frames = i64(frames) * om.MIX_RATE / i64(max(spec_out.freq, 1))
 	}
 	a.sdl_stream = stream
 	sdl.ResumeAudioStreamDevice(stream)

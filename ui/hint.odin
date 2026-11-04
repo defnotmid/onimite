@@ -3,6 +3,7 @@ package ui
 import "../platform"
 import "../render"
 import "core:strings"
+import "core:unicode/utf8"
 import vg "deps:ovg"
 
 // Borrowed text for this build. Controls may supply catalog-derived help; UI
@@ -13,18 +14,22 @@ hint :: proc(s: ^State, signal: Signal, text: string) {
 hint_draw :: proc(s: ^State) {
 	if s.hint == "" || s.font == nil || s.canvas == nil do return
 	// The same scale as other UI text; wrap at `width`, then fit the longest line.
-	font_size := s.theme.default_font_px * s.font_scale * s.p.dpi_scale
+	font_size := s.theme.default_font_px * s.font_scale
 	width := max(1, min(f32(620) * s.p.dpi_scale, f32(s.p.width) - 24))
 	lines := make([dynamic]string, context.temp_allocator)
 	remaining := s.hint
 	for len(remaining) > 0 {
 		end, last_space := 0, 0
-		for i in 0 ..< len(remaining) {
-			if remaining[i] == ' ' do last_space = i
-			if remaining[i] == '\n' {end = i; break}
-			end = i + 1
+		for r, i in remaining {
+			if r == ' ' do last_space = i
+			if r == '\n' {end = i; break}
+			end = i + utf8.rune_size(r)
 			if render.measure_text(s.font, remaining[:end], font_size) > width - 20 {
-				end = last_space > 0 ? last_space : max(1, i)
+				if last_space > 0 {
+					end = last_space
+				} else if i > 0 {
+					end = i
+				}
 				break
 			}
 		}

@@ -1,5 +1,6 @@
 package onimite
 
+import "core:strings"
 import "core:thread"
 import "deps:o3d"
 import vg "deps:ovg"
@@ -209,7 +210,7 @@ play_video_upload :: proc(p: ^Frame_Player, f: ^Frame_Record, up: Video_Upload) 
 				name = v.names[i]
 			}
 		}
-		append(&f.diagnostics, Diagnostic{severity = .Error, code = .Undecodable_Video, frame = f.frame, name = name, video = frame.failure})
+		append(&f.diagnostics, Diagnostic{severity = .Error, code = .Undecodable_Video, frame = f.frame, name = strings.clone(name), video = frame.failure})
 		return
 	}
 	if !frame.ok {

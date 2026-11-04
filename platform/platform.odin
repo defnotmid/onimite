@@ -153,33 +153,33 @@ FILE_DIALOG_FILTERS := [?]sdl.DialogFileFilter {
 // file_dialog_open shows the native open-file dialog; the file picked
 // arrives in `dropped_files` on a later tick.
 file_dialog_open :: proc(p: ^Platform) {
-	if p.dialog_open {
+	if sync.atomic_load_explicit(&p.dialog_open, .Acquire) || sync.atomic_load_explicit(&p.dialog_ready, .Acquire) {
 		return
 	}
-	p.dialog_open = true
+	sync.atomic_store_explicit(&p.dialog_open, true, .Release)
 	sdl.ShowOpenFileDialog(_file_dialog_done, p, p.window, &FILE_DIALOG_FILTERS[0], len(FILE_DIALOG_FILTERS), nil, false)
 }
 
 _file_dialog_done :: proc "c" (userdata: rawptr, filelist: [^]cstring, filter: c.int) {
 	context = runtime.default_context()
 	p := (^Platform)(userdata)
-	p.dialog_open = false
+	defer sync.atomic_store_explicit(&p.dialog_open, false, .Release)
 	if filelist == nil || filelist[0] == nil {
 		return
 	}
 	delete(p.dialog_path)
 	p.dialog_path = strings.clone_from_cstring(filelist[0])
-	p.dialog_ready = true
+	sync.atomic_store_explicit(&p.dialog_ready, true, .Release)
 }
 
 // The chosen path, once (owned by the caller).
 _file_dialog_take :: proc(p: ^Platform) -> (path: string, ok: bool) {
-	if !p.dialog_ready {
+	if !sync.atomic_load_explicit(&p.dialog_ready, .Acquire) {
 		return "", false
 	}
-	p.dialog_ready = false
 	path = p.dialog_path
 	p.dialog_path = ""
+	sync.atomic_store_explicit(&p.dialog_ready, false, .Release)
 	return path, true
 }
 

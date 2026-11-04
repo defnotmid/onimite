@@ -174,6 +174,10 @@ parse_vtt_time :: proc(s: string) -> (ms: u32, ok: bool) {
 	}
 	sec := num(sec_ms[:dot]) or_return
 	frac := sec_ms[dot + 1:]
+	_ = num(frac) or_return
+	if len(frac) > 3 {
+		frac = frac[:3]
+	}
 	millis := num(frac) or_return
 	for _ in len(frac) ..< 3 {
 		millis *= 10

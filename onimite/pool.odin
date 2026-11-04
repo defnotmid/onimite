@@ -182,7 +182,6 @@ pool_work_run :: proc(wp: ^common.Work_Pool, count: int, task: common.Range_Proc
 		return
 	}
 	call := (sync.atomic_load(&w.ticket) >> 32) + 1
-	sync.atomic_store(&w.ticket, call << 32 | TICKET_CLOSED)
 	w.count, w.task, w.data = count, task, data
 	sync.atomic_store(&w.finished, 0)
 	sync.atomic_store(&w.ticket, call << 32)
@@ -200,6 +199,7 @@ pool_work_run :: proc(wp: ^common.Work_Pool, count: int, task: common.Range_Proc
 		}
 		sync.futex_wait(&w.finished, u32(done))
 	}
+	sync.atomic_store(&w.ticket, call << 32 | TICKET_CLOSED)
 	// The pool keeps a record of every finished task until popped (popping
 	// is linear in their number): keep the list short.
 	pool_drain_done(w.pool)
@@ -222,14 +222,15 @@ pool_work_take :: proc(w: ^Pool_Work) {
 	for {
 		v := sync.atomic_load(&w.ticket)
 		i := int(v & TICKET_CLOSED)
-		if u64(i) == TICKET_CLOSED || i >= w.count {
+		count := w.count
+		if u64(i) == TICKET_CLOSED || i >= count {
 			return
 		}
 		if _, ok := sync.atomic_compare_exchange_strong(&w.ticket, v, v + 1); !ok {
 			continue
 		}
 		w.task(w.data, i, i + 1)
-		if int(sync.atomic_add(&w.finished, 1)) + 1 == w.count {
+		if int(sync.atomic_add(&w.finished, 1)) + 1 == count {
 			sync.futex_broadcast(&w.finished)
 		}
 	}

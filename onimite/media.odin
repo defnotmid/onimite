@@ -504,10 +504,16 @@ add_image_file :: proc(m: ^Media, name, path: string) {
 
 @(private)
 put_image :: proc(m: ^Media, name: string, img: Media_Image) {
+	c := m.cache
+	sync.guard(&c.lock)
+	put_image_locked(m, name, img)
+}
+
+@(private = "file")
+put_image_locked :: proc(m: ^Media, name: string, img: Media_Image) {
 	p := new(Media_Image)
 	p^ = img
 	c := m.cache
-	sync.guard(&c.lock)
 	if p.path == "" {
 		c.key += 2
 		p.key = c.key
@@ -530,20 +536,17 @@ put_image :: proc(m: ^Media, name: string, img: Media_Image) {
 // a render can repeat it; others replace the image (a preview reload). False
 // when a media file has the name.
 media_add_image_pixels :: proc(m: ^Media, name: string, pixels: []u8, width, height: int) -> bool {
-	{
-		// another builder may be replacing it
-		sync.guard(&m.cache.lock)
-		if old, ok := m.images[name]; ok {
-			if old.path != "" {
-				return false
-			}
-			if old.width == width && old.height == height && slice.equal(old.pixels, pixels) {
-				return true
-			}
+	sync.guard(&m.cache.lock)
+	if old, ok := m.images[name]; ok {
+		if old.path != "" {
+			return false
+		}
+		if old.width == width && old.height == height && slice.equal(old.pixels, pixels) {
+			return true
 		}
 	}
 	context.allocator = m.cache.allocator
-	put_image(m, name, {pixels = slice.clone(pixels), width = width, height = height})
+	put_image_locked(m, name, {pixels = slice.clone(pixels), width = width, height = height})
 	return true
 }
 
@@ -560,6 +563,7 @@ media_add_subtitles :: proc(m: ^Media, name, text: string) -> bool {
 // `captions_load` while the others render; other words replace them.
 media_add_captions :: proc(m: ^Media, name: string, c: Captions) {
 	c := c
+	sync.guard(&m.cache.lock)
 	if old, exists := &m.captions[name]; exists {
 		if old.hash == c.hash {
 			captions_destroy(&c)
@@ -574,6 +578,7 @@ media_add_captions :: proc(m: ^Media, name: string, c: Captions) {
 
 // Adds a shader source (copied) under `name`.
 media_add_shader :: proc(m: ^Media, name, source: string) {
+	sync.guard(&m.cache.lock)
 	if old, ok := m.shaders[name]; ok {
 		delete(old)
 		m.shaders[name] = strings.clone(source)
@@ -599,10 +604,22 @@ media_add_audio :: proc(m: ^Media, name: string, data: []u8) -> bool {
 // render; other bytes replace the clip (a preview reload).
 media_add_audio_bytes :: proc(m: ^Media, name: string, data: []u8) -> bool {
 	h := hash.fnv64a(data)
+	sync.lock(&m.cache.lock)
 	if old, seen := m.added_audio[name]; seen && old == h {
+		sync.unlock(&m.cache.lock)
 		return true
 	}
-	media_add_audio(m, name, data) or_return
+	sync.unlock(&m.cache.lock)
+	clip, ok := audio_decode(data)
+	if !ok {
+		return false
+	}
+	sync.guard(&m.cache.lock)
+	if old, seen := m.added_audio[name]; seen && old == h {
+		audio_clip_destroy(&clip)
+		return true
+	}
+	put_audio_locked(m, name, clip)
 	if _, seen := m.added_audio[name]; seen {
 		m.added_audio[name] = h
 	} else {
@@ -616,10 +633,19 @@ media_add_audio_bytes :: proc(m: ^Media, name: string, data: []u8) -> bool {
 // again change nothing; others replace the clip.
 media_add_audio_samples :: proc(m: ^Media, name: string, samples: []f32, rate, channels: int) {
 	h := hash.fnv64a(slice.to_bytes(samples)) ~ (u64(rate) << 8 | u64(channels))
+	sync.lock(&m.cache.lock)
 	if old, seen := m.added_audio[name]; seen && old == h {
+		sync.unlock(&m.cache.lock)
 		return
 	}
-	put_audio(m, name, clip_from_samples(samples, rate, channels))
+	sync.unlock(&m.cache.lock)
+	clip := clip_from_samples(samples, rate, channels)
+	sync.guard(&m.cache.lock)
+	if old, seen := m.added_audio[name]; seen && old == h {
+		audio_clip_destroy(&clip)
+		return
+	}
+	put_audio_locked(m, name, clip)
 	if _, seen := m.added_audio[name]; seen {
 		m.added_audio[name] = h
 	} else {
@@ -627,8 +653,20 @@ media_add_audio_samples :: proc(m: ^Media, name: string, samples: []f32, rate, c
 	}
 }
 
+// Clip `name` of the media, safe while other threads add deferred clips.
+media_audio :: proc(m: ^Media, name: string) -> (clip: Audio_Clip, ok: bool) {
+	if m.cache != nil {
+		sync.guard(&m.cache.lock)
+		clip, ok = m.audio[name]
+		return
+	}
+	clip, ok = m.audio[name]
+	return
+}
+
 // Takes clip `name` out of the media (the caller owns its samples now).
 media_take_audio :: proc(m: ^Media, name: string) -> (clip: Audio_Clip, ok: bool) {
+	sync.guard(&m.cache.lock)
 	if name not_in m.audio {
 		return
 	}
@@ -641,6 +679,7 @@ media_take_audio :: proc(m: ^Media, name: string) -> (clip: Audio_Clip, ok: bool
 // Adds a clip built elsewhere (its samples move in). A clip of that name
 // already here stays, and `clip` is freed: returns whether it was added.
 media_add_clip :: proc(m: ^Media, name: string, clip: Audio_Clip) -> bool {
+	sync.guard(&m.cache.lock)
 	if name in m.audio {
 		c := clip
 		audio_clip_destroy(&c)
@@ -653,6 +692,12 @@ media_add_clip :: proc(m: ^Media, name: string, clip: Audio_Clip) -> bool {
 
 @(private)
 put_audio :: proc(m: ^Media, name: string, clip: Audio_Clip) {
+	sync.guard(&m.cache.lock)
+	put_audio_locked(m, name, clip)
+}
+
+@(private = "file")
+put_audio_locked :: proc(m: ^Media, name: string, clip: Audio_Clip) {
 	if old, exists := &m.audio[name]; exists {
 		audio_clip_destroy(old)
 		old^ = clip
@@ -878,6 +923,7 @@ media_text_fonts :: proc(m: ^Media, family: string, weight: int, italic: bool, v
 		return &m.fonts
 	}
 	variations := variations
+	w: [1]Font_Variation
 	if len(variations) == 0 {
 		face, found := vg.font_collection_find(&m.fonts, family, weight, italic)
 		want := weight if weight != 0 else 400
@@ -887,7 +933,7 @@ media_text_fonts :: proc(m: ^Media, family: string, weight: int, italic: bool, v
 		font := vg.font_collection_font(&m.fonts, face)
 		for i in 0 ..< font.face.axis_count {
 			if a, ok := ft.axis(&font.face, i); ok && a.tag == "wght" {
-				w := [1]Font_Variation{{"wght", clamp(f32(want), a.min, a.max)}}
+				w = {{"wght", clamp(f32(want), a.min, a.max)}}
 				variations = w[:]
 				break
 			}

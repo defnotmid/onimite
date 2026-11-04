@@ -430,8 +430,10 @@ tar_unpack :: proc(data: []u8, dir: string) -> string {
 				}
 			}
 		case '0', 0:
-			if problem := archive_write(dir, rel, body, transmute(os.Permissions)u32(mode & 0o777)); problem != "" {
-				return problem
+			if rel != "" {
+				if problem := archive_write(dir, rel, body, transmute(os.Permissions)u32(mode & 0o777)); problem != "" {
+					return problem
+				}
 			}
 		case:
 			return fmt.tprintf("%s is not a file or a directory", name)

@@ -449,7 +449,9 @@ read_group_input :: proc(L: ^lua.State, ctx: ^om.Context, at: c.int) -> (in_: om
 		return
 	}
 	in_.content = om.shader_content_begin(ctx)
+	saved := field_log
 	status = lua.pcall(L, 0, 0, 0)
+	field_log = saved
 	om.group_end(ctx)
 	return in_, true, status
 }

@@ -800,6 +800,7 @@ attach_shape2d :: proc(L: ^lua.State, s: ^Script, label: string, body_id: b2.Bod
 			}
 		}
 		if made == 0 {
+			o3d.shapes_destroy(&shapes)
 			lua.L_error(L, "physics: bodies[%d].outline has no area to collide with", i32(i + 1))
 		}
 		// Pieces Box2D refuses are left out: say how much of the outline

@@ -165,7 +165,9 @@ placed_audio_update :: proc(p: ^Placed_Audio, v: ^Video, t: Timeline, m: ^Media)
 	clear(&p.tracks)
 	total := frames_to_samples(t.duration_frames, v.fps)
 	for tr in v.audio {
+		if m.cache != nil do sync.lock(&m.cache.lock)
 		clip, has := &m.audio[tr.src]
+		if m.cache != nil do sync.unlock(&m.cache.lock)
 		song: ^Song_Clip
 		length := 0
 		if has {

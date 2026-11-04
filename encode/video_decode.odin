@@ -1,6 +1,7 @@
 package onimite_encode
 
 import "core:mem"
+import "core:os"
 import "core:reflect"
 import "core:strings"
 import "core:sync"
@@ -61,10 +62,13 @@ Clip_Worker :: struct {
 	// whoever frees (the opener, at destroy) frees what the thread made.
 	allocator:  mem.Allocator,
 	path:       string,
+	stamp:      [2]i64,
 	owner:      ^Video_Decoders,
 	info:       video.Video_Info,
 	format:     om.Video_Format,
+	fps:        f64,
 	frame_dur:  f64,
+	has_audio:  bool,
 	reader:     video.Reader,
 	thread:     ^thread.Thread,
 
@@ -147,9 +151,28 @@ video_source :: proc(d: ^Video_Decoders) -> om.Video_Source {
 @(private = "file")
 vs_open :: proc(data: rawptr, path: string) -> (clip: int, info: om.Video_Info, why: om.Video_Failure, err: om.Error) {
 	d := (^Video_Decoders)(data)
+	stamp: [2]i64
+	stamped := false
+	if fi, stat_err := os.stat(path, context.temp_allocator); stat_err == nil {
+		stamp = {fi.size, time.to_unix_nanoseconds(fi.modification_time)}
+		stamped = true
+	}
+	if stamped {
+		sync.mutex_lock(&d.mutex)
+		for streams, idx in d.workers {
+			if first := streams[0]; first != nil && first.path == path && first.stamp == stamp {
+				v := first.info
+				info = {v.width, v.height, v.duration, first.fps, v.frame_count, v.rotation, first.has_audio, first.format}
+				sync.mutex_unlock(&d.mutex)
+				return idx, info, {}, nil
+			}
+		}
+		sync.mutex_unlock(&d.mutex)
+	}
 	w := new(Clip_Worker)
 	w.allocator = context.allocator
 	w.path = strings.clone(path)
+	w.stamp = stamp
 	w.owner = d
 	w.leased = -1
 	w.capacity = FORWARD_SLOTS
@@ -185,12 +208,14 @@ vs_open :: proc(data: rawptr, path: string) -> (clip: int, info: om.Video_Info, 
 	w.info = v
 	w.format = clip_format(&w.reader, path, cfg)
 	fps := f64(v.fps_num) / f64(max(v.fps_den, 1)) if v.fps_num > 0 else 30
+	w.fps = fps
 	w.frame_dur = 1 / fps
+	w.has_audio = w.reader.audio.track >= 0
 	sync.mutex_lock(&d.mutex)
 	clip = len(d.workers)
 	append(&d.workers, [CLIP_STREAMS]^Clip_Worker{w, nil, nil, nil})
 	sync.mutex_unlock(&d.mutex)
-	return clip, {v.width, v.height, v.duration, fps, v.frame_count, v.rotation, w.reader.audio.track >= 0, w.format}, {}, nil
+	return clip, {v.width, v.height, v.duration, fps, v.frame_count, v.rotation, w.has_audio, w.format}, {}, nil
 }
 
 // How the clip's planes read. The header says it all except, for VP9, the
@@ -276,7 +301,7 @@ worker_of :: proc(d: ^Video_Decoders, clip: int, stream: int) -> ^Clip_Worker {
 		w := new(Clip_Worker)
 		w^ = {allocator = first.allocator, owner = d, leased = -1, capacity = FORWARD_SLOTS}
 		w.path = strings.clone(first.path)
-		w.info, w.format, w.frame_dur = first.info, first.format, first.frame_dur
+		w.info, w.format, w.fps, w.frame_dur, w.has_audio = first.info, first.format, first.fps, first.frame_dur, first.has_audio
 		if video.open_reader(&w.reader, w.path, first.reader.config) != .None {
 			video.close_reader(&w.reader)
 			delete(w.path)
@@ -389,7 +414,7 @@ vs_request :: proc(data: rawptr, clip: int, stream: int, seconds: f64, wait: om.
 	s := slot_at(w, seconds, wait == .Block)
 	exact := s >= 0
 	if s < 0 && wait == .Block {
-		for s < 0 && !w.failed {
+		for s < 0 && !w.failed && !(w.eos && !w.seeking) {
 			if !sync.cond_wait_with_timeout(&w.ready, &w.mutex, BLOCK_RESEEK) {
 				// No frame for this time arrived: restart decoding at it rather
 				// than wait on a ring that can't reach it.
@@ -512,6 +537,9 @@ worker_run :: proc(w: ^Clip_Worker) {
 			slot = free_slot(w)
 			seen_gen = gen
 		}
+		if slot >= 0 {
+			w.state[slot] = .Empty
+		}
 		sync.mutex_unlock(&w.mutex)
 		if slot < 0 {
 			continue
@@ -531,6 +559,8 @@ worker_run :: proc(w: ^Clip_Worker) {
 
 		sync.mutex_lock(&w.mutex)
 		switch {
+		case w.generation != gen:
+		// A newer request moved on; drop this frame.
 		case err == .End_Of_Stream:
 			w.eos = true
 			w.seeking = false
@@ -549,8 +579,6 @@ worker_run :: proc(w: ^Clip_Worker) {
 			w.failed = true
 			w.seeking = false
 			w.failure = decode_failure(err, w.reader.error_detail)
-		case w.generation != gen:
-		// A newer request moved on; drop this frame.
 		case:
 			// The previous frame ends where this one starts.
 			for k in 0 ..< CLIP_RING_SLOTS {
@@ -569,7 +597,7 @@ worker_run :: proc(w: ^Clip_Worker) {
 				// frame, or rounding to the nearest tick).
 				w.time[slot] = min(frame.time, target)
 			}
-			w.end[slot] = frame.time + w.frame_dur
+			w.end[slot] = (max(frame.time, target) if seek else frame.time) + w.frame_dur
 			w.index[slot] = frame.index
 			w.seconds[slot] = frame.time
 			if w.chunk && frame.time > w.chunk_hi {

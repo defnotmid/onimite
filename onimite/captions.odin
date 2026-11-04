@@ -135,10 +135,11 @@ captions_add_cue :: proc(c: ^Captions, text: string, start, stop: u32, cue: u32)
 		a := ats[k]
 		b := ats[k + 1] if k + 1 < len(ats) else max(stop, a)
 		words := strings.fields(s, context.temp_allocator)
-		n := u32(len(words))
+		n := u64(len(words))
 		for w, j in words {
-			ju := u32(j)
-			caption_add_word(c, w, a + (b - a) * ju / n, a + (b - a) * (ju + 1) / n, cue)
+			ju := u64(j)
+			span_ms := u64(b - a)
+			caption_add_word(c, w, a + u32(span_ms * ju / n), a + u32(span_ms * (ju + 1) / n), cue)
 		}
 	}
 }

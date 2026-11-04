@@ -293,6 +293,7 @@ Render_Worker :: struct {
 	bands_wanted:     [dynamic]i32,
 	bands_wanted_seq: u64,
 	band_views:       [dynamic]Band_View,
+	band_retired:     [dynamic]^sdl.GPUTexture,
 	bands_landed:     bool, // song segments landed since the views were drawn
 	wanted_seq:     u64,
 	// Thumbnails draw video clips from their own decoders (one reader per
@@ -382,6 +383,7 @@ worker_main :: proc(w: ^Render_Worker) {
 		w.request_tick = time.tick_now()
 		if req.reload != w.loaded {
 			w.mb.loading = true
+			w.mb.request.reload_media = false
 		} else {
 			w.mb.rendering = true
 		}
@@ -656,9 +658,17 @@ worker_idle_ready :: proc(w: ^Render_Worker) -> (ready: bool, retry: time.Durati
 		w.wanted_seq = w.mb.thumb_wanted_seq
 		table_copy(&w.thumb_wanted, w.mb.thumb_wanted[:])
 	}
-	if w.mb.thumb_ack == w.thumb_gen && len(w.thumb_retired) > 0 {
-		append(&w.thumb_free, ..w.thumb_retired[:])
-		clear(&w.thumb_retired)
+	if w.mb.thumb_ack == w.thumb_gen {
+		if len(w.thumb_retired) > 0 {
+			append(&w.thumb_free, ..w.thumb_retired[:])
+			clear(&w.thumb_retired)
+		}
+		if len(w.band_retired) > 0 {
+			for t in w.band_retired {
+				sdl.ReleaseGPUTexture(w.device, t)
+			}
+			clear(&w.band_retired)
+		}
 	}
 	if w.mb.clips_landed || clips_built_here(w) || wave_builder_pending(&w.waves) || tables_pending(w) || media_pending(w) || om.music_queued(w.media) || bands_pending(w) {
 		return true, 0
@@ -918,7 +928,16 @@ worker_load :: proc(w: ^Render_Worker, req: Render_Request, reload_media: bool) 
 		om.placed_audio_update(&w.placed, v, tl, media)
 		w.frames = tl.duration_frames
 		thumb_scale := min(f32(THUMB_HEIGHT) / f32(max(v.height, 1)), 1)
-		w.thumb_size = {u32(f32(v.width) * thumb_scale + 0.5), u32(f32(v.height) * thumb_scale + 0.5)}
+		thumb_size := [2]u32{u32(f32(v.width) * thumb_scale + 0.5), u32(f32(v.height) * thumb_scale + 0.5)}
+		if thumb_size != w.thumb_size {
+			for t in w.thumb_free {
+				sdl.ReleaseGPUTexture(w.device, t)
+			}
+			clear(&w.thumb_free)
+			append(&w.band_retired, ..w.thumb_retired[:])
+			clear(&w.thumb_retired)
+			w.thumb_size = thumb_size
+		}
 	}
 	steps[3] = time.tick_now()
 	worker_lanes(w)
@@ -1311,6 +1330,9 @@ worker_release :: proc(w: ^Render_Worker) {
 		worker_clips_retire(w)
 	}
 	delete(w.clips_retired)
+	if w.device != nil {
+		_ = sdl.WaitForGPUIdle(w.device)
+	}
 	if w.renderer_ok {
 		om.renderer_destroy(&w.renderer)
 	}
@@ -1341,6 +1363,9 @@ worker_release :: proc(w: ^Render_Worker) {
 	for t in w.thumb_retired {
 		sdl.ReleaseGPUTexture(w.device, t)
 	}
+	for t in w.band_retired {
+		sdl.ReleaseGPUTexture(w.device, t)
+	}
 	for v in w.band_views {
 		if v.texture.texture != nil {
 			sdl.ReleaseGPUTexture(w.device, v.texture.texture)
@@ -1351,6 +1376,7 @@ worker_release :: proc(w: ^Render_Worker) {
 	delete(w.thumbs)
 	delete(w.thumb_free)
 	delete(w.thumb_retired)
+	delete(w.band_retired)
 	delete(w.thumb_wanted)
 	delete(w.marks)
 	delete(w.bands_wanted)

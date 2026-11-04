@@ -105,7 +105,7 @@ default_nav_process :: proc(s: ^State) {
 		next_, prev_ := false, false
 		lock := -1
 		for &a in s.actions.rows {
-			if a.consumed || a.delta == {} do continue
+			if a.consumed || a.kind != .Navigate || a.delta == {} do continue
 			taken := false
 			if (a.delta.x > 0 && .Default_Focus_Nav_X in nav_root.flags || a.delta.x == 0) && (a.delta.y > 0 && .Default_Focus_Nav_Y in nav_root.flags || a.delta.y == 0) {taken = true; next_ = true}
 			if (a.delta.x < 0 && .Default_Focus_Nav_X in nav_root.flags || a.delta.x == 0) && (a.delta.y < 0 && .Default_Focus_Nav_Y in nav_root.flags || a.delta.y == 0) {taken = true; prev_ = true}
@@ -134,7 +134,7 @@ default_nav_process :: proc(s: ^State) {
 						if p.next != nil {moved[int(p.parent.child_layout_axis)] += 1; box = p.next; break}
 					}
 				}
-				if last == box {append(&candidates, nil); break}
+				if last == box {if lock < 0 do append(&candidates, nil); break}
 			}
 		}
 		if prev_ {
@@ -159,7 +159,7 @@ default_nav_process :: proc(s: ^State) {
 					moved[int(box.parent.child_layout_axis)] += 1
 					box = box.parent
 				}
-				if box == last {append(&candidates, nil); break}
+				if box == last {if lock < 0 do append(&candidates, nil); break}
 			}
 		}
 		// The candidate nearest across the locked axis.

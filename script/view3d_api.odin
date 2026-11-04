@@ -1043,7 +1043,9 @@ read_panel :: proc(L: ^lua.State, s: ^Script, t: c.int, missing: cstring) -> i32
 	}
 	ctx := render_ctx(L, s)
 	content := om.shader_content_begin(ctx)
+	saved := field_log
 	status := lua.pcall(L, 0, 0, 0)
+	field_log = saved
 	om.group_end(ctx)
 	if status != 0 {
 		lua.error(L)

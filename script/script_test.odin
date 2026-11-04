@@ -1944,7 +1944,7 @@ video { width = 64, height = 48, fps = 10, duration = 0.1, background = "#000000
       logo = { colour = "#fff", draw = function() circle { cx = 256, cy = 256, r = 200, fill = "#ffffff" } end },
     },
     meshes = {
-      { geometry = { type = "BoxGeometry" }, material = { type = "MeshBasicMaterial", map = "screen", emissive_map = "logo" } },
+      { geometry = { type = "BoxGeometry" }, material = { type = "MeshStandardMaterial", map = "screen", emissive_map = "logo" } },
     },
   }
   assert(not pcall(view3d, { panels = { screen = "screen.png" } }))

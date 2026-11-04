@@ -988,11 +988,12 @@ model_geometry :: proc(L: ^lua.State, s: ^Script, name: string, scale: b3.Vec3, 
 	}
 	v := &s.media.view3d
 	sync.shared_lock(&v.lock)
-	defer sync.shared_unlock(&v.lock)
 	model, found := &v.models[name]
 	if !found {
+		sync.shared_unlock(&v.lock)
 		lua.L_error(L, "physics3d: bodies[%d].%s: no model %s in the media", i32(i + 1), kind, strings.clone_to_cstring(name, context.temp_allocator))
 	}
+	defer sync.shared_unlock(&v.lock)
 	nn := len(model.nodes)
 	worlds := make([]o3d.Mat4, nn, context.temp_allocator)
 	total_v, total_i := 0, 0

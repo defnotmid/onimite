@@ -686,7 +686,9 @@ inspect :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 			}
 		}
 	}
-	append(&checked, end - 1)
+	if end > start {
+		append(&checked, end - 1)
+	}
 	sort_unique(&checked)
 	// Problems name the script line that drew what they are about.
 	app.script.node_sources_on = true

@@ -578,6 +578,7 @@ stacks_delete :: proc(s: ^State) {
 	delete(s.border_color.items)
 	delete(s.corner_radius.items)
 	delete(s.squish.items)
+	delete(s.visual_margin.items)
 	delete(s.blur_size.items)
 	delete(s.font_size.items)
 	delete(s.text_padding.items)
@@ -631,6 +632,7 @@ build_begin :: proc(s: ^State) {
 	stack_reset(&s.border_color)
 	stack_reset(&s.corner_radius)
 	stack_reset(&s.squish)
+	stack_reset(&s.visual_margin)
 	stack_reset(&s.blur_size)
 	stack_reset(&s.font_size)
 	stack_reset(&s.text_padding)
@@ -1237,12 +1239,14 @@ signal_from_box :: proc(s: ^State, box: ^Box) -> Signal {
 			s.hot = box.key
 			s.active[action.button] = box.key
 			sig.flags |= {pressed_flag[action.button]}
-			now := platform.time(s.p)
-			keys, times := &s.press_keys[action.button], &s.press_times[action.button]
-			if box.key == keys[0] && now - times[0] <= DOUBLE_CLICK_SECONDS do sig.flags |= {double_flag[action.button]}
-			if box.key == keys[0] && box.key == keys[1] && now - times[0] <= DOUBLE_CLICK_SECONDS && times[0] - times[1] <= DOUBLE_CLICK_SECONDS do sig.flags |= {triple_flag[action.button]}
-			keys[2], keys[1], keys[0] = keys[1], keys[0], box.key
-			times[2], times[1], times[0] = times[1], times[0], now
+			if box.key != 0 {
+				now := platform.time(s.p)
+				keys, times := &s.press_keys[action.button], &s.press_times[action.button]
+				if box.key == keys[0] && now - times[0] <= DOUBLE_CLICK_SECONDS do sig.flags |= {double_flag[action.button]}
+				if box.key == keys[0] && box.key == keys[1] && now - times[0] <= DOUBLE_CLICK_SECONDS && times[0] - times[1] <= DOUBLE_CLICK_SECONDS do sig.flags |= {triple_flag[action.button]}
+				keys[2], keys[1], keys[0] = keys[1], keys[0], box.key
+				times[2], times[1], times[0] = times[1], times[0], now
+			}
 			s.drag_start = action.position
 			if action.button == .Left {
 				// As RAD's: pressing a box in a navigation root focuses it there
@@ -1255,7 +1259,7 @@ signal_from_box :: proc(s: ^State, box: ^Box) -> Signal {
 			}
 			action.consumed = true
 		case .Mouse_Release:
-			if .Clickable not_in box.flags || s.active[action.button] != box.key do continue
+			if .Clickable not_in box.flags || box.key == 0 || s.active[action.button] != box.key do continue
 			s.active[action.button] = Key(0)
 			if action.button == .Left do sig.flags |= {.Left_Released}
 			if in_bounds {sig.flags |= {clicked_flag[action.button]}} else {s.hot = Key(0)}
@@ -1305,7 +1309,7 @@ signal_from_box :: proc(s: ^State, box: ^Box) -> Signal {
 	// active box (held) -> dragging, per button (RAD's LeftDragging<<k)
 	dragging_flag := [platform.Mouse_Button]Sig_Flag{.Left = .Left_Dragging, .Middle = .Middle_Dragging, .Right = .Right_Dragging}
 	for button in platform.Mouse_Button {
-		if s.active[button] == box.key || pressed_flag[button] in sig.flags do sig.flags |= {dragging_flag[button]}
+		if box.key != 0 && s.active[button] == box.key || pressed_flag[button] in sig.flags do sig.flags |= {dragging_flag[button]}
 	}
 	if .Left_Dragging in sig.flags do sig.drag_delta = drag_delta(s)
 

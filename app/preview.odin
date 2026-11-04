@@ -1502,6 +1502,9 @@ preview_switch_script :: proc(app: ^App_State, path: string) {
 		// Its textures go with it: stop showing them.
 		pv.video_texture, pv.video_size = nil, {}
 		clear(&pv.thumbs)
+		clear(&pv.band_textures)
+		clear(&pv.bands_shown)
+		clear(&pv.sent_bands)
 		worker_stop(w)
 		sync.mutex_lock(&mb.mutex)
 		mb.quit = false
@@ -1519,8 +1522,11 @@ preview_switch_script :: proc(app: ^App_State, path: string) {
 		mb.thumb_gen = 0
 		mb.thumb_ack = 0
 		mb.thumbs_seq += 1
+		clear(&mb.band_textures)
+		clear(&mb.bands_wanted)
+		mb.bands_seq += 1
 		sync.mutex_unlock(&mb.mutex)
-		w^ = {mb = mb, audio = w.audio, device = w.device, software = w.software, debug = w.debug, log_clips = w.log_clips, image_budget = w.image_budget, script_path = strings.clone(pv.script_path), script_args = app.script_args, script_props = pv.script_props[:], media_dir = strings.clone(pv.media_dir), video = w.video, pool = w.pool}
+		w^ = {mb = mb, audio = w.audio, device = w.device, software = w.software, debug = w.debug, log_clips = w.log_clips, image_budget = w.image_budget, script_path = strings.clone(pv.script_path), script_args = app.script_args, script_props = pv.script_props[:], media_dir = strings.clone(pv.media_dir), video = w.video, pool = w.pool, background = w.background}
 		worker_start(w)
 	}
 	command_push(&app.commands, .Script_Reload, {flag = true})
@@ -1858,7 +1864,7 @@ preview_request :: proc(app: ^App_State, p: ^platform.Platform) {
 	// stamps the rows it finds changed with
 	now := pv.now_start + f64(frame) / f64(fps) + hold
 	sync.mutex_lock(&mb.mutex)
-	mb.request = {frame = frame, hold = hold, hold_through = through, now_start = pv.now_start, now = now, scale = scale, reload = pv.reload_gen, reload_media = pv.reload_media, asked = time.tick_now()}
+	mb.request = {frame = frame, hold = hold, hold_through = through, now_start = pv.now_start, now = now, scale = scale, reload = pv.reload_gen, reload_media = mb.request.reload_media || pv.reload_media, asked = time.tick_now()}
 	mb.request_seq += 1
 	sync.cond_signal(&mb.cond)
 	sync.mutex_unlock(&mb.mutex)

@@ -513,7 +513,10 @@ test_expression_watch_rows :: proc(t: ^testing.T) {
 	for _ in 0 ..< 3 do test_frame(&tp)
 	type :: proc(tp: ^Test_Preview, text: string) -> []Command_Row {return test_frame(tp, ..text_events(text))}
 	key :: proc(tp: ^Test_Preview, k: platform.Key, mods: ui.Modifiers = {}) -> []Command_Row {return test_frame(tp, key_press(k, mods))}
-	type(&tp, "scenes")
+	// Real key presses alongside text events on the empty row must not fire single-key commands (s -> Scene_Step, q -> Quit).
+	first_s := test_frame(&tp, key_press(.S), text_events("s")[0])
+	testing.expect_value(t, len(first_s), 0)
+	type(&tp, "cenes")
 	testing.expect_value(t, pv.watch_edit.view, id)
 	testing.expect_value(t, string(pv.watch_edit.text[:]), "scenes")
 	added := key(&tp, .Enter)
@@ -542,11 +545,20 @@ test_expression_watch_rows :: proc(t: ^testing.T) {
 	testing.expect(t, len(moved) == 1 && moved[0].kind == .Watch_Input_Move && moved[0].regs.option == 0)
 	testing.expect(t, v.inputs[0].source == "marks" && v.inputs[1].source == "scenes")
 	testing.expect_value(t, view_list(pv, id).cursor, 0)
-	// Escape drops an edit; the expression stays.
+	// Escape drops an edit; the expression stays (even when a filter is open on the view).
+	field := view_filter_field(pv, id)
+	field.open = true
+	append(&field.text, "ma")
+	append(&v.filter, "ma")
 	key(&tp, .Enter)
+	testing.expect_value(t, len(test_frame(&tp, key_press(.Q), text_events("q")[0])), 0)
 	type(&tp, "nonsense")
 	testing.expect_value(t, len(key(&tp, .Escape)), 0)
 	testing.expect(t, pv.watch_edit.view == 0 && v.inputs[0].source == "marks")
+	testing.expect(t, field.open && string(v.filter[:]) == "ma")
+	field.open = false
+	clear(&field.text)
+	clear(&v.filter)
 	// A paste begins an edit with what's pasted over all of it.
 	test_frame(&tp)
 	ui.action_storage_clear(&tp.s.actions)

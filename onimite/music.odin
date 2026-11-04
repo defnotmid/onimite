@@ -241,7 +241,8 @@ media_song :: proc(m: ^Media, name: string) -> ^Song_Clip {
 
 // Whether the media has a sound named `name`: a clip or a song.
 media_has_sound :: proc(m: ^Media, name: string) -> bool {
-	return name in m.audio || media_song(m, name) != nil
+	_, has := media_audio(m, name)
+	return has || media_song(m, name) != nil
 }
 
 // The media's songs, sorted by name (temp memory).
@@ -777,9 +778,20 @@ song_table_fill_rows :: proc(sc: ^Song_Clip, st: ^Sound_Table, first, last: int)
 	pool_work_init(&work, sc.music.pool)
 	defer pool_work_destroy(&work)
 	orender.export_into(&sc.song, {from = obase.Seconds(f64(from) / MIX_RATE), to = obase.Seconds(f64(to) / MIX_RATE), pool = &work.work_pool}, {l, r})
-	orender.table_fill_steps(t, lo, hi + 1, from, l, r)
-	for step in lo ..= hi {
-		sync.atomic_store(&st.filled[step], 1)
+	for step := lo; step <= hi; {
+		if st.filled[step] != 0 {
+			step += 1
+			continue
+		}
+		end := step + 1
+		for end <= hi && st.filled[end] == 0 {
+			end += 1
+		}
+		orender.table_fill_steps(t, step, end, from, l, r)
+		for k in step ..< end {
+			sync.atomic_store(&st.filled[k], 1)
+		}
+		step = end
 	}
 }
 

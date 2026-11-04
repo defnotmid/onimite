@@ -368,8 +368,13 @@ bake_render :: proc(f: om.Frame, ctx: ^om.Context) {
 	s := job.s
 	L := s.L
 	outer := s.ctx
+	outer_frame := s.frame
 	s.ctx = ctx
-	defer s.ctx = outer
+	s.frame = f
+	defer {
+		s.ctx = outer
+		s.frame = outer_frame
+	}
 	lua.rawgeti(L, lua.REGISTRYINDEX, lua.Integer(job.ref))
 	if lua.pcall(L, 0, 0, 0) != 0 {
 		job.failure = strings.clone(string(lua.tostring(L, -1)), context.temp_allocator)
@@ -385,7 +390,7 @@ l_audio_info :: proc "c" (L: ^lua.State) -> c.int {
 	s := host(L)
 	context = s.odin_context
 	media := measure_media(L, s, "audio_info")
-	clip, ok := media.audio[string(lua.L_checkstring(L, 1))]
+	clip, ok := om.media_audio(media, string(lua.L_checkstring(L, 1)))
 	if !ok {
 		lua.pushnil(L)
 		return 1
@@ -724,7 +729,7 @@ l_audio_spectrum :: proc "c" (L: ^lua.State) -> c.int {
 	if !later {
 		build_pending(L, s, src)
 	}
-	_, ok := ctx.media.audio[src]
+	_, ok := om.media_audio(ctx.media, src)
 	song := om.media_song(ctx.media, src) if !ok else nil
 	ok ||= song != nil
 	if !ok && later {
@@ -857,7 +862,7 @@ l_audio_energy :: proc "c" (L: ^lua.State) -> c.int {
 	// A clip not built yet (audio_add) reads as silence until it lands.
 	ready :: proc(L: ^lua.State, s: ^Script, ctx: ^om.Context, src: string) -> bool {
 		if s.audio_later && audio_deferred(s, src) {
-			if src not_in ctx.media.audio {
+			if _, ok := om.media_audio(ctx.media, src); !ok {
 				ctx.audio_pending += 1
 				return false
 			}
@@ -872,7 +877,7 @@ l_audio_energy :: proc "c" (L: ^lua.State) -> c.int {
 			push_energy(L, energy)
 			return 1
 		}
-		_, ok := ctx.media.audio[src]
+		_, ok := om.media_audio(ctx.media, src)
 		song := om.media_song(ctx.media, src) if !ok else nil
 		ok ||= song != nil
 		if !ok {
@@ -1114,7 +1119,8 @@ l_audio_onsets :: proc "c" (L: ^lua.State) -> c.int {
 	if m == nil {
 		lua.L_error(L, "audio_onsets() needs the media: the script was loaded without it")
 	}
-	if s.ctx != nil && s.audio_later && audio_deferred(s, src) && src not_in m.audio {
+	_, has_clip := om.media_audio(m, src)
+	if s.ctx != nil && s.audio_later && audio_deferred(s, src) && !has_clip {
 		// A frame asking for a clip not built yet: no onsets until it lands.
 		s.ctx.audio_pending += 1
 		lua.createtable(L, 0, 2)
@@ -1125,7 +1131,8 @@ l_audio_onsets :: proc "c" (L: ^lua.State) -> c.int {
 		return 1
 	}
 	build_pending(L, s, src)
-	if sc := om.media_song(m, src); sc != nil && src not_in m.audio {
+	_, has_clip = om.media_audio(m, src)
+	if sc := om.media_song(m, src); sc != nil && !has_clip {
 		push_song_onsets(L, sc)
 		return 1
 	}
@@ -1157,7 +1164,8 @@ l_audio_onsets :: proc "c" (L: ^lua.State) -> c.int {
 		lua.pushnumber(L, lua.Number(rep.offset))
 		lua.setfield(L, -3, "offset")
 		period := 60 / f64(rep.bpm)
-		length := f64(om.audio_clip_seconds(m.audio[src]))
+		clip, _ := om.media_audio(m, src)
+		length := f64(om.audio_clip_seconds(clip))
 		k := 0
 		for t := f64(rep.offset); t < length; t = f64(rep.offset) + f64(k) * period {
 			k += 1

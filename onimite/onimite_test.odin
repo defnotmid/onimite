@@ -69,6 +69,11 @@ test_spring :: proc(t: ^testing.T) {
 	keys := []Key(f32){{start = 0, from = 0, to = 100, easing = s}}
 	testing.expect(t, sample(keys, 0.1) > 0 && sample(keys, 0.1) < 100)
 	testing.expect_value(t, sample(keys, 10), 100)
+	// An undamped spring never settles on its own and oscillates across its span.
+	undamped := spring(1, 100, 0)
+	testing.expect(t, math.is_inf(spring_duration(undamped), 1))
+	span := []Key(f32){{start = 0, end = 2, from = 0, to = 1, easing = undamped}}
+	testing.expect(t, abs(sample(span, 0.5) - (1 - math.cos_f32(5))) < 1e-4)
 }
 
 @(test)

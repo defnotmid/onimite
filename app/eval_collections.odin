@@ -126,10 +126,11 @@ collection_rows :: proc(r: ^Reader, v: Value, info: ^Collection_Info, lo, hi: in
 collection_filter :: proc(r: ^Reader, v: Value, info: Collection_Info, filter: string) -> Collection_Info {
 	if filter == "" do return info
 	info := info
-	all := make([]Child, info.count, context.temp_allocator)
-	collection(v).range(r, v, &info, 0, info.count, all)
-	shown := make([dynamic]int, 0, len(all), context.temp_allocator)
-	for c, p in all {if fuzzy_find(c.label, filter) do append(&shown, p)}
+	shown := make([dynamic]int, 0, info.count, context.temp_allocator)
+	for p in 0 ..< info.count {
+		label := info.kids[p].label if info.kids != nil else row_label(r, {kind = info.of, ref = {info.of, info_row(&info, p)}})
+		if fuzzy_find(label, filter) do append(&shown, p)
+	}
 	info.shown, info.count = shown[:], len(shown)
 	return info
 }

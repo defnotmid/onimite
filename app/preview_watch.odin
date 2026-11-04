@@ -169,7 +169,7 @@ watch_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32, id: View_Id, area: W
 	// Its row gone (scrolled away, or its expression removed), the edit
 	// goes; one a click began is drawn from the next frame.
 	if edit.view == id && !drawn && !edit.started do edit.view = 0
-	if edit.view == id do edit.started = false
+	if edit.view == id {edit.started = false; s.text_edit_mode = true}
 }
 
 // The Watch's own keys, while its panel has them, on its cursor row (RAD's
@@ -188,6 +188,7 @@ watch_keys :: proc(app: ^App_State, s: ^ui.State, id: View_Id, v: ^View_Record, 
 	on_add := !v.scoped && l.cursor >= blocks.total
 	root, has_root := row.?
 	editable := has_root && root.root && !v.scoped
+	if edit.view == id || on_add || editable do s.text_edit_mode = true
 	for &a in s.actions.rows {
 		if a.consumed do continue
 		if edit.view == id {

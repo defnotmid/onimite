@@ -361,7 +361,7 @@ l_sound :: proc "c" (L: ^lua.State) -> c.int {
 compose :: proc(L: ^lua.State, s: ^Script, name: string, v: json.Value, sound: bool) -> ^om.Song_Clip {
 	m := measure_media(L, s, "song")
 	cname := strings.clone_to_cstring(name, context.temp_allocator)
-	if name in m.audio {
+	if _, ok := om.media_audio(m, name); ok {
 		lua.L_error(L, "song %s: the media has a clip of that name: give the song another", cname)
 	}
 	key := om.value_key(v)

@@ -26,7 +26,8 @@ import om "../onimite"
 // A prepared morph: the points of both ends, read-only once made.
 @(private)
 Shared_Morph :: struct {
-	m: vg.Path_Morph,
+	morph: bool,
+	m:     vg.Path_Morph,
 }
 
 // The asset for the path in `p` (by its geometry and rule), copied into the
@@ -73,7 +74,11 @@ check_outline :: proc(L: ^lua.State, idx: c.int, what: cstring) -> ^om.Path_Asse
 	if lua.type(L, idx) != .LIGHTUSERDATA {
 		lua.L_error(L, "%s: expected an outline (from outline{} or path_data())", what)
 	}
-	return (^om.Path_Asset)(lua.touserdata(L, idx))
+	a := (^om.Path_Asset)(lua.touserdata(L, idx))
+	if a.morph {
+		lua.L_error(L, "%s: expected an outline (from outline{} or path_data()), got a morph handle", what)
+	}
+	return a
 }
 
 // outline{ "TEXT", font, size, weight, italic, letter_spacing, features, align,
@@ -192,6 +197,7 @@ l_morph :: proc "c" (L: ^lua.State) -> c.int {
 	// Kept: the ends and the contours (the scratch is dropped).
 	alloc := virtual.arena_allocator(&sh.arena)
 	m := new(Shared_Morph, alloc)
+	m.morph = true
 	m.m.from = make([dynamic]vg.Vec2, len(scratch.from), alloc)
 	m.m.to = make([dynamic]vg.Vec2, len(scratch.to), alloc)
 	m.m.contours = make([dynamic]vg.Morph_Contour, len(scratch.contours), alloc)
@@ -199,7 +205,6 @@ l_morph :: proc "c" (L: ^lua.State) -> c.int {
 	copy(m.m.to[:], scratch.to[:])
 	copy(m.m.contours[:], scratch.contours[:])
 	sh.morphs[key] = m
-	sh.morph_set[m] = true
 	lua.pushlightuserdata(L, m)
 	return 1
 }
@@ -214,11 +219,8 @@ l_morph_at :: proc "c" (L: ^lua.State) -> c.int {
 		lua.L_error(L, "morph_at: expected a morph (from morph(a, b))")
 	}
 	m := (^Shared_Morph)(lua.touserdata(L, 1))
-	{
-		sync.guard(&s.shared.lock)
-		if _, known := s.shared.morph_set[m]; !known {
-			lua.L_error(L, "morph_at: expected a morph (from morph(a, b)), got another handle")
-		}
+	if !m.morph {
+		lua.L_error(L, "morph_at: expected a morph (from morph(a, b)), got another handle")
 	}
 	t := f32(lua.L_checknumber(L, 2))
 	p: vg.Path

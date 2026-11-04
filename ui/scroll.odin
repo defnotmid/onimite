@@ -90,7 +90,8 @@ scroll_list_begin :: proc(s: ^State, key: string, dim: [2]f32, scroll: ^animatio
 				if c < 0 do c = rows - 1
 				if c > rows - 1 do c = 0
 			case .Word, .Line, .Page:
-				c += a.delta.y > 0 ? visible - 3 : a.delta.y < 0 ? -(visible - 3) : 0
+				step := max(visible - 3, 1)
+				c += a.delta.y > 0 ? step : a.delta.y < 0 ? -step : 0
 				c = clamp(c, 0, max(rows - 1, 0))
 			case .Whole:
 				if a.delta.y != 0 do c = a.delta.y > 0 ? rows - 1 : 0

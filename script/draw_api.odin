@@ -67,7 +67,7 @@ read_points :: proc(L: ^lua.State, t: c.int, ctx: ^om.Context) -> []om.Vec2 {
 	nested := lua.istable(L, -1)
 	lua.pop(L, 1)
 	count := n if nested else n / 2
-	pts := make([]om.Vec2, count, ctx.tree.arena)
+	pts := make([]om.Vec2, count, context.temp_allocator)
 	for &p, i in pts {
 		if nested {
 			lua.rawgeti(L, -1, lua.Integer(i + 1))
@@ -95,7 +95,9 @@ l_pattern :: proc "c" (L: ^lua.State) -> c.int {
 	field(L, 1, "content")
 	status: c.int = 0
 	if lua.isfunction(L, -1) {
+		saved := field_log
 		status = lua.pcall(L, 0, 0, 0)
+		field_log = saved
 	} else {
 		lua.pop(L, 1)
 	}
@@ -154,7 +156,7 @@ read_spans :: proc(L: ^lua.State, t: c.int, ctx: ^om.Context) -> []om.Text_Span 
 	}
 	list := lua.absindex(L, -1)
 	n := int(lua.rawlen(L, list))
-	spans := make([]om.Text_Span, n, ctx.tree.arena)
+	spans := make([]om.Text_Span, n, context.temp_allocator)
 	for &sp, i in spans {
 		lua.rawgeti(L, list, lua.Integer(i + 1))
 		e := lua.absindex(L, -1)

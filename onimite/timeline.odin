@@ -146,7 +146,7 @@ Spring_Params :: struct {
 
 @(private)
 spring_params :: proc "contextless" (e: Easing) -> (s: Spring_Params) {
-	mass, stiffness, damping := e.p[0], e.p[1], e.p[2]
+	mass, stiffness, damping := max(e.p[0], 1e-6), max(e.p[1], 1e-6), max(e.p[2], 0)
 	s.zeta = damping / (2 * math.sqrt(stiffness * mass))
 	s.w0 = math.sqrt(stiffness / mass)
 	s.a = 1
@@ -176,6 +176,12 @@ spring_solve :: proc "contextless" (e: Easing, t: f32) -> f32 {
 spring_duration :: proc "contextless" (e: Easing) -> f32 {
 	SETTLED :: 0.001
 	s := spring_params(e)
+	if s.w0 <= 0 {
+		return 0
+	}
+	if s.zeta <= 0 {
+		return math.inf_f32(1)
+	}
 	if s.zeta < 1 {
 		// The oscillation is bounded by its exponential envelope.
 		amp := math.sqrt(s.a * s.a + s.b * s.b)
@@ -183,7 +189,7 @@ spring_duration :: proc "contextless" (e: Easing) -> f32 {
 	}
 	// (1 + w0 t) e^(-w0 t) decreases monotonically: step to the threshold.
 	t: f32 = 0
-	for (s.a + s.b * t) * math.exp(-t * s.w0) > SETTLED {
+	for (s.a + s.b * t) * math.exp(-t * s.w0) > SETTLED && t < 3600 {
 		t += 1.0 / 240
 	}
 	return t

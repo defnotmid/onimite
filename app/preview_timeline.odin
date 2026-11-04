@@ -622,7 +622,7 @@ timeline_rows_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32, id: View_Id,
 			start += units
 			it := pv.waves.items[items[k]]
 			ui.set_next_pref_width(s, ui.pct(1)); ui.set_next_pref_height(s, ui.px(f32(units - skipped - chopped) * unit))
-			box := ui.build_box(s, {.Clickable}, fmt.tprintf("###timeline_row_%x", it.key))
+			box := ui.build_box(s, {.Clickable}, fmt.tprintf("###timeline_row_%x_%d", it.key, int(it.kind)))
 			sig := ui.signal_from_box(s, box)
 			timeline_pointer(app, s, sig, rows_map, items[k])
 			draw := new(Timeline_Draw, context.temp_allocator)

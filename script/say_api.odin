@@ -192,7 +192,7 @@ l_say :: proc "c" (L: ^lua.State) -> c.int {
 	}
 	m := measure_media(L, s, "say")
 	if !speech.voice_known(o.voice) {
-		if clip, ok := m.audio[o.voice]; ok && clip.frames > 0 {
+		if clip, ok := om.media_audio(m, o.voice); ok && clip.frames > 0 {
 			// A recording of the media, as decoded: its first 30 s in mono.
 			n := min(clip.frames, speech.VOICE_SECONDS * om.MIX_RATE)
 			mono := make([]f32, n, context.temp_allocator)

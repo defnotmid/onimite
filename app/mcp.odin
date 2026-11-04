@@ -94,7 +94,7 @@ mcp_update_check :: proc() {
 	}
 	if latest, problem := update_latest(); problem == "" && update_newer(latest.tag, ONIMITE_VERSION) {
 		mcp_newer = strings.clone(latest.tag)
-		sync.atomic_store(&mcp_newer_found, true)
+		sync.atomic_store_explicit(&mcp_newer_found, true, .Release)
 	}
 	free_all(context.temp_allocator)
 }
@@ -162,7 +162,7 @@ mcp_text :: proc(text: string) -> string {
 @(private = "file")
 mcp_answer_json :: proc(a: Mcp_Answer, name: string) -> string {
 	notice := ""
-	if !mcp_newer_told && sync.atomic_load(&mcp_newer_found) {
+	if !mcp_newer_told && sync.atomic_load_explicit(&mcp_newer_found, .Acquire) {
 		mcp_newer_told = true
 		if name != command_name(.Update) {
 			notice = fmt.tprintf(",%s", mcp_text(fmt.tprintf("onimite %s is out (this server is %s). Tell the user; the update tool installs it, and the app needs a restart to use it.", mcp_newer, ONIMITE_VERSION)))
