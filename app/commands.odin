@@ -400,7 +400,7 @@ COMMAND_KINDS := [Command_Kind]Command_Descriptor {
 	.Quit = {domain = .Preview},
 	.Font_Size_Increase = {help = "the window's font size a point up, to 72 (RAD Debugger's inc_window_font_size; Alt+=, and the wheel with Control over nothing that takes it)", domain = .Preview},
 	.Font_Size_Decrease = {help = "the window's font size a point down, to 6 (dec_window_font_size; Alt+-)", domain = .Preview},
-	.Search = {help = "the focused panel's view's filter row takes the keys", domain = .Ui},
+	.Search = {help = "opens the focused panel's view's filter row with the keys, or shuts it (the filter kept)", domain = .Ui},
 	.Accept = {help = "Accept: the focused field's text, the list's cursor row", domain = .Ui},
 	.Cancel = {help = "Cancel: stop editing, close what is open (a field, the lister), end a tab's drag", domain = .Ui},
 	.Move_Left = {help = "moves the cursor left (the focused video or timeline: a frame back)", domain = .Ui},

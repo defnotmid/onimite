@@ -96,13 +96,15 @@ column_ranges :: proc(matched: []Fuzzy_Range, lo, hi: int) -> [][2]int {
 }
 
 // A view's filter as typed: the text follows the view's filter while the
-// field is idle, and an edit sends View_Filter. Its focus is RAD's search
-// row's: it has the keys while `focused`, which a press on it (focusing its
-// panel) or Search (Ctrl+F) sets, and a press elsewhere clears; Escape
-// clears the filter and closes the row (RAD's query cancel).
+// field is idle, and an edit sends View_Filter. It is RAD's search row:
+// shown while `open` (RAD's query_is_open), which Search toggles; Enter shuts
+// it and keeps the filter, Escape shuts and empties it. It has the keys while
+// `focused`, which a press on it (focusing its panel) or Search sets, and a
+// press elsewhere clears.
 Filter_Field :: struct {
 	text:         [dynamic]u8,
 	cursor, mark: int,
+	open:         bool,
 	focused:      bool,
 }
 
@@ -122,18 +124,20 @@ view_filter_field :: proc(pv: ^Preview_State, view: View_Id) -> ^Filter_Field {
 // so rows follow the window's font size.
 list_row_height :: proc(s: ^ui.State) -> f32 {return math.floor(ui.top_font_size(s) * 3)}
 
-// A listing view's header, laid out: its filter row (a row tall, as RAD's
-// search row), open while the filter holds text or its field has the keys,
-// sliding open on Search (Ctrl+F) in its focused panel (after RAD
-// Debugger's search row). Returns its height.
+// A listing view's header, laid out: its filter row while it is open, as
+// RAD's search row (raddbg_core.c:1658-1756) eases open and shut at the menu
+// rate, a row tall times how open it is, its contents as clear, and is not
+// built while shut. Returns its height.
 view_header :: proc(app: ^App_State, s: ^ui.State, view: View_Id, dpi: f32) -> f32 {
 	pv := &app.preview
 	field := view_filter_field(pv, view)
 	v := workspace_view(&pv.workspace, view)
-	open := len(v.filter) > 0 || field.focused
-	t := ui.anim_f32(s, ui.key_from_string(0, fmt.tprintf("filter_open_%d", view)), open ? 1 : 0, {initial = open ? 1 : 0})
-	height := list_row_height(s) * t
-	if t <= 0.05 do return 0
+	open := field.open ? f32(1) : 0
+	t := ui.anim_f32(s, ui.key_from_string(0, fmt.tprintf("search_row_open_%d", view)), open, {initial = open, epsilon = 0.01, rate = 70 * math.LN2})
+	if t <= 0.001 do return 0
+	height := math.floor(list_row_height(s) * t)
+	ui.push_opacity(s, t)
+	defer ui.pop_opacity(s)
 	ui.set_next_pref_width(s, ui.pct(1)); ui.set_next_pref_height(s, ui.px(height)); ui.set_next_child_layout_axis(s, .Y)
 	row := ui.build_box(s, {.Clip}, fmt.tprintf("###filter_row_%d", view))
 	ui.push_parent(s, row)
@@ -158,14 +162,17 @@ view_header :: proc(app: ^App_State, s: ^ui.State, view: View_Id, dpi: f32) -> f
 	// Pressed, it has the keys, its panel focused (RAD's search row press).
 	if ui.pressed(sig) {field.focused = true; focus_panel(app, view)}
 	// Escape, the row open and its panel focused (the keys or the rows
-	// below had them), clears the filter and closes the row (RAD's query
-	// cancel).
+	// below had them), shuts it and empties it; Enter in it shuts it and
+	// keeps the filter (RAD's catchall completion controls, 5207-5225, and a
+	// Watch's search completing, 2183-2191).
 	ui.push_focus(s, .On)
 	panel_focused := ui.is_focus_active(s)
 	ui.pop_focus(s)
-	if open && panel_focused && ui.action_pressed(s, .Cancel) {
+	if field.open && panel_focused && ui.action_pressed(s, .Cancel) {
 		clear(&field.text); field.cursor, field.mark = 0, 0
-		field.focused = false
+		field.open, field.focused = false, false
+	} else if focused && ui.action_pressed(s, .Accept) {
+		field.open, field.focused = false, false
 	}
 	if string(field.text[:]) != filter do command_push(&app.commands, .View_Filter, {view = view, spec = string(field.text[:])})
 	// The field keeps the keys until a press elsewhere.

@@ -276,7 +276,7 @@ test_tab_drag_drops_through_the_pipeline :: proc(t: ^testing.T) {
 	// Escape during a tab's drag ends it (RAD's: a cancel no view takes
 	// cancels a drag), through the whole frame: the timeline's tab, where
 	// it now is (the panels slid there), pressed and dragged.
-	p.frame_time = 1
+	p.frame_dt = 1
 	for _ in 0 ..< 3 do frame(&app, &s, {}, false)
 	tab = ws.areas[left_panel - 1].rect
 	at = {tab.x + 20, tab.y + 5}
@@ -293,6 +293,109 @@ test_tab_drag_drops_through_the_pipeline :: proc(t: ^testing.T) {
 	ui.build_end(&s)
 	testing.expect_value(t, pv.drag, Drag_State.Null)
 	clear(&app.commands.pending.rows); clear(&app.commands.pending.text)
+}
+
+// A Watch's filter row is RAD's search row (raddbg_core.c:1658-1756,
+// 5207-5225, 16603-16624), through the whole frame: shut until Search opens
+// it, easing open at the menu rate, its old text selected and the keys its;
+// Search again shuts it, Enter shuts it and keeps the filter, Escape shuts and
+// empties it, even with the keys on the rows below; a press elsewhere takes
+// the keys and leaves it open. Slash searches too, and types itself while a
+// field has the keys.
+@(test)
+test_search_row_opens_as_rads :: proc(t: ^testing.T) {
+	app: App_State
+	app.commands = command_storage_make()
+	defer command_storage_destroy(&app.commands)
+	pv := &app.preview
+	defer preview_state_destroy(pv)
+	workspace_init(&pv.workspace)
+	pv.font_size = FONT_SIZE_DEFAULT
+	pv.timeline.fps = 30
+	test_tables(&pv.tables, cues = {{"one", 10}, {"two", 48}, {"three", 90}})
+	p: platform.Platform
+	p.width, p.height, p.dpi_scale, p.frame_dt = 1280, 800, 1, 1.0 / 60
+	font, font_ok := render.font_load(UI_FONT)
+	testing.expect(t, font_ok)
+	defer render.font_unload(&font)
+	s: ui.State
+	ui.init(&s, nil, &p, &font)
+	defer ui.destroy(&s)
+	defer free_all(context.temp_allocator)
+	defer delete(p.input.events)
+	frame :: proc(app: ^App_State, s: ^ui.State, events: ..platform.Event) {
+		clear(&s.p.input.events)
+		append(&s.p.input.events, ..events)
+		preview_layout(app, s.p); preview_input(app, s, s.p)
+		ui.build_begin(s); preview_views(app, s, s.p); ui.build_end(s)
+		batch := &app.commands.pending
+		for q in batch.rows {
+			r := command_row_of(batch, q)
+			r.regs.spec = strings.clone(r.regs.spec, context.temp_allocator)
+			if COMMAND_KINDS[r.kind].domain == .Workspace do workspace_apply(&app.preview.workspace, r.kind, r.regs)
+			else do preview_apply(app, r.kind, r.regs)
+		}
+		clear(&batch.rows); clear(&batch.text)
+		clear(&s.p.input.events)
+	}
+	settle :: proc(app: ^App_State, s: ^ui.State) {for _ in 0 ..< 30 do frame(app, s)}
+	ws := &pv.workspace
+	watch := workspace_open(ws, ws.focused, .Watch, expression = "video:cues", direction = .Right)
+	frame(&app, &s)
+	field := view_filter_field(pv, watch)
+	row_box :: proc(s: ^ui.State, watch: View_Id) -> ^ui.Box {
+		for _, b in s.box_table do if b.last_build_index == s.build_index && b.parent != nil && b.key == ui.key_from_string(b.parent.key, fmt.tprintf("###filter_row_%d", watch)) do return b
+		return nil
+	}
+	h := list_row_height(&s)
+	// Shut, with a filter, the row isn't built.
+	preview_apply(&app, .View_Filter, {view = watch, spec = "t"})
+	settle(&app, &s)
+	testing.expect(t, row_box(&s, watch) == nil)
+	// Search opens it, its text selected, the keys its; it eases open at
+	// RAD's menu rate, 1 - 2^(-70 dt) of the way a frame.
+	frame(&app, &s, key_press(.F, {.Control}))
+	testing.expect(t, field.open && field.focused)
+	testing.expect_value(t, field.cursor, 1)
+	testing.expect_value(t, field.mark, 0)
+	frame(&app, &s)
+	testing.expect_value(t, ui.box_size(row_box(&s, watch)).y, math.floor(h * (1 - math.pow(f32(2), -70.0 / 60))))
+	settle(&app, &s)
+	testing.expect_value(t, ui.box_size(row_box(&s, watch)).y, h)
+	// Search again shuts it, the filter kept.
+	frame(&app, &s, key_press(.F, {.Control}))
+	settle(&app, &s)
+	testing.expect(t, !field.open && !field.focused && row_box(&s, watch) == nil)
+	testing.expect_value(t, string(ws.views[watch - 1].filter[:]), "t")
+	// Enter shuts it and keeps the filter; the cursor row didn't take it.
+	frame(&app, &s, key_press(.Slash))
+	testing.expect(t, field.open && field.focused)
+	settle(&app, &s)
+	frame(&app, &s, key_press(.Enter))
+	testing.expect(t, !field.open && !field.focused)
+	testing.expect_value(t, string(ws.views[watch - 1].filter[:]), "t")
+	// Slash types itself while the field has the keys (a key's event, then
+	// its character's), its selected text replaced.
+	settle(&app, &s)
+	frame(&app, &s, key_press(.Slash))
+	settle(&app, &s)
+	frame(&app, &s, key_press(.Slash), platform.Event{kind = .Text, character = '/'})
+	frame(&app, &s)
+	testing.expect(t, field.open)
+	testing.expect_value(t, string(ws.views[watch - 1].filter[:]), "/")
+	// A press elsewhere takes the keys and leaves it open.
+	settle(&app, &s)
+	p.input.mouse = {640, 700}
+	frame(&app, &s, platform.Event{kind = .Mouse_Press, button = .Left, position = p.input.mouse})
+	frame(&app, &s, platform.Event{kind = .Mouse_Release, button = .Left, position = p.input.mouse})
+	testing.expect(t, field.open && !field.focused)
+	// Escape shuts and empties it, the keys elsewhere, its panel focused.
+	ws.focused = workspace_view(ws, watch).panel
+	frame(&app, &s)
+	frame(&app, &s, key_press(.Escape))
+	frame(&app, &s)
+	testing.expect(t, !field.open && !field.focused)
+	testing.expect_value(t, len(ws.views[watch - 1].filter), 0)
 }
 
 // The keys reach the focused panel's view, through the whole frame (the
@@ -403,7 +506,8 @@ test_keys_reach_the_focused_panel :: proc(t: ^testing.T) {
 	// Its filter row open (a filter typed, the row eased open), the video's
 	// panel focused.
 	preview_apply(&app, .View_Filter, {view = watch, spec = "t"})
-	p.frame_time = 1.0 / 60
+	view_filter_field(pv, watch).open = true
+	p.frame_dt = 1.0 / 60
 	for _ in 0 ..< 60 do frame(&app, &s)
 	workspace_select(ws, workspace_find(ws, .Video))
 	frame(&app, &s)
@@ -445,7 +549,7 @@ test_keys_reach_the_focused_panel :: proc(t: ^testing.T) {
 	frame_events(&app, &s, key_press(.Escape))
 	frame(&app, &s)
 	testing.expect_value(t, len(pv.workspace.views[watch - 1].filter), 0)
-	testing.expect(t, !view_filter_field(pv, watch).focused)
+	testing.expect(t, !view_filter_field(pv, watch).focused && !view_filter_field(pv, watch).open)
 
 	// Focus leaves the window while the left button holds a row down: no
 	// release comes (RAD's window layer sends none) and the UI keeps the
@@ -794,7 +898,7 @@ test_tab_bar_scrolls_sideways :: proc(t: ^testing.T) {
 	workspace_init(&pv.workspace)
 	pv.font_size = FONT_SIZE_DEFAULT
 	p: platform.Platform
-	p.width, p.height, p.dpi_scale, p.frame_time = 900, 700, 1, 1
+	p.width, p.height, p.dpi_scale, p.frame_dt = 900, 700, 1, 1
 	font, font_ok := render.font_load(UI_FONT)
 	testing.expect(t, font_ok)
 	defer render.font_unload(&font)

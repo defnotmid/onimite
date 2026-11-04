@@ -545,7 +545,7 @@ preview_run :: proc(app: ^App_State, capture, drive, start_spec: string) -> Erro
 
 		preview_playback_advance(app, dt)
 		preview_take_published(app, &canvas, now)
-		preview_motion_advance(app, f32(dt))
+		preview_motion_advance(app, p.frame_dt) // the cameras ease as the UI does
 		preview_view_follow(app)
 		preview_layout(app, &p)
 
@@ -828,7 +828,9 @@ preview_drive_workspace :: proc(app: ^App_State, drive: string, frames: int) {
 	if frames == 30 && strings.contains(drive, "filter=") {
 		query := drive[strings.index(drive, "filter=") + len("filter="):]
 		if end := strings.index_any(query, " ,"); end >= 0 do query = query[:end]
-		command_push(c, .View_Filter, {view = workspace_shown(ws, .Watch), spec = query})
+		view := workspace_shown(ws, .Watch)
+		view_filter_field(&app.preview, view).open = true
+		command_push(c, .View_Filter, {view = view, spec = query})
 	}
 }
 

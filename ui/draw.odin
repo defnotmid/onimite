@@ -22,7 +22,7 @@ draw :: proc(s: ^State) {
 	vg.set_render_target(c, s.target)
 	vg.layer_stack_begin(&s.layers, c, w, h, s.target)
 	vg.clear_rect(c, 0, 0, w, h, color(s.theme.background))
-	draw_box(s, s.root, s.p.frame_time)
+	draw_box(s, s.root, s.p.frame_dt)
 	hint_draw(s)
 	vg.layer_stack_end(&s.layers, c)
 	vg.set_render_target(c, nil)

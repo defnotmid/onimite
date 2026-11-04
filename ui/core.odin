@@ -26,6 +26,7 @@ package ui
 
 import "../animation"
 import "core:math"
+import "core:mem/virtual"
 import "core:strings"
 
 import platform "../platform"
@@ -203,11 +204,12 @@ Text_Align :: enum u8 {
 ////////////////////////////////
 // Box
 
-// Box is one node in the per-frame tree. Keyed boxes are heap-allocated once
-// and reused across frames (found via State.box_table); transient boxes
-// (Key 0) live in State.frame_boxes and are freed each frame. Per-frame fields
-// (links, sizes, rect target) are reset by build_box; persistent fields
-// (hot_t, active_t, rect from last frame) survive.
+// Box is one node in the per-frame tree. Keyed boxes come from State.box_arena
+// and are reused across frames (found via State.box_table); transient boxes
+// (Key 0) come from the arena of their build (State.build_arenas), as RAD's
+// ui_build_box_from_key allocates them. Per-frame fields (links, sizes, rect
+// target) are reset by build_box; persistent fields (hot_t, active_t, rect
+// from last frame) survive.
 Box :: struct {
 	// intrusive tree (per-frame; nil-terminated)
 	first, last, next, prev, parent: ^Box,
@@ -269,7 +271,6 @@ Box :: struct {
 	focus_hot_t, focus_active_t:     f32,
 	first_build_index:               u64,
 	last_build_index:                u64,
-	transient:                       bool, // Key 0: lives in frame arena
 	default_nav_focus_hot_key:       Key,
 	default_nav_focus_active_key:    Key,
 	// Set during a frame, taken as the next begins (RAD's next keys).
@@ -390,11 +391,15 @@ State :: struct {
 	p:                  ^platform.Platform,
 	font:               ^render.Font,
 
-	// persistent keyed boxes
+	// Keyed boxes, from box_arena and reused through the free list once
+	// pruned (RAD's ui_state->arena and first_free_box).
 	box_table:          map[Key]^Box,
-
-	// per-frame transient boxes (Key 0), freed at build_begin
-	frame_boxes:        [dynamic]^Box,
+	box_arena:          virtual.Arena,
+	first_free_box:     ^Box,
+	// Transient boxes (Key 0), in the arena of their build: two, alternating
+	// by build_index, so the last build's stay valid through this one (RAD's
+	// build_arenas).
+	build_arenas:       [2]virtual.Arena,
 
 	// build state
 	root:               ^Box,
@@ -522,13 +527,18 @@ default_theme :: proc() -> Theme {
 	}
 }
 
+// What each box arena reserves (committed as it is used): RAD's default
+// arena reserve (base/base_arena.h).
+ARENA_RESERVE :: 64 * 1024 * 1024
+
 // init wires a State to the renderer/platform/font and seeds the theme.
 init :: proc(s: ^State, canvas: ^vg.Canvas, p: ^platform.Platform, font: ^render.Font) {
 	s.canvas = canvas
 	s.p = p
 	s.font = font
 	s.box_table = make(map[Key]^Box)
-	s.frame_boxes = make([dynamic]^Box)
+	_ = virtual.arena_init_growing(&s.box_arena, ARENA_RESERVE)
+	for &a in s.build_arenas do _ = virtual.arena_init_growing(&a, ARENA_RESERVE)
 	s.parent_stack = make([dynamic]^Box)
 	s.actions = action_storage_make()
 	s.animations = animation_storage_make()
@@ -539,14 +549,9 @@ init :: proc(s: ^State, canvas: ^vg.Canvas, p: ^platform.Platform, font: ^render
 
 // destroy frees all persistent boxes and the State's containers.
 destroy :: proc(s: ^State) {
-	for _, b in s.box_table {
-		free(b)
-	}
 	delete(s.box_table)
-	for b in s.frame_boxes {
-		free(b)
-	}
-	delete(s.frame_boxes)
+	virtual.arena_destroy(&s.box_arena)
+	for &a in s.build_arenas do virtual.arena_destroy(&a)
 	delete(s.parent_stack)
 	delete(s.drag_data)
 	if s.canvas != nil do vg.layer_stack_destroy(&s.layers, s.canvas)
@@ -586,9 +591,9 @@ stacks_delete :: proc(s: ^State) {
 ////////////////////////////////
 // Build phase
 
-// build_begin starts a frame: bumps build_index, frees last frame's transient
-// boxes, clears stacks, and pushes a framebuffer-sized root box. Interaction
-// keys computed last frame carry over.
+// build_begin starts a frame: bumps build_index, clears its build arena (what
+// the build before last allocated), clears stacks, and pushes a
+// framebuffer-sized root box. Interaction keys computed last frame carry over.
 build_begin :: proc(s: ^State) {
 	s.build_index += 1
 	s.build_box_count = 0
@@ -608,11 +613,7 @@ build_begin :: proc(s: ^State) {
 		b.default_nav_focus_active_key = b.default_nav_focus_next_active_key
 	}
 
-	// free transient boxes from previous frame
-	for b in s.frame_boxes {
-		free(b)
-	}
-	clear(&s.frame_boxes)
+	virtual.arena_free_all(&s.build_arenas[s.build_index % len(s.build_arenas)])
 
 	// reset stacks (values do not persist across frames)
 	clear(&s.parent_stack)
@@ -676,21 +677,23 @@ stack_reset :: proc(s: ^Stack($T)) {
 	s.next = nil
 }
 
-// build_end runs the 5-pass layout (X then Y), draws the tree, then prunes any
-// keyed box not touched this frame.
+// build_end, as RAD's ui_end_build: prunes any keyed box not touched this
+// frame, runs the 5-pass layout (X then Y), rounds children, animates the
+// keyed boxes, then draws the tree.
 build_end :: proc(s: ^State) {
 	pop_parent(s) // pop root
+	prune(s)
 
 	// 5-pass autolayout, per axis.
 	for axis in Axis2 {
 		layout_standalone(s, s.root, axis)
-		layout_upwards_dependent(s, s.root, axis)
+		layout_upwards_dependent(s.root, axis)
 		layout_downwards_dependent(s.root, axis)
 		layout_enforce_constraints(s.root, axis)
 		layout_position(s.root, axis)
 	}
-	view_animate(s, s.root, s.p.frame_time)
-	children_round(s.root)
+	children_round(s)
+	view_animate(s, s.p.frame_dt)
 
 	// The pointer's shape, as RAD's ui_end_build: the box the left button
 	// holds, else the hot one, sets it, while the window has the focus or a
@@ -702,9 +705,6 @@ build_end :: proc(s: ^State) {
 	// draw + animate
 	draw(s)
 	animations_advance(s)
-
-	// prune keyed boxes untouched this frame
-	prune(s)
 }
 
 // build_box creates (or reuses) a box for `string_key`. The key is derived
@@ -722,9 +722,10 @@ build_box :: proc(s: ^State, flags: Box_Flags, string_key: string) -> ^Box {
 	box: ^Box
 	if !transient {
 		if existing, ok := s.box_table[key]; ok {
-			// duplicate key within one frame -> demote to transient
+			// A key built twice in one frame: the second is transient.
 			if existing.last_build_index == s.build_index {
 				transient = true
+				key = Key(0)
 			} else {
 				box = existing
 			}
@@ -733,12 +734,17 @@ build_box :: proc(s: ^State, flags: Box_Flags, string_key: string) -> ^Box {
 
 	first_frame := false
 	if box == nil {
-		box = new(Box)
 		first_frame = true
 		if transient {
-			box.transient = true
-			append(&s.frame_boxes, box)
+			box = new(Box, virtual.arena_allocator(&s.build_arenas[s.build_index % len(s.build_arenas)]))
 		} else {
+			box = s.first_free_box
+			if box != nil {
+				s.first_free_box = box.next
+				box^ = {}
+			} else {
+				box = new(Box, virtual.arena_allocator(&s.box_arena))
+			}
 			box.first_build_index = s.build_index
 			s.box_table[key] = box
 		}
@@ -889,7 +895,8 @@ prune :: proc(s: ^State) {
 	}
 	for k in to_remove {
 		b := s.box_table[k]
-		free(b)
+		b.next = s.first_free_box
+		s.first_free_box = b
 		delete_key(&s.box_table, k)
 	}
 }
@@ -947,13 +954,28 @@ box_text_position :: proc(s: ^State, box: ^Box) -> [2]f32 {
 	return p
 }
 
+// The box after `box` in a pre-order walk of `root`'s tree, nil when it is
+// done, and how many levels it climbs to reach it: RAD's ui_box_rec_df_pre
+// (ui_core.c:338-358). The layout passes walk the tree with it, not by
+// recursion.
+Box_Rec :: struct {
+	next:      ^Box,
+	pop_count: int,
+}
+box_rec_df_pre :: proc(box, root: ^Box) -> (r: Box_Rec) {
+	if box.first != nil do return {next = box.first}
+	for p := box; p != nil && p != root; p = p.parent {
+		if p.next != nil {r.next = p.next; return}
+		r.pop_count += 1
+	}
+	return
+}
+
 // pass 1: standalone sizes (pixels, text content). Fixed_* already set size.
-layout_standalone :: proc(s: ^State, box: ^Box, axis: Axis2) {
-	if axis == .X && .Fixed_Width in box.flags {
-		// already set
-	} else if axis == .Y && .Fixed_Height in box.flags {
-		// already set
-	} else {
+layout_standalone :: proc(s: ^State, root: ^Box, axis: Axis2) {
+	for box := root; box != nil; box = box_rec_df_pre(box, root).next {
+		if axis == .X && .Fixed_Width in box.flags do continue
+		if axis == .Y && .Fixed_Height in box.flags do continue
 		#partial switch box.pref_size[axis].kind {
 		case .Pixels:
 			box.fixed_size[axis] = box.pref_size[axis].value
@@ -967,14 +989,12 @@ layout_standalone :: proc(s: ^State, box: ^Box, axis: Axis2) {
 			}
 		}
 	}
-	for c := box.first; c != nil; c = c.next {
-		layout_standalone(s, c, axis)
-	}
 }
 
 // pass 2: upwards-dependent (parent pct of nearest fixed-size ancestor).
-layout_upwards_dependent :: proc(s: ^State, box: ^Box, axis: Axis2) {
-	if box.pref_size[axis].kind == .Parent_Pct {
+layout_upwards_dependent :: proc(root: ^Box, axis: Axis2) {
+	for box := root; box != nil; box = box_rec_df_pre(box, root).next {
+		if box.pref_size[axis].kind != .Parent_Pct do continue
 		fixed_parent: ^Box
 		for p := box.parent; p != nil; p = p.parent {
 			fixed :=
@@ -991,30 +1011,34 @@ layout_upwards_dependent :: proc(s: ^State, box: ^Box, axis: Axis2) {
 			box.fixed_size[axis] = fixed_parent.fixed_size[axis] * box.pref_size[axis].value
 		}
 	}
-	for c := box.first; c != nil; c = c.next {
-		layout_upwards_dependent(s, c, axis)
-	}
 }
 
-// pass 3: downwards-dependent (children sum / max). Post-order so children are
-// sized before parents.
-layout_downwards_dependent :: proc(box: ^Box, axis: Axis2) {
-	for c := box.first; c != nil; c = c.next {
-		layout_downwards_dependent(c, axis)
-	}
-	if box.pref_size[axis].kind == .Children_Sum {
-		sum: f32 = 0
-		for c := box.first; c != nil; c = c.next {
-			if is_floating(c, axis) {
-				continue
+// pass 3: downwards-dependent (children sum / max). Each box and the
+// ancestors whose subtrees it ends are summed as the walk leaves them, so
+// children are sized before parents, as RAD's pass.
+layout_downwards_dependent :: proc(root: ^Box, axis: Axis2) {
+	for box := root; box != nil; {
+		rec := box_rec_df_pre(box, root)
+		b := box
+		for _ in 0 ..= rec.pop_count {
+			if b == nil do break
+			if b.pref_size[axis].kind == .Children_Sum {
+				sum: f32 = 0
+				for c := b.first; c != nil; c = c.next {
+					if is_floating(c, axis) {
+						continue
+					}
+					if axis == b.child_layout_axis {
+						sum += c.fixed_size[axis]
+					} else {
+						sum = max(sum, c.fixed_size[axis])
+					}
+				}
+				b.fixed_size[axis] = sum
 			}
-			if axis == box.child_layout_axis {
-				sum += c.fixed_size[axis]
-			} else {
-				sum = max(sum, c.fixed_size[axis])
-			}
+			b = b.parent
 		}
-		box.fixed_size[axis] = sum
+		box = rec.next
 	}
 }
 
@@ -1030,61 +1054,59 @@ is_floating :: proc(b: ^Box, axis: Axis2) -> bool {
 // A box that allows overflow on the axis keeps its children's sizes, and its
 // fraction-sized children take their fraction of it again (RAD's
 // ui_layout_enforce_constraints).
-layout_enforce_constraints :: proc(box: ^Box, axis: Axis2) {
-	overflow := .Allow_Overflow_X in box.flags if axis == .X else .Allow_Overflow_Y in box.flags
-	// off-axis: clamp each child to the parent's size
-	if axis != box.child_layout_axis && !overflow {
-		allowed := box.fixed_size[axis]
-		for c := box.first; c != nil; c = c.next {
-			if is_floating(c, axis) {
-				continue
-			}
-			violation := c.fixed_size[axis] - allowed
-			fixup := clamp(violation, 0, c.fixed_size[axis])
-			if fixup > 0 {
-				c.fixed_size[axis] -= fixup
-			}
-		}
-	}
-
-	// layout axis: distribute the total violation across squishable children
-	if axis == box.child_layout_axis && !overflow {
-		total_allowed := box.fixed_size[axis]
-		total_size: f32 = 0
-		total_weighted: f32 = 0
-		for c := box.first; c != nil; c = c.next {
-			if is_floating(c, axis) {
-				continue
-			}
-			total_size += c.fixed_size[axis]
-			total_weighted += c.fixed_size[axis] * (1 - c.pref_size[axis].strictness)
-		}
-		violation := total_size - total_allowed
-		if violation > 0 && total_weighted > 0 {
+layout_enforce_constraints :: proc(root: ^Box, axis: Axis2) {
+	for box := root; box != nil; box = box_rec_df_pre(box, root).next {
+		overflow := .Allow_Overflow_X in box.flags if axis == .X else .Allow_Overflow_Y in box.flags
+		// off-axis: clamp each child to the parent's size
+		if axis != box.child_layout_axis && !overflow {
+			allowed := box.fixed_size[axis]
 			for c := box.first; c != nil; c = c.next {
 				if is_floating(c, axis) {
 					continue
 				}
-				fixup_this := max(c.fixed_size[axis] * (1 - c.pref_size[axis].strictness), 0)
-				fixup_pct := clamp(violation / total_weighted, 0, 1)
-				c.fixed_size[axis] -= fixup_this * fixup_pct
+				violation := c.fixed_size[axis] - allowed
+				fixup := clamp(violation, 0, c.fixed_size[axis])
+				if fixup > 0 {
+					c.fixed_size[axis] -= fixup
+				}
 			}
 		}
-	}
 
-	if overflow {
-		for c := box.first; c != nil; c = c.next {
-			if c.pref_size[axis].kind == .Parent_Pct do c.fixed_size[axis] = box.fixed_size[axis] * c.pref_size[axis].value
+		// layout axis: distribute the total violation across squishable children
+		if axis == box.child_layout_axis && !overflow {
+			total_allowed := box.fixed_size[axis]
+			total_size: f32 = 0
+			total_weighted: f32 = 0
+			for c := box.first; c != nil; c = c.next {
+				if is_floating(c, axis) {
+					continue
+				}
+				total_size += c.fixed_size[axis]
+				total_weighted += c.fixed_size[axis] * (1 - c.pref_size[axis].strictness)
+			}
+			violation := total_size - total_allowed
+			if violation > 0 && total_weighted > 0 {
+				for c := box.first; c != nil; c = c.next {
+					if is_floating(c, axis) {
+						continue
+					}
+					fixup_this := max(c.fixed_size[axis] * (1 - c.pref_size[axis].strictness), 0)
+					fixup_pct := clamp(violation / total_weighted, 0, 1)
+					c.fixed_size[axis] -= fixup_this * fixup_pct
+				}
+			}
 		}
-	}
 
-	// enforce min sizes
-	for c := box.first; c != nil; c = c.next {
-		c.fixed_size[axis] = max(c.fixed_size[axis], c.min_size[axis])
-	}
+		if overflow {
+			for c := box.first; c != nil; c = c.next {
+				if c.pref_size[axis].kind == .Parent_Pct do c.fixed_size[axis] = box.fixed_size[axis] * c.pref_size[axis].value
+			}
+		}
 
-	for c := box.first; c != nil; c = c.next {
-		layout_enforce_constraints(c, axis)
+		// enforce min sizes
+		for c := box.first; c != nil; c = c.next {
+			c.fixed_size[axis] = max(c.fixed_size[axis], c.min_size[axis])
+		}
 	}
 }
 
@@ -1092,62 +1114,66 @@ layout_enforce_constraints :: proc(box: ^Box, axis: Axis2) {
 // less the parent's view offset; floating children use their fixed_pos. What
 // the laid-out children span is the parent's view bounds (RAD's
 // ui_layout_position).
-layout_position :: proc(box: ^Box, axis: Axis2) {
-	layout_pos: f32 = 0
-	bounds: f32 = 0
-	for c := box.first; c != nil; c = c.next {
-		if !is_floating(c, axis) {
-			c.fixed_pos[axis] = layout_pos
-			if box.child_layout_axis == axis {
-				layout_pos += c.fixed_size[axis]
-				bounds += c.fixed_size[axis]
-			} else {
-				bounds = max(bounds, c.fixed_size[axis])
+layout_position :: proc(root: ^Box, axis: Axis2) {
+	for box := root; box != nil; box = box_rec_df_pre(box, root).next {
+		layout_pos: f32 = 0
+		bounds: f32 = 0
+		for c := box.first; c != nil; c = c.next {
+			if !is_floating(c, axis) {
+				c.fixed_pos[axis] = layout_pos
+				if box.child_layout_axis == axis {
+					layout_pos += c.fixed_size[axis]
+					bounds += c.fixed_size[axis]
+				} else {
+					bounds = max(bounds, c.fixed_size[axis])
+				}
 			}
+			c.rect.min[axis] = box.rect.min[axis] + c.fixed_pos[axis] - math.floor(box.view_off[axis])
+			c.rect.max[axis] = c.rect.min[axis] + c.fixed_size[axis]
+			// floor to whole pixels (raddbg does this to avoid text shimmer)
+			c.rect.min[axis] = math.floor(c.rect.min[axis])
+			c.rect.max[axis] = math.floor(c.rect.max[axis])
 		}
-		c.rect.min[axis] = box.rect.min[axis] + c.fixed_pos[axis] - math.floor(box.view_off[axis])
-		c.rect.max[axis] = c.rect.min[axis] + c.fixed_size[axis]
-		// floor to whole pixels (raddbg does this to avoid text shimmer)
-		c.rect.min[axis] = math.floor(c.rect.min[axis])
-		c.rect.max[axis] = math.floor(c.rect.max[axis])
-	}
-	box.view_bounds[axis] = bounds
-	for c := box.first; c != nil; c = c.next {
-		layout_position(c, axis)
+		box.view_bounds[axis] = bounds
 	}
 }
 
-// As RAD's ui_end_build child rounding: in a box that rounds its children,
-// each box of its subtree at one of its corners takes that corner's radius.
-children_round :: proc(box: ^Box) {
-	if .Round_Children_By_Parent in box.flags do corners_take(box, box)
-	for c := box.first; c != nil; c = c.next do children_round(c)
-}
-@(private)
-corners_take :: proc(parent, b: ^Box) {
-	lo, hi := parent.rect.min, parent.rect.max
+// As RAD's ui_end_build child rounding (ui_core.c:1305-1345): in a keyed box
+// that rounds its children, each box of its subtree at one of its corners
+// takes that corner's radius, and its first child takes its top corners and
+// its last child its bottom ones.
+children_round :: proc(s: ^State) {
 	f :: math.floor
-	if f(b.rect.min.x) <= f(lo.x) && f(b.rect.min.y) <= f(lo.y) do b.corner_radii[0] = parent.corner_radii[0]
-	if f(b.rect.max.x) >= f(hi.x) && f(b.rect.min.y) <= f(lo.y) do b.corner_radii[2] = parent.corner_radii[2]
-	if f(b.rect.min.x) <= f(lo.x) && f(b.rect.max.y) >= f(hi.y) do b.corner_radii[1] = parent.corner_radii[1]
-	if f(b.rect.max.x) >= f(hi.x) && f(b.rect.max.y) >= f(hi.y) do b.corner_radii[3] = parent.corner_radii[3]
-	for c := b.first; c != nil; c = c.next do corners_take(parent, c)
-}
-// As RAD's ui_end_build animation: focus at once (its focus rate is 1), and
-// a view-clamped box's target stays within its view bounds, its view offset
-// easing toward the target and landing on it within two pixels.
-view_animate :: proc(s: ^State, box: ^Box, dt: f32) {
-	box.focus_hot_t = .Focus_Hot in box.flags && .Focus_Hot_Disabled not_in box.flags ? 1 : 0
-	box.focus_active_t = .Focus_Active in box.flags && .Focus_Active_Disabled not_in box.flags ? 1 : 0
-	limit := [2]f32{max(0, box.view_bounds.x - box.fixed_size.x), max(0, box.view_bounds.y - box.fixed_size.y)}
-	if .View_Clamp_X in box.flags do box.view_off_target.x = clamp(box.view_off_target.x, 0, limit.x)
-	if .View_Clamp_Y in box.flags do box.view_off_target.y = clamp(box.view_off_target.y, 0, limit.y)
-	for axis in 0 ..< 2 {
-		if abs(box.view_off_target[axis] - box.view_off[axis]) > 0.5 do s.is_animating = true
-		box.view_off[axis] = animation.approach(box.view_off[axis], box.view_off_target[axis], s.theme.scroll_anim_rate * math.LN2, dt)
-		if abs(box.view_off[axis] - box.view_off_target[axis]) < 2 do box.view_off[axis] = box.view_off_target[axis]
+	for _, box in s.box_table {
+		if .Round_Children_By_Parent not_in box.flags do continue
+		lo, hi := box.rect.min, box.rect.max
+		for b := box; b != nil; b = box_rec_df_pre(b, box).next {
+			if f(b.rect.min.x) <= f(lo.x) && f(b.rect.min.y) <= f(lo.y) do b.corner_radii[0] = box.corner_radii[0]
+			if f(b.rect.max.x) >= f(hi.x) && f(b.rect.min.y) <= f(lo.y) do b.corner_radii[2] = box.corner_radii[2]
+			if f(b.rect.min.x) <= f(lo.x) && f(b.rect.max.y) >= f(hi.y) do b.corner_radii[1] = box.corner_radii[1]
+			if f(b.rect.max.x) >= f(hi.x) && f(b.rect.max.y) >= f(hi.y) do b.corner_radii[3] = box.corner_radii[3]
+		}
+		if box.first != nil do box.first.corner_radii[0], box.first.corner_radii[2] = box.corner_radii[0], box.corner_radii[2]
+		if box.last != nil do box.last.corner_radii[1], box.last.corner_radii[3] = box.corner_radii[1], box.corner_radii[3]
 	}
-	for c := box.first; c != nil; c = c.next do view_animate(s, c, dt)
+}
+// As RAD's ui_end_build animation over its keyed boxes (ui_core.c:1385-1478):
+// focus at once (its focus rate is 1), and a view-clamped box's target stays
+// within its view bounds, its view offset easing toward the target and
+// landing on it within two pixels.
+view_animate :: proc(s: ^State, dt: f32) {
+	for _, box in s.box_table {
+		box.focus_hot_t = .Focus_Hot in box.flags && .Focus_Hot_Disabled not_in box.flags ? 1 : 0
+		box.focus_active_t = .Focus_Active in box.flags && .Focus_Active_Disabled not_in box.flags ? 1 : 0
+		limit := [2]f32{max(0, box.view_bounds.x - box.fixed_size.x), max(0, box.view_bounds.y - box.fixed_size.y)}
+		if .View_Clamp_X in box.flags do box.view_off_target.x = clamp(box.view_off_target.x, 0, limit.x)
+		if .View_Clamp_Y in box.flags do box.view_off_target.y = clamp(box.view_off_target.y, 0, limit.y)
+		for axis in 0 ..< 2 {
+			if abs(box.view_off_target[axis] - box.view_off[axis]) > 0.5 do s.is_animating = true
+			box.view_off[axis] = animation.approach(box.view_off[axis], box.view_off_target[axis], s.theme.scroll_anim_rate * math.LN2, dt)
+			if abs(box.view_off[axis] - box.view_off_target[axis]) < 2 do box.view_off[axis] = box.view_off_target[axis]
+		}
+	}
 }
 
 ////////////////////////////////

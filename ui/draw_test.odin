@@ -50,6 +50,37 @@ test_children_draw_last_to_first_border_after :: proc(t: ^testing.T) {
 	testing.expect_value(t, pixel_at(&sw, 5, 5), [3]u8{0, 0, 0}) // the frame's background
 }
 
+// An icon fills the square centred in its box, keeping its aspect as RAD's
+// icon glyphs do, however wide or tall the box.
+@(test)
+test_icons_keep_their_aspect :: proc(t: ^testing.T) {
+	p := platform.Platform{width = 100, height = 100}
+	sw: vg.Software_Backend
+	vg.software_backend_init(&sw); defer vg.software_backend_destroy(&sw)
+	c: vg.Canvas
+	vg.canvas_init(&c, vg.software_backend(&sw)); defer vg.canvas_destroy(&c)
+	s: State; init(&s, &c, &p, nil); defer destroy(&s)
+	s.theme.background = {0, 0, 0, 255}
+	// A square ring, stroked along the 24 unit box's edges.
+	ring := "M2 2 H22 V22 H2 Z"
+	icons_set(&s, {ring})
+	build_begin(&s)
+	set_next_text_color(&s, {255, 255, 255, 255})
+	wide := test_box(&s, {.Draw_Icon}, "wide", {0, 0, 100, 20}, {})
+	wide.icon = ring
+	set_next_text_color(&s, {255, 255, 255, 255})
+	tall := test_box(&s, {.Draw_Icon}, "tall", {0, 30, 20, 70}, {})
+	tall.icon = ring
+	build_end(&s)
+	vg.flush(&c)
+	// Its square's left edge, 40 + 20 * 2 / 24 across, and none at the box's.
+	testing.expect(t, pixel_at(&sw, 41, 10).r > 128)
+	testing.expect_value(t, pixel_at(&sw, 2, 10), [3]u8{0, 0, 0})
+	// Down a tall box: its square's top edge at 55 + 20 * 2 / 24, none at the box's top.
+	testing.expect(t, pixel_at(&sw, 10, 56).r > 128)
+	testing.expect_value(t, pixel_at(&sw, 10, 32), [3]u8{0, 0, 0})
+}
+
 // As RAD Debugger's: a Clip box scissors its children to its rect inset a
 // pixel, and not its own background.
 @(test)
@@ -265,7 +296,7 @@ test_match_highlights_follow_the_drawn_text :: proc(t: ^testing.T) {
 @(test)
 test_scroll_list_bar_steps_drags_and_fades :: proc(t: ^testing.T) {
 	p := platform.Platform{width = 200, height = 200}
-	p.frame_time = 0.05 // the list eases toward where it is sent
+	p.frame_dt = 0.05 // the list eases toward where it is sent
 	s: State; init(&s, nil, &p, nil); defer destroy(&s)
 	defer delete(p.input.events)
 	scroll: animation.Scroll
@@ -325,7 +356,7 @@ test_scroll_list_bar_steps_drags_and_fades :: proc(t: ^testing.T) {
 
 @(test)
 test_hovered_row_keeps_background_alpha :: proc(t: ^testing.T) {
-	p := platform.Platform{width = 100, height = 100, frame_time = 1}
+	p := platform.Platform{width = 100, height = 100, frame_dt = 1}
 	sw: vg.Software_Backend; vg.software_backend_init(&sw); defer vg.software_backend_destroy(&sw)
 	c: vg.Canvas; vg.canvas_init(&c, vg.software_backend(&sw)); defer vg.canvas_destroy(&c)
 	s: State; init(&s, &c, &p, nil); defer destroy(&s)
@@ -367,7 +398,7 @@ test_hovered_row_keeps_background_alpha :: proc(t: ^testing.T) {
 
 @(test)
 test_toggle_hover_and_shortcut_chip_isolation :: proc(t: ^testing.T) {
-	p := platform.Platform{width = 100, height = 100, frame_time = 1}
+	p := platform.Platform{width = 100, height = 100, frame_dt = 1}
 	sw: vg.Software_Backend; vg.software_backend_init(&sw); defer vg.software_backend_destroy(&sw)
 	c: vg.Canvas; vg.canvas_init(&c, vg.software_backend(&sw)); defer vg.canvas_destroy(&c)
 	s: State; init(&s, &c, &p, nil); defer destroy(&s)

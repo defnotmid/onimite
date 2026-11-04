@@ -207,6 +207,129 @@ test_scroll_list_cursor_moves_round_and_snaps :: proc(t: ^testing.T) {
 	testing.expect(t, !s.actions.rows[0].consumed)
 }
 
+// As RAD's ui_build_box_from_key: a key built twice in a frame makes the
+// second box transient, with the zero key; a transient box comes from the
+// arena of its build, so the last build's boxes stay whole through the next
+// and the arenas stop growing; a pruned keyed box serves the next new key.
+@(test)
+test_boxes_come_from_rads_arenas :: proc(t: ^testing.T) {
+	p := platform.Platform{width = 200, height = 200}
+	defer delete(p.input.events)
+	s: State; init(&s, nil, &p, nil); defer destroy(&s)
+	box :: proc(s: ^State, flags: Box_Flags, key: string) -> ^Box {
+		set_next_rect(s, {1, 2, 3, 4})
+		return build_box(s, flags, key)
+	}
+	build_begin(&s)
+	first := box(&s, {}, "###a")
+	twice := box(&s, {}, "###a")
+	testing.expect(t, first.key != Key(0) && twice.key == Key(0), "a key built twice: the second is transient")
+	build_end(&s)
+	first.hot_t = 1
+	build_begin(&s) // ###a is not built, so it is pruned
+	last := box(&s, {.Clickable}, "")
+	build_end(&s)
+	for _ in 0 ..< 2 {
+		build_begin(&s)
+		for _ in 0 ..< 64 do box(&s, {}, "")
+		testing.expect(t, .Clickable in last.flags && last.fixed_pos == {1, 2}, "the last build's transient boxes stay whole")
+		last = box(&s, {.Clickable}, "")
+		build_end(&s)
+	}
+	build_begin(&s)
+	reused := box(&s, {}, "###b")
+	testing.expect(t, reused == first && reused.hot_t == 0, "a pruned keyed box serves the next new key, blank")
+	build_end(&s)
+	used: [2][2]uint
+	for frame in 0 ..< 6 {
+		build_begin(&s)
+		for _ in 0 ..< 64 do box(&s, {}, "")
+		build_end(&s)
+		if frame >= 2 do used[frame % 2][frame / 4] = s.build_arenas[s.build_index % 2].total_used
+	}
+	testing.expect(t, used[0][0] > 0 && used[0][0] == used[0][1] && used[1][0] == used[1][1], fmt.tprint("the build arenas stop growing:", used))
+}
+
+// As RAD's ui_end_build: a box rounding its children gives each box at one
+// of its corners that corner's radius, its first child its top corners and
+// its last child its bottom ones; boxes not built this frame are pruned
+// before the pointer's shape is picked, so a held box that is gone sets none.
+@(test)
+test_end_build_rounds_and_prunes_as_rads :: proc(t: ^testing.T) {
+	p := platform.Platform{width = 200, height = 200}
+	p.input.focused = true
+	defer delete(p.input.events)
+	s: State; init(&s, nil, &p, nil); defer destroy(&s)
+	frame :: proc(s: ^State, p: ^platform.Platform, held: bool) -> (top, middle, bottom, corner, outside: ^Box) {
+		test_gather(s)
+		build_begin(s)
+		set_next_rect(s, {0, 0, 100, 100})
+		set_next_corner_radius(s, 8)
+		parent := build_box(s, {.Round_Children_By_Parent}, "###rounded")
+		push_parent(s, parent)
+		push_corner_radius(s, 0)
+		set_next_rect(s, {10, 10, 80, 20}); top = build_box(s, {}, "###top")
+		set_next_rect(s, {0, 40, 20, 60}); middle = build_box(s, {}, "###middle")
+		push_parent(s, middle)
+		set_next_rect(s, {0, 95, 5, 5}); corner = build_box(s, {}, "###corner")
+		pop_parent(s)
+		set_next_rect(s, {10, 70, 80, 20}); bottom = build_box(s, {}, "###bottom")
+		pop_corner_radius(s)
+		pop_parent(s)
+		set_next_corner_radius(s, 0)
+		set_next_rect(s, {0, 0, 10, 10}); outside = build_box(s, {}, "###outside")
+		if held {
+			set_next_rect(s, {150, 150, 40, 40})
+			set_next_hover_cursor(s, .Up_Down)
+			signal_from_box(s, build_box(s, {.Clickable}, "###held"))
+		}
+		build_end(s)
+		return
+	}
+	top, middle, bottom, corner, outside := frame(&s, &p, false)
+	testing.expect_value(t, top.corner_radii, [4]f32{8, 0, 8, 0})
+	testing.expect_value(t, middle.corner_radii, [4]f32{0, 8, 0, 0})
+	testing.expect_value(t, bottom.corner_radii, [4]f32{0, 8, 0, 8})
+	testing.expect_value(t, corner.corner_radii, [4]f32{0, 8, 0, 0})
+	testing.expect_value(t, outside.corner_radii, [4]f32{0, 0, 0, 0})
+	p.input.mouse = {170, 170}
+	frame(&s, &p, true); frame(&s, &p, true)
+	test_button(&p, .Left, true)
+	frame(&s, &p, true)
+	testing.expect_value(t, p.cursor, platform.Cursor.Up_Down)
+	frame(&s, &p, false)
+	testing.expect_value(t, p.cursor, platform.Cursor.Pointer)
+}
+
+// As RAD's layout passes, walking the tree without recursion: a box summing
+// its children is sized after them, however deep, and before its parent.
+@(test)
+test_children_sums_follow_the_walk :: proc(t: ^testing.T) {
+	p := platform.Platform{width = 200, height = 200}
+	defer delete(p.input.events)
+	s: State; init(&s, nil, &p, nil); defer destroy(&s)
+	build_begin(&s)
+	sum :: proc(s: ^State, key: string) -> ^Box {
+		set_next_pref_width(s, px(10)); set_next_pref_height(s, children_sum())
+		set_next_child_layout_axis(s, .Y)
+		b := build_box(s, {}, key)
+		push_parent(s, b)
+		return b
+	}
+	leaf :: proc(s: ^State, h: f32) {set_next_pref_width(s, px(10)); set_next_pref_height(s, px(h)); build_box(s, {}, "")}
+	a := sum(&s, "###a")
+	b := sum(&s, "###b")
+	c := sum(&s, "###c")
+	leaf(&s, 30)
+	pop_parent(&s); pop_parent(&s)
+	leaf(&s, 10)
+	pop_parent(&s)
+	build_end(&s)
+	testing.expect_value(t, box_size(c).y, 30)
+	testing.expect_value(t, box_size(b).y, 30)
+	testing.expect_value(t, box_size(a).y, 40)
+}
+
 // As RAD's default navigation: in a navigation root built while focus is
 // active, a vertical step moves its focus to the next or previous clickable
 // box, from the next frame; a box focused by key is focus hot.
@@ -291,8 +414,11 @@ test_focus_does_not_block_mouse_hover :: proc(t: ^testing.T) {
 
 @(test)
 test_keyed_animation_advances_and_resets_after_reappearing :: proc(t: ^testing.T) {
+	// It animates by the frame's dt, never the time measured (which after an
+	// idle wait is the sleep).
 	p := platform.Platform {
-		frame_time = 1.0 / 60.0,
+		frame_dt   = 1.0 / 60.0,
+		frame_time = 10,
 	}
 	s := State {
 		p           = &p,
@@ -305,7 +431,7 @@ test_keyed_animation_advances_and_resets_after_reappearing :: proc(t: ^testing.T
 	initial := anim_f32(&s, key, 1, {initial = 0})
 	testing.expect_value(t, initial, f32(0))
 	animations_advance(&s)
-	testing.expect(t, s.animations.rows[0].current > 0, "animation should advance after the build")
+	testing.expect(t, s.animations.rows[0].current > 0 && s.animations.rows[0].current < 1, "animation should advance a frame after the build")
 
 	s.build_index = 2
 	continued := anim_f32(&s, key, 1, {initial = 0})
@@ -321,7 +447,7 @@ test_keyed_animation_advances_and_resets_after_reappearing :: proc(t: ^testing.T
 // follows the cursor; unfocused, the text is cut and the view rests at 0.
 @(test)
 test_line_edit_focused_scrolls_to_its_cursor :: proc(t: ^testing.T) {
-	p := platform.Platform{width = 800, height = 600, frame_time = 1}
+	p := platform.Platform{width = 800, height = 600, frame_dt = 1}
 	font, ok := render.font_load(#load("../assets/fonts/JetBrainsMono-Regular.ttf")); assert(ok); defer render.font_unload(&font)
 	s: State; init(&s, nil, &p, &font); defer destroy(&s)
 	buf := make([dynamic]u8); defer delete(buf)

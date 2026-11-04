@@ -494,7 +494,7 @@ repeats. A wheel notch scrolls a list three rows.
 | Shift+L | loop |
 | R | reload |
 | Ctrl+P | go to a scene, cue, problem or mark (Go to: type to filter its names, Up/Down, Enter) |
-| Ctrl+F (in a Watch's panel: click it first) | filter its rows (type; Esc clears the filter and closes it) |
+| Ctrl+F or / (in a Watch's panel: click it first) | opens or shuts its filter row (type to filter its rows; Enter shuts the row and keeps the filter, Esc clears the filter and shuts it) |
 | Alt+= / Alt+-, Ctrl+wheel (not over the video or the timeline) | the window's text a point larger / smaller |
 | Up / Down, Page Up / Down, Enter, Space (a focused Watch) | move its cursor row; Enter or Space goes to the row's frame (on an expression: edits it) |
 | typing, Ctrl+V / Delete / Alt+Up, Alt+Down / Ctrl+C (an expression Watch) | add or edit an expression / remove it / move it / copy a row's expression |

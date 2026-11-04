@@ -43,8 +43,13 @@ Platform :: struct {
 	start_ns:      u64,
 	last_ns:       u64,
 	frame_time:    f32, // seconds elapsed during the previous frame
-	frame_slept:   bool, // frame_time includes an idle_wait block, not frame work
-	idle_slept:    bool, // set by idle_wait, handed to frame_slept by the next tick
+	// What a frame animates by: one refresh at the rate the frames keep up
+	// with, never the time measured (RAD's frame_dt).
+	frame_dt:      f32,
+	frame_index:   u64,
+	frame_work_us: [64]u64, // the last frames' work, an idle wait left out (RAD's frame_time_us_history)
+	idle_slept:    bool, // set by idle_wait for the next tick
+	idle_start_ns: u64, // when it began to wait
 }
 
 // How frames reach the screen: Auto is mailbox where the window supports it,
@@ -201,14 +206,37 @@ shutdown :: proc(p: ^Platform) {
 tick :: proc(p: ^Platform) -> bool {
 	now := sdl.GetTicksNS()
 	p.frame_time = f32(f64(now - p.last_ns) / 1e9)
+	work_end := p.idle_slept ? p.idle_start_ns : now
+	p.frame_work_us[p.frame_index % len(p.frame_work_us)] = (work_end - p.last_ns) / 1000
+	p.frame_index += 1
+	p.frame_dt = f32(1 / frame_target_hz(1e9 / f64(max(p.refresh_ns, 1)), p.frame_work_us[:min(p.frame_index, len(p.frame_work_us))], p.frame_index))
 	p.last_ns = now
-	p.frame_slept = p.idle_slept
 	p.idle_slept = false
 	_pump(p)
 	if intrinsics.atomic_load(&_signaled) {
 		p.should_close = true
 	}
 	return !p.should_close
+}
+
+// The rate frames animate at: the display's, or after 32 frames the one of
+// the standard rates at or below it that RAD's search settles on, nearest
+// the frames' average work that keeps within it, its best difference kept
+// signed as RAD keeps it (raddbg_core.c:12200-12247).
+frame_target_hz :: proc(display_hz: f64, work_us: []u64, frame_index: u64) -> f64 {
+	target := display_hz
+	if frame_index <= 32 || len(work_us) == 0 do return target
+	sum: u64
+	for w in work_us do sum += w
+	avg := i64(sum / u64(len(work_us)))
+	best_diff := max(i64)
+	for candidate in ([?]f64{display_hz, 60, 75, 120, 144, 165, 240, 360}) {
+		if candidate > display_hz do continue
+		candidate_us := i64(1_000_000 / u64(candidate))
+		diff := avg - candidate_us
+		if abs(diff) < best_diff && avg < candidate_us + candidate_us / 4 {target, best_diff = candidate, diff}
+	}
+	return target
 }
 
 // SIGINT/SIGTERM close the window at the next tick. Presenting can block in
@@ -284,6 +312,7 @@ idle_wait :: proc(p: ^Platform, milliseconds: u32 = 250) {
 	// (an event lands immediately) to the full timeout — so mark it as not
 	// measuring frame work.
 	p.idle_slept = true
+	p.idle_start_ns = sdl.GetTicksNS()
 	_ = sdl.WaitEventTimeout(nil, c.int(milliseconds))
 }
 

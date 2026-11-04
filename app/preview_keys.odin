@@ -66,6 +66,7 @@ PREVIEW_KEYS := [?]Key_Binding {
 	{key = .P, mods = {.Control}, kind = .Go_To}, // its query asks where (command_run)
 	{key = .W, mods = {.Control}, kind = .View_Close}, // RAD's close_tab: the focused panel's shown tab
 	{key = .F, mods = {.Control}, kind = .Search},
+	{key = .Slash, kind = .Search}, // RAD's binding; it types itself while a field has the keys
 	{key = .Q, kind = .Quit},
 	// RAD's UI commands (RD_DefaultBindingTable).
 	{key = .Enter, kind = .Accept},
@@ -260,20 +261,29 @@ key_character :: proc(key: platform.Key, mods: ui.Modifiers) -> rune {
 		return shift ? ':' : ';'
 	case .Apostrophe:
 		return shift ? '"' : '\''
+	case .Slash:
+		return shift ? '?' : '/'
 	}
 	return 0
 }
 
-// A UI kind run, as RAD Debugger's frame runs one: Search gives the focused
-// panel's view's filter row the keys (RAD's query open with the contents
-// unfocused); the rest push their UI event (key_event).
+// A UI kind run, as RAD Debugger's frame runs one: Search toggles the focused
+// panel's view's filter row, opening it with its old text selected and the
+// keys (RAD's PushQuery for search, raddbg_core.c:16603-16624); the rest push
+// their UI event (key_event).
 ui_command :: proc(app: ^App_State, s: ^ui.State, kind: Command_Kind, regs: Command_Regs) {
 	if kind == .Search {
 		// With the lister up its focus has the keys: Search is dropped.
 		ws := &app.preview.workspace
 		if ws.lister.panel != 0 do return
 		if p := workspace_panel(ws, ws.focused); p != nil && p.shown != 0 && view_filters(app, p.shown) {
-			view_filter_field(&app.preview, p.shown).focused = true
+			f := view_filter_field(&app.preview, p.shown)
+			if !f.open {
+				clear(&f.text); append(&f.text, string(workspace_view(ws, p.shown).filter[:]))
+				f.cursor, f.mark = len(f.text), 0
+			}
+			f.open = !f.open
+			f.focused = f.open
 		}
 		return
 	}

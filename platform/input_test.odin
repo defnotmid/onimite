@@ -115,3 +115,21 @@ test_pump_focus_loss_and_parking :: proc(t: ^testing.T) {
 	_pump(&p)
 	testing.expect(t, p.input.mouse != {-100, -100}) // focused: never parked
 }
+
+// As RAD's target_hz (raddbg_core.c:12200-12247): the display's rate for the
+// first 32 frames and while the frames keep up with it; else the first
+// standard rate at or below it that the frames keep within, whose signed
+// difference then stops the search (RAD's own rule).
+@(test)
+test_frame_rate_follows_rads_targets :: proc(t: ^testing.T) {
+	work :: proc(us: u64) -> (w: [64]u64) {
+		for &x in w do x = us
+		return
+	}
+	fast, slow, slower := work(5000), work(10000), work(30000)
+	testing.expect_value(t, frame_target_hz(144, slow[:], 32), 144)
+	testing.expect_value(t, frame_target_hz(144, fast[:], 33), 144)
+	testing.expect_value(t, frame_target_hz(144, slow[:], 33), 60)
+	testing.expect_value(t, frame_target_hz(60, slower[:], 33), 60)
+	testing.expect_value(t, frame_target_hz(144, slow[:4], 33), 60)
+}

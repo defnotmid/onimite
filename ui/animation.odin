@@ -96,7 +96,7 @@ anim_f32 :: proc(s: ^State, key: Key, target: f32, params: Animation_Params = {}
 animations_advance :: proc(s: ^State) {
 	for &row in s.animations.rows {
 		if row.last_touched_build_index != s.build_index do continue
-		row.current = animation.approach(row.current, row.target, row.rate, s.p.frame_time)
+		row.current = animation.approach(row.current, row.target, row.rate, s.p.frame_dt)
 		if abs(row.current - row.target) > row.epsilon {s.is_animating = true} else {row.current = row.target}
 	}
 }
