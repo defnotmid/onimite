@@ -40,9 +40,14 @@ Music :: struct {
 	bank_lock: sync.Mutex,
 	songs:   map[string]^Song_Clip,
 	// Songs replaced under their name: a script state may still read them
-	// (its song object), so they go with the media.
+	// (its song object), so they stay until the host says the state that
+	// could is gone (music_retire): the first `retire_through` then go, with
+	// every sample set no song left names, once no render reads the bank
+	// (`collect`, done by music_drain).
 	retired: [dynamic]^Song_Clip,
-	// The sample sets the songs' Samplers play (by index): declared when a
+	retire_through: int,
+	collect: bool,
+	// The sample sets the songs' Samplers play (by id): declared when a
 	// song is composed, and only the zones its notes reach loaded, when its
 	// sound is first wanted (music_load).
 	bank:    odevice.Bank,
@@ -55,6 +60,9 @@ Music :: struct {
 	// waiting command hears a span land on, and who they tell.
 	pool:      ^thread.Pool,
 	work:      Pool_Work,
+	// A load's decodes on the same pool: a Pool_Work takes one call at a time,
+	// renders run beside loads, and loads go one at a time (bank_lock).
+	load_work: Pool_Work,
 	driver:    Pool_Job,
 	running:   bool,
 	stopping:  bool,
@@ -124,6 +132,7 @@ music_init :: proc(mu: ^Music) {
 	mu.retired = make([dynamic]^Song_Clip)
 	mu.driver.procedure = music_driver
 	pool_work_init(&mu.work, nil)
+	pool_work_init(&mu.load_work, nil)
 	a := runtime.heap_allocator()
 	mu.bank.sets = make([dynamic]odevice.Sample_Set, a)
 	mu.bank.zones = make([dynamic]odevice.Zone, a)
@@ -142,6 +151,7 @@ music_destroy :: proc(mu: ^Music) {
 	sync.mutex_unlock(&mu.lock)
 	pool_join(&mu.driver)
 	pool_work_destroy(&mu.work)
+	pool_work_destroy(&mu.load_work)
 	for name, sc in mu.songs {
 		delete(name)
 		song_clip_free(sc)
@@ -179,7 +189,7 @@ song_clip_load :: proc(sc: ^Song_Clip) {
 			return
 		}
 		context.allocator = runtime.heap_allocator()
-		host := oassets.Bank_Host{root = mu.host_root, pinning = mu.pinning}
+		host := oassets.Bank_Host{root = mu.host_root, pinning = mu.pinning, pool = &mu.load_work.work_pool}
 		sc.load_findings = make(obase.Findings)
 		oassets.bank_load(&mu.bank, sc.needs[:], &sc.load_findings, oassets.progress_stderr, &host)
 		sync.atomic_store(&sc.loaded, true)
@@ -469,7 +479,7 @@ song_table :: proc(sc: ^Song_Clip, kind: orender.Table_Kind, step_num, step_den:
 			}
 		}
 		st = new(Sound_Table, runtime.heap_allocator())
-		orender.table_init(&st.table, &sc.song, kind, -1, step_num, step_den, size, shape, runtime.heap_allocator())
+		orender.table_init(&st.table, &sc.song, kind, 0, step_num, step_den, size, shape, runtime.heap_allocator())
 		t := &st.table
 		st.filled = make([]u8, t.frames * t.step_den / max(t.step_num, 1) + 1, runtime.heap_allocator())
 		append(&sc.tables, st)
@@ -797,12 +807,69 @@ song_table_fill_rows :: proc(sc: ^Song_Clip, st: ^Sound_Table, first, last: int)
 
 // Starts the driver on the renders wanted so far, unless it runs (it
 // takes what is wanted meanwhile too). The host drains once it has asked
-// for everything a pass needs (a frame, the lanes).
+// for everything a pass needs (a frame, the lanes). What music_retire let go
+// goes first, when no render is reading the bank.
 music_drain :: proc(m: ^Media) {
 	if m == nil || m.music == nil {
 		return
 	}
+	music_collect(m.music)
 	music_start(m.music)
+}
+
+// The songs retired so far: what a load's own script can't be reading, since
+// it hasn't made them yet. The host takes this before it loads a script.
+music_retired_mark :: proc(m: ^Media) -> int {
+	if m == nil || m.music == nil {
+		return 0
+	}
+	sync.guard(&m.music.lock)
+	return len(m.music.retired)
+}
+
+// A load kept this media and took: the script it replaces is gone, with what
+// else read its songs (its renderers, views and mix). The songs retired before
+// `mark` (music_retired_mark, from before that load) can go. A load that fails
+// must not say so: the last good script still reads them.
+music_retire :: proc(m: ^Media, mark: int) {
+	if m == nil || m.music == nil {
+		return
+	}
+	mu := m.music
+	sync.guard(&mu.lock)
+	mu.retire_through = mark
+	mu.collect = true
+}
+
+// Frees what music_retire let go, unless the driver runs: a render reads the
+// bank (and may be a retired song's), so this waits for the next drain rather
+// than make a load wait for a song. A mix that plays on has its own rows over
+// the same chunks (bank_view), and only plays songs that are kept.
+@(private = "file")
+music_collect :: proc(mu: ^Music) {
+	sync.guard(&mu.lock)
+	if !mu.collect || mu.running {
+		return
+	}
+	mu.collect = false
+	for sc in mu.retired[:mu.retire_through] {
+		song_clip_free(sc)
+	}
+	remove_range(&mu.retired, 0, mu.retire_through)
+	mu.retire_through = 0
+	keep := make([dynamic]odevice.Set_Id, context.temp_allocator)
+	for _, sc in mu.songs {
+		if sc.ok {
+			osong.sets_of_song(&sc.song, &keep)
+		}
+	}
+	for sc in mu.retired {
+		if sc.ok {
+			osong.sets_of_song(&sc.song, &keep)
+		}
+	}
+	sync.guard(&mu.bank_lock)
+	odevice.bank_collect(&mu.bank, keep[:])
 }
 
 // The driver, on the background pool, or here (returning when every
@@ -827,8 +894,10 @@ music_set_pool :: proc(m: ^Media, pool: ^thread.Pool) {
 	mu := m.music
 	pool_join(&mu.driver)
 	pool_work_destroy(&mu.work)
+	pool_work_destroy(&mu.load_work)
 	mu.pool = pool
 	pool_work_init(&mu.work, pool)
+	pool_work_init(&mu.load_work, pool)
 }
 
 // Whether renders wait for music_drain.

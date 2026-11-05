@@ -10,7 +10,9 @@ import "core:testing"
 import "core:thread"
 import "core:time"
 import obase "deps:odawg/base"
+import odevice "deps:odawg/device"
 import orender "deps:odawg/render"
+import osong "deps:odawg/song"
 
 // A clip of constant level placed with gain, balance, an offset, fades and
 // ducking under a voice track (no limiter) plays as onimite's own mix did:
@@ -224,6 +226,153 @@ test_song_tables_are_render :: proc(t: ^testing.T) {
 	testing.expectf(t, worst < 1e-2, "largest difference from the render %e", worst)
 }
 
+@(private = "file")
+write_test_wav :: proc(path: string, frames: int) {
+	data := make([]u8, 44 + 2 * frames, context.temp_allocator)
+	copy(data, "RIFF")
+	endian.unchecked_put_u32le(data[4:], u32(36 + 2 * frames))
+	copy(data[8:], "WAVEfmt ")
+	endian.unchecked_put_u32le(data[16:], 16)
+	endian.unchecked_put_u16le(data[20:], 1)
+	endian.unchecked_put_u16le(data[22:], 1)
+	endian.unchecked_put_u32le(data[24:], MIX_RATE)
+	endian.unchecked_put_u32le(data[28:], 2 * MIX_RATE)
+	endian.unchecked_put_u16le(data[32:], 2)
+	endian.unchecked_put_u16le(data[34:], 16)
+	copy(data[36:], "data")
+	endian.unchecked_put_u32le(data[40:], u32(2 * frames))
+	for i in 0 ..< frames {
+		endian.unchecked_put_u16le(data[44 + 2 * i:], u16(i16(math.sin(f64(i) * 0.05) * 20000)))
+	}
+	_ = os.write_entire_file(path, data)
+}
+
+// A song's sample files decode on the music's pool: what it plays is the same
+// as decoded one at a time, file for file, with a render running beside the
+// load on its own Pool_Work.
+@(test)
+test_song_load_on_the_pool_is_the_same_song :: proc(t: ^testing.T) {
+	dir, derr := os.make_directory_temp("", "onimite_song_pool", context.temp_allocator)
+	testing.expect(t, derr == nil)
+	defer os.remove_all(dir)
+	for name, i in ([]string{"a.wav", "b.wav", "c.wav", "d.wav", "e.wav", "f.wav"}) {
+		path, _ := filepath.join({dir, name}, context.temp_allocator)
+		write_test_wav(path, 2400 + 1200 * i)
+	}
+	v, err := json.parse_string(`{ name: "s", bpm: 120, sets: { kit: { pads: { a: "a.wav", b: "b.wav", c: "c.wav", d: "d.wav", e: "e.wav", f: "f.wav" } } }, sections: [ { name: "a", duration: "2m" } ],
+		parts: { drums: { instrument: { name: "Sampler", set: "kit" }, play: [ { name: "a", steps: { a: "x...............", b: "..x.............", c: "....x...........", d: "......x.........", e: "........x.......", f: "..........x....." } } ] } } }`, .JSON5, true, context.temp_allocator)
+	testing.expect(t, err == nil)
+	render :: proc(t: ^testing.T, dir: string, v: json.Value, pool: ^thread.Pool) -> []i16 {
+		m: Media
+		media_init(&m)
+		defer media_destroy(&m)
+		m.dir = strings.clone(dir)
+		music_set_pool(&m, pool)
+		sc, _ := media_song_put(&m, "s", v, value_key(v))
+		testing.expect(t, sc.ok)
+		song_render_build(sc)
+		testing.expect(t, song_render_whole(sc))
+		out := make([]i16, len(sc.render.samples), context.temp_allocator)
+		copy(out, sc.render.samples)
+		// a set's loaded sample count: none missed
+		for st in m.music.bank.samples {
+			testing.expect(t, st.frames > 0)
+		}
+		testing.expect_value(t, len(m.music.bank.samples), 6)
+		music_set_pool(&m, nil)
+		return out
+	}
+	serial := render(t, dir, v, nil)
+	pool: thread.Pool
+	thread.pool_init(&pool, context.allocator, 4)
+	thread.pool_start(&pool)
+	defer {
+		thread.pool_finish(&pool)
+		thread.pool_destroy(&pool)
+	}
+	pooled := render(t, dir, v, &pool)
+	testing.expect_value(t, len(pooled), len(serial))
+	same := len(pooled) == len(serial)
+	loud := false
+	for i in 0 ..< min(len(pooled), len(serial)) {
+		same &&= pooled[i] == serial[i]
+		loud ||= pooled[i] != 0
+	}
+	testing.expect(t, same)
+	testing.expect(t, loud)
+}
+
+// What a reload that took lets go: songs retired before it, and the sets only
+// they named. A song this load retired may be read by its own script, so it
+// and its sets stay; nothing goes while a render reads the bank; what's kept
+// still plays.
+@(test)
+test_load_frees_retired_songs_and_their_sets :: proc(t: ^testing.T) {
+	dir, derr := os.make_directory_temp("", "onimite_song_collect", context.temp_allocator)
+	testing.expect(t, derr == nil)
+	defer os.remove_all(dir)
+	kick, _ := filepath.join({dir, "kick.wav"}, context.temp_allocator)
+	write_test_wav(kick, 4800)
+	m: Media
+	media_init(&m)
+	defer media_destroy(&m)
+	m.dir = strings.clone(dir)
+	v, err := json.parse_string(`{ name: "s", bpm: 120, sets: { kit: { pads: { kick: "kick.wav" } } }, sections: [ { name: "a", duration: "1m" } ],
+		parts: { drums: { instrument: { name: "Sampler", set: "kit" }, play: [ { name: "a", steps: { kick: "x...x...x...x..." } } ] } } }`, .JSON5, true, context.temp_allocator)
+	testing.expect(t, err == nil)
+	set_of :: proc(sc: ^Song_Clip) -> odevice.Set_Id {
+		sets := make([dynamic]odevice.Set_Id, context.temp_allocator)
+		osong.sets_of_song(&sc.song, &sets)
+		return len(sets) == 1 ? sets[0] : 0
+	}
+	first, _ := media_song_put(&m, "s", v, value_key(v))
+	testing.expect(t, first.ok)
+	first_set := set_of(first)
+	testing.expect(t, first_set != 0)
+	write_test_wav(kick, 9600)
+	second, _ := media_song_put(&m, "s", v, value_key(v))
+	second_set := set_of(second)
+	testing.expect(t, second_set != 0 && second_set != first_set)
+
+	// The next load starts here, and replaces `second` itself.
+	mark := music_retired_mark(&m)
+	testing.expect_value(t, mark, 1)
+	write_test_wav(kick, 14400)
+	third, _ := media_song_put(&m, "s", v, value_key(v))
+	third_set := set_of(third)
+	testing.expect_value(t, len(m.music.retired), 2)
+	bank := &m.music.bank
+
+	// Nothing goes until a load says it took, or while a render runs.
+	music_drain(&m)
+	testing.expect_value(t, len(m.music.retired), 2)
+	music_retire(&m, mark)
+	m.music.running = true
+	music_drain(&m)
+	testing.expect_value(t, len(m.music.retired), 2)
+	testing.expect(t, odevice.bank_set_row(bank, first_set) >= 0)
+	m.music.running = false
+
+	music_drain(&m)
+	testing.expect_value(t, len(m.music.retired), 1)
+	testing.expect(t, m.music.retired[0] == second)
+	testing.expect(t, odevice.bank_set_row(bank, first_set) < 0)
+	testing.expect(t, odevice.bank_set_row(bank, second_set) >= 0)
+	testing.expect(t, odevice.bank_set_row(bank, third_set) >= 0)
+
+	// The song left plays its file.
+	song_render_build(third)
+	testing.expect(t, song_render_whole(third))
+	loud := false
+	for s in third.render.samples {
+		if s != 0 {
+			loud = true
+			break
+		}
+	}
+	testing.expect(t, loud)
+}
+
 // A song is what it is made of: its spec and the files it reads. The same
 // spec and files are the song already there; a sample file changed makes
 // a new song.
@@ -232,25 +381,7 @@ test_song_is_its_files :: proc(t: ^testing.T) {
 	dir, derr := os.make_directory_temp("", "onimite_song_files", context.temp_allocator)
 	testing.expect(t, derr == nil)
 	defer os.remove_all(dir)
-	write_wav :: proc(path: string, frames: int) {
-		data := make([]u8, 44 + 2 * frames, context.temp_allocator)
-		copy(data, "RIFF")
-		endian.unchecked_put_u32le(data[4:], u32(36 + 2 * frames))
-		copy(data[8:], "WAVEfmt ")
-		endian.unchecked_put_u32le(data[16:], 16)
-		endian.unchecked_put_u16le(data[20:], 1)
-		endian.unchecked_put_u16le(data[22:], 1)
-		endian.unchecked_put_u32le(data[24:], MIX_RATE)
-		endian.unchecked_put_u32le(data[28:], 2 * MIX_RATE)
-		endian.unchecked_put_u16le(data[32:], 2)
-		endian.unchecked_put_u16le(data[34:], 16)
-		copy(data[36:], "data")
-		endian.unchecked_put_u32le(data[40:], u32(2 * frames))
-		for i in 0 ..< frames {
-			endian.unchecked_put_u16le(data[44 + 2 * i:], u16(i16(math.sin(f64(i) * 0.05) * 20000)))
-		}
-		_ = os.write_entire_file(path, data)
-	}
+	write_wav := write_test_wav
 	kick, _ := filepath.join({dir, "kick.wav"}, context.temp_allocator)
 	write_wav(kick, 4800)
 	m: Media

@@ -821,6 +821,8 @@ worker_load :: proc(w: ^Render_Worker, req: Render_Request, reload_media: bool) 
 		sync.mutex_unlock(&w.mb.mutex)
 	}
 	next := new(script.Script)
+	// Songs this load retires its own script may still read (music_retire).
+	retired_mark := om.music_retired_mark(media)
 	// Lines an edit added are synthesized by the load; its rows are matched
 	// with the last good load's (track_changes), changed at the frame asked.
 	loaded := script.load(next, w.script_path, w.script_args, media, nil, w.script_props, w.pool, {start = req.now_start, at = req.now, rows = &w.changes})
@@ -939,6 +941,9 @@ worker_load :: proc(w: ^Render_Worker, req: Render_Request, reload_media: bool) 
 			w.thumb_size = thumb_size
 		}
 	}
+	// The last script is gone, with its renderers, views and mix, and the
+	// placed tracks are this script's: the songs only it read can go.
+	om.music_retire(media, retired_mark)
 	steps[3] = time.tick_now()
 	worker_lanes(w)
 	w.media_dirty = true

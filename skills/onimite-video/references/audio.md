@@ -150,8 +150,10 @@ automation = {
 - A `gain_db` lane adds to the part's own `gain_db` (a lane at 0 is the part's level; at -6,
   6 dB under it).
 - Paths: `parts/<part>/gain_db`, `/pan`, `/sends/<return or bus>` (dB), an instrument option
-  (`cutoff`, `resonance`, ...) or `node/field` (`lp/frequency`), `/effects/<Name or
-  index>/<param>`; `returns/<name>/<Effect>/<param>`, `buses/<name>/<Effect>/<param>`,
+  (`cutoff`, `resonance`, ...) or `node/field` (`lp/frequency`), `/effects/<name or
+  id>/<param>` (a name means the first effect of that name; give an effect an `id` to reach
+  the others or survive a rename: `{ "Filter", id = "tone" }`, `effects/tone/frequency`);
+  `returns/<name>/<Effect>/<param>`, `buses/<name>/<Effect>/<param>`,
   `master/gain_db`, `master/<Effect>/<param>`. A style's part (the lofi style's `keys`) takes
   lanes like the song's own. A path that names nothing is a finding (`unknown_key`); so is a
   value that can't move (a filter's type or rolloff: `fixed_value`) and a bad point

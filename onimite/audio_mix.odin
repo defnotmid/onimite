@@ -296,7 +296,7 @@ mix_init :: proc(mx: ^Mix, placed: []Placed_Track, opts: Mix_Options, samples :=
 			}
 		}
 	}
-	sets := make(map[rawptr]i32, len(placed), context.temp_allocator)
+	sets := make(map[rawptr]odevice.Set_Id, len(placed), context.temp_allocator)
 	for p, i in placed {
 		tr := p.track
 		first := i32(len(mx.song.tracks))
@@ -333,7 +333,7 @@ mix_init :: proc(mx: ^Mix, placed: []Placed_Track, opts: Mix_Options, samples :=
 				t.muted = p.muted || (p.part != "" && mx.song.parts[t.part] != heard)
 			}
 		} else {
-			set: i32 = -1
+			set: odevice.Set_Id
 			if samples {
 				known: bool
 				if set, known = sets[p.clip]; !known {
