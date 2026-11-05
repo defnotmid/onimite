@@ -2511,6 +2511,35 @@ video { width = 96, height = 64, fps = 30, duration = 2, background = "#000000",
 	testing.expectf(t, differs(t, &f, 31) > 0, "a moving box isn't streaked")
 }
 
+// The frame has motion of its own only when a draw moved: not with a box
+// moving inside a 3D view that stays put (the view blurs that itself), and
+// again as soon as a rect moves over it.
+@(test)
+test_motion_moves :: proc(t: ^testing.T) {
+	f: Fixture
+	defer fixture_destroy(&f)
+	fixture_init(t, &f, `
+video { width = 96, height = 64, fps = 30, duration = 2, background = "#000000", motion_blur = { shutter = 180 },
+  render = function(f)
+    view3d { camera = { position = { 0, 0, 6 } }, meshes = {
+      { geometry = { type = "BoxGeometry" }, position = { f.seconds, 0, 0 }, material = { type = "MeshBasicMaterial", color = "#ffffff" } },
+    } }
+    rect { x = f.seconds < 1 and 0 or (f.seconds - 1) * 60, y = 0, w = 8, h = 8, fill = "#ff0000" }
+  end }
+`)
+	if !fixture_load(t, &f) {
+		return
+	}
+	r := fixture_renderer(t, &f)
+	shift := om.motion_shift(&f.script.video)
+	om.build_motion(r, 10, shift)
+	testing.expectf(t, !r.motion.moves, "nothing 2D moved at frame 10")
+	om.build_motion(r, 40, shift)
+	testing.expectf(t, r.motion.moves, "the rect moved at frame 40")
+	om.build_motion(r, 10, shift)
+	testing.expectf(t, !r.motion.moves, "it doesn't stay on from the frame before")
+}
+
 // motion_blur in 2D: a rect sliding 900 px a second streaks along its way
 // (the pixel ahead of where it is drawn takes some of it), a still circle
 // in front of it stays sharp, and a still frame is what it is without.

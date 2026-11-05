@@ -37,6 +37,9 @@ Motion :: struct {
 	pair:   [dynamic]i32,
 	opened: [dynamic]vg.Transform2D,
 	middle: [dynamic]vg.Transform2D,
+	// Whether any draw is somewhere else at the opening. A 3D view blurs what
+	// moves inside it itself, so without this the frame has nothing to blur.
+	moves:  bool,
 }
 
 Motion_State :: enum u8 {
@@ -98,6 +101,7 @@ build_motion :: proc(r: ^Renderer, index: int, shift: f64) {
 	for &k in m.pair {
 		k = NO_NODE
 	}
+	m.moves = false
 	if len(m.tree.nodes) > 0 {
 		motion_pair_children(r, 0, 0, vg.TRANSFORM_IDENTITY, vg.TRANSFORM_IDENTITY)
 	}
@@ -260,6 +264,7 @@ motion_pair :: proc(r: ^Renderer, mid, open: i32, wm, wo: vg.Transform2D) {
 	m.pair[mid] = open
 	m.middle[mid] = pm
 	m.opened[mid] = vg.transform_multiply(motion_placement(r, &r.motion.tree.nodes[open].kind), wo)
+	m.moves ||= m.opened[mid] != m.middle[mid]
 }
 
 // Node `i` and everything under it (masks and patterns aside) drawn without

@@ -282,8 +282,8 @@ build_frame_at :: proc(r: ^Renderer, index: int, shift: f64, arena: ^virtual.Are
 draw_frame :: proc(r: ^Renderer) {
 	c := &r.canvas
 	// Motion blur: the frame keeps each draw's motion (set_motion in
-	// draw_node), the screen's from its start (set_size).
-	vg.canvas_motion_blur(c, r.video.shutter > 0)
+	// draw_node), the screen's from its start (set_size), when any moved.
+	vg.canvas_motion_blur(c, r.video.shutter > 0 && r.motion.moves)
 	vg.set_size(c, r.width, r.height)
 	vg.reset(c)
 	vg.clear_rect(c, 0, 0, r.width, r.height, r.video.background)
