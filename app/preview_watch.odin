@@ -426,16 +426,19 @@ watch_visualizer_view :: proc(app: ^App_State, s: ^ui.State, id: View_Id, row: V
 	ui.push_parent(s, ui.build_box(s, {}, fmt.tprintf("###cell_%s", key)))
 	defer ui.pop_parent(s)
 	dim := [2]f32{width, f32(row.size) * h}
+	r := preview_reader(app)
+	lens, _ := visualizer_of(&r, row.value)
 	ui.set_next_fixed_x(s, 0); ui.set_next_fixed_y(s, -f32(row.skip) * h)
 	ui.set_next_fixed_width(s, dim.x); ui.set_next_fixed_height(s, dim.y)
-	box := ui.build_box(s, {.Clip, .Clickable}, fmt.tprintf("###val_%s", key))
+	// (a sound's takes Accept on the cursor: its player's play and pause)
+	flags: ui.Box_Flags = {.Clip, .Clickable}
+	if lens == .Audio do flags += {.Keyboard_Clickable}
+	box := ui.build_box(s, flags, fmt.tprintf("###val_%s", key))
 	ui.push_parent(s, box)
 	defer ui.pop_parent(s)
 	// (outside its focus, as the expander's: the cursor lights the cell)
 	ui.push_focus(s, .Off)
 	defer ui.pop_focus(s)
-	r := preview_reader(app)
-	lens, _ := visualizer_of(&r, row.value)
 	// Its view: a view like a tab's, its row's until it is dragged out. It
 	// is made (and follows the row's expression, and is kept once the row shows
 	// it) by a command, so the frame that asks draws an empty cell.
@@ -447,11 +450,16 @@ watch_visualizer_view :: proc(app: ^App_State, s: ^ui.State, id: View_Id, row: V
 		command_push(&app.commands, .Row_View_Open, {view = id, row = row_id, view_kind = VISUALIZER_VIEWS[lens], spec = row.source})
 	}
 	if view == nil do return ui.signal_from_box(s, box)
+	file := r.tables.media[row.value.ref.row].id
+	sig: ui.Signal
 	switch lens {
 	case .Image:
-		return bitmap_view(app, s, &view.bitmap, r.tables.media[row.value.ref.row].id, key, dim, false)
+		sig = bitmap_view(app, s, &view.bitmap, file, key, dim, false)
+	case .Audio:
+		sig = audio_view(app, s, file, key, dim)
 	}
-	return ui.signal_from_box(s, box)
+	if ui.keyboard_pressed(ui.signal_from_box(s, box)) do solo_toggle(app, file)
+	return sig
 }
 
 // An expression Watch's last row: where a new expression is typed, blank

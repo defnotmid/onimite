@@ -446,12 +446,20 @@ members, as a debugger's watch does: a scene into its `name`, `start`,
 in turn; a problem into what it says and the `scenes` it was seen in. An
 image unfolds into the picture itself, eight rows tall: a drag pans it and a
 double click puts it back, while the wheel still scrolls the list; it stays
-where you left it until you close its row. Any row dragged out of itself onto
-a panel, on the same drop sites as a tab, opens there as a tab of its own: an
-image as the picture, taking its pan with it, where the wheel zooms about the
-pointer and the pixel under the pointer is outlined with its colour in a
-tooltip, while its row stays open with a fresh view; anything else as a Watch
-on it, and dragged again, that same tab moves.
+where you left it until you close its row. A sound unfolds into a player, four
+rows tall: its waveform, with a button that plays and pauses it, as Enter or
+Space does on its row; a press on the waveform plays from there and a drag
+follows the pointer. The file plays alone, as it is, with nothing of the mix
+on it. The video pauses, and its sound comes back where the picture is when
+the file ends, when you close the file's last view, or when you play or move
+the video; the video stays paused unless it was you who played it. Any row
+dragged out of itself onto a panel, on the same drop sites as a tab, opens
+there as a tab of its own: an image as the picture, taking its pan with it,
+where the wheel zooms about the pointer and the pixel under the pointer is
+outlined with its colour in a tooltip, while its row stays open with a fresh
+view; a sound as its player, where Enter or Space plays and pauses it with its
+panel focused; anything else as a Watch on it, and dragged again, that same
+tab moves.
 
 An **expression Watch** (`+`, "Watch") holds the expressions you type, one
 a row: type (or paste) on its last row to add one, Enter commits, Esc
@@ -478,7 +486,8 @@ callback is the playback clock, and the UI thread only draws.
 The arrows, Home / End, Page Up / Down, Delete, Backspace, Enter and Space
 go to the focused panel (a click on a view focuses its panel): the video's
 and the timeline's are the keys below, a Watch's move its cursor row (Enter
-or Space goes to its frame, or edits an expression), a field's edit its text. The letter keys work
+or Space goes to its frame, edits an expression, or plays and pauses a sound's
+player), a field's edit its text. The letter keys work
 anywhere. A key works with exactly the modifiers it lists, and held it
 repeats. A wheel notch scrolls a list three rows.
 
@@ -507,7 +516,7 @@ repeats. A wheel notch scrolls a list three rows.
 | Ctrl+P | go to a scene, cue, problem or mark (Go to: type to filter its names, Up/Down, Enter) |
 | Ctrl+F or / (in a Watch's panel: click it first) | opens or shuts its filter row (type to filter its rows; Enter shuts the row and keeps the filter, Esc clears the filter and shuts it) |
 | Alt+= / Alt+-, Ctrl+wheel (not over the video or the timeline) | the window's text a point larger / smaller |
-| Up / Down, Page Up / Down, Enter, Space (a focused Watch) | move its cursor row; Enter or Space goes to the row's frame (on an expression: edits it) |
+| Up / Down, Page Up / Down, Enter, Space (a focused Watch) | move its cursor row; Enter or Space goes to the row's frame (on an expression: edits it; on a sound's player: plays and pauses it) |
 | typing, Ctrl+V / Delete / Alt+Up, Alt+Down / Ctrl+C (an expression Watch) | add or edit an expression / remove it / move it / copy a row's expression |
 | Ctrl+C / Ctrl+X / Ctrl+V, Ctrl+A (in a field) | copy / cut / paste, select all |
 | Ctrl+O | open a script (or drop a `.lua` file) |

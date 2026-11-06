@@ -24,6 +24,7 @@ View_Kind :: enum u8 {
 	Timeline,
 	Watch,
 	Image,
+	Audio,
 }
 
 // What a view is called and shows, whether it opens as a Watch: on one of
@@ -43,6 +44,7 @@ VIEW_DESCRIPTORS :: [View_Kind]View_Descriptor {
 	.Timeline = {"Timeline", "ruler, scenes, cues and sound", false, false},
 	.Watch    = {"Watch", "the expressions you type, each a row that unfolds", true, false},
 	.Image    = {"Image", "an image file", false, true},
+	.Audio    = {"Audio", "a sound file, its waveform and a player", false, true},
 }
 
 // The Watch tabs on the video's tables: each the Watch of one fixed

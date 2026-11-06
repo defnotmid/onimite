@@ -151,6 +151,9 @@ Wave_Lane :: struct {
 	fade_in, fade_out: int,
 	curve:             om.Fade_Curve,
 	name, scene:       Text_Span,
+	// Its name's durable id: a placed file's is the id its media row goes by
+	// (media_file_id), so it keeps one colour wherever it is drawn (wave_color).
+	id:                u64,
 }
 
 // What a timeline item is: its kind decides how the UI draws it and what
@@ -239,6 +242,12 @@ Track_Row :: struct {
 	children: [2]i32 `m:"-"`, // first, count into track_kids
 }
 
+// A sound file a view shows, and its pyramid (into Wave_Table.clips).
+Wave_Sound :: struct {
+	id:   u64,
+	clip: i32,
+}
+
 Wave_Table :: struct {
 	clips:   [dynamic]Wave_Clip,
 	regions: [dynamic]Wave_Region,
@@ -260,6 +269,9 @@ Wave_Table :: struct {
 	track_kids:  [dynamic]i32,
 	track_names: [dynamic]i32,
 	track_top:   [2]i32,
+	// The sound files the views show, by durable id: each one's pyramid, the
+	// same one as the timeline's regions of that file.
+	sounds:      [dynamic]Wave_Sound,
 	text:    [dynamic]u8,
 }
 
@@ -282,6 +294,7 @@ wave_table_destroy :: proc(t: ^Wave_Table) {
 	delete(t.cues)
 	delete(t.band_spans)
 	delete(t.tracks)
+	delete(t.sounds)
 	delete(t.track_kids)
 	delete(t.track_names)
 	delete(t.text)
@@ -299,6 +312,7 @@ wave_table_copy :: proc(dst: ^Wave_Table, src: ^Wave_Table) {
 	table_copy(&dst.cues, src.cues[:])
 	table_copy(&dst.band_spans, src.band_spans[:])
 	table_copy(&dst.tracks, src.tracks[:])
+	table_copy(&dst.sounds, src.sounds[:])
 	table_copy(&dst.track_kids, src.track_kids[:])
 	table_copy(&dst.track_names, src.track_names[:])
 	dst.track_top = src.track_top
@@ -489,6 +503,7 @@ wave_builder_reset :: proc(b: ^Wave_Builder) {
 	clear(&b.table.cues)
 	clear(&b.table.band_spans)
 	clear(&b.table.tracks)
+	clear(&b.table.sounds)
 	clear(&b.table.track_kids)
 	clear(&b.table.track_names)
 	b.table.track_top = {}
@@ -565,6 +580,22 @@ media_source :: proc(b: ^Wave_Builder, want: Wave_Source, frames: int) -> int {
 	return src.clip
 }
 
+// A sound file a view asks for, by durable id, with its clip: its pyramid is
+// made with the media's (media_source), so the timeline's regions of it share it.
+Wave_File :: struct {
+	id:    u64,
+	audio: om.Audio_Clip,
+}
+
+// The pyramid of sound file `id`, nil until a view has asked for it and the
+// worker has published it.
+wave_sound :: proc(t: ^Wave_Table, id: u64) -> ^Wave_Clip {
+	for row in t.sounds {
+		if row.id == id do return &t.clips[row.clip]
+	}
+	return nil
+}
+
 // The timeline is built by its kinds' rules: each adds its item, the lane
 // it draws (regions, each a view of a source's pyramid) and its children,
 // each built by its own kind's rule: a bus's group holds its tracks, a song
@@ -621,7 +652,7 @@ TIMELINE_KINDS := [Timeline_Kind]proc(x: ^Timeline_Build, parent: int, ref: Time
 		}
 		label := fmt.tprintf("bus %s", name) if name != "" else "tracks"
 		lane := len(t.lanes)
-		append(&t.lanes, Wave_Lane{start = start, end = end, name = text_push(&t.text, label)})
+		append(&t.lanes, Wave_Lane{start = start, end = end, name = text_push(&t.text, label), id = media_file_id(.Audio, label)})
 		path := fmt.tprintf("bus/%s", name) if name != "" else "tracks"
 		g := timeline_item(x, .Group, parent, lane, path, label, bus_summary(name, n, gain))
 		track_row(x, g, {kind = .Group, src = {}, bus = text_push(&t.text, name), start = f64(start) / om.MIX_RATE, end = f64(end) / om.MIX_RATE, plays = n, gain_db = gain})
@@ -834,6 +865,7 @@ placed_lane :: proc(x: ^Timeline_Build, ks: []int, part: i32, name: string) -> i
 		curve = tr.curve,
 		name = text_push(&t.text, name),
 		scene = text_push(&t.text, first.scene),
+		id = media_file_id(.Audio, name),
 	}
 	l.fade_in, l.fade_out = om.track_edges(first)
 	l.regions[0] = i32(len(t.regions))
@@ -901,7 +933,7 @@ part_notes :: proc(x: ^Timeline_Build, it: int, ref: Timeline_Ref) {
 
 // Rebuilds the timeline from the placed tracks: its roots, each built by
 // its kind's rule with everything under it.
-wave_builder_lanes :: proc(b: ^Wave_Builder, placed: []om.Placed_Track, order: []int, v: ^om.Video, scenes: int, cues: []script.Cue) {
+wave_builder_lanes :: proc(b: ^Wave_Builder, placed: []om.Placed_Track, order: []int, v: ^om.Video, scenes: int, cues: []script.Cue, files: []Wave_File = nil) {
 	t := &b.table
 	// the media's sources and pyramids are kept (first in the tables), the
 	// groups' made again after them
@@ -916,6 +948,10 @@ wave_builder_lanes :: proc(b: ^Wave_Builder, placed: []om.Placed_Track, order: [
 	clear(&t.tracks)
 	clear(&t.text)
 	clear(&b.group_lanes)
+	clear(&t.sounds)
+	for f in files {
+		append(&t.sounds, Wave_Sound{f.id, i32(media_source(b, {kind = .Clip, audio = f.audio}, f.audio.frames))})
+	}
 	rank := make([]int, len(placed), context.temp_allocator)
 	for k, i in order {
 		rank[k] = i

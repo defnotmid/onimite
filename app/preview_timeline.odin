@@ -464,10 +464,9 @@ Timeline_Draw :: struct {
 	app:     ^App_State,
 	dpi:     f32,
 	m:       Time_Map,
-	// A row's: its item and place among the rows, and the pixels of it
-	// scrolled out above its box (it draws whole, the list clipping it).
+	// A row's: its item, and the pixels of it scrolled out above its box (it
+	// draws whole, the list clipping it).
 	item:    int,
-	order:   int,
 	skipped: f32,
 }
 
@@ -590,10 +589,10 @@ timeline_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32, area: Workspace_R
 		command_push(c, .Timeline_Zoom, {scalar = math.pow(1.25, -f64(zoom) / ui.NOTCH_STEPS), ratio = at, flag = true})
 	}
 	track_data := new(Timeline_Draw, context.temp_allocator)
-	track_data^ = {app, dpi, head_map, -1, 0, 0}
+	track_data^ = {app, dpi, head_map, -1, 0}
 	ui.box_equip_custom_draw(track, track_draw, track_data)
 	head_data := new(Timeline_Draw, context.temp_allocator)
-	head_data^ = {app, dpi, head_map, -1, 0, 0}
+	head_data^ = {app, dpi, head_map, -1, 0}
 	ui.box_equip_custom_draw(head, head_draw, head_data)
 }
 
@@ -628,7 +627,7 @@ timeline_rows_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32, id: View_Id,
 			timeline_pointer(app, s, sig, rows_map, items[k])
 			timeline_row_drag_out(app, s, sig, id, items[k])
 			draw := new(Timeline_Draw, context.temp_allocator)
-			draw^ = {app, dpi, rows_map, items[k], k, f32(skipped) * unit}
+			draw^ = {app, dpi, rows_map, items[k], f32(skipped) * unit}
 			ui.box_equip_custom_draw(box, row_draw, draw)
 			if ui.hovering(sig) {
 				row_hovered = true
@@ -980,9 +979,9 @@ row_draw :: proc(s: ^ui.State, box: ^ui.Box, c: ^vg.Canvas) {
 		// notes over them), its name (and level when it differs from what
 		// it sits under), open or closed when it has children
 		if it.kind == .Notes || it.kind == .Hits {
-			draw_notes(&view, it^, y, rh - 2 * dpi, d.order + 2)
+			draw_notes(&view, it^, y, rh - 2 * dpi)
 		} else {
-			draw_lane(&view, int(it.lane), y, rh - 2 * dpi, d.order + 2)
+			draw_lane(&view, int(it.lane), y, rh - 2 * dpi)
 		}
 		lane := pv.waves.lanes[it.lane]
 		name := text_of(pv.waves.text[:], it.label)
@@ -1014,52 +1013,81 @@ Row_View :: struct {
 	line_w, font_px:   f32,
 }
 
-// A lane: its span, and its min/max waveform shaped by its fades (at full
-// scale so quiet tracks stay readable; the gain is in the name; ducking and
-// the limiter are not shown). A group's lane is its tracks' sound together.
+// A sound's colour, by its durable id: the same wherever it is drawn, however
+// the rows around it open and scroll.
+wave_color :: proc(id: u64) -> [4]u8 {
+	return SCENE_COLORS[id % u64(len(SCENE_COLORS))]
+}
+
+// A lane: its regions, in its sound's colour. A group's lane is its tracks'
+// sound together.
 @(private = "file")
-draw_lane :: proc(v: ^Row_View, index: int, y, lane_h: f32, color_index: int) {
+draw_lane :: proc(v: ^Row_View, index: int, y, lane_h: f32) {
 	waves := &v.d.app.preview.waves
 	if index < 0 || index >= len(waves.lanes) {
 		return
 	}
-	lane := &waves.lanes[index]
-	dpi := v.d.dpi
+	lane := waves.lanes[index]
 	fill(v.pen, v.x0, y, v.w, lane_h, LANE_BG)
-	color := SCENE_COLORS[color_index % len(SCENE_COLORS)]
+	color := wave_color(lane.id)
+	// each region: where its source sounds, a view of its pyramid
+	for reg in waves.regions[lane.regions[0]:][:lane.regions[1]] {
+		draw_region(v, reg, &waves.clips[reg.clip] if reg.clip >= 0 else nil, lane, y, lane_h, color)
+	}
+}
+
+// A sound file's waveform across `box`, by the timeline's own draw: the whole
+// file at the box's width, with nothing of the mix on it.
+sound_lane_draw :: proc(app: ^App_State, s: ^ui.State, box: ^ui.Box, c: ^vg.Canvas, clip: ^Wave_Clip, file: u64) {
+	x, y := box.rect.min.x, box.rect.min.y
+	w, h := box.rect.max.x - x, box.rect.max.y - y
+	if w <= 0 || clip.frames <= 0 do return
+	d := Timeline_Draw{app = app, dpi = s.p.dpi_scale}
+	v := Row_View{s = s, d = &d, a = TIME_ALONG, pen = {s, c, app.preview.renderer, TIME_ALONG}, x0 = x, w = w, ppf = f64(w) / f64(clip.frames), samples_per_frame = 1, line_w = max(d.dpi, 1)}
+	draw_region(&v, {start = 0, end = clip.frames, speed = 1}, clip, {end = clip.frames}, y, h, wave_color(file), box.opacity)
+}
+
+// A region of a lane: its span, and its min/max waveform shaped by the lane's
+// fades, as far as its pyramid has come (nil: not yet made), at full scale so
+// quiet tracks stay readable (the gain is in the name; ducking and the limiter
+// are not shown). A column per pixel, in one path.
+@(private = "file")
+draw_region :: proc(v: ^Row_View, reg: Wave_Region, clip: ^Wave_Clip, lane: Wave_Lane, y, lane_h: f32, color: [4]u8, opacity: f32 = 1) {
+	waves := &v.d.app.preview.waves
+	dpi := v.d.dpi
+	xa, xb := x_of_sample(v, reg.start), x_of_sample(v, reg.end)
+	cx0, cx1 := max(xa, v.x0), min(xb, v.x0 + v.w)
+	if cx1 <= cx0 {
+		return
+	}
+	fill_rounded(v.pen, xa, y, xb - xa, lane_h, 3 * dpi, {color.r, color.g, color.b, u8(90 * opacity)})
+	if clip == nil {
+		return
+	}
 	wave := [4]u8{u8(min(int(color.r) + 90, 255)), u8(min(int(color.g) + 90, 255)), u8(min(int(color.b) + 90, 255)), 255}
 	mid := y + lane_h * 0.5
 	half := lane_h * 0.5 - v.line_w
 	length := lane.end - lane.start
 	col_w := max(math.round(dpi), 1)
-	// each region: where its source sounds, a view of its pyramid
-	for reg in waves.regions[lane.regions[0]:][:lane.regions[1]] {
-		xa, xb := x_of_sample(v, reg.start), x_of_sample(v, reg.end)
-		cx0, cx1 := max(xa, v.x0), min(xb, v.x0 + v.w)
-		if cx1 <= cx0 {
-			continue
+	path := &v.pen.s.path
+	vg.path_reset(path)
+	for cx := cx0; cx < cx1; cx += col_w {
+		s0 := int((v.first + f64(cx - v.x0) / v.ppf) * v.samples_per_frame)
+		s1 := int((v.first + f64(cx + col_w - v.x0) / v.ppf) * v.samples_per_frame)
+		// the source samples under the column, either way
+		f0 := reg.at + int(f64(s0 - reg.start) * f64(reg.speed))
+		f1 := reg.at + int(f64(s1 - reg.start) * f64(reg.speed))
+		lo, hi, ok := wave_peak(waves, clip, min(f0, f1), max(f0, f1))
+		if !ok {
+			break // still being computed
 		}
-		fill_rounded(v.pen, xa, y, xb - xa, lane_h, 3 * dpi, {color.r, color.g, color.b, 90})
-		if reg.clip < 0 {
-			continue
-		}
-		clip := &waves.clips[reg.clip]
-		for cx := cx0; cx < cx1; cx += col_w {
-			s0 := int((v.first + f64(cx - v.x0) / v.ppf) * v.samples_per_frame)
-			s1 := int((v.first + f64(cx + col_w - v.x0) / v.ppf) * v.samples_per_frame)
-			// the source samples under the column, either way
-			f0 := reg.at + int(f64(s0 - reg.start) * f64(reg.speed))
-			f1 := reg.at + int(f64(s1 - reg.start) * f64(reg.speed))
-			lo, hi, ok := wave_peak(waves, clip, min(f0, f1), max(f0, f1))
-			if !ok {
-				break // still being computed
-			}
-			env := om.track_envelope_peak(s0 - lane.start, s1 - lane.start, length, lane.fade_in, lane.fade_out, lane.curve)
-			top := mid - clamp(hi * env, -1, 1) * half
-			bottom := mid - clamp(lo * env, -1, 1) * half
-			fill(v.pen, cx, top, col_w, max(bottom - top, v.line_w), wave)
-		}
+		env := om.track_envelope_peak(s0 - lane.start, s1 - lane.start, length, lane.fade_in, lane.fade_out, lane.curve)
+		top := mid - clamp(hi * env, -1, 1) * half
+		bottom := mid - clamp(lo * env, -1, 1) * half
+		wx, wy, ww, wh := axis_rect(v.a, cx, top, col_w, max(bottom - top, v.line_w))
+		vg.path_rect(path, wx, wy, ww, wh)
 	}
+	vg.fill_path(v.pen.c, path, vg.paint_color(ui.color(wave, opacity)))
 }
 
 // A bands view: where its song plays, the song's band rows as the worker
@@ -1115,18 +1143,16 @@ draw_bands :: proc(v: ^Row_View, it: Timeline_Item, y, h: f32) {
 // by pitch (its lowest at the bottom, its highest at the top), a pad's hits
 // as marks, each as strong as it is played.
 @(private = "file")
-draw_notes :: proc(v: ^Row_View, it: Timeline_Item, y, lane_h: f32, color_index: int) {
+draw_notes :: proc(v: ^Row_View, it: Timeline_Item, y, lane_h: f32) {
 	waves := &v.d.app.preview.waves
 	dpi := v.d.dpi
 	fill(v.pen, v.x0, y, v.w, lane_h, LANE_BG)
-	color := SCENE_COLORS[color_index % len(SCENE_COLORS)]
-	if it.lane >= 0 {
-		lane := waves.lanes[it.lane]
-		for reg in waves.regions[lane.regions[0]:][:lane.regions[1]] {
-			xa, xb := x_of_sample(v, reg.start), x_of_sample(v, reg.end)
-			if min(xb, v.x0 + v.w) > max(xa, v.x0) {
-				fill_rounded(v.pen, xa, y, xb - xa, lane_h, 3 * dpi, {color.r, color.g, color.b, 50})
-			}
+	lane := waves.lanes[it.lane]
+	color := wave_color(lane.id)
+	for reg in waves.regions[lane.regions[0]:][:lane.regions[1]] {
+		xa, xb := x_of_sample(v, reg.start), x_of_sample(v, reg.end)
+		if min(xb, v.x0 + v.w) > max(xa, v.x0) {
+			fill_rounded(v.pen, xa, y, xb - xa, lane_h, 3 * dpi, {color.r, color.g, color.b, 50})
 		}
 	}
 	notes := waves.notes[it.notes[0]:][:it.notes[1]]

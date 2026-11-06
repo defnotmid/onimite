@@ -387,7 +387,7 @@ are not kept). A failing command is an error result with its code; an `inspect` 
 
 The arrows, Home/End, PgUp/PgDn, Delete, Backspace, Enter and Space act on the focused panel (click
 a view to focus it): in the video or the timeline they are the keys below; in a Watch they move its
-cursor row (Enter or Space goes to its frame, or edits an expression). Letter keys work anywhere. Alt+=/Alt+- size the window's text.
+cursor row (Enter or Space goes to its frame, edits an expression, or plays and pauses a sound's player). Letter keys work anywhere. Alt+=/Alt+- size the window's text.
 Space or Enter play/pause · Left/Right or J/K step a frame · Ctrl+Left/Right one second · Home/0
 (Shift+J, Shift+Left) the bookmark, then the start · End (Shift+G, Shift+Right) last frame ·
 PgDn/S/W, PgUp/B/Shift+S next/previous scene · M set the bookmark (reloads return to it) ·
@@ -409,9 +409,11 @@ the video's tables: its tabs (`video:scenes`, `video:cues`, `video:problems`, `v
 scenes, cues (with drift / missing-hit findings), problems, media (failed, unused sounds) and marks, each titled with
 its row count; D/I open the problems' / media's tab (the first beside the video, the others after it), `+` any
 table's in its panel; a click on a row goes to its frame; a row's arrow unfolds it into its members (a scene's
-`name`, `start`, `end`, `cue`, `source`, `hold`, `status`, `problems`), and an image's into the picture. Any row
-dragged out of itself onto a panel opens as a tab of its own: an image as the picture (the wheel zooms it there, a
-tooltip names the colour under the pointer), anything else as a Watch on it; a timeline lane drags out by its name
+`name`, `start`, `end`, `cue`, `source`, `hold`, `status`, `problems`), an image's into the picture, and a sound's
+into a player: its waveform, a press on which plays the file alone from there, with nothing of the mix on it (the
+video pauses, and its sound comes back when the file ends, its last view closes, or the video is played or moved).
+Any row dragged out of itself onto a panel opens as a tab of its own: an image as the picture (the wheel zooms it
+there, a tooltip names the colour under the pointer), a sound as its player, anything else as a Watch on it; a timeline lane drags out by its name
 the same way. An expression Watch (`+` → Watch) takes
 expressions you type, a row each (type or paste on its last row, Enter commits, Esc drops it; Enter on one edits it,
 Delete removes it, Alt+Up/Down moves it, Ctrl+C copies a row's expression). Expressions: the roots `scenes`, `cues`,

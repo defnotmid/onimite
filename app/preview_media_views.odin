@@ -14,13 +14,15 @@ import sdl "vendor:sdl3"
 // What a media row unfolds into (RAD's view rules, picked by the value's
 // type; `Visualizer`): a view, the row's (`View_Record.owner`) until it is
 // dragged out as a tab. Its data is shared, named by the file's durable id
-// (`Media_File_Row.id`), as the timeline's thumbnails and bands are: an image
-// view asks for the id (`images_open`, through the mailbox), and the worker
-// holds that file's one decoded image in the media (it stays out of the
-// cache's way until no view is on it) and makes one texture of it, which the
-// UI borrows. Nothing is copied. The pixels are read in the mailbox's table,
-// under its lock: the worker takes a row out there before it lets go of them.
-// A row scrolled away keeps its view, until it is shut or its Watch goes.
+// (`Media_File_Row.id`), as the timeline's thumbnails and bands are: a view asks
+// for the id (`files_open`, through the mailbox). For an image, the worker
+// holds that file's one decoded image in the media (it stays out of the cache's
+// way until no view is on it) and makes one texture of it, which the UI borrows.
+// Nothing is copied. The pixels are read in the mailbox's table, under its lock:
+// the worker takes a row out there before it lets go of them. For a sound, the
+// worker makes the clip's pyramid, the one the timeline's regions of it use
+// (Wave_File), published with the waveforms. A row scrolled away keeps its view,
+// until it is shut or its Watch goes.
 
 // A shown file: its id and the worker's texture of it (nil: no such file, or
 // it can't be read), never written again while published.
@@ -38,35 +40,69 @@ Image_View :: struct {
 
 // ---- the worker ------------------------------------------------------------------------
 
+// The next image asked for with no view yet (a sound's is its pyramid).
 @(private = "file")
 worker_image_next :: proc(w: ^Render_Worker) -> int {
-	next: for id, i in w.images_wanted {
+	next: for id, i in w.files_wanted {
 		for v in w.image_views do if v.id == id do continue next
+		for m in w.tables.media do if m.id == id && m.kind != .Image do continue next
 		return i
 	}
 	return -1
 }
 
-// Whether a request is new, or a file asked for has no view yet.
+// Whether a request is new, or an image asked for has no view yet.
 @(private)
-images_pending :: proc(w: ^Render_Worker) -> bool {
-	return w.mb.images_wanted_seq != w.images_wanted_seq || worker_image_next(w) >= 0
+files_pending :: proc(w: ^Render_Worker) -> bool {
+	return w.mb.files_wanted_seq != w.files_wanted_seq || worker_image_next(w) >= 0
 }
 
-// One step: the latest ids taken, what they no longer name let go, the next
-// one's view made, the table published when it changed.
+// The sound files asked for, by the clips of the media as it is.
 @(private)
-worker_images :: proc(w: ^Render_Worker) {
+worker_wave_files :: proc(w: ^Render_Worker) -> []Wave_File {
+	out := make([dynamic]Wave_File, context.temp_allocator)
+	m := w.media
+	if m == nil do return nil
+	sync.guard(&m.cache.lock)
+	for name, clip in m.audio {
+		id := media_file_id(.Audio, name)
+		if slice.contains(w.files_wanted[:], id) do append(&out, Wave_File{id, clip})
+	}
+	return out[:]
+}
+
+// One step: the latest ids taken, the sounds' pyramids asked for with the
+// lanes when those changed, what the ids no longer name let go, the next image's
+// view made, the table published when it changed.
+@(private)
+worker_files :: proc(w: ^Render_Worker) {
 	sync.mutex_lock(&w.mb.mutex)
-	if seq := w.mb.images_wanted_seq; seq != w.images_wanted_seq {
-		w.images_wanted_seq = seq
-		table_copy(&w.images_wanted, w.mb.images_wanted[:])
+	taken := w.mb.files_wanted_seq != w.files_wanted_seq
+	if taken {
+		w.files_wanted_seq = w.mb.files_wanted_seq
+		table_copy(&w.files_wanted, w.mb.files_wanted[:])
 	}
 	sync.mutex_unlock(&w.mb.mutex)
+	if taken && w.script != nil {
+		files := worker_wave_files(w)
+		same := len(files) == len(w.waves.table.sounds)
+		for f in files {
+			found := false
+			for row in w.waves.table.sounds do found ||= row.id == f.id
+			same &&= found
+		}
+		if !same {
+			worker_lanes(w)
+			sync.mutex_lock(&w.mb.mutex)
+			wave_table_copy(&w.mb.waves, &w.waves.table)
+			w.mb.waves_seq += 1
+			sync.mutex_unlock(&w.mb.mutex)
+		}
+	}
 	gone := make([dynamic]Image_View, context.temp_allocator)
 	kept := 0
 	for v in w.image_views {
-		if slice.contains(w.images_wanted[:], v.id) {
+		if slice.contains(w.files_wanted[:], v.id) {
 			w.image_views[kept] = v
 			kept += 1
 		} else {
@@ -76,7 +112,7 @@ worker_images :: proc(w: ^Render_Worker) {
 	resize(&w.image_views, kept)
 	changed := len(gone) > 0
 	if i := worker_image_next(w); i >= 0 {
-		append(&w.image_views, image_view_make(w, w.images_wanted[i]))
+		append(&w.image_views, image_view_make(w, w.files_wanted[i]))
 		changed = true
 	}
 	if changed do images_publish(w)
@@ -155,7 +191,7 @@ worker_images_release :: proc(w: ^Render_Worker) {
 	for t in w.image_retired do sdl.ReleaseGPUTexture(w.device, t)
 	delete(w.image_views)
 	delete(w.image_retired)
-	delete(w.images_wanted)
+	delete(w.files_wanted)
 }
 
 // ---- the UI ----------------------------------------------------------------------------
@@ -170,50 +206,72 @@ images_take :: proc(pv: ^Preview_State, mb: ^Mailbox) {
 	mb.images_ack = mb.images_seq
 }
 
-// The files of every image view, each once: a row's, wherever its row is
+// The files of every media view, each once: a row's, wherever its row is
 // (scrolled away, filtered out, in a hidden tab), and a tab's.
-images_open_update :: proc(app: ^App_State) {
+files_open_update :: proc(app: ^App_State) {
 	pv := &app.preview
-	clear(&pv.images_open)
+	clear(&pv.files_open)
 	r := preview_reader(app)
 	for &v in pv.workspace.views {
-		if !v.live || v.kind != .Image do continue
+		if !v.live || (v.kind != .Image && v.kind != .Audio) do continue
 		value, error := evaluate(&r, v.inputs[0].source)
 		if error != "" do continue
 		if _, ok := visualizer_of(&r, value); !ok do continue
 		id := pv.tables.media[value.ref.row].id
-		if !slice.contains(pv.images_open[:], id) do append(&pv.images_open, id)
+		if !slice.contains(pv.files_open[:], id) do append(&pv.files_open, id)
+	}
+	// A file heard alone with no view left on it has nothing to stop it.
+	if pv.solo.file != 0 && !slice.contains(pv.files_open[:], pv.solo.file) {
+		command_push(&app.commands, .Solo_Set, {count = -1})
 	}
 }
 
-// An image's tab: its file's name, or its expression when it no longer names
-// a file.
-image_title :: proc(app: ^App_State, v: ^View_Record) -> (title: string, color: [4]u8) {
+// A media view's tab: its file's name, or its expression when it no longer
+// names a file.
+media_title :: proc(app: ^App_State, v: ^View_Record) -> (title: string, color: [4]u8) {
 	r := preview_reader(app)
 	value, error := evaluate(&r, v.inputs[0].source)
 	if error != "" do return v.inputs[0].source, COLOR_ERROR
 	return row_label(&r, value), {}
 }
 
-// An image's tab, in its panel's content: its file, or why not.
-image_tab_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32, id: View_Id, area: Workspace_Rect) {
+// A media view's tab, in its panel's content: its file, or why not. With the
+// panel's keys a sound's takes Accept, as its row does on the cursor.
+media_tab_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32, id: View_Id, area: Workspace_Rect) {
 	v := workspace_view(&app.preview.workspace, id)
 	mark := view_press_mark(s)
 	defer view_press_focus(app, s, id, mark)
-	ui.set_next_pref_width(s, ui.pct(1)); ui.set_next_pref_height(s, ui.pct(1)); ui.set_next_child_layout_axis(s, .Y)
-	ui.set_next_bg_color(s, COLOR_PANEL_BG); ui.set_next_corner_radius(s, 0)
-	ui.push_parent(s, ui.build_box(s, {.Draw_Background}, fmt.tprintf("###image_tab_%d", id)))
-	defer ui.pop_parent(s)
 	r := preview_reader(app)
 	value, error := evaluate(&r, v.inputs[0].source)
-	if error == "" {
-		if _, ok := visualizer_of(&r, value); ok {
-			bitmap_view(app, s, &v.bitmap, r.tables.media[value.ref.row].id, fmt.tprintf("tab_%d", id), {area.width, area.height}, true)
-			return
-		}
-		error = value_text(&r, value)
+	lens, shows := Visualizer{}, false
+	if error == "" do lens, shows = visualizer_of(&r, value)
+	flags: ui.Box_Flags = {.Clickable, .Draw_Background, .Disable_Focus_Overlay}
+	if shows && lens == .Audio do flags += {.Keyboard_Clickable}
+	ui.push_focus_hot(s, .On); ui.push_focus_active(s, .Off)
+	defer ui.pop_focus(s)
+	ui.set_next_pref_width(s, ui.pct(1)); ui.set_next_pref_height(s, ui.pct(1)); ui.set_next_child_layout_axis(s, .Y)
+	ui.set_next_bg_color(s, COLOR_PANEL_BG); ui.set_next_corner_radius(s, 0)
+	box := ui.build_box(s, flags, fmt.tprintf("###media_tab_%d", id))
+	ui.push_parent(s, box)
+	defer ui.pop_parent(s)
+	if !shows {
+		if error == "" do error = value_text(&r, value)
+		text_box(s, ui.pct(1), ui.px(24 * dpi), fmt.tprintf("%s###media_tab_error_%d", error, id), 13 * dpi, 10 * dpi, COLOR_ERROR)
+		ui.signal_from_box(s, box)
+		return
 	}
-	text_box(s, ui.pct(1), ui.px(24 * dpi), fmt.tprintf("%s###image_tab_error_%d", error, id), 13 * dpi, 10 * dpi, COLOR_ERROR)
+	file := r.tables.media[value.ref.row].id
+	key := fmt.tprintf("tab_%d", id)
+	dim := [2]f32{area.width, area.height}
+	ui.push_focus(s, .Off)
+	switch lens {
+	case .Image:
+		bitmap_view(app, s, &v.bitmap, file, key, dim, true)
+	case .Audio:
+		audio_view(app, s, file, key, dim)
+	}
+	ui.pop_focus(s)
+	if ui.keyboard_pressed(ui.signal_from_box(s, box)) do solo_toggle(app, file)
 }
 
 // File `id` as the worker has made it so far.
@@ -412,4 +470,140 @@ hsv_from_rgb :: proc(c: [3]f64) -> [3]f64 {
 		h = (c.r - c.g) / d + 4
 	}
 	return {h / 6, hi > 0 ? d / hi : 0, hi}
+}
+
+// ---- the sound view --------------------------------------------------------------------
+
+// A sound file's view, a player (ours: RAD's waveform view is a TODO): its
+// waveform across the view, from the clip's pyramid; a button that plays and
+// pauses it; a press or a drag on the waveform plays from there, and a playhead
+// shows where it is. The file plays alone (`Solo`): the video pauses, and its
+// sound comes back when the file ends, no view is left on it, or the video is
+// played or moved.
+//
+// Laid out at its parent's top left, `dim` big; its waveform's signal.
+audio_view :: proc(app: ^App_State, s: ^ui.State, file: u64, id: string, dim: [2]f32) -> ui.Signal {
+	pv := &app.preview
+	clip := wave_sound(&pv.waves, file)
+	here := pv.solo.file == file
+	ui.set_next_fixed_x(s, 0); ui.set_next_fixed_y(s, 0); ui.set_next_fixed_width(s, dim.x); ui.set_next_fixed_height(s, dim.y)
+	ui.set_next_bg_color(s, LANE_BG); ui.set_next_corner_radius(s, 0)
+	canvas := ui.build_box(s, {.Clip, .Clickable, .Draw_Background}, fmt.tprintf("###audio_wave_%s", id))
+	// Its button first: it takes the pointer before the waveform does.
+	ui.push_parent(s, canvas)
+	fs := ui.top_font_size(s)
+	icons := PREVIEW_ICONS
+	size := math.floor(fs * 3)
+	ui.set_next_fixed_x(s, math.floor(fs * 1.5)); ui.set_next_fixed_y(s, math.floor(fs * 1.5))
+	ui.set_next_fixed_width(s, size); ui.set_next_fixed_height(s, size)
+	ui.set_next_corner_radius(s, math.floor(size / 2))
+	ui.set_next_icon(s, icons[.Pause if here && pv.solo.playing else .Play])
+	ui.set_next_bg_color(s, COLOR_TABS); ui.set_next_border_color(s, COLOR_TEXT_DIM)
+	button := ui.signal_from_box(s, ui.build_box(s, {.Clickable, .Draw_Background, .Draw_Border, .Draw_Icon, .Draw_Hot_Effects, .Draw_Active_Effects}, fmt.tprintf("###audio_play_%s", id)))
+	ui.pop_parent(s)
+	if ui.clicked(button) do solo_toggle(app, file)
+	sig := ui.signal_from_box(s, canvas)
+	if clip == nil do return sig
+	// A press plays from there, and a drag follows the pointer.
+	mouse := platform.mouse_pos(s.p)
+	if ui.pressed(sig) || (ui.dragging(sig) && mouse.x != pv.solo.seek_x) {
+		pv.solo.seek_x = mouse.x
+		along := clamp((mouse.x - canvas.rect.min.x) / max(dim.x, 1), 0, 1)
+		command_push(&app.commands, .Solo_Set, {row = file, count = int(along * f32(clip.frames)), flag = true})
+	}
+	ui.box_equip_custom_draw(canvas, audio_wave_draw, new_clone(Audio_Wave{app, clip, file, pv.solo.at if here else -1}, context.temp_allocator))
+	return sig
+}
+
+@(private)
+Audio_Wave :: struct {
+	app:  ^App_State,
+	clip: ^Wave_Clip,
+	file: u64,
+	at:   i64, // the playhead's sample (-1: none)
+}
+
+// The file's lane, as the timeline draws one, and the playhead over it.
+@(private = "file")
+audio_wave_draw :: proc(s: ^ui.State, box: ^ui.Box, c: ^vg.Canvas) {
+	d := (^Audio_Wave)(box.custom_data)
+	sound_lane_draw(d.app, s, box, c, d.clip, d.file)
+	x, w := box.rect.min.x, box.rect.max.x - box.rect.min.x
+	if d.at >= 0 && d.clip.frames > 0 {
+		at := x + math.floor(f32(f64(d.at) / f64(d.clip.frames)) * w)
+		ui.box_path(&s.path, at, box.rect.min.y, max(math.round(s.p.dpi_scale), 1), box.rect.max.y - box.rect.min.y, {})
+		vg.fill_path(c, &s.path, vg.paint_color(ui.color(COLOR_TEXT, box.opacity)))
+	}
+}
+
+// ---- a file heard alone ----------------------------------------------------------------
+
+// The sound file heard alone, in place of the video's sound, by a one-track mix
+// the worker swaps in as it swaps the video's (no second audio path). `at` is
+// where it is, from what the audio thread hears; `seek_x` where a drag on a
+// waveform last asked.
+Solo :: struct {
+	file:    u64, // its durable id (0: the video's sound)
+	at:      i64,
+	playing: bool,
+	seek_x:  f32,
+}
+
+// Whether the audio thread has the sound asked for: until the worker has swapped
+// it in, it holds the other one, so nothing plays.
+@(private)
+solo_settled :: proc(pv: ^Preview_State) -> bool {return pv.solo_heard == pv.solo.file}
+
+// File `file` (0: back to the video's sound) from sample `at` (-1: where it
+// is), playing or not. The video pauses for a file, and stays paused where it
+// was when the file is done.
+@(private)
+solo_set :: proc(app: ^App_State, file: u64, at: int, playing: bool) {
+	pv := &app.preview
+	if pv.audio_stream == nil do return // no device to hear it on
+	if file != pv.solo.file {
+		if file != 0 do pv.playing = false
+		pv.solo.file = file
+	}
+	if at >= 0 do pv.solo.at = i64(at)
+	pv.solo.playing = playing
+	// (told to play before it seeks: a callback between the two would otherwise
+	// say it isn't advancing, which solo_update takes for the file's end)
+	preview_sync_audio(app)
+	if file != 0 do audio_seek(pv.audio, pv.solo.at)
+}
+
+// The file's button, and Accept on its view: play it, or pause it, from where
+// it is (another file: from its start).
+@(private)
+solo_toggle :: proc(app: ^App_State, file: u64) {
+	pv := &app.preview
+	here := pv.solo.file == file
+	command_push(&app.commands, .Solo_Set, {row = file, count = -1 if here else 0, flag = !(here && pv.solo.playing)})
+}
+
+// The worker's answer, which sound the audio thread has by now: it may seek and
+// play, the file where it was asked, the video where the picture is.
+@(private)
+solo_take :: proc(app: ^App_State, heard: u64) {
+	pv := &app.preview
+	if heard == pv.solo_heard do return
+	pv.solo_heard = heard
+	preview_sync_audio(app)
+	if pv.solo.file == 0 {
+		preview_seek(app, pv.frame)
+	} else {
+		audio_seek(pv.audio, pv.solo.at)
+	}
+}
+
+// Each window frame: where the file is, and it is done when it stops playing
+// by itself, the video's sound coming back.
+@(private)
+solo_update :: proc(app: ^App_State) {
+	pv := &app.preview
+	if !pv.solo.playing || !solo_settled(pv) do return
+	pos, advancing, _ := audio_position(pv.audio)
+	pv.solo.at = pos
+	if !advancing do solo_set(app, 0, -1, false)
 }

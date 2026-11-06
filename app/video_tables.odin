@@ -305,6 +305,11 @@ cue_rows_build :: proc(t: ^Video_Tables, src: Table_Sources) {
 	}
 }
 
+// A media file's durable id: its kind and name, the same across loads.
+media_file_id :: proc(kind: om.Media_Kind, name: string) -> u64 {
+	return hash.fnv64a(transmute([]u8)name, u64(kind) + 1)
+}
+
 // The media files in `media_items`' order (the media table's: its row k
 // has file k's thumbnail), each with its first use.
 @(private = "file")
@@ -322,7 +327,7 @@ media_rows_build :: proc(t: ^Video_Tables, src: Table_Sources) {
 			failed = it.failed,
 			first  = first,
 			thumb  = i32(k),
-			id     = hash.fnv64a(transmute([]u8)it.name, u64(it.kind) + 1),
+			id     = media_file_id(it.kind, it.name),
 		}
 		switch {
 		case it.failed:

@@ -43,23 +43,32 @@ View_Row :: struct {
 // failed file has nothing to show, and unfolds into its members.
 Visualizer :: enum u8 {
 	Image,
+	Audio,
 }
 
 VISUALIZER_ROWS := [Visualizer]int {
 	.Image = 8, // RAD's bitmap, raddbg_views.c:4880
+	.Audio = 4,
 }
 
 // The view that presents it, a row's and a tab's the same (RAD's view of a
 // value, rd_view_from_eval, raddbg_core.c:1481).
 VISUALIZER_VIEWS := [Visualizer]View_Kind {
 	.Image = .Image,
+	.Audio = .Audio,
 }
 
 visualizer_of :: proc(r: ^Reader, v: Value) -> (lens: Visualizer, ok: bool) {
 	if v.kind != .Media_File do return
 	m := r.tables.media[v.ref.row]
-	if m.failed || m.kind != .Image do return
-	return .Image, true
+	if m.failed do return
+	#partial switch m.kind {
+	case .Image:
+		return .Image, true
+	case .Audio:
+		return .Audio, true
+	}
+	return
 }
 
 // A visualizer's row key, under the row it unfolds.

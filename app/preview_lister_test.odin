@@ -127,7 +127,7 @@ test_lister_keys :: proc(t: ^testing.T) {
 	pv := &app.preview
 	defer preview_state_destroy(pv)
 	workspace_init(&pv.workspace)
-	workspace_measure(&pv.workspace, {0, 0, 1280, 700}, 1, tabs_height(FONT_SIZE_DEFAULT), {.Video = -1, .Timeline = 100, .Watch = -1, .Image = -1})
+	workspace_measure(&pv.workspace, {0, 0, 1280, 700}, 1, tabs_height(FONT_SIZE_DEFAULT), {.Video = -1, .Timeline = 100, .Watch = -1, .Image = -1, .Audio = -1})
 	pv.timeline.fps = 30
 	test_tables(&pv.tables, {{"Intro", 0}, {"Two", 90}}, {{"drop", 48}})
 	p: platform.Platform
@@ -214,7 +214,7 @@ test_tab_drag_drops_through_the_pipeline :: proc(t: ^testing.T) {
 	pv := &app.preview
 	defer preview_state_destroy(pv)
 	workspace_init(&pv.workspace)
-	workspace_measure(&pv.workspace, {0, 0, 1280, 700}, 1, tabs_height(FONT_SIZE_DEFAULT), {.Video = -1, .Timeline = 100, .Watch = -1, .Image = -1})
+	workspace_measure(&pv.workspace, {0, 0, 1280, 700}, 1, tabs_height(FONT_SIZE_DEFAULT), {.Video = -1, .Timeline = 100, .Watch = -1, .Image = -1, .Audio = -1})
 	p: platform.Platform
 	p.width, p.height = 1280, 800
 	font, font_ok := render.font_load(UI_FONT)
@@ -242,7 +242,7 @@ test_tab_drag_drops_through_the_pipeline :: proc(t: ^testing.T) {
 		}
 		clear(&batch.rows)
 		clear(&batch.text)
-		workspace_measure(&app.preview.workspace, {0, 0, 1280, 700}, 1, tabs_height(FONT_SIZE_DEFAULT), {.Video = -1, .Timeline = 100, .Watch = -1, .Image = -1})
+		workspace_measure(&app.preview.workspace, {0, 0, 1280, 700}, 1, tabs_height(FONT_SIZE_DEFAULT), {.Video = -1, .Timeline = 100, .Watch = -1, .Image = -1, .Audio = -1})
 		return rows
 	}
 	ws := &pv.workspace

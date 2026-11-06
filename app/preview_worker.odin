@@ -104,10 +104,13 @@ Mailbox :: struct {
 	// The band sources the timeline's bands rows show (Band_Span.source).
 	bands_wanted:     [dynamic]i32,
 	bands_wanted_seq: u64,
-	// The files the open media views show, by durable id
+	// The files the media views show, by durable id, the sound file to hear alone
+	// and the one the audio thread has by now (0: the video's sound)
 	// (preview_media_views.odin).
-	images_wanted:     [dynamic]u64,
-	images_wanted_seq: u64,
+	files_wanted:     [dynamic]u64,
+	files_wanted_seq: u64,
+	solo_file:        u64,
+	solo_heard:       u64,
 	thumb_ack:        u64,
 	bookmark:         int,
 	bookmark_seq:     u64,
@@ -176,7 +179,7 @@ mailbox_destroy :: proc(mb: ^Mailbox) {
 	delete(mb.marks_loaded)
 	delete(mb.bands_wanted)
 	delete(mb.band_textures)
-	delete(mb.images_wanted)
+	delete(mb.files_wanted)
 	delete(mb.images)
 	delete(mb.image_pixels)
 	video_tables_destroy(&mb.tables)
@@ -309,12 +312,14 @@ Render_Worker :: struct {
 	band_views:       [dynamic]Band_View,
 	band_retired:     [dynamic]^sdl.GPUTexture,
 	bands_landed:     bool, // song segments landed since the views were drawn
-	// The files the media views show and what is made of them, and the
-	// textures the UI may still be drawing (preview_media_views.odin).
-	images_wanted:     [dynamic]u64,
-	images_wanted_seq: u64,
+	// The files the media views show and what is made of them, the textures
+	// the UI may still be drawing, and the sound file the audio thread has
+	// (preview_media_views.odin).
+	files_wanted:     [dynamic]u64,
+	files_wanted_seq: u64,
 	image_views:       [dynamic]Image_View,
 	image_retired:     [dynamic]^sdl.GPUTexture,
+	solo_file:         u64,
 	wanted_seq:     u64,
 	// Thumbnails draw video clips from their own decoders (one reader per
 	// clip, opened when the thumbnail renderer is made), so they never pull
@@ -431,6 +436,10 @@ worker_main :: proc(w: ^Render_Worker) {
 // plays.
 @(private = "file")
 worker_publish_audio :: proc(w: ^Render_Worker) {
+	if w.solo_file != 0 {
+		worker_publish_solo(w)
+		return
+	}
 	v := &w.script.video
 	// playback plays the songs' renders once whole (the mix's stream): asked
 	for p in w.placed.tracks {
@@ -454,10 +463,45 @@ worker_place_audio :: proc(w: ^Render_Worker) {
 	worker_publish_audio(w)
 }
 
-// The timeline's lanes and items for the placed tracks.
+// A file alone, as the mix plays anything: one track from its start, its own
+// length the end, with no limiter between it and you. None when it isn't there.
 @(private = "file")
+worker_publish_solo :: proc(w: ^Render_Worker) {
+	m := w.media
+	if m != nil {
+		sync.mutex_lock(&m.cache.lock)
+		for name, clip in m.audio {
+			if media_file_id(.Audio, name) != w.solo_file do continue
+			sync.mutex_unlock(&m.cache.lock)
+			file := clip
+			placed := [1]om.Placed_Track{{track = {src = name}, clip = &file, end = file.frames}}
+			audio_set_tracks(w.audio, placed[:], i64(file.frames), {no_limiter = true})
+			return
+		}
+		sync.mutex_unlock(&m.cache.lock)
+	}
+	audio_set_tracks(w.audio, nil, 0, {})
+}
+
+// The sound the audio thread plays changes when the UI asks: a file alone, or
+// back to the video's, then says it is done.
+@(private)
+worker_solo :: proc(w: ^Render_Worker) {
+	sync.mutex_lock(&w.mb.mutex)
+	file := w.mb.solo_file
+	sync.mutex_unlock(&w.mb.mutex)
+	if file == w.solo_file do return
+	w.solo_file = file
+	worker_publish_audio(w)
+	sync.mutex_lock(&w.mb.mutex)
+	w.mb.solo_heard = file
+	sync.mutex_unlock(&w.mb.mutex)
+}
+
+// The timeline's lanes and items for the placed tracks.
+@(private)
 worker_lanes :: proc(w: ^Render_Worker) {
-	wave_builder_lanes(&w.waves, w.placed.tracks[:], w.placed.order[:], &w.script.video, len(w.timeline.scenes), w.script.cues[:])
+	wave_builder_lanes(&w.waves, w.placed.tracks[:], w.placed.order[:], &w.script.video, len(w.timeline.scenes), w.script.cues[:], worker_wave_files(w))
 }
 
 // Called by a clip job when a clip lands.
@@ -669,7 +713,7 @@ worker_settle :: proc(w: ^Render_Worker, req: Render_Request) {
 // else how long until thumbnails may start (0: until signalled). Takes the
 // UI's newest thumbnail list, and frees retired thumbnail textures once the
 // UI has taken the current generation.
-@(private = "file")
+@(private)
 worker_idle_ready :: proc(w: ^Render_Worker) -> (ready: bool, retry: time.Duration) {
 	if w.script == nil {
 		return
@@ -691,7 +735,7 @@ worker_idle_ready :: proc(w: ^Render_Worker) -> (ready: bool, retry: time.Durati
 			clear(&w.band_retired)
 		}
 	}
-	if images_pending(w) || w.mb.clips_landed || clips_built_here(w) || wave_builder_pending(&w.waves) || tables_pending(w) || media_pending(w) || om.music_queued(w.media) || bands_pending(w) {
+	if w.mb.solo_file != w.solo_file || files_pending(w) || w.mb.clips_landed || clips_built_here(w) || wave_builder_pending(&w.waves) || tables_pending(w) || media_pending(w) || om.music_queued(w.media) || bands_pending(w) {
 		return true, 0
 	}
 	if thumb_next(w) < 0 {
@@ -753,10 +797,11 @@ thumbs_allowed :: proc(w: ^Render_Worker, busy: bool) -> (ok: bool, retry: time.
 }
 
 // One step of idle work, in priority order.
-@(private = "file")
+@(private)
 worker_idle :: proc(w: ^Render_Worker, busy: bool) {
 	// what this step asked of the songs (a lane, a thumbnail)
 	defer om.music_drain(w.media)
+	worker_solo(w)
 	if worker_clips(w) {
 		return
 	}
@@ -797,8 +842,8 @@ worker_idle :: proc(w: ^Render_Worker, busy: bool) {
 		}
 		return
 	}
-	if images_pending(w) {
-		worker_images(w)
+	if files_pending(w) {
+		worker_files(w)
 		return
 	}
 	if ok, _ := thumbs_allowed(w, busy); !ok {

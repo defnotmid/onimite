@@ -96,8 +96,8 @@ panels_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32) {
 			timeline_view(app, s, dpi, a.content)
 		case .Watch:
 			watch_view(app, s, dpi, p.shown, a.content)
-		case .Image:
-			image_tab_view(app, s, dpi, p.shown, a.content)
+		case .Image, .Audio:
+			media_tab_view(app, s, dpi, p.shown, a.content)
 		}
 	}
 }
@@ -201,8 +201,8 @@ view_title :: proc(app: ^App_State, id: View_Id) -> (title: string, color: [4]u8
 	if v.kind == .Watch {
 		return watch_title(app, v)
 	}
-	if v.kind == .Image {
-		return image_title(app, v)
+	if v.kind == .Image || v.kind == .Audio {
+		return media_title(app, v)
 	}
 	descriptors := VIEW_DESCRIPTORS
 	return descriptors[v.kind].name, {}

@@ -184,10 +184,14 @@ Preview_State :: struct {
 	sent_bands:         [dynamic]i32,
 	seen_bands:         u64,
 	band_textures:      [dynamic]Band_Texture,
-	// The media views (preview_media_views.odin): the files of the open image
-	// rows by durable id (asked of the worker when they change), the last
-	// asked, and the worker's table of them.
-	images_open:        [dynamic]u64,
+	// The media views (preview_media_views.odin): the files they show by durable
+	// id (asked of the worker when they change), the last asked, and the worker's
+	// table of them; the file heard alone, the one last asked of the worker and the
+	// one the audio thread has by now (0: the video's sound).
+	files_open:         [dynamic]u64,
+	solo:               Solo,
+	sent_solo:          u64,
+	solo_heard:         u64,
 	sent_images:        [dynamic]u64,
 	images:             [dynamic]Image_Shown,
 	seen_images:        u64,
@@ -692,7 +696,12 @@ preview_report :: proc(app: ^App_State) {
 // "drag" drops the timeline's tab on the left edge of the video's panel
 // (30), "pick" clicks the shown Watch tab's third row (40), "next" goes to
 // the next warning or error (45), "hover"
-// moves the mouse down and up the shown Watch tab's rows (from 10). The lister, as
+// moves the mouse down and up the shown Watch tab's rows (from 10), "openimage"
+// opens the first row with a view (8), "pullimage" and "pullsound" drag out the
+// first image's and sound's view beside the video (20), "playsolo" plays the first
+// sound's view from its start (25), "tabpointer" points into a shown image's tab
+// (from 30), "loadloop" reloads every 30 window frames, the media with every
+// second one. The lister, as
 // keys and typing reach it (`preview_drive_lister`): "goto" and "openview".
 // A presentation: "present_next" moves on every 240 window frames from 300.
 @(private)
@@ -828,6 +837,17 @@ preview_drive_workspace :: proc(app: ^App_State, drive: string, frames: int) {
 			}
 		}
 	}
+	if frames == 25 && strings.contains(drive, "playsolo") {
+		// the first sound's view, as its button plays it
+		r := preview_reader(app)
+		for v in ws.views {
+			if !v.live || v.kind != .Audio do continue
+			if value, error := evaluate(&r, v.inputs[0].source); error == "" {
+				command_push(c, .Solo_Set, {row = r.tables.media[value.ref.row].id, count = 0, flag = true})
+				break
+			}
+		}
+	}
 	if frames == 20 && strings.contains(drive, "pullimage") && video != nil {
 		// the first row's view dragged out beside the video
 		for v, i in ws.views {
@@ -837,7 +857,15 @@ preview_drive_workspace :: proc(app: ^App_State, drive: string, frames: int) {
 			}
 		}
 	}
-	if frames >= 30 && frames % 30 == 0 && strings.contains(drive, "reloads") {
+	if frames == 20 && strings.contains(drive, "pullsound") && video != nil {
+		for v, i in ws.views {
+			if v.live && v.kind == .Audio && v.owner != 0 {
+				command_push(c, .View_Move, {view = View_Id(i + 1), panel = video.panel, direction = .Right})
+				break
+			}
+		}
+	}
+	if frames >= 30 && frames % 30 == 0 && strings.contains(drive, "loadloop") {
 		// the script alone and with its media, in turn
 		command_push(c, .Script_Reload, {flag = frames % 60 == 0})
 	}
@@ -954,7 +982,7 @@ preview_state_destroy :: proc(pv: ^Preview_State) {
 	delete(pv.thumbs_shown)
 	delete(pv.sent_bands)
 	delete(pv.band_textures)
-	delete(pv.images_open)
+	delete(pv.files_open)
 	delete(pv.sent_images)
 	delete(pv.images)
 	preview_timeline_destroy(&pv.timeline)
@@ -1009,7 +1037,8 @@ preview_seek :: proc(app: ^App_State, frame: int) {
 	// into the past for a frame)
 	at := f64(pv.frame) / f64(preview_fps(app))
 	pv.clock = max(pv.clock, at) if pv.live else at
-	if pv.audio != nil {
+	// (a file heard alone holds the audio thread; the video seeks when it is back)
+	if pv.audio != nil && pv.solo.file == 0 {
 		audio_seek(pv.audio, i64(pv.clock * om.MIX_RATE))
 	}
 }
@@ -1018,7 +1047,8 @@ preview_seek :: proc(app: ^App_State, frame: int) {
 preview_sync_audio :: proc(app: ^App_State) {
 	pv := &app.preview
 	if pv.audio != nil {
-		audio_set_state(pv.audio, pv.playing && !pv.scrubbing && !pv.sounds_loading, pv.muted, pv.loop)
+		playing := pv.solo.playing if pv.solo.file != 0 else pv.playing && !pv.scrubbing && !pv.sounds_loading
+		audio_set_state(pv.audio, playing && solo_settled(pv), pv.muted, pv.loop && pv.solo.file == 0)
 		audio_set_gain(pv.audio, pv.volume)
 	}
 }
@@ -1052,6 +1082,16 @@ view_clamp :: proc(app: ^App_State) {
 preview_apply :: proc(app: ^App_State, kind: Command_Kind, regs: Command_Regs) {
 	pv := &app.preview
 	#partial switch kind {
+	case .Frame_Set:
+		// (a load's keeps the frame it is on, and the file plays on)
+		if pv.solo.file != 0 && regs.count != pv.frame do solo_set(app, 0, -1, false)
+	case .Playback_Toggle, .Playback_Set, .Frame_Step, .Frame_Start, .Seconds_Step, .Scene_Step, .Problem_Step, .Present_Next, .Present_Previous, .Go_To:
+		// The video taken up again: a file heard alone gives way to it.
+		if pv.solo.file != 0 do solo_set(app, 0, -1, false)
+	}
+	#partial switch kind {
+	case .Solo_Set:
+		solo_set(app, regs.row, regs.count, regs.flag)
 	case .Playback_Toggle:
 		if pv.present && pv.holding && !pv.playing {
 			// a held scene: its clock stops and runs on
@@ -1306,7 +1346,7 @@ preview_apply :: proc(app: ^App_State, kind: Command_Kind, regs: Command_Regs) {
 			case .Timeline:
 				// its rows' list's: units of ROW_UNIT points, to its last
 				v.scroll = clamp(regs.count, 0, max(int(timeline_rows(app).points) / ROW_UNIT - 1, 0))
-			case .Video, .Image:
+			case .Video, .Image, .Audio:
 			}
 			// A dragged thumb's: the list there at once (RAD's off = 0).
 			if regs.flag do animation.scroll_jump(&view_list(pv, regs.view).scroll, f32(v.scroll))
@@ -1556,6 +1596,8 @@ preview_switch_script :: proc(app: ^App_State, path: string) {
 		clear(&pv.sent_bands)
 		clear(&pv.images)
 		clear(&pv.sent_images)
+		pv.solo = {}
+		pv.sent_solo, pv.solo_heard = 0, 0
 		worker_stop(w)
 		sync.mutex_lock(&mb.mutex)
 		mb.quit = false
@@ -1576,7 +1618,8 @@ preview_switch_script :: proc(app: ^App_State, path: string) {
 		clear(&mb.band_textures)
 		clear(&mb.bands_wanted)
 		mb.bands_seq += 1
-		clear(&mb.images_wanted)
+		clear(&mb.files_wanted)
+		mb.solo_file, mb.solo_heard = 0, 0
 		clear(&mb.images)
 		clear(&mb.image_pixels)
 		mb.images_seq += 1
@@ -1618,7 +1661,8 @@ preview_playback_advance :: proc(app: ^App_State, dt: f64) {
 	if pv.present && pv.holding && !pv.playing && !pv.hold_paused {
 		pv.hold_time += dt
 	}
-	if !pv.playing || pv.scrubbing || pv.sounds_loading || pv.timeline.frames <= 0 {
+	solo_update(app)
+	if !pv.playing || pv.scrubbing || pv.sounds_loading || pv.timeline.frames <= 0 || !solo_settled(pv) {
 		return
 	}
 	from := pv.frame
@@ -1777,6 +1821,7 @@ preview_take_published :: proc(app: ^App_State, c: ^vg.Canvas, now: f64) {
 		table_copy(&pv.band_textures, mb.band_textures[:])
 	}
 	images_take(pv, mb)
+	solo_heard := mb.solo_heard
 	if mb.thumbs_seq != pv.seen_thumbs {
 		pv.seen_thumbs = mb.thumbs_seq
 		table_copy(&pv.thumbs, mb.thumbs[:])
@@ -1799,6 +1844,7 @@ preview_take_published :: proc(app: ^App_State, c: ^vg.Canvas, now: f64) {
 		pv.load_seconds = time.duration_seconds(time.tick_since(mb.load_began))
 	}
 	sync.mutex_unlock(&mb.mutex)
+	solo_take(app, solo_heard)
 	if pv.sounds_loading != sounds_were {
 		// held or let go: the stream starts again where the picture is
 		preview_seek(app, pv.frame)
@@ -1872,8 +1918,8 @@ preview_request :: proc(app: ^App_State, p: ^platform.Platform) {
 	bands := pv.bands_shown[:] if timeline_shown(app) else nil
 	thumbs_changed := !slice.equal(wanted, pv.sent_thumbs[:])
 	bands_changed := !slice.equal(bands, pv.sent_bands[:])
-	images_changed := !slice.equal(pv.images_open[:], pv.sent_images[:])
-	if busy != pv.sent_busy || pv.bookmark != pv.sent_bookmark || pv.marks_changed || thumbs_changed || bands_changed || images_changed {
+	images_changed := !slice.equal(pv.files_open[:], pv.sent_images[:])
+	if busy != pv.sent_busy || pv.bookmark != pv.sent_bookmark || pv.marks_changed || thumbs_changed || bands_changed || images_changed || pv.solo.file != pv.sent_solo {
 		sync.mutex_lock(&mb.mutex)
 		mb.busy = busy
 		if pv.marks_changed {
@@ -1894,16 +1940,18 @@ preview_request :: proc(app: ^App_State, p: ^platform.Platform) {
 			mb.bands_wanted_seq += 1
 		}
 		if images_changed {
-			table_copy(&mb.images_wanted, pv.images_open[:])
-			mb.images_wanted_seq += 1
+			table_copy(&mb.files_wanted, pv.files_open[:])
+			mb.files_wanted_seq += 1
 		}
+		mb.solo_file = pv.solo.file
+		pv.sent_solo = pv.solo.file
 		sync.cond_signal(&mb.cond)
 		sync.mutex_unlock(&mb.mutex)
 		pv.sent_busy = busy
 		pv.sent_bookmark = pv.bookmark
 		table_copy(&pv.sent_thumbs, wanted)
 		table_copy(&pv.sent_bands, bands)
-		table_copy(&pv.sent_images, pv.images_open[:])
+		table_copy(&pv.sent_images, pv.files_open[:])
 	}
 
 	// The scale that fits the video's panel (kept while it is hidden),
@@ -2026,7 +2074,7 @@ preview_layout :: proc(app: ^App_State, p: ^platform.Platform) {
 		pv.bare_area = {0, 0, f32(p.width), f32(p.height)}
 		return
 	}
-	natural := [View_Kind]f32{.Video = -1, .Timeline = timeline_height(app) * pv.dpi, .Watch = -1, .Image = -1}
+	natural := [View_Kind]f32{.Video = -1, .Timeline = timeline_height(app) * pv.dpi, .Watch = -1, .Image = -1, .Audio = -1}
 	// What is sized from the window's font, once: the window's bars and a
 	// leaf's tab bar.
 	font_px := pv.font_size * pv.dpi
@@ -2118,7 +2166,7 @@ SCENE_COLORS := [?][4]u8{{58, 96, 160, 255}, {92, 70, 150, 255}, {48, 120, 110, 
 preview_views :: proc(app: ^App_State, s: ^ui.State, p: ^platform.Platform) {
 	pv := &app.preview
 	dpi := p.dpi_scale
-	images_open_update(app)
+	files_open_update(app)
 	if area, _ := view_area(app, .Video); pv.bare {
 		video_view(app, s, dpi, area)
 	} else {

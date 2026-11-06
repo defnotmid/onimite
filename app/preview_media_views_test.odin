@@ -2,6 +2,7 @@ package onimite_app
 
 import "base:runtime"
 import "core:fmt"
+import "core:math"
 import "core:mem"
 import "core:os"
 import "core:sync"
@@ -9,6 +10,7 @@ import "core:testing"
 import "core:thread"
 import om "../onimite"
 import platform "../platform"
+import script "../script"
 import ui "../ui"
 import odimg "deps:oicut/image"
 import sdl "vendor:sdl3"
@@ -45,7 +47,7 @@ open_row :: proc(t: ^testing.T, tp: ^Test_Preview, id: View_Id, row: View_Row) -
 
 // An image's row unfolds into one item across eight rows (RAD's single
 // item): windows of it say how much of it is above and below them, keys and
-// items find it, and a failed file or a sound still unfolds into members.
+// items find it, and a failed file still unfolds into members.
 @(test)
 test_image_row_unfolds_into_one_item :: proc(t: ^testing.T) {
 	defer free_all(context.temp_allocator)
@@ -85,13 +87,13 @@ test_image_row_unfolds_into_one_item :: proc(t: ^testing.T) {
 	}
 	testing.expect_value(t, blocks_item_from_row(&blocks, 9), 2) // the view's last row
 
-	// A failed file and a sound have no view: their members.
+	// A failed file has no view: its members. A sound has its own.
 	r := preview_reader(app)
 	bad := media_row(app, v, 0)
 	_, bad_view := visualizer_of(&r, bad.value)
 	testing.expect(t, !bad_view && bad.unfolds)
-	_, sound_view := visualizer_of(&r, media_row(app, v, 10).value)
-	testing.expect(t, !sound_view)
+	lens, sound_view := visualizer_of(&r, media_row(app, v, 10).value)
+	testing.expect(t, sound_view && lens == .Audio)
 }
 
 // The view of `row` of Watch `id` (nil: none yet).
@@ -135,7 +137,7 @@ test_image_view_through_the_pipeline :: proc(t: ^testing.T) {
 	id := workspace_find_watch(&pv.workspace, "video:media")
 	v := workspace_view(&pv.workspace, id)
 	for _ in 0 ..< 3 do test_frame(&tp)
-	testing.expect_value(t, len(pv.images_open), 0)
+	testing.expect_value(t, len(pv.files_open), 0)
 	logo := media_row(app, v, 1)
 	if !open_row(t, &tp, id, logo) do return
 	v = workspace_view(&pv.workspace, id) // (the row's view has been added)
@@ -148,7 +150,7 @@ test_image_view_through_the_pipeline :: proc(t: ^testing.T) {
 	testing.expect(t, rv != nil && rv.kind == .Image && rv.panel == 0 && rv.owner == id)
 	if rv == nil do return
 	testing.expect_value(t, rv.inputs[0].source, logo.source)
-	testing.expect(t, len(pv.images_open) == 1 && pv.images_open[0] == file)
+	testing.expect(t, len(pv.files_open) == 1 && pv.files_open[0] == file)
 	key := fmt.tprintf("watch_%d_%s", id, visualizer_key(logo.key))
 	image_key := fmt.tprintf("###bmp_image_%s", key)
 	canvas_key := fmt.tprintf("###bmp_canvas_%s", key)
@@ -206,7 +208,7 @@ test_image_view_through_the_pipeline :: proc(t: ^testing.T) {
 	for _ in 0 ..< 3 do test_frame(&tp)
 	testing.expect(t, test_box(&tp.s, canvas_key) == nil, "scrolled off")
 	testing.expect(t, row_view(pv, id, logo) != nil)
-	testing.expect(t, len(pv.images_open) == 1 && pv.images_open[0] == file)
+	testing.expect(t, len(pv.files_open) == 1 && pv.files_open[0] == file)
 	command_push(&app.commands, .View_Scroll, {view = id, count = 0, flag = true})
 	for _ in 0 ..< 3 do test_frame(&tp)
 	testing.expect(t, test_box(&tp.s, canvas_key) != nil, "back")
@@ -217,7 +219,7 @@ test_image_view_through_the_pipeline :: proc(t: ^testing.T) {
 	append(&v.filter, "music")
 	for _ in 0 ..< 2 do test_frame(&tp)
 	testing.expect(t, test_box(&tp.s, canvas_key) == nil, "filtered out")
-	testing.expect(t, row_view(pv, id, logo) != nil && len(pv.images_open) == 1)
+	testing.expect(t, row_view(pv, id, logo) != nil && len(pv.files_open) == 1)
 	clear(&v.filter)
 	for _ in 0 ..< 2 do test_frame(&tp)
 
@@ -238,7 +240,7 @@ test_image_view_through_the_pipeline :: proc(t: ^testing.T) {
 	if !open_row(t, &tp, id, media_row(app, v, 1)) do return
 	test_frame(&tp)
 	testing.expect(t, row_view(pv, id, logo) == nil)
-	testing.expect_value(t, len(pv.images_open), 0)
+	testing.expect_value(t, len(pv.files_open), 0)
 }
 
 // A file is asked for once however many views are on it, in hidden tabs too; a
@@ -259,7 +261,7 @@ test_row_views_name_their_files :: proc(t: ^testing.T) {
 	file := pv.tables.media[logo.value.ref.row].id
 	command_push(&app.commands, .Watch_Expand, {view = id, spec = logo.key})
 	for _ in 0 ..< 3 do test_frame(&tp)
-	testing.expect(t, len(pv.images_open) == 1 && pv.images_open[0] == file)
+	testing.expect(t, len(pv.files_open) == 1 && pv.files_open[0] == file)
 
 	// An expression Watch on the same file, open: the one row, and two views
 	// that each look their own way.
@@ -269,7 +271,7 @@ test_row_views_name_their_files :: proc(t: ^testing.T) {
 	top := media_row(app, workspace_view(ws, other), 0)
 	command_push(&app.commands, .Watch_Expand, {view = other, spec = top.key})
 	for _ in 0 ..< 3 do test_frame(&tp)
-	testing.expect(t, len(pv.images_open) == 1 && pv.images_open[0] == file)
+	testing.expect(t, len(pv.files_open) == 1 && pv.files_open[0] == file)
 	testing.expect(t, row_view(pv, other, top) != nil && row_view(pv, id, logo) != nil)
 	testing.expect(t, row_view(pv, other, top) != row_view(pv, id, logo))
 
@@ -286,13 +288,13 @@ test_row_views_name_their_files :: proc(t: ^testing.T) {
 	for _ in 0 ..< 2 do test_frame(&tp)
 	testing.expect(t, row_view(pv, other, top) == nil)
 	testing.expect_value(t, len(workspace_view(ws, other).expanded), 0)
-	testing.expect(t, len(pv.images_open) == 1 && pv.images_open[0] == file)
+	testing.expect(t, len(pv.files_open) == 1 && pv.files_open[0] == file)
 
 	// Its Watch goes, and the file with it.
 	command_push(&app.commands, .View_Close, {view = id})
 	for _ in 0 ..< 2 do test_frame(&tp)
 	testing.expect(t, workspace_row_view(ws, id, row_view_key(logo.key)) == 0)
-	testing.expect_value(t, len(pv.images_open), 0)
+	testing.expect_value(t, len(pv.files_open), 0)
 }
 
 // A row's view is a view in no panel: nothing that looks for tabs finds it, a
@@ -446,7 +448,7 @@ test_image_row_pulls_out_as_a_tab :: proc(t: ^testing.T) {
 	fresh := workspace_row_view(ws, id, row_view_key(logo.key))
 	testing.expect(t, fresh != 0 && fresh != pulled)
 	testing.expect_value(t, workspace_view(ws, fresh).bitmap.center, [2]f32{0, 0})
-	testing.expect(t, len(pv.images_open) == 1 && pv.images_open[0] == file)
+	testing.expect(t, len(pv.files_open) == 1 && pv.files_open[0] == file)
 
 	// The tab shows the file, with the wheel and the tooltip a row hasn't.
 	tab_key := fmt.tprintf("tab_%d", pulled)
@@ -469,12 +471,12 @@ test_image_row_pulls_out_as_a_tab :: proc(t: ^testing.T) {
 	command_push(&app.commands, .View_Close, {view = id})
 	for _ in 0 ..< 2 do test_frame(&tp)
 	testing.expect(t, workspace_view(ws, pulled) != nil)
-	testing.expect(t, len(pv.images_open) == 1 && pv.images_open[0] == file)
+	testing.expect(t, len(pv.files_open) == 1 && pv.files_open[0] == file)
 
 	// Closed, nothing asks for it.
 	command_push(&app.commands, .View_Close, {view = pulled})
 	for _ in 0 ..< 2 do test_frame(&tp)
-	testing.expect_value(t, len(pv.images_open), 0)
+	testing.expect_value(t, len(pv.files_open), 0)
 }
 
 // The box keyed `key` under `parent` this frame.
@@ -663,12 +665,12 @@ test_any_row_drags_out :: proc(t: ^testing.T) {
 	for _ in 0 ..< 3 do test_frame(&tp)
 	pulled = pv.drag_view
 	testing.expect(t, pulled != 0 && workspace_view(ws, pulled).kind == .Image)
-	testing.expect_value(t, len(pv.images_open), 1) // while it is dragged
+	testing.expect_value(t, len(pv.files_open), 1) // while it is dragged
 	test_frame(&tp, key_press(.Escape, {}))
 	test_frame(&tp, {kind = .Mouse_Release, button = .Left})
 	test_frame(&tp)
 	testing.expect(t, workspace_view(ws, pulled) == nil)
-	testing.expect_value(t, len(pv.images_open), 0)
+	testing.expect_value(t, len(pv.files_open), 0)
 	box = row_box(&tp, images, logo)
 	if box == nil {testing.expect(t, false, "the media row gone"); return}
 	press(&tp, box)
@@ -679,7 +681,7 @@ test_any_row_drags_out :: proc(t: ^testing.T) {
 	for _ in 0 ..< 2 do test_frame(&tp)
 	testing.expect(t, workspace_view(ws, pulled) != nil && workspace_view(ws, pulled).owner == 0 && workspace_view(ws, pulled).panel == video)
 	testing.expect_value(t, len(workspace_view(ws, images).expanded), 0)
-	testing.expect_value(t, len(pv.images_open), 1)
+	testing.expect_value(t, len(pv.files_open), 1)
 
 	// A row being edited doesn't drag: its press is the line edit's.
 	other := workspace_open(ws, video, .Watch)
@@ -960,7 +962,7 @@ test_worker_shares_what_the_views_show :: proc(t: ^testing.T) {
 		mb    = &mb,
 		media = &m,
 	}
-	defer delete(w.images_wanted)
+	defer delete(w.files_wanted)
 	defer delete(w.image_views)
 	defer delete(w.image_retired)
 	defer video_tables_destroy(&w.tables)
@@ -968,17 +970,17 @@ test_worker_shares_what_the_views_show :: proc(t: ^testing.T) {
 	defer finding_table_destroy(&findings)
 	video_tables_build(&w.tables, {fps = 30, findings = &findings, media = &m})
 	file := w.tables.media[0].id
-	testing.expect(t, !images_pending(&w))
+	testing.expect(t, !files_pending(&w))
 
 	want :: proc(mb: ^Mailbox, ids: ..u64) {
-		table_copy(&mb.images_wanted, ids)
-		mb.images_wanted_seq += 1
+		table_copy(&mb.files_wanted, ids)
+		mb.files_wanted_seq += 1
 	}
 	img := m.images["logo.png"]
 	want(&mb, file)
-	testing.expect(t, images_pending(&w))
-	worker_images(&w)
-	testing.expect(t, !images_pending(&w))
+	testing.expect(t, files_pending(&w))
+	worker_files(&w)
+	testing.expect(t, !files_pending(&w))
 	testing.expect_value(t, img.held, 1)
 	testing.expect(t, len(mb.images) == 1 && mb.images[0].id == file && mb.images[0].size == {2, 1})
 	testing.expect(t, raw_data(mb.image_pixels[0]) == raw_data(img.pixels), "the store's own bytes, not a copy")
@@ -986,32 +988,32 @@ test_worker_shares_what_the_views_show :: proc(t: ^testing.T) {
 
 	// Asked again, nothing changes.
 	want(&mb, file)
-	worker_images(&w)
+	worker_files(&w)
 	testing.expect_value(t, img.held, 1)
 	testing.expect_value(t, mb.images_seq, 1)
 
 	// A file nobody has: an empty row, not asked for again.
 	want(&mb, file, file + 1)
-	worker_images(&w)
+	worker_files(&w)
 	testing.expect_value(t, len(mb.images), 2)
 	testing.expect(t, mb.images[1].id == file + 1 && mb.images[1].texture == nil && mb.image_pixels[1] == nil)
-	testing.expect(t, !images_pending(&w))
+	testing.expect(t, !files_pending(&w))
 
 	// A load: the table clear before the hold goes, then made again.
 	worker_images_retire(&w)
 	testing.expect_value(t, len(mb.images), 0)
 	testing.expect_value(t, len(mb.image_pixels), 0)
 	testing.expect_value(t, img.held, 0)
-	testing.expect(t, images_pending(&w))
-	worker_images(&w)
-	worker_images(&w)
+	testing.expect(t, files_pending(&w))
+	worker_files(&w)
+	worker_files(&w)
 	testing.expect_value(t, len(mb.images), 2)
 	testing.expect_value(t, img.held, 1)
 	testing.expect(t, raw_data(mb.image_pixels[0]) == raw_data(img.pixels))
 
 	// No longer asked for: out of the table, let go.
 	want(&mb)
-	worker_images(&w)
+	worker_files(&w)
 	testing.expect_value(t, len(mb.images), 0)
 	testing.expect_value(t, img.held, 0)
 	testing.expect_value(t, len(w.image_views), 0)
@@ -1052,7 +1054,7 @@ test_reads_survive_loads :: proc(t: ^testing.T) {
 	w := Render_Worker {
 		mb = &mb,
 	}
-	defer delete(w.images_wanted)
+	defer delete(w.files_wanted)
 	defer delete(w.image_views)
 	defer video_tables_destroy(&w.tables)
 	findings: Finding_Table
@@ -1094,9 +1096,9 @@ test_reads_survive_loads :: proc(t: ^testing.T) {
 				}
 			})
 		}
-		table_copy(&mb.images_wanted, []u64{file})
-		mb.images_wanted_seq += 1
-		worker_images(&w)
+		table_copy(&mb.files_wanted, []u64{file})
+		mb.files_wanted_seq += 1
+		worker_files(&w)
 		// the reader has this media's row at least once
 		at := sync.atomic_load(&r.hits)
 		for sync.atomic_load(&r.hits) == at do thread.yield()
@@ -1112,4 +1114,621 @@ test_reads_survive_loads :: proc(t: ^testing.T) {
 	thread.destroy(reader)
 	testing.expect(t, r.hits >= 200)
 	testing.expect_value(t, r.bad, 0)
+}
+
+// Sound file `file`'s pyramid in the UI's waveforms, as the worker publishes it:
+// a ramp, louder as it goes. Its samples, the caller's to free.
+@(private = "file")
+sound_has_pyramid :: proc(pv: ^Preview_State, b: ^Wave_Builder, file: u64, frames: int) -> []f32 {
+	samples := make([]f32, frames * 2)
+	for i in 0 ..< frames do samples[i * 2], samples[i * 2 + 1] = f32(i) / f32(frames), -f32(i) / f32(frames)
+	video: om.Video
+	files := []Wave_File{{file, om.Audio_Clip{samples = samples, frames = frames}}}
+	wave_builder_lanes(b, nil, nil, &video, 0, nil, files)
+	for wave_builder_pending(b) do wave_builder_step(b)
+	wave_table_copy(&pv.waves, &b.table)
+	return samples
+}
+
+// Whether the audio thread has been told to play.
+@(private = "file")
+audio_plays :: proc(a: ^Audio_Shared) -> bool {
+	return .Playing in transmute(bit_set[Audio_State;u32])a.state
+}
+
+// A sound's row unfolds into four rows, a view of its own asking for the file by
+// id, drawn from a pyramid; a press on its waveform plays the file from there,
+// alone, the video pausing. Nothing plays until the worker has swapped the sound
+// in, then it plays from where it was asked, never looping; the button pauses and
+// plays on, a drag follows the pointer, Accept on its cursor does as the button
+// does, and the video's own seeks leave the file alone. The file ending, the
+// video's sound comes back: not playing, where the picture is. Every transport
+// of the video takes over the same way, and so does shutting the row, but not a
+// load landing. A tab of it does the same. With no audio device it does nothing.
+@(test)
+test_sound_view_plays_alone :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	tp: Test_Preview
+	testing.expect(t, test_preview_make(&tp))
+	defer test_preview_destroy(&tp)
+	a: Audio_Shared
+	app := &tp.app
+	pv := &app.preview
+	pv.audio = &a
+	pv.audio_stream = (^sdl.AudioStream)(uintptr(8)) // (a name: nothing opens it in a test)
+	defer {pv.audio, pv.audio_stream = nil, nil}
+	tp.p.frame_dt = 1
+	ws := &pv.workspace
+	watch_show(app, "video:media")
+	id := workspace_find_watch(ws, "video:media")
+	for _ in 0 ..< 3 do test_frame(&tp)
+	music := media_row(app, workspace_view(ws, id), 2)
+	testing.expect_value(t, music.label, "music.wav")
+	if !open_row(t, &tp, id, music) do return
+	test_frame(&tp)
+	file := pv.tables.media[music.value.ref.row].id
+	rv := row_view(pv, id, music)
+	testing.expect(t, rv != nil && rv.kind == .Audio)
+	testing.expect(t, len(pv.files_open) == 1 && pv.files_open[0] == file)
+	blocks := watch_blocks(app, workspace_view(ws, id))
+	testing.expect_value(t, blocks.total, 4 + 4)
+
+	key := fmt.tprintf("watch_%d_%s", id, visualizer_key(music.key))
+	wave := test_box(&tp.s, fmt.tprintf("###audio_wave_%s", key))
+	testing.expect(t, wave != nil)
+	if wave == nil do return
+	testing.expect_value(t, wave.rect.max.y - wave.rect.min.y, 4 * list_row_height(&tp.s))
+
+	// With no pyramid yet a press on the waveform has nowhere to go.
+	press_at :: proc(tp: ^Test_Preview, at: [2]f32) -> []Command_Row {
+		tp.p.input.mouse = at
+		test_frame(tp)
+		test_frame(tp)
+		rows := test_frame(tp, {kind = .Mouse_Press, button = .Left})
+		return rows
+	}
+	x_of :: proc(wave: ^ui.Box, along: f32) -> [2]f32 {
+		return {wave.rect.min.x + along * (wave.rect.max.x - wave.rect.min.x), wave.rect.max.y - 4}
+	}
+	testing.expect(t, !test_has(press_at(&tp, x_of(wave, 0.75)), .Solo_Set))
+	test_frame(&tp, {kind = .Mouse_Release, button = .Left})
+
+	b: Wave_Builder
+	defer wave_builder_destroy(&b)
+	samples := sound_has_pyramid(pv, &b, file, 96000)
+	defer delete(samples)
+
+	// With no device to hear it on, nothing happens.
+	stream := pv.audio_stream
+	pv.audio_stream = nil
+	solo_set(app, file, 100, true)
+	testing.expect_value(t, pv.solo.file, u64(0))
+	pv.audio_stream = stream
+
+	// A press plays from there, alone; the video pauses; nothing is heard until
+	// the worker says the swap is done.
+	pv.playing = true
+	pv.loop = true
+	rows := press_at(&tp, x_of(wave, 0.75))
+	sent: Command_Row
+	for r in rows do if r.kind == .Solo_Set do sent = r
+	testing.expect_value(t, sent.kind, Command_Kind.Solo_Set)
+	testing.expect_value(t, sent.regs.row, file)
+	testing.expect(t, abs(sent.regs.count - 72000) < 200)
+	testing.expect_value(t, pv.solo.file, file)
+	testing.expect(t, pv.solo.playing && !pv.playing && !solo_settled(pv))
+	testing.expect(t, !audio_plays(&a))
+	gen := a.seek_gen
+	solo_take(app, pv.solo.file)
+	testing.expect(t, solo_settled(pv) && audio_plays(&a))
+	testing.expect_value(t, a.seek_gen, gen + 1)
+	testing.expect_value(t, a.seek_to, i64(sent.regs.count))
+	// (the same answer every frame after: it seeks once)
+	solo_take(app, pv.solo.file)
+	testing.expect_value(t, a.seek_gen, gen + 1)
+	testing.expect(t, .Looping not_in transmute(bit_set[Audio_State;u32])a.state)
+
+	// A drag follows the pointer; held still, it asks nothing.
+	tp.p.input.mouse = x_of(wave, 0.5)
+	dragged := test_frame(&tp)
+	testing.expect(t, test_has(dragged, .Solo_Set))
+	testing.expect(t, abs(a.seek_to - 48000) < 200)
+	testing.expect(t, !test_has(test_frame(&tp), .Solo_Set))
+	test_frame(&tp, {kind = .Mouse_Release, button = .Left})
+
+	// The playhead is what the audio thread hears (the seek taken).
+	a.applied_gen = a.seek_gen
+	a.heard, a.advancing = 50000, true
+	solo_update(app)
+	testing.expect_value(t, pv.solo.at, i64(50000))
+	test_frame(&tp)
+
+	// The button shows what it does, pauses it where it is, and plays it on from
+	// there.
+	button := box_under(&tp.s, wave, fmt.tprintf("###audio_play_%s", key))
+	testing.expect(t, button != nil)
+	if button == nil do return
+	icons := PREVIEW_ICONS
+	testing.expect_value(t, button.icon, icons[.Pause])
+	on_button := (button.rect.min + button.rect.max) / 2
+	testing.expect(t, !test_has(press_at(&tp, on_button), .Solo_Set), "a click, not a press")
+	paused := test_frame(&tp, {kind = .Mouse_Release, button = .Left})
+	testing.expect(t, test_has(paused, .Solo_Set))
+	testing.expect(t, !pv.solo.playing && pv.solo.file == file && !audio_plays(&a))
+	testing.expect_value(t, pv.solo.at, i64(50000))
+	test_frame(&tp)
+	testing.expect_value(t, box_under(&tp.s, wave, fmt.tprintf("###audio_play_%s", key)).icon, icons[.Play])
+	gen = a.seek_gen
+	press_at(&tp, on_button)
+	test_frame(&tp, {kind = .Mouse_Release, button = .Left})
+	testing.expect(t, pv.solo.playing && audio_plays(&a))
+	testing.expect_value(t, a.seek_to, i64(50000))
+	testing.expect_value(t, a.seek_gen, gen + 1)
+
+	// Accept on its cursor is the button.
+	tp.p.input.mouse = {-1, -1}
+	for _ in 0 ..< 2 do test_frame(&tp)
+	view_list(pv, id).cursor = blocks_item_from_row(&blocks, 3)
+	test_frame(&tp)
+	test_frame(&tp, key_press(.Space, {}))
+	testing.expect(t, !pv.solo.playing && pv.solo.file == file)
+	test_frame(&tp, key_press(.Space, {}))
+	testing.expect(t, pv.solo.playing)
+
+	// Another file's button: that one, from its start, once the worker has it.
+	unused := media_row(app, workspace_view(ws, id), 2 + 1 + 4)
+	testing.expect_value(t, unused.label, "unused.wav")
+	if !open_row(t, &tp, id, unused) do return
+	for _ in 0 ..< 2 do test_frame(&tp)
+	other := pv.tables.media[unused.value.ref.row].id
+	testing.expect(t, other != file && len(pv.files_open) == 2)
+	solo_toggle(app, other)
+	test_frame(&tp)
+	testing.expect(t, pv.solo.file == other && pv.solo.playing && pv.solo.at == 0)
+	testing.expect(t, !solo_settled(pv) && !audio_plays(&a))
+	solo_take(app, pv.solo.file)
+	testing.expect(t, audio_plays(&a))
+	testing.expect_value(t, a.seek_to, i64(0))
+	// (the playhead is on the file heard, not on this one)
+	test_frame(&tp)
+	testing.expect_value(t, (^Audio_Wave)(wave.custom_data).at, i64(-1))
+	// (it draws by the id its lane goes by, so in that lane's colour)
+	testing.expect_value(t, (^Audio_Wave)(wave.custom_data).file, media_file_id(.Audio, "music.wav"))
+	command_push(&app.commands, .Solo_Set, {row = file, count = 50000, flag = true})
+	test_frame(&tp)
+	solo_take(app, pv.solo.file)
+	command_push(&app.commands, .Watch_Expand, {view = id, spec = unused.key})
+	for _ in 0 ..< 3 do test_frame(&tp)
+	testing.expect_value(t, pv.solo.file, file)
+	testing.expect_value(t, (^Audio_Wave)(wave.custom_data).at, i64(50000))
+
+	// A seek of the video's own (a song's samples landing) leaves it alone.
+	gen = a.seek_gen
+	preview_seek(app, 7)
+	testing.expect_value(t, a.seek_gen, gen)
+
+	// The file ends: the video's sound comes back, not playing, where it was.
+	a.applied_gen = a.seek_gen
+	a.advancing = false
+	pv.frame = 7
+	solo_update(app)
+	testing.expect_value(t, pv.solo.file, u64(0))
+	testing.expect(t, !solo_settled(pv) && !pv.playing && !audio_plays(&a))
+	gen = a.seek_gen
+	solo_take(app, pv.solo.file)
+	testing.expect_value(t, a.seek_gen, gen + 1)
+	testing.expect_value(t, a.seek_to, i64(7 * om.MIX_RATE / preview_fps(app)))
+	testing.expect(t, !audio_plays(&a))
+	testing.expect(t, .Looping in transmute(bit_set[Audio_State;u32])a.state)
+
+	// Whatever moves the video: the file gives way, its sound back at the ack.
+	for kind in ([]Command_Kind{.Playback_Set, .Frame_Set, .Frame_Step, .Frame_Start, .Seconds_Step, .Scene_Step, .Problem_Step, .Present_Next, .Present_Previous, .Go_To}) {
+		solo_set(app, file, 100, true)
+		solo_take(app, pv.solo.file)
+		testing.expectf(t, audio_plays(&a), "%v: the file plays", kind)
+		preview_apply(app, kind, {count = pv.frame + 1})
+		testing.expectf(t, pv.solo.file == 0 && !solo_settled(pv), "%v: the file gives way", kind)
+		solo_take(app, pv.solo.file)
+		preview_apply(app, .Playback_Set, {flag = false})
+	}
+
+	// A load landing keeps the frame it is on: the file plays on.
+	solo_set(app, file, 100, true)
+	solo_take(app, pv.solo.file)
+	command_push(&app.commands, .Frame_Set, {count = pv.frame})
+	test_frame(&tp)
+	testing.expect(t, pv.solo.file == file && solo_settled(pv) && audio_plays(&a))
+
+	// Shut, its row takes the file with it (it would have nothing to stop it).
+	command_push(&app.commands, .Watch_Expand, {view = id, spec = music.key})
+	test_frame(&tp)
+	shut := test_frame(&tp)
+	testing.expect(t, test_has(shut, .Solo_Set))
+	testing.expect_value(t, pv.solo.file, u64(0))
+	solo_take(app, pv.solo.file)
+	for _ in 0 ..< 3 do test_frame(&tp)
+	if !open_row(t, &tp, id, music) do return
+	for _ in 0 ..< 3 do test_frame(&tp)
+
+	// Played by the video's own transport: the file gives way, the video plays
+	// only once its sound is back, and its clock waits for that.
+	solo_set(app, file, 100, true)
+	solo_take(app, pv.solo.file)
+	testing.expect(t, audio_plays(&a))
+	command_push(&app.commands, .Playback_Toggle)
+	test_frame(&tp)
+	testing.expect_value(t, pv.solo.file, u64(0))
+	testing.expect(t, pv.playing && !solo_settled(pv) && !audio_plays(&a))
+	clock := pv.clock
+	preview_playback_advance(app, 0.1)
+	testing.expect_value(t, pv.clock, clock)
+	solo_take(app, pv.solo.file)
+	testing.expect(t, audio_plays(&a))
+	command_push(&app.commands, .Playback_Set, {flag = false})
+	test_frame(&tp)
+
+	// Dragged out, a tab of it shows the same waveform and plays it.
+	row_box := test_box(&tp.s, fmt.tprintf("###watch_row_%d_%s", id, music.key))
+	testing.expect(t, row_box != nil)
+	if row_box == nil do return
+	video := workspace_view(ws, workspace_find(ws, .Video)).panel
+	area := ws.areas[video - 1].content
+	press_at(&tp, (row_box.rect.min + row_box.rect.max) / 2)
+	tp.p.input.mouse = {area.x + area.width / 2, area.y + area.height / 2}
+	for _ in 0 ..< 3 do test_frame(&tp)
+	pulled := pv.drag_view
+	testing.expect(t, pulled != 0)
+	if pulled == 0 do return
+	test_frame(&tp, {kind = .Mouse_Release, button = .Left})
+	for _ in 0 ..< 3 do test_frame(&tp)
+	testing.expect_value(t, workspace_view(ws, pulled).kind, View_Kind.Audio)
+	testing.expect_value(t, workspace_view(ws, pulled).panel, video)
+	title, _ := view_title(app, pulled)
+	testing.expect_value(t, title, "music.wav")
+	testing.expect(t, len(pv.files_open) == 1 && pv.files_open[0] == file)
+	tab_wave := test_box(&tp.s, fmt.tprintf("###audio_wave_tab_%d", pulled))
+	testing.expect(t, tab_wave != nil)
+	if tab_wave == nil do return
+	played := press_at(&tp, x_of(tab_wave, 0.25))
+	testing.expect(t, test_has(played, .Solo_Set))
+	test_frame(&tp, {kind = .Mouse_Release, button = .Left})
+	testing.expect(t, pv.solo.file == file && pv.solo.playing)
+	// Space with the tab's panel focused plays and pauses it, not the video.
+	solo_take(app, pv.solo.file)
+	tp.p.input.mouse = {-1, -1}
+	for _ in 0 ..< 2 do test_frame(&tp)
+	testing.expect_value(t, ws.focused, video)
+	test_frame(&tp, key_press(.Space, {}))
+	testing.expect(t, !pv.solo.playing && pv.solo.file == file)
+}
+
+// A file's peaks are the clip's one pyramid, placed or not: the view of a placed
+// sound and the timeline's regions of it read the same one, an unplaced sound
+// gets its own, and the peaks are right. Asked for no more, a file's row goes;
+// its pyramid stays with the media's. Laid out again, nothing is made twice.
+// A placed file's lane goes by the id its media row and its view go by, whatever
+// its place among the rows, so a sound has one colour wherever it is drawn.
+@(test)
+test_sound_keeps_its_colour :: proc(t: ^testing.T) {
+	frames := 4800
+	samples := make([]f32, frames * 2)
+	defer delete(samples)
+	clip := om.Audio_Clip{samples = samples, frames = frames}
+	placed := []om.Placed_Track{{track = {src = "a.wav"}, clip = &clip, start = 0, end = frames}, {track = {src = "b.wav", bus = "sfx"}, clip = &clip, start = 100, end = frames}}
+	video: om.Video
+	video.buses = []om.Bus{{name = "sfx"}}
+	b: Wave_Builder
+	defer wave_builder_destroy(&b)
+	lane_id :: proc(t: ^Wave_Table, name: string) -> u64 {
+		for l in t.lanes do if text_of(t.text[:], l.name) == name do return l.id
+		return 0
+	}
+	wave_builder_lanes(&b, placed, {0, 1}, &video, 1, nil)
+	a, other := lane_id(&b.table, "a.wav"), lane_id(&b.table, "b.wav")
+	testing.expect_value(t, a, media_file_id(.Audio, "a.wav"))
+	testing.expect_value(t, other, media_file_id(.Audio, "b.wav"))
+	testing.expect(t, a != other)
+	// Rows in another order: each keeps its own.
+	wave_builder_lanes(&b, placed, {1, 0}, &video, 1, nil)
+	testing.expect_value(t, lane_id(&b.table, "a.wav"), a)
+	testing.expect_value(t, lane_id(&b.table, "b.wav"), other)
+	// A bus's lane has one too, from its own name.
+	testing.expect_value(t, lane_id(&b.table, "bus sfx"), media_file_id(.Audio, "bus sfx"))
+}
+
+@(test)
+test_sound_pyramid_is_shared :: proc(t: ^testing.T) {
+	frames := 48000
+	placed_samples := make([]f32, frames * 2)
+	defer delete(placed_samples)
+	alone_samples := make([]f32, frames * 2)
+	defer delete(alone_samples)
+	placed_samples[100 * 2] = 0.5
+	alone_samples[100 * 2] = -0.25
+	placed_clip := om.Audio_Clip{samples = placed_samples, frames = frames}
+	alone_clip := om.Audio_Clip{samples = alone_samples, frames = frames}
+	placed := []om.Placed_Track{{track = {src = "placed"}, clip = &placed_clip, start = 0, end = frames}}
+	video: om.Video
+	b: Wave_Builder
+	defer wave_builder_destroy(&b)
+	files := []Wave_File{{1, placed_clip}, {2, alone_clip}}
+	wave_builder_lanes(&b, placed, {0}, &video, 1, nil, files)
+	for wave_builder_pending(&b) do wave_builder_step(&b)
+	t_ := &b.table
+	testing.expect_value(t, len(t_.sounds), 2)
+	testing.expect_value(t, len(t_.clips), 2)
+	var_region := t_.regions[t_.lanes[0].regions[0]]
+	testing.expect_value(t, var_region.clip, int(t_.sounds[0].clip))
+	testing.expect(t, t_.sounds[1].clip != t_.sounds[0].clip)
+	lo, hi, ok := wave_peak(t_, wave_sound(t_, 1), 0, 200)
+	testing.expect(t, ok && hi > 0.45 && hi < 0.55 && lo == 0)
+	lo, hi, ok = wave_peak(t_, wave_sound(t_, 2), 0, 200)
+	testing.expect(t, ok && lo < -0.2 && lo > -0.3 && hi == 0)
+	testing.expect(t, wave_sound(t_, 3) == nil)
+
+	// Asked for one fewer: its row goes, the pyramids stay, nothing is made again.
+	wave_builder_lanes(&b, placed, {0}, &video, 1, nil, files[:1])
+	testing.expect_value(t, len(t_.sounds), 1)
+	testing.expect_value(t, len(t_.clips), 2)
+	testing.expect(t, !wave_builder_pending(&b))
+	testing.expect(t, wave_sound(t_, 2) == nil)
+	wave_builder_lanes(&b, placed, {0}, &video, 1, nil, files)
+	testing.expect_value(t, len(t_.clips), 2)
+	testing.expect(t, !wave_builder_pending(&b))
+}
+
+// The worker swaps in a one-track mix of the file, which sounds exactly as the
+// file does, from its start to its own length; a file that isn't there is
+// silence, of no length; and it says it is done either way. Back to the video's
+// sound, the same.
+@(test)
+test_worker_plays_a_file_alone :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	m: om.Media
+	om.media_init(&m)
+	defer om.media_destroy(&m)
+	frames := om.MIX_RATE
+	samples := make([]f32, frames * 2)
+	defer delete(samples)
+	for i in 0 ..< frames {
+		v := 0.99 * math.sin(f32(i) * 0.05)
+		samples[i * 2], samples[i * 2 + 1] = v, -v
+	}
+	om.media_add_audio_samples(&m, "tone.wav", samples, om.MIX_RATE, 2)
+	id := media_file_id(.Audio, "tone.wav")
+	mb: Mailbox
+	defer mailbox_destroy(&mb)
+	a: Audio_Shared
+	defer audio_shared_destroy(&a)
+	sc: script.Script
+	w := Render_Worker {
+		mb     = &mb,
+		media  = &m,
+		audio  = &a,
+		script = &sc,
+	}
+	// (asked of the worker as any idle work is)
+	mb.solo_file = id
+	worker_idle(&w, false)
+	testing.expect_value(t, mb.solo_heard, id)
+	testing.expect(t, a.stream != nil)
+	testing.expect_value(t, a.total, i64(frames))
+	if a.stream == nil do return
+	// Asked again, unchanged: nothing is built.
+	stream := a.stream
+	worker_solo(&w)
+	testing.expect(t, a.stream == stream)
+
+	// What it plays is the file: no gain, no limiter, no fade.
+	block := make([]f32, 4096 * 2)
+	defer delete(block)
+	worst: f32
+	for at := 0; at + 4096 <= 96000 && at + 4096 <= frames; at += 4096 {
+		om.mix_block(a.stream, at, block)
+		for x, i in block do worst = max(worst, abs(x - samples[at * 2 + i]))
+	}
+	testing.expectf(t, worst < 0.001, "differs from the file by %f", worst)
+	// A seek plays from there, the same.
+	om.mix_block(a.stream, 20000, block)
+	worst = 0
+	for x, i in block do worst = max(worst, abs(x - samples[20000 * 2 + i]))
+	testing.expectf(t, worst < 0.001, "after a seek, differs from the file by %f", worst)
+
+	// A file that isn't there: silence, of no length, and an answer.
+	mb.solo_file = id + 1
+	worker_solo(&w)
+	testing.expect_value(t, mb.solo_heard, id + 1)
+	testing.expect(t, a.stream == nil)
+	testing.expect_value(t, a.total, i64(0))
+
+	// Back to the video's sound (this script has none) and an answer.
+	mb.solo_file = id
+	worker_solo(&w)
+	testing.expect(t, a.stream != nil)
+	mb.solo_file = 0
+	worker_solo(&w)
+	testing.expect_value(t, mb.solo_heard, u64(0))
+	testing.expect(t, a.stream == nil)
+}
+
+// The file through the audio thread's own callback: from where it is asked to its
+// last sample, the very samples of the file, the playhead following what is
+// heard; paused and played on from there; a callback while paused doesn't read as
+// the file's end. At its end, the video's sound is asked back, and nothing plays.
+@(test)
+test_file_plays_to_its_end :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	tp: Test_Preview
+	testing.expect(t, test_preview_make(&tp))
+	defer test_preview_destroy(&tp)
+	app := &tp.app
+	pv := &app.preview
+	spec := sdl.AudioSpec{format = .F32, channels = 2, freq = om.MIX_RATE}
+	stream := sdl.CreateAudioStream(&spec, &spec)
+	testing.expect(t, stream != nil)
+	if stream == nil do return
+	defer sdl.DestroyAudioStream(stream)
+	a: Audio_Shared
+	defer audio_shared_destroy(&a)
+	pv.volume = 1
+	pv.audio, pv.audio_stream = &a, stream
+	defer {pv.audio, pv.audio_stream = nil, nil}
+	// (as the worker hands it over: worker_publish_solo)
+	frames := 20000
+	samples := make([]f32, frames * 2)
+	defer delete(samples)
+	for i in 0 ..< frames do samples[i * 2], samples[i * 2 + 1] = 0.9 * f32(i) / f32(frames), -0.9 * f32(i) / f32(frames)
+	clip := om.Audio_Clip{samples = samples, frames = frames}
+	placed := [1]om.Placed_Track{{track = {src = "tone"}, clip = &clip, end = frames}}
+	audio_set_tracks(&a, placed[:], i64(frames), {no_limiter = true})
+	file := u64(77)
+
+	BLOCK :: 1024
+	heard := make([]f32, BLOCK * 2)
+	defer delete(heard)
+	// A request of the device's: what it hands over, drained at once so the
+	// heard position is the fed one.
+	request :: proc(a: ^Audio_Shared, stream: ^sdl.AudioStream, out: []f32) {
+		audio_callback(a, stream, i32(len(out) * size_of(f32)), i32(len(out) * size_of(f32)))
+		got := sdl.GetAudioStreamData(stream, raw_data(out), i32(len(out) * size_of(f32)))
+		assert(int(got) == len(out) * size_of(f32))
+	}
+
+	// (the device runs from before anything is asked)
+	request(&a, stream, heard)
+	solo_set(app, file, 1000, true)
+	testing.expect(t, !audio_plays(&a), "not until the worker has swapped it in")
+	// (the device isn't advancing until then, and that isn't its end)
+	request(&a, stream, heard)
+	preview_playback_advance(app, 0)
+	testing.expect(t, pv.solo.file == file && pv.solo.playing)
+	solo_take(app, pv.solo.file)
+	testing.expect(t, audio_plays(&a))
+
+	at := 1000
+	worst: f32
+	check :: proc(heard: []f32, samples: []f32, at: int, worst: ^f32) {
+		for x, i in heard do worst^ = max(worst^, abs(x - samples[at * 2 + i]))
+	}
+	for _ in 0 ..< 5 {
+		request(&a, stream, heard)
+		check(heard, samples, at, &worst)
+		// (the playhead is what is heard: what it just handed over is still to come)
+		preview_playback_advance(app, 0)
+		testing.expect_value(t, pv.solo.at, i64(at))
+		at += BLOCK
+		testing.expect(t, pv.solo.file == file && pv.solo.playing)
+	}
+
+	// Paused: the device's requests go on, silent, and it isn't over; played on,
+	// from where it was.
+	solo_set(app, file, -1, false)
+	request(&a, stream, heard)
+	for x in heard do testing.expect_value(t, x, 0)
+	solo_update(app)
+	testing.expect(t, pv.solo.file == file && !pv.solo.playing)
+	at -= BLOCK
+	testing.expect_value(t, pv.solo.at, i64(at))
+	solo_set(app, file, -1, true)
+	solo_update(app)
+	testing.expect(t, pv.solo.file == file && pv.solo.playing, "played on, it isn't over before the device is asked")
+	testing.expect_value(t, pv.solo.at, i64(at))
+
+	// To its last sample, then silence, and over.
+	for at + BLOCK <= frames {
+		request(&a, stream, heard)
+		check(heard, samples, at, &worst)
+		at += BLOCK
+		solo_update(app)
+		testing.expect(t, pv.solo.file == file)
+	}
+	testing.expectf(t, worst < 0.001, "differs from the file by %f", worst)
+	left := frames - at
+	testing.expect(t, left > 0 && left < BLOCK)
+	request(&a, stream, heard)
+	check(heard[:left * 2], samples, at, &worst)
+	for x in heard[left * 2:] do testing.expect_value(t, x, 0)
+	testing.expectf(t, worst < 0.001, "its last samples differ by %f", worst)
+	preview_playback_advance(app, 0)
+	testing.expect_value(t, pv.solo.file, u64(0))
+	testing.expect(t, !solo_settled(pv) && !audio_plays(&a))
+}
+
+// What the worker does for a sound's view: its id asked for, the pyramid made and
+// published with the waveforms, no image view of it; asked again unchanged,
+// nothing published; asked no more, its row goes. It wakes for a file to swap in.
+@(test)
+test_worker_makes_a_sounds_pyramid :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	m: om.Media
+	om.media_init(&m)
+	defer om.media_destroy(&m)
+	samples := make([]f32, 9600)
+	defer delete(samples)
+	samples[2000] = 0.5
+	om.media_add_audio_samples(&m, "tone.wav", samples, om.MIX_RATE, 2)
+	om.media_add_audio_samples(&m, "other.wav", samples[:4800], om.MIX_RATE, 2)
+	mb: Mailbox
+	defer mailbox_destroy(&mb)
+	a: Audio_Shared
+	defer audio_shared_destroy(&a)
+	sc: script.Script
+	w := Render_Worker {
+		mb     = &mb,
+		media  = &m,
+		audio  = &a,
+		script = &sc,
+	}
+	defer delete(w.files_wanted)
+	defer delete(w.image_views)
+	defer delete(w.image_retired)
+	defer video_tables_destroy(&w.tables)
+	defer wave_builder_destroy(&w.waves)
+	findings: Finding_Table
+	defer finding_table_destroy(&findings)
+	video_tables_build(&w.tables, {fps = 30, findings = &findings, media = &m})
+	file := media_file_id(.Audio, "tone.wav")
+	testing.expect(t, w.tables.media[0].id == file || w.tables.media[1].id == file)
+
+	want :: proc(mb: ^Mailbox, ids: ..u64) {
+		table_copy(&mb.files_wanted, ids)
+		mb.files_wanted_seq += 1
+	}
+	want(&mb, file)
+	testing.expect(t, files_pending(&w))
+	worker_files(&w)
+	testing.expect(t, !files_pending(&w))
+	testing.expect_value(t, len(w.image_views), 0)
+	testing.expect_value(t, mb.waves_seq, 1)
+	testing.expect(t, len(mb.waves.sounds) == 1 && mb.waves.sounds[0].id == file)
+	for wave_builder_pending(&w.waves) do wave_builder_step(&w.waves)
+	_, hi, ok := wave_peak(&w.waves.table, wave_sound(&w.waves.table, file), 0, 4800)
+	testing.expect(t, ok && hi > 0.45 && hi < 0.55)
+
+	want(&mb, file)
+	worker_files(&w)
+	testing.expect_value(t, mb.waves_seq, 1)
+
+	// Another as many: that one's.
+	other := media_file_id(.Audio, "other.wav")
+	want(&mb, other)
+	worker_files(&w)
+	testing.expect_value(t, mb.waves_seq, 2)
+	testing.expect(t, len(mb.waves.sounds) == 1 && mb.waves.sounds[0].id == other)
+	for wave_builder_pending(&w.waves) do wave_builder_step(&w.waves)
+
+	want(&mb)
+	worker_files(&w)
+	testing.expect_value(t, mb.waves_seq, 3)
+	testing.expect_value(t, len(mb.waves.sounds), 0)
+
+	// Idle with nothing to do, it sleeps; a file to swap in wakes it.
+	ready, _ := worker_idle_ready(&w)
+	testing.expect(t, !ready)
+	mb.solo_file = file
+	ready, _ = worker_idle_ready(&w)
+	testing.expect(t, ready)
+	worker_solo(&w)
+	ready, _ = worker_idle_ready(&w)
+	testing.expect(t, !ready)
 }
