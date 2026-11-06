@@ -471,6 +471,7 @@ the scene start, so sounds move with the scene when durations change):
 
 ```lua
 local CARD_IN, TITLE_AT = 0.8, 3.0          -- the same constants the animation uses
+say("intro", "Every sound lands on the beat.")   -- a spoken line, no file needed ("Spoken lines", below)
 
 video { width = 1920, height = 1080, fps = 30,
   audio = {
@@ -482,7 +483,7 @@ video { width = 1920, height = 1080, fps = 30,
 scene { "Intro", duration = 4,
   audio = {
     { "whoosh.ogg", start = CARD_IN - 0.15, gain_db = -10 },
-    { "vo.wav", start = 0.6, voice = true },
+    { "intro", start = 0.6 },               -- speech ducks the music by itself
   },
   render = function(f) end }
 
@@ -505,15 +506,15 @@ Track fields:
 | `fade_in`, `fade_out` | seconds |
 | `curve` | `"linear"` (default) or `"equal_power"` (for crossfades between two tracks) |
 | `crossfade` | a scene's track: fades in over the scene's overlap with the previous scene and out over its overlap with the next, equal power, added to `fade_in` / `fade_out` (a `clip` scene's sound has it) |
-| `voice` | marks a voice track that `ducked` tracks dip under |
+| `voice` | marks a recording as a voice track that `ducked` tracks dip under (a `say` line needs none: it is one by itself) |
 | `ducked` | `true` (fframes' `duck_under_voice`: -12 dB, 0.2 s attack before the voice, 0.3 s hold, 0.8 s release, voice gaps under 0.8 s merged) or `{ depth_db, attack, hold, release, merge_gap }` |
 | `mono` | play a stereo file as mono |
 | `effects` | a clip's effect chain, as a song part's is written: `{ { "Filter", type = "highpass", frequency = 200 }, { "Reverb", wet = 0.2 } }`; a misspelled effect or key is a load finding at the track's line (`effect_finding`); a song's or sound's effects go on its parts or its `sound{}` |
 | `cue` | the cue its first sound should land on (`inspect` checks; see Cues in api.md) |
 | `bus` | the bus it is mixed through (below) |
 
-A scene or video length can follow audio: `duration = { audio = "vo.wav" }` or
-`{ audio = "vo.wav", plus = { seconds = 1 } }`. `audio_info("vo.wav")` gives a sound's
+A scene or video length can follow audio, a file's or a `say` line's: `duration = { audio = "intro" }` or
+`{ audio = "intro", plus = { seconds = 1 } }`. `audio_info("music.mp3")` gives a sound's
 `duration` (seconds), source `rate` and `channels` (nil when the media lacks it), at load too.
 
 A sound file works wherever a script does, as its sound over black: `onimite audio analyze

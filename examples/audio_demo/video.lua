@@ -1,14 +1,21 @@
 -- Sound placed from the same constants that drive the motion, as in fframes'
--- audio guide. The music and effects in media/ are synthesized and the two
--- voice lines are espeak-ng placeholders, all made by tools/gen_media/gen.sh.
+-- audio guide. The music and effects in media/ are synthesized by
+-- tools/gen_media/gen.sh; the two voice lines are say(), spoken where the script
+-- loads, and they duck the music by themselves.
 --
---     onimite audio analyze examples/audio_demo/video.lua -o waveform.png
+--     onimite audio analyze examples/audio_demo/video.lua --waveform waveform.png
 --     onimite render examples/audio_demo/video.lua -o audio_demo.mp4
+--
+-- The voice is Pocket TTS by Kyutai (CC-BY-4.0), voice "alba". The first run
+-- downloads its files (835 MB on Linux, 866 MB on macOS), once.
 
 local CARD_IN = 0.8      -- the card lands
 local TITLE_AT = 3.0     -- the second scene's title pops
 
-video { width = 1280, height = 720, fps = 60, background = "#0f172a", master_gain_db = 5, -- about -14 LUFS
+say("beat", "Every sound lands on the beat.", { seed = 1 })
+say("made", "Made with onimite.", { seed = 1 })
+
+video { width = 1280, height = 720, fps = 60, background = "#0f172a", master_gain_db = 6.5, -- about -14 LUFS
   audio = {
     { "music.mp3", start = 0, gain_db = -14, fade_in = 1.0, fade_out = 2.0,
       curve = "equal_power", ducked = true },
@@ -18,7 +25,7 @@ video { width = 1280, height = 720, fps = 60, background = "#0f172a", master_gai
 scene { "Intro", duration = 4,
   audio = {
     { "whoosh.ogg", start = CARD_IN - 0.15, gain_db = -8 },
-    { "vo.wav", start = 1.2, voice = true },
+    { "beat", start = CARD_IN + 0.4 },
   },
   render = function(f)
     local x = animate(f, { { start = 0, stop = CARD_IN, from = -500, to = 0, easing = spring { stiffness = 180, damping = 18 } } })
@@ -31,17 +38,14 @@ scene { "Intro", duration = 4,
     end)
   end }
 
-scene { "Title", duration = 6, overlap = { previous = 0.5 },
+scene { "Title", duration = 6, transition = { "fade", duration = 0.5 },
   audio = {
     { "pop.wav", start = TITLE_AT + 0.03, gain_db = -10, pan = 0.3 },
-    { "vo2.m4a", start = 3.6, voice = true },
+    { "made", start = TITLE_AT + 0.6 },
   },
   render = function(f)
     local s = animate(f, { { start = TITLE_AT, stop = TITLE_AT + 0.4, from = 0.6, to = 1, easing = spring { stiffness = 260, damping = 14 } } })
-    local a = animate(f, { { start = 0, stop = 0.5, from = 0, to = 1 } })
-    group({ opacity = a }, function()
-      group({ transform = scale(s, s, 640, 360) }, function()
-        text { "onimite", x = 640, y = 390, align = "center", font = "DM Sans", size = 96, fill = "#f8fafc" }
-      end)
+    group({ transform = scale(s, s, 640, 360) }, function()
+      text { "onimite", x = 640, y = 390, align = "center", font = "DM Sans", size = 96, fill = "#f8fafc" }
     end)
   end }

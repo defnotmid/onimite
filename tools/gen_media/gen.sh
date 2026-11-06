@@ -1,14 +1,15 @@
 #!/bin/sh
 # Regenerates the examples' generated media and the decoder test clips
-# (testdata/*.mp4): every sound, voice, video clip and photo under
+# (testdata/*.mp4): every sound, video clip and photo under
 # examples/ that is not a font, an SVG, a Lottie file or a caption file
 # comes from here (except examples/fframes/, whose media
-# examples/fframes/fetch.sh copies from fframes). onimite renders the pictures and
+# examples/fframes/fetch.sh copies from fframes). No voice comes from here: an
+# example speaks with say(). onimite renders the pictures and
 # synthesizes the sounds (the .lua scripts beside this file); ffmpeg only
-# converts them to the formats the examples demonstrate, and espeak-ng
-# speaks the voice lines. Neither is an onimite dependency.
+# converts them to the formats the examples demonstrate, and isn't an onimite
+# dependency.
 #
-#     tools/gen_media/gen.sh            # needs build/onimite (or $ONIMITE), ffmpeg, espeak-ng
+#     tools/gen_media/gen.sh            # needs build/onimite (or $ONIMITE), ffmpeg
 #     tools/gen_media/gen.sh cuts       # only the parts named (below); a part named after an
 #                                       # example makes the media it doesn't commit, for its
 #                                       # fetch.sh, with onimite (from the PATH without a
@@ -18,8 +19,7 @@
 #
 #   sounds    examples/audio_demo/media   music.mp3 (sounds.lua), pop.wav, whoosh.ogg;
 #                                         examples/media_demo/media music.mp3
-#   voice     examples/audio_demo/media   vo.wav, vo2.m4a (espeak-ng)
-#   mascot    examples/suite/media        avatar_vp9_alpha.webm (VP9 + alpha, mascot.lua); the
+#   mascot   examples/suite/media        avatar_vp9_alpha.webm (VP9 + alpha, mascot.lua); the
 #                                         same webm as social_clip_kit's mascot.webm
 #   suite     examples/suite/media        transparent.mov (ProRes 4444 + alpha, mascot.lua); not
 #                                         committed: examples/suite/fetch.sh runs this part
@@ -36,9 +36,6 @@
 #                                         frames, for the decoder tests in encode/video_decode_test.odin
 #   canyon    examples/suite/media        canyon.webp (canyon.lua)
 #   three_d   examples/three_d/media      sky.png, checker.png (three_d.lua)
-#
-# The voice lines are espeak-ng placeholders, to be replaced by better
-# synthesized speech (e.g. Gemini TTS) with the same words and lengths.
 #
 # All of it is part of this repository (MIT), like the scripts.
 
@@ -63,15 +60,6 @@ sounds() {
 	cp "$EX/audio_demo/media/music.mp3" "$EX/media_demo/media/music.mp3"
 	$FF -i "$TMP/pop.wav" -ac 1 -c:a pcm_s16le "$EX/audio_demo/media/pop.wav"
 	$FF -i "$TMP/whoosh.wav" -c:a libvorbis -q:a 4 "$EX/audio_demo/media/whoosh.ogg"
-}
-
-voice() {
-	echo "voice (espeak-ng placeholders)"
-	VOICE="-v en-us+f3 -s 150 -p 45"
-	espeak-ng $VOICE -w "$TMP/vo.wav" "Every sound lands on the beat."
-	espeak-ng $VOICE -w "$TMP/vo2.wav" "Made with oh frames."
-	$FF -i "$TMP/vo.wav" -c:a pcm_s16le "$EX/audio_demo/media/vo.wav"
-	$FF -i "$TMP/vo2.wav" -c:a aac -b:a 64k "$EX/audio_demo/media/vo2.m4a"
 }
 
 # Pip dancing (mascot.lua) as PNGs in $TMP/mascot, rendered once a run.
@@ -155,11 +143,11 @@ three_d() {
 	done
 }
 
-PARTS="sounds voice mascot suite why_onimite onimite_saga clip cuts footage testdata canyon three_d"
+PARTS="sounds mascot suite why_onimite onimite_saga clip cuts footage testdata canyon three_d"
 [ $# -gt 0 ] || set -- $PARTS
 for part do
 	case $part in
-	sounds | voice | mascot | suite | why_onimite | onimite_saga | clip | cuts | footage | testdata | canyon | three_d) "$part" ;;
+	sounds | mascot | suite | why_onimite | onimite_saga | clip | cuts | footage | testdata | canyon | three_d) "$part" ;;
 	*) echo "gen.sh: no part $part ($PARTS)" >&2; exit 2 ;;
 	esac
 done

@@ -8,7 +8,7 @@
 #   bash .github/ci.sh no-patents FILE  # FILE (an unstripped binary) has no native H.264 / H.265 code
 #   bash .github/ci.sh smoke   # the built binary draws a frame, renders a clip (software), serves MCP, updates itself
 #   bash .github/ci.sh songs   # every example song part by part against its parts.json (audio parts --against)
-#   bash .github/ci.sh media   # no heavy audio or video committed under examples/ or skills/
+#   bash .github/ci.sh media   # no heavy audio or video committed under examples/ or skills/, no voice from a file
 #   bash .github/ci.sh readmes # no measured loudness figures in example READMEs (they go stale)
 #   bash .github/ci.sh facts   # bench/facts.json measures the latest release; no race figures typed into READMEs
 #   bash .github/ci.sh pins    # every sibling checkout names a tag, the same one in both workflows
@@ -203,6 +203,14 @@ media)
 			size=$(wc -c <"$f")
 			if [ "$size" -gt 262144 ]; then
 				echo "$f: $size bytes: heavy media isn't committed; make or fetch it on first use (an example's fetch.sh) and list it in its media/.gitignore"
+				fail=1
+			fi
+			;;
+		# Agents copy these: their voice is say(), never a file standing in for
+		# it (the placeholders audio_demo kept long after say() came).
+		*.lua)
+			if [ -f "$f" ] && grep -Eq 'voice *= *true' "$f"; then
+				echo "$f: voice = true: an example or library file speaks with say(), not a voice file"
 				fail=1
 			fi
 			;;

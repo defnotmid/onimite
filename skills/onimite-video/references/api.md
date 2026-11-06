@@ -55,7 +55,7 @@ scene { "Main", duration = 5, overlap = { previous = 0.5 },
   `overlap.previous` reaches back from `t`, and the scene's own clock starts where it first
   appears: with a 0.5 s transition, `f.seconds` is 0.5 at `t`.
 - Durations: seconds, `{ frames = 90 }`, `{ seconds = 10, minus = { frames = 15 } }`,
-  `{ audio = "vo.wav" }` (the file's length), `{ video = "clip.mp4", plus = { seconds = 2 } }`,
+  `{ audio = "intro" }` (a file's or a `say` line's length), `{ video = "clip.mp4", plus = { seconds = 2 } }`,
   or a list of these (summed).
 - `overlap = { previous = p, next = n }` extends the scene into its neighbour by `p` / `n`
   seconds (a cross-fade window), **added to** `duration`: with `previous = 0.5` the scene

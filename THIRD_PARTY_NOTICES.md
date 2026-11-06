@@ -55,7 +55,8 @@ Audio made with `say()` must be credited: *Pocket TTS by Kyutai
 (CC-BY-4.0)*. Kyutai's acceptable-use terms for Pocket TTS prohibit, among
 other things, voice impersonation or cloning without explicit and lawful
 consent, and presenting generated audio as genuine recordings of real people
-or events. `examples/voiceover` is spoken with the voice `alba`.
+or events. `examples/voiceover`, `examples/audio_demo` and `examples/suite` are
+spoken with the voice `alba`.
 
 ## Downloaded at run time (`song{}` Samplers)
 
@@ -122,16 +123,13 @@ Community Edition and VCSL (github.com/sgossner).
   by samararaine (186374), "Whoosh" by qubodup (60013) and "Ocean beach at
   night with small waves" by BonnyOrbit (465435).
 - Generated media, part of this repository (MIT, like the code): every
-  other sound, voice line, video clip and photo in `examples/` (music, effects,
-  `vo.wav` / `vo2.m4a`, `clip.mp4`, the alpha clips `transparent.mov`,
+  other sound, video clip and photo in `examples/` (music, effects,
+  `clip.mp4`, the alpha clips `transparent.mov`,
   `avatar_vp9_alpha.webm` and `mascot.webm`, `canyon.webp`) is rendered or
   synthesized by onimite from the scripts in `tools/gen_media/` and
   converted by `tools/gen_media/gen.sh`, which regenerates them all (the
-  examples' `fetch.sh` make the clips that aren't committed). The
-  voice lines are placeholders spoken by espeak-ng (run by `gen.sh` as a
-  build tool, like ffmpeg; neither ships with onimite) and may be replaced
-  by other synthesized speech (e.g. Gemini TTS) with the same words and
-  lengths.
+  examples' `fetch.sh` make the clips that aren't committed). `gen.sh` runs
+  ffmpeg as a build tool; it doesn't ship with onimite.
 - Made for the examples (MIT, this repository): the Lottie `title.json`
   (lottie_demo) and `badge.json`, `illustration.svg` and `tokens.json`
   (designer_handoff); the caption files `talk.json` and `story.json`;

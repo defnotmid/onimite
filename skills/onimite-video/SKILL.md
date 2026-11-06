@@ -175,7 +175,7 @@ The examples in the onimite repository are working patterns to read and borrow f
 | `examples/graph_paper` | the artsy one, on a drafting sheet: ONIMITE and the libraries' seven marks as outlines (`outline{}` of text and of each SVG's `silhouette`) drawn on with a pen, morphed into each other (`morph`/`morph_at`) as their rows trade places, lifted off the page as bevelled solids (`ExtrudeGeometry`, `side_material`) spinning through each other in two rings, burst at the camera, then raining down as `outline` physics bodies until the sheet is full, under a title block; the picture's timing read from an odawg song (`track.lua`) and a tick per landing |
 | `examples/physics_demo` | rigid bodies: `physics{}` simulated once at load (in `shared`), tiles dropped into a word with `start` staggers, `physics_at` per frame, a pop per impact from `sim.contacts` (the saga's NotNeeded scene: a wrecking ball on a rope; why_onimite's Ship: 311 grains poured) |
 | `examples/otfx` | otfx's terminal text effects (decrypt, burn, thunderstorm) full screen on a cell grid, played with `preview --bare --fullscreen`, text from `--set text=...`: a per-character timeline built at load from seeded `hash` draws, read by tick each frame; block elements drawn as rects so the banner's halves meet; `require`d modules shared between effects (`term.lua`, `effects/NAME.lua`); beyond a terminal: burn's SkSL fire reads a heat map drawn as a group child (`shader{ uniforms = { uHeat = function() ... end } }`), thunderstorm lights each glyph by its distance to the bolt, flickers return strokes and blooms (`group{ bloom = ... }`) |
-| `examples/audio_demo` | tracks on video and scenes, voice + ducking, SFX on animation constants |
+| `examples/audio_demo` | tracks on video and scenes, `say()` lines ducking the music, SFX on animation constants |
 | `examples/voiceover` | spoken lines made with `say()` (text to speech with word times), their captions, keys and SFX on spoken words (`say_cue`: recorded CC0 effects fetched by `fetch.sh`), chamber strings and piano ducking under the voice; its README explains the `cue_no_hit` findings left on run-together words |
 | `examples/cuts` | an edit as a list of cuts: `scene{ clip = { file, from, to } }` per row, clips of other sizes and frame rates (a 9:16 60 fps phone clip letterboxed, 24 fps footage), whole files and ranges, fade / slide / wipe between cuts with the sound crossfading, a label naming each cut |
 | `examples/footage` | footage anywhere a picture goes: a clip inside an SVG's silhouette (Pip, `mask_type = "alpha"`), inside text, through an SkSL ripple (a clip as a shader child), a grid at four speeds and backwards; each scene's clip row (`picture = false`) places the sound, its render draws the same row's picture |
@@ -562,10 +562,11 @@ video or on a scene (times relative to the scene):
 
 ```lua
 local CARD_IN = 0.8   -- when the card lands: the animation uses it too
+say("intro", "Every sound lands on the beat.")   -- a spoken line, no file needed (below)
 video { width = 1920, height = 1080, fps = 30, duration = 10,   -- or scenes
   audio = {
     { "music.mp3", start = 0, gain_db = -18, fade_in = 1, fade_out = 2, curve = "equal_power", ducked = true },
-    { "vo.wav", start = 0.6, voice = true },
+    { "intro", start = 0.6 },   -- speech ducks the music by itself; a recording: { "take.wav", start = 0.6, voice = true }
     { "whoosh.ogg", start = CARD_IN - 0.15, gain_db = -8 },
   } }
 ```
