@@ -32,7 +32,38 @@ View_Row :: struct {
 	// reorder, a filter narrows them or the script reloads, as RAD
 	// Debugger's expansion keys do.
 	key:                  string,
+	// A visualizer's rows, which it fills as one item (RAD's single item,
+	// eval_visualization_core.c:505), those of them above the window and
+	// those below it (:936); size 0 is a row of one.
+	size, skip, chop:     int,
 }
+
+// What a value shows in place of its members, across the rows it spans
+// (RAD's view rules: a value's type picks one, and it unfolds into it). A
+// failed file has nothing to show, and unfolds into its members.
+Visualizer :: enum u8 {
+	Image,
+}
+
+VISUALIZER_ROWS := [Visualizer]int {
+	.Image = 8, // RAD's bitmap, raddbg_views.c:4880
+}
+
+// The view that presents it, a row's and a tab's the same (RAD's view of a
+// value, rd_view_from_eval, raddbg_core.c:1481).
+VISUALIZER_VIEWS := [Visualizer]View_Kind {
+	.Image = .Image,
+}
+
+visualizer_of :: proc(r: ^Reader, v: Value) -> (lens: Visualizer, ok: bool) {
+	if v.kind != .Media_File do return
+	m := r.tables.media[v.ref.row]
+	if m.failed || m.kind != .Image do return
+	return .Image, true
+}
+
+// A visualizer's row key, under the row it unfolds.
+visualizer_key :: proc(row_key: string) -> string {return strings.concatenate({row_key, "/v"}, context.temp_allocator)}
 
 // What a Watch shows: its expressions, whether scoped, its filter and its
 // open rows' keys.
@@ -78,6 +109,7 @@ View_Block :: struct {
 	row:   View_Row, // the open row; a scoped expression's own row is not shown
 	info:  Collection_Info, // the children its filter keeps, and what its range reads
 	opens: []Block_Open, // by row number, ascending
+	rows:  int, // a visualizer's: one item over these rows, its info's count; 0 a collection's
 }
 
 // (the timeline's rows below the scenes share these: Row_Block)
@@ -115,7 +147,7 @@ view_blocks :: proc(r: Reader, src: Watch_Rows_Source) -> View_Blocks {
 		for item, k in items {
 			root, error := Value{}, parse_error
 			if error == "" do root, error = eval(&b.r, nodes[:], item.at)
-			top := View_Row{i, item.source, item.source, error, root, 0, true, false, error == "" && expandable(root), item_key(input, k)}
+			top := View_Row{input = i, source = item.source, label = item.source, error = error, value = root, root = true, unfolds = error == "" && expandable(root), key = item_key(input, k)}
 			// Scoped, its children are the top-level rows: the filter narrows
 			// them, and the item's own row is not shown.
 			if error == "" && src.scoped {
@@ -141,6 +173,12 @@ block_build :: proc(b: ^View_Blocks, row: View_Row, filter: string) -> (block: i
 	block = len(b.blocks)
 	append(&b.blocks, View_Block{row = row})
 	if row.depth >= 32 || row.error != "" do return
+	if lens, ok := visualizer_of(&b.r, row.value); ok {
+		k := &b.blocks[block]
+		k.rows = VISUALIZER_ROWS[lens]
+		k.info.count = k.rows
+		return
+	}
 	c := collection(row.value)
 	info := c.info(&b.r, row.value, filter)
 	opens := make([dynamic]Block_Open, context.temp_allocator)
@@ -191,6 +229,10 @@ blocks_window :: proc(b: ^View_Blocks, first, limit: int, out: ^[dynamic]View_Ro
 		}
 		if lo == hi do continue
 		k := &b.blocks[s.block]
+		if k.rows > 0 {
+			append(out, View_Row{input = k.row.input, source = k.row.source, value = k.row.value, depth = k.row.depth + 1, key = visualizer_key(k.row.key), size = k.rows, skip = lo, chop = k.rows - hi})
+			continue
+		}
 		collection_rows(&b.r, k.row.value, &k.info, lo, hi, kids[:hi - lo])
 		for kid, j in kids[:hi - lo] {
 			row := child_row(b, k.row, &k.info, kid, lo + j)
@@ -207,7 +249,9 @@ blocks_index :: proc(b: ^View_Blocks, key: string) -> int {
 		num := -1
 		if s.block < 0 {
 			for i in s.lo ..< s.hi {if b.tops[i].key == key do num = i}
-		} else if k := &b.blocks[s.block]; below(key, fmt.tprintf("%s/", k.row.key)) {
+		} else if k := &b.blocks[s.block]; k.rows > 0 {
+			if key == visualizer_key(k.row.key) do num = 0
+		} else if below(key, fmt.tprintf("%s/", k.row.key)) {
 			num = collection(k.row.value).num_from_id(&b.r, k.row.value, &k.info, row_id_parse(key[len(k.row.key) + 1:]))
 		}
 		if num >= s.lo && num < s.hi do return at + num - s.lo
@@ -216,10 +260,38 @@ blocks_index :: proc(b: ^View_Blocks, key: string) -> int {
 	return -1
 }
 
+// Rows and the items a cursor goes over (RAD's row blocks): a visualizer's
+// rows are one item, every other row is one. What lies past the spans (an
+// expression Watch's last row) counts a row an item.
+blocks_item_from_row :: proc(b: ^View_Blocks, row: int) -> int {
+	at, item := 0, 0
+	for s in b.spans {
+		n := s.hi - s.lo
+		single := s.block >= 0 && b.blocks[s.block].rows > 0
+		if row < at + n do return item + (single ? 0 : row - at)
+		at += n
+		item += single ? 1 : n
+	}
+	return item + row - at
+}
+
+blocks_row_from_item :: proc(b: ^View_Blocks, item: int) -> int {
+	at, first := 0, 0
+	for s in b.spans {
+		n := s.hi - s.lo
+		single := s.block >= 0 && b.blocks[s.block].rows > 0
+		items := single ? 1 : n
+		if item < first + items do return at + (single ? 0 : item - first)
+		at += n
+		first += items
+	}
+	return at + item - first
+}
+
 // Child row `num` of open row `row`, keyed by its collection's id for it.
 @(private = "file")
 child_row :: proc(b: ^View_Blocks, row: View_Row, info: ^Collection_Info, c: Child, num: int) -> View_Row {
 	id := collection(row.value).id_from_num(&b.r, row.value, info, num)
 	key := strings.concatenate({row.key, "/", row_id_text(id)}, context.temp_allocator)
-	return {row.input, strings.concatenate({row.source, c.suffix}, context.temp_allocator), c.label, "", c.value, row.depth + 1, false, false, expandable(c.value), key}
+	return {input = row.input, source = strings.concatenate({row.source, c.suffix}, context.temp_allocator), label = c.label, value = c.value, depth = row.depth + 1, unfolds = expandable(c.value), key = key}
 }

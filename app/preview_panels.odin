@@ -38,8 +38,9 @@ COLOR_DROP :: [4]u8{38, 56, 74, 245}
 COLOR_DROP_HOT :: [4]u8{57, 111, 150, 255}
 COLOR_DROP_PREVIEW :: [4]u8{55, 130, 190, 65}
 
-// RAD Debugger's drag/drop state: a tab being dragged, then dropped (the
-// frame the left button is released in: drop sites take it), then none.
+// RAD Debugger's drag/drop state: a tab being dragged (or a row's view, dragged
+// out of its row: a tab in the making), then dropped (the frame the left button
+// is released in: drop sites take it), then none.
 Drag_State :: enum u8 {
 	Null,
 	Dragging,
@@ -95,6 +96,8 @@ panels_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32) {
 			timeline_view(app, s, dpi, a.content)
 		case .Watch:
 			watch_view(app, s, dpi, p.shown, a.content)
+		case .Image:
+			image_tab_view(app, s, dpi, p.shown, a.content)
 		}
 	}
 }
@@ -197,6 +200,9 @@ view_title :: proc(app: ^App_State, id: View_Id) -> (title: string, color: [4]u8
 	}
 	if v.kind == .Watch {
 		return watch_title(app, v)
+	}
+	if v.kind == .Image {
+		return image_title(app, v)
 	}
 	descriptors := VIEW_DESCRIPTORS
 	return descriptors[v.kind].name, {}
@@ -318,6 +324,44 @@ empty_panel_view :: proc(s: ^ui.State, dpi: f32, id: Panel_Id) {
 	ui.set_next_text_align(s, .Center)
 	ui.set_next_font_size(s, 13 * dpi)
 	ui.build_box(s, {.Draw_Background, .Draw_Text}, fmt.tprintf("+ opens a view here, Ctrl+P goes to a scene, cue or problem###empty_%d", id))
+}
+
+// A row dragged out of itself goes out as a tab (RAD's: a row's drag past its
+// box, raddbg_core.c:4714), every list's rows the same. What goes is the view of
+// `source` (`value`), by RAD's rule (rd_view_from_eval, :1481): its visualizer's,
+// else a Watch on it. A view the row has (an open image's) or a Watch tab already
+// on it is the one dragged, a tab's drag; else one is made, by a command, for the
+// next frame to drag, and it goes if it lands nowhere.
+row_drag_out :: proc(app: ^App_State, s: ^ui.State, sig: ui.Signal, owner: View_Id, row: u64, source: string, value: Value) {
+	pv := &app.preview
+	ws := &pv.workspace
+	if !ui.dragging(sig) || pv.drag != .Null do return
+	mouse := platform.mouse_pos(s.p)
+	r := sig.box.rect
+	if mouse.x >= r.min.x && mouse.y >= r.min.y && mouse.x < r.max.x && mouse.y < r.max.y do return
+	reader := preview_reader(app)
+	kind := View_Kind.Watch
+	if lens, ok := visualizer_of(&reader, value); ok do kind = VISUALIZER_VIEWS[lens]
+	view := workspace_row_view(ws, owner, row)
+	if view == 0 && kind == .Watch do view = workspace_find_watch(ws, source)
+	if view != 0 {
+		pv.drag, pv.drag_view = .Dragging, view
+		return
+	}
+	regs := Command_Regs{view = owner, row = row, view_kind = kind, spec = source, flag = true}
+	if kind == .Watch && expandable(value) do regs.flags += {.Scoped}
+	command_push(&app.commands, .Row_View_Open, regs)
+}
+
+// A drag ends (dropped, or cancelled): a view made only for it, if it landed
+// nowhere, goes. Queued after the drop's own move, which leaves it a tab that
+// this doesn't close.
+preview_drag_end :: proc(app: ^App_State) {
+	pv := &app.preview
+	if v := workspace_view(&pv.workspace, pv.drag_view); v != nil && v.transient {
+		command_push(&app.commands, .Row_View_Close, {view = pv.drag_view})
+	}
+	pv.drag, pv.drag_view = .Null, 0
 }
 
 // The drop sites of every panel under the dragged tab, and its label at

@@ -427,7 +427,9 @@ their order). A timeline in a panel beside another and taller than
 wide runs its ruler, scenes and cues top to bottom, without its lanes: the
 scenes take the panel's width beside a column of cue names as wide as the
 longest. The cues stay with the ruler and the scenes while the lanes scroll. The timeline's lanes scroll as a list (the wheel over them, the scroll
-bar). The **Watch** is a debugger's watch window over the video's tables:
+bar). A lane dragged out by its name opens as a Watch tab the same way, on
+that track, group or part; a press on a lane's name doesn't scrub, and a
+click on a group's opens or closes it. The **Watch** is a debugger's watch window over the video's tables:
 each row an expression with its value. Its tabs on the tables
 (`video:scenes`, `video:cues`, `video:problems`, `video:media`,
 `video:marks`) list the scenes (with the problems seen in each), cues (with
@@ -441,7 +443,15 @@ video and the others after it (one already open is shown); `+` opens any
 table's in its panel. A row's arrow (or a press on it) unfolds it into its
 members, as a debugger's watch does: a scene into its `name`, `start`,
 `end`, `cue`, `source`, `hold`, `status` and its `problems`, which unfold
-in turn; a problem into what it says and the `scenes` it was seen in.
+in turn; a problem into what it says and the `scenes` it was seen in. An
+image unfolds into the picture itself, eight rows tall: a drag pans it and a
+double click puts it back, while the wheel still scrolls the list; it stays
+where you left it until you close its row. Any row dragged out of itself onto
+a panel, on the same drop sites as a tab, opens there as a tab of its own: an
+image as the picture, taking its pan with it, where the wheel zooms about the
+pointer and the pixel under the pointer is outlined with its colour in a
+tooltip, while its row stays open with a fresh view; anything else as a Watch
+on it, and dragged again, that same tab moves.
 
 An **expression Watch** (`+`, "Watch") holds the expressions you type, one
 a row: type (or paste) on its last row to add one, Enter commits, Esc

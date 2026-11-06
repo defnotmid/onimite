@@ -409,7 +409,10 @@ the video's tables: its tabs (`video:scenes`, `video:cues`, `video:problems`, `v
 scenes, cues (with drift / missing-hit findings), problems, media (failed, unused sounds) and marks, each titled with
 its row count; D/I open the problems' / media's tab (the first beside the video, the others after it), `+` any
 table's in its panel; a click on a row goes to its frame; a row's arrow unfolds it into its members (a scene's
-`name`, `start`, `end`, `cue`, `source`, `hold`, `status`, `problems`). An expression Watch (`+` → Watch) takes
+`name`, `start`, `end`, `cue`, `source`, `hold`, `status`, `problems`), and an image's into the picture. Any row
+dragged out of itself onto a panel opens as a tab of its own: an image as the picture (the wheel zooms it there, a
+tooltip names the colour under the pointer), anything else as a Watch on it; a timeline lane drags out by its name
+the same way. An expression Watch (`+` → Watch) takes
 expressions you type, a row each (type or paste on its last row, Enter commits, Esc drops it; Enter on one edits it,
 Delete removes it, Alt+Up/Down moves it, Ctrl+C copies a row's expression). Expressions: the roots `scenes`, `cues`,
 `problems`, `media`, `marks`, `tracks`; `.member` (`scenes.Race.start`); a row by name in the member form

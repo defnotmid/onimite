@@ -220,6 +220,23 @@ element_suffix :: proc(r: ^Reader, v: Value, info: ^Collection_Info, row: Value,
 	return fmt.tprintf("[%d]", place)
 }
 
+// Row `row` of the tracks written as the expression that names it, its
+// groups' rows first: `tracks["bus sfx"].tracks.early`.
+track_source :: proc(r: ^Reader, row: i32) -> string {
+	w := r.waves
+	parent := i32(-1)
+	for p := w.items[w.tracks[row].item].parent; p >= 0 && parent < 0; p = w.items[p].parent do parent = w.items[p].row
+	v := Value{kind = .Tracks}
+	source := "tracks"
+	if parent >= 0 {
+		v.ref = {.Track, parent}
+		source = strings.concatenate({track_source(r, parent), ".tracks"}, context.temp_allocator)
+	}
+	rows, _ := table_rows(r, v)
+	place, _ := slice.linear_search(rows, row)
+	return strings.concatenate({source, element_suffix(r, v, nil, {kind = .Track, ref = {.Track, row}}, place)}, context.temp_allocator)
+}
+
 // A row's stable id: what its producer gives it (a scene its name and how
 // many before it share it, a cue or a file its name, a problem its
 // finding's key, a mark its number, a track its timeline path's hash).

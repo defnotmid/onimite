@@ -37,8 +37,8 @@ text_box :: proc(s: ^ui.State, width, height: ui.Size, key: string, font_px, pad
 // keeps its own. With a `cursor`, the list moves it by the keys while its
 // focus is active and keeps it in view (RAD's Nav and Snap). The rows are
 // built between list_begin and list_end, from `first` up to `last`.
-list_begin :: proc(s: ^ui.State, l: ^animation.Scroll, dim: [2]f32, key: string, rows: int, pitch: f32, cursor: ^int = nil) -> (first, last: int) {
-	return ui.scroll_list_begin(s, key, {max(dim.x, 0), max(dim.y, 0)}, l, rows, pitch, cursor)
+list_begin :: proc(s: ^ui.State, l: ^animation.Scroll, dim: [2]f32, key: string, rows: int, pitch: f32, cursor: ^int = nil, row_blocks: []ui.Scroll_List_Row_Block = nil) -> (first, last: int) {
+	return ui.scroll_list_begin(s, key, {max(dim.x, 0), max(dim.y, 0)}, l, rows, pitch, cursor, row_blocks)
 }
 
 // End an overlay's list: it goes where its bar, the wheel or its cursor asks
@@ -51,7 +51,8 @@ list_end :: proc(s: ^ui.State, l: ^animation.Scroll) {
 }
 
 // A view's list, presentation the view's data doesn't keep: its scroll,
-// which follows the view's register, and its cursor row (RAD's).
+// which follows the view's register, and its cursor (RAD's: an item, a
+// visualizer's rows being one).
 View_List :: struct {
 	scroll: animation.Scroll,
 	cursor: int,
@@ -63,10 +64,10 @@ view_list :: proc(pv: ^Preview_State, view: View_Id) -> ^View_List {
 }
 
 // A view's rows: its list eases to the view's scroll register...
-view_list_begin :: proc(app: ^App_State, s: ^ui.State, dim: [2]f32, view: View_Id, key: string, rows: int, pitch: f32, cursor: ^int = nil) -> (first, last: int) {
+view_list_begin :: proc(app: ^App_State, s: ^ui.State, dim: [2]f32, view: View_Id, key: string, rows: int, pitch: f32, cursor: ^int = nil, row_blocks: []ui.Scroll_List_Row_Block = nil) -> (first, last: int) {
 	l := view_list(&app.preview, view)
 	animation.scroll_to(&l.scroll, f32(workspace_view(&app.preview.workspace, view).scroll))
-	return list_begin(s, &l.scroll, dim, key, rows, pitch, cursor)
+	return list_begin(s, &l.scroll, dim, key, rows, pitch, cursor, row_blocks)
 }
 
 // ...and where its bar, the wheel or its cursor asks it to go (a whole

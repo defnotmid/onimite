@@ -127,7 +127,7 @@ test_lister_keys :: proc(t: ^testing.T) {
 	pv := &app.preview
 	defer preview_state_destroy(pv)
 	workspace_init(&pv.workspace)
-	workspace_measure(&pv.workspace, {0, 0, 1280, 700}, 1, tabs_height(FONT_SIZE_DEFAULT), {.Video = -1, .Timeline = 100, .Watch = -1})
+	workspace_measure(&pv.workspace, {0, 0, 1280, 700}, 1, tabs_height(FONT_SIZE_DEFAULT), {.Video = -1, .Timeline = 100, .Watch = -1, .Image = -1})
 	pv.timeline.fps = 30
 	test_tables(&pv.tables, {{"Intro", 0}, {"Two", 90}}, {{"drop", 48}})
 	p: platform.Platform
@@ -214,7 +214,7 @@ test_tab_drag_drops_through_the_pipeline :: proc(t: ^testing.T) {
 	pv := &app.preview
 	defer preview_state_destroy(pv)
 	workspace_init(&pv.workspace)
-	workspace_measure(&pv.workspace, {0, 0, 1280, 700}, 1, tabs_height(FONT_SIZE_DEFAULT), {.Video = -1, .Timeline = 100, .Watch = -1})
+	workspace_measure(&pv.workspace, {0, 0, 1280, 700}, 1, tabs_height(FONT_SIZE_DEFAULT), {.Video = -1, .Timeline = 100, .Watch = -1, .Image = -1})
 	p: platform.Platform
 	p.width, p.height = 1280, 800
 	font, font_ok := render.font_load(UI_FONT)
@@ -242,7 +242,7 @@ test_tab_drag_drops_through_the_pipeline :: proc(t: ^testing.T) {
 		}
 		clear(&batch.rows)
 		clear(&batch.text)
-		workspace_measure(&app.preview.workspace, {0, 0, 1280, 700}, 1, tabs_height(FONT_SIZE_DEFAULT), {.Video = -1, .Timeline = 100, .Watch = -1})
+		workspace_measure(&app.preview.workspace, {0, 0, 1280, 700}, 1, tabs_height(FONT_SIZE_DEFAULT), {.Video = -1, .Timeline = 100, .Watch = -1, .Image = -1})
 		return rows
 	}
 	ws := &pv.workspace
@@ -588,8 +588,8 @@ test_input :: proc(p: ^platform.Platform, mouse: [2]f32, down: bool, wheel: f32 
 // The timeline's rows are box rows in the one scroll list (RAD's, its row
 // blocks giving each its height), through whole frames: the wheel over them
 // scrolls them a row a tick and the bar's arrow a row a frame, both into the
-// view's scroll (View_Scroll); a press on a row scrubs (Frame_Set) and on a
-// group's name opens it (Timeline_Row_Toggle), the next frame showing its
+// view's scroll (View_Scroll); a press on a row scrubs (Frame_Set) and a click
+// on a group's name opens it (Timeline_Row_Toggle), the next frame showing its
 // children; and with the timeline focused, Left still steps a frame back.
 @(test)
 test_timeline_rows_are_the_scroll_list :: proc(t: ^testing.T) {
@@ -604,7 +604,7 @@ test_timeline_rows_are_the_scroll_list :: proc(t: ^testing.T) {
 	preview_cameras_reset(pv)
 	w := &pv.waves
 	add :: proc(w: ^Wave_Table, kind: Timeline_Kind, parent: i32, path: string) {
-		append(&w.items, Timeline_Item{kind = kind, parent = parent, path = text_push(&w.text, path)})
+		append(&w.items, Timeline_Item{kind = kind, parent = parent, row = -1, path = text_push(&w.text, path)})
 		if parent >= 0 do w.items[parent].children += 1
 	}
 	add(w, .Cues, -1, "cues")
@@ -701,9 +701,12 @@ test_timeline_rows_are_the_scroll_list :: proc(t: ^testing.T) {
 	frame(&app, &s, name)
 	rows = frame(&app, &s, name, true)
 	_, scrubbed = find(rows, .Frame_Set)
-	toggle, toggled := find(rows, .Timeline_Row_Toggle)
-	testing.expect(t, toggled && toggle.regs.spec == "bus/a" && !scrubbed)
-	frame(&app, &s, name)
+	_, toggled := find(rows, .Timeline_Row_Toggle)
+	testing.expect(t, !toggled && !scrubbed)
+	rows = frame(&app, &s, name)
+	toggle: Command_Row
+	toggle, toggled = find(rows, .Timeline_Row_Toggle)
+	testing.expect(t, toggled && toggle.regs.spec == "bus/a")
 	frame(&app, &s, away)
 	opened := s.scroll_list.content.first.next
 	testing.expect_value(t, opened.rect.max.y - opened.rect.min.y, f32(TRACK_HEIGHT))
@@ -728,6 +731,13 @@ test_timeline_rows_are_the_scroll_list :: proc(t: ^testing.T) {
 	testing.expect(t, strings.contains(tip(&s), "(onimite show cues)"))
 	frame(&app, &s, away)
 	testing.expect_value(t, tip(&s), "")
+	// The band has no name to press on: anywhere along it a press scrubs.
+	band_start := [2]f32{area.x + TRACK_PAD + 20, band.y}
+	frame(&app, &s, band_start)
+	rows = frame(&app, &s, band_start, true)
+	_, scrubbed = find(rows, .Frame_Set)
+	testing.expect(t, scrubbed)
+	frame(&app, &s, away)
 	// Collapsed (T), its panel focused, it still steps frames.
 	preview_apply(&app, .Timeline_Toggle, {})
 	frame(&app, &s, away)

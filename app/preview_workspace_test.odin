@@ -15,7 +15,7 @@ test_workspace :: proc(t: ^testing.T) {
 	video, timeline := workspace_find(&ws, .Video), workspace_find(&ws, .Timeline)
 	vp := workspace_view(&ws, video).panel
 	tp := workspace_view(&ws, timeline).panel
-	natural := [View_Kind]f32{.Video = -1, .Timeline = 100, .Watch = -1}
+	natural := [View_Kind]f32{.Video = -1, .Timeline = 100, .Watch = -1, .Image = -1}
 	tabs := tabs_height(FONT_SIZE_DEFAULT) // the tab bar follows the font (RAD's tab_height, three)
 	testing.expect_value(t, tabs, 33)
 	workspace_measure(&ws, {0, 0, 1000, 800}, 1, tabs, natural)

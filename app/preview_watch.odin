@@ -2,6 +2,7 @@ package onimite_app
 
 import "core:fmt"
 import "core:math"
+import "core:strings"
 import om "../onimite"
 import platform "../platform"
 import ui "../ui"
@@ -24,7 +25,9 @@ import vg "deps:ovg"
 // copies a row's expression, Alt+Up and Alt+Down move an expression. A
 // click on another row with a frame (or Enter on it) goes there; N /
 // Shift+N go to the next / previous row with a warning or an error
-// (`Problem_Step`). Only the visible rows build boxes.
+// (`Problem_Step`). Only the visible rows build boxes. A media file with a
+// view (preview_media_views.odin) unfolds into it, one item across its rows.
+// A row dragged out of itself goes out as a tab (row_drag_out).
 
 @(private = "file")
 KIND_COLORS := [om.Media_Kind][4]u8 {
@@ -82,6 +85,8 @@ watch_title :: proc(app: ^App_State, v: ^View_Record) -> (title: string, color: 
 	r := preview_reader(app)
 	value, error := evaluate(&r, v.inputs[0].source)
 	if error != "" do return v.inputs[0].source, COLOR_ERROR
+	// A tab on one row (pulled out of the timeline): the row's name.
+	if value.kind in ROW_KINDS do return row_label(&r, value), {}
 	count := collection(value).info(&r, value, "").count
 	if worst := r.tables.worst[value.kind]; count > 0 && worst >= .Warning do color = STATUS_COLORS[worst]
 	return fmt.tprintf("%s %d", KINDS[value.kind].title, count), color
@@ -126,7 +131,7 @@ watch_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32, id: View_Id, area: W
 	}
 	row_h := list_row_height(s)
 	l := view_list(pv, id)
-	l.cursor = clamp(l.cursor, 0, count - 1)
+	l.cursor = clamp(l.cursor, 0, blocks_item_from_row(&blocks, count - 1))
 	edit := &pv.watch_edit
 	ui.push_focus(s, .On)
 	if ui.is_focus_active(s) {
@@ -136,19 +141,29 @@ watch_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32, id: View_Id, area: W
 		watch_commit(app, v)
 	}
 	current := watch_current(app, &blocks)
-	first, last := view_list_begin(app, s, {area.width, area.height - filter_h}, id, fmt.tprintf("###watch_rows_%d", id), count, row_h, &l.cursor)
+	first, last := view_list_begin(app, s, {area.width, area.height - filter_h}, id, fmt.tprintf("###watch_rows_%d", id), count, row_h, &l.cursor, watch_row_blocks(&blocks, int(adds)))
 	rows := make([dynamic]View_Row, context.temp_allocator)
 	blocks_window(&blocks, first, last - first, &rows)
 	drawn := false
-	for row, i in rows {
-		num := first + i
+	at := first
+	for row in rows {
+		num := at
+		at += row.size > 0 ? row.size - row.skip - row.chop : 1
+		item := blocks_item_from_row(&blocks, num)
+		if row.size > 0 {
+			sig := watch_visualizer_view(app, s, id, row, row_h, area.width - ui.scroll_bar_width(s), item == l.cursor)
+			if ui.pressed(sig) do l.cursor = item
+			continue
+		}
 		// (a comma list's expression is typed on its first item's row)
 		editing := edit.view == id && row.root && edit.input == row.input && !v.scoped && row.key == item_key(v.inputs[row.input], 0)
 		drawn ||= editing
-		sig := watch_row_view(app, s, dpi, id, row, row_h, num == current, num == l.cursor, filter, editing)
+		sig := watch_row_view(app, s, dpi, id, row, row_h, num == current, item == l.cursor, filter, editing)
 		// A press puts the cursor on its row (RAD's).
-		if ui.pressed(sig) do l.cursor = num
-		if !ui.clicked(sig) || editing do continue
+		if ui.pressed(sig) do l.cursor = item
+		if !editing && row.error == "" do row_drag_out(app, s, sig, id, row_view_key(row.key), row.source, row.value)
+		// (a drag let go on its own row is no click on it)
+		if !ui.clicked(sig) || editing || pv.drag != .Null do continue
 		if row.root && !v.scoped {
 			watch_edit_begin(app, id, row.input, v.inputs[row.input].source)
 		} else if f := row_frame(&r, row.value); f >= 0 {
@@ -157,11 +172,11 @@ watch_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32, id: View_Id, area: W
 	}
 	// The last row of an expression Watch takes a new expression.
 	if adds && last == count {
-		num := count - 1
+		item := blocks_item_from_row(&blocks, count - 1)
 		editing := edit.view == id && edit.input >= len(v.inputs)
 		drawn ||= editing
-		sig := watch_add_view(app, s, dpi, id, row_h, num == l.cursor, editing)
-		if ui.pressed(sig) do l.cursor = num
+		sig := watch_add_view(app, s, dpi, id, row_h, item == l.cursor, editing)
+		if ui.pressed(sig) do l.cursor = item
 		if ui.clicked(sig) && !editing do watch_edit_begin(app, id, len(v.inputs), "")
 	}
 	view_list_end(app, s, id)
@@ -183,9 +198,10 @@ watch_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32, id: View_Id, area: W
 watch_keys :: proc(app: ^App_State, s: ^ui.State, id: View_Id, v: ^View_Record, blocks: ^View_Blocks, l: ^View_List) {
 	edit := &app.preview.watch_edit
 	s_rows := make([dynamic]View_Row, context.temp_allocator)
-	if l.cursor < blocks.total do blocks_window(blocks, l.cursor, 1, &s_rows)
+	at := blocks_row_from_item(blocks, l.cursor)
+	if at < blocks.total do blocks_window(blocks, at, 1, &s_rows)
 	row: Maybe(View_Row) = s_rows[0] if len(s_rows) > 0 else nil
-	on_add := !v.scoped && l.cursor >= blocks.total
+	on_add := !v.scoped && at >= blocks.total
 	root, has_root := row.?
 	editable := has_root && root.root && !v.scoped
 	if edit.view == id || on_add || editable do s.text_edit_mode = true
@@ -218,9 +234,9 @@ watch_keys :: proc(app: ^App_State, s: ^ui.State, id: View_Id, v: ^View_Record, 
 			to := root.input + (a.delta.y < 0 ? -1 : 1)
 			if to < 0 || to >= len(v.inputs) do continue
 			// The cursor follows it: to where the expression before it starts,
-			// or as far down as the one after it has rows.
+			// or as far down as the one after it has items.
 			start :: proc(b: ^View_Blocks, v: ^View_Record, k: int) -> int {
-				return k < len(v.inputs) ? blocks_index(b, item_key(v.inputs[k], 0)) : b.total
+				return blocks_item_from_row(b, k < len(v.inputs) ? blocks_index(b, item_key(v.inputs[k], 0)) : b.total)
 			}
 			if to < root.input {
 				l.cursor = start(blocks, v, to)
@@ -378,6 +394,63 @@ watch_row_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32, id: View_Id, row
 	ui.spacer(s, ui.px(4 * dpi))
 	ui.pop_pref_height(s)
 	ui.pop_parent(s)
+	return ui.signal_from_box(s, box)
+}
+
+// The list's row blocks (RAD's): a visualizer's rows one item, the rest a
+// row an item, and an expression Watch's last row (`adds`).
+@(private = "file")
+watch_row_blocks :: proc(b: ^View_Blocks, adds: int) -> []ui.Scroll_List_Row_Block {
+	out := make([dynamic]ui.Scroll_List_Row_Block, 0, len(b.spans) + 1, context.temp_allocator)
+	for s in b.spans {
+		n := s.hi - s.lo
+		append(&out, ui.Scroll_List_Row_Block{n, s.block >= 0 && b.blocks[s.block].rows > 0 ? 1 : n})
+	}
+	if adds > 0 do append(&out, ui.Scroll_List_Row_Block{adds, adds})
+	return out[:]
+}
+
+// A visualizer's row, as RAD's view cell (raddbg_core.c:4048-4076): a cell
+// as tall as what of it is in the window, holding a clipping box of all its
+// rows, floated up by those above the window, the view inside. It fades in
+// as a row does. Its signal is its view's, which takes the pointer.
+@(private = "file")
+watch_visualizer_view :: proc(app: ^App_State, s: ^ui.State, id: View_Id, row: View_Row, h, width: f32, cursor: bool) -> ui.Signal {
+	key := fmt.tprintf("watch_%d_%s", id, row.key)
+	alive := ui.anim_f32(s, ui.key_from_string(0, fmt.tprintf("%s_alive", key)), 1, {initial = 0, rate = ALIVE_RATE})
+	ui.push_opacity(s, alive)
+	defer ui.pop_opacity(s)
+	ui.push_focus_hot(s, cursor ? .On : .Off); ui.push_focus_active(s, .Off)
+	defer ui.pop_focus(s)
+	ui.set_next_pref_width(s, ui.pct(1)); ui.set_next_pref_height(s, ui.px(math.floor(f32(row.size - row.skip - row.chop) * h)))
+	ui.push_parent(s, ui.build_box(s, {}, fmt.tprintf("###cell_%s", key)))
+	defer ui.pop_parent(s)
+	dim := [2]f32{width, f32(row.size) * h}
+	ui.set_next_fixed_x(s, 0); ui.set_next_fixed_y(s, -f32(row.skip) * h)
+	ui.set_next_fixed_width(s, dim.x); ui.set_next_fixed_height(s, dim.y)
+	box := ui.build_box(s, {.Clip, .Clickable}, fmt.tprintf("###val_%s", key))
+	ui.push_parent(s, box)
+	defer ui.pop_parent(s)
+	// (outside its focus, as the expander's: the cursor lights the cell)
+	ui.push_focus(s, .Off)
+	defer ui.pop_focus(s)
+	r := preview_reader(app)
+	lens, _ := visualizer_of(&r, row.value)
+	// Its view: a view like a tab's, its row's until it is dragged out. It
+	// is made (and follows the row's expression, and is kept once the row shows
+	// it) by a command, so the frame that asks draws an empty cell.
+	ws := &app.preview.workspace
+	row_id := row_view_key(strings.trim_suffix(row.key, "/v"))
+	view_id := workspace_row_view(ws, id, row_id)
+	view := workspace_view(ws, view_id)
+	if view == nil || view.transient || view.inputs[0].source != row.source {
+		command_push(&app.commands, .Row_View_Open, {view = id, row = row_id, view_kind = VISUALIZER_VIEWS[lens], spec = row.source})
+	}
+	if view == nil do return ui.signal_from_box(s, box)
+	switch lens {
+	case .Image:
+		return bitmap_view(app, s, &view.bitmap, r.tables.media[row.value.ref.row].id, key, dim, false)
+	}
 	return ui.signal_from_box(s, box)
 }
 

@@ -70,7 +70,7 @@ PANEL_ACTIONS := [?]Command_Row{{.Panel_Split, {direction = .Right}}, {.Panel_Sp
 view_count :: proc(src: Lister_Source) -> int {
 	n := 0
 	for d in VIEW_DESCRIPTORS {
-		n += len(WATCH_TABS) + 1 if d.watches else 1
+		if !d.of_row do n += len(WATCH_TABS) + 1 if d.watches else 1
 	}
 	return n
 }
@@ -79,6 +79,7 @@ view_count :: proc(src: Lister_Source) -> int {
 view_option :: proc(src: Lister_Source, i: int) -> Lister_Option {
 	at := i
 	for d, kind in VIEW_DESCRIPTORS {
+		if d.of_row do continue
 		n := len(WATCH_TABS) + 1 if d.watches else 1
 		if at >= n {
 			at -= n

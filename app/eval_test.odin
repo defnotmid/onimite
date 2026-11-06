@@ -128,6 +128,7 @@ test_frame :: proc(tp: ^Test_Preview, events: ..platform.Event) -> []Command_Row
 	ui.build_begin(&tp.s)
 	preview_views(&tp.app, &tp.s, p)
 	ui.build_end(&tp.s)
+	if tp.app.preview.drag == .Dropping do preview_drag_end(&tp.app)
 	batch := &tp.app.commands.pending
 	rows := make([dynamic]Command_Row, context.temp_allocator)
 	for q in batch.rows {

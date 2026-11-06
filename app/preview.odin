@@ -184,6 +184,13 @@ Preview_State :: struct {
 	sent_bands:         [dynamic]i32,
 	seen_bands:         u64,
 	band_textures:      [dynamic]Band_Texture,
+	// The media views (preview_media_views.odin): the files of the open image
+	// rows by durable id (asked of the worker when they change), the last
+	// asked, and the worker's table of them.
+	images_open:        [dynamic]u64,
+	sent_images:        [dynamic]u64,
+	images:             [dynamic]Image_Shown,
+	seen_images:        u64,
 	timeline:           Preview_Timeline,
 	shown_frame:        int,
 	shown_size:         [2]u32,
@@ -569,7 +576,7 @@ preview_run :: proc(app: ^App_State, capture, drive, start_spec: string) -> Erro
 		preview_views(app, &s, &p)
 		ui.build_end(&s)
 		// A drop lasts the frame its button was released in.
-		if pv.drag == .Dropping do pv.drag, pv.drag_view = .Null, 0
+		if pv.drag == .Dropping do preview_drag_end(app)
 		built := time.tick_since(tick_began)
 		if capture != "" && pv.exit_after > 0 && frames >= pv.exit_after {
 			if pixels, ok := render.end_frame_capture(&r, &canvas); ok {
@@ -730,6 +737,17 @@ preview_drive :: proc(app: ^App_State, s: ^ui.State, drive: string, frames: int)
 			input.user_seen = true
 		}
 	}
+	if frames >= 30 && strings.contains(drive, "tabpointer") {
+		// over a pulled-out image, near its middle
+		if v := workspace_view(&app.preview.workspace, workspace_shown(&app.preview.workspace, .Image)); v != nil {
+			r := app.preview.workspace.areas[int(v.panel) - 1].content
+			input := &s.p.input
+			input.mouse_prev = input.mouse
+			input.mouse = {r.x + r.width * 0.46, r.y + r.height * 0.47}
+			input.mouse_delta = input.mouse - input.mouse_prev
+			input.user_seen = true
+		}
+	}
 	if frames == 90 && strings.contains(drive, "lanes") {
 		for it in app.preview.waves.items {
 			if it.children > 0 {
@@ -794,6 +812,34 @@ preview_drive_workspace :: proc(app: ^App_State, drive: string, frames: int) {
 	}
 	if frames == 2 && strings.contains(drive, "media") {
 		command_push(c, .Watch_Show, {spec = "video:media"})
+	}
+	if frames == 8 && strings.contains(drive, "openimage") {
+		// the first media row with a view, as a press on its expander opens it
+		id := workspace_shown(ws, .Watch)
+		if v := workspace_view(ws, id); v != nil {
+			blocks := watch_blocks(app, v)
+			rows := make([dynamic]View_Row, context.temp_allocator)
+			blocks_window(&blocks, 0, max(int), &rows)
+			for row in rows {
+				if _, ok := visualizer_of(&blocks.r, row.value); ok {
+					command_push(c, .Watch_Expand, {view = id, spec = row.key})
+					break
+				}
+			}
+		}
+	}
+	if frames == 20 && strings.contains(drive, "pullimage") && video != nil {
+		// the first row's view dragged out beside the video
+		for v, i in ws.views {
+			if v.live && v.kind == .Image && v.owner != 0 {
+				command_push(c, .View_Move, {view = View_Id(i + 1), panel = video.panel, direction = .Right})
+				break
+			}
+		}
+	}
+	if frames >= 30 && frames % 30 == 0 && strings.contains(drive, "reloads") {
+		// the script alone and with its media, in turn
+		command_push(c, .Script_Reload, {flag = frames % 60 == 0})
 	}
 	if frames == 10 && strings.contains(drive, "split") && video != nil {
 		command_push(c, .Panel_Split, {panel = video.panel, direction = .Right, ratio = 2.0 / 3})
@@ -908,6 +954,9 @@ preview_state_destroy :: proc(pv: ^Preview_State) {
 	delete(pv.thumbs_shown)
 	delete(pv.sent_bands)
 	delete(pv.band_textures)
+	delete(pv.images_open)
+	delete(pv.sent_images)
+	delete(pv.images)
 	preview_timeline_destroy(&pv.timeline)
 	delete(pv.ui_ms)
 	delete(pv.interval_ms)
@@ -1257,7 +1306,7 @@ preview_apply :: proc(app: ^App_State, kind: Command_Kind, regs: Command_Regs) {
 			case .Timeline:
 				// its rows' list's: units of ROW_UNIT points, to its last
 				v.scroll = clamp(regs.count, 0, max(int(timeline_rows(app).points) / ROW_UNIT - 1, 0))
-			case .Video:
+			case .Video, .Image:
 			}
 			// A dragged thumb's: the list there at once (RAD's off = 0).
 			if regs.flag do animation.scroll_jump(&view_list(pv, regs.view).scroll, f32(v.scroll))
@@ -1505,6 +1554,8 @@ preview_switch_script :: proc(app: ^App_State, path: string) {
 		clear(&pv.band_textures)
 		clear(&pv.bands_shown)
 		clear(&pv.sent_bands)
+		clear(&pv.images)
+		clear(&pv.sent_images)
 		worker_stop(w)
 		sync.mutex_lock(&mb.mutex)
 		mb.quit = false
@@ -1525,6 +1576,10 @@ preview_switch_script :: proc(app: ^App_State, path: string) {
 		clear(&mb.band_textures)
 		clear(&mb.bands_wanted)
 		mb.bands_seq += 1
+		clear(&mb.images_wanted)
+		clear(&mb.images)
+		clear(&mb.image_pixels)
+		mb.images_seq += 1
 		sync.mutex_unlock(&mb.mutex)
 		w^ = {mb = mb, audio = w.audio, device = w.device, software = w.software, debug = w.debug, log_clips = w.log_clips, image_budget = w.image_budget, script_path = strings.clone(pv.script_path), script_args = app.script_args, script_props = pv.script_props[:], media_dir = strings.clone(pv.media_dir), video = w.video, pool = w.pool, background = w.background}
 		worker_start(w)
@@ -1721,6 +1776,7 @@ preview_take_published :: proc(app: ^App_State, c: ^vg.Canvas, now: f64) {
 		pv.seen_bands = mb.bands_seq
 		table_copy(&pv.band_textures, mb.band_textures[:])
 	}
+	images_take(pv, mb)
 	if mb.thumbs_seq != pv.seen_thumbs {
 		pv.seen_thumbs = mb.thumbs_seq
 		table_copy(&pv.thumbs, mb.thumbs[:])
@@ -1816,7 +1872,8 @@ preview_request :: proc(app: ^App_State, p: ^platform.Platform) {
 	bands := pv.bands_shown[:] if timeline_shown(app) else nil
 	thumbs_changed := !slice.equal(wanted, pv.sent_thumbs[:])
 	bands_changed := !slice.equal(bands, pv.sent_bands[:])
-	if busy != pv.sent_busy || pv.bookmark != pv.sent_bookmark || pv.marks_changed || thumbs_changed || bands_changed {
+	images_changed := !slice.equal(pv.images_open[:], pv.sent_images[:])
+	if busy != pv.sent_busy || pv.bookmark != pv.sent_bookmark || pv.marks_changed || thumbs_changed || bands_changed || images_changed {
 		sync.mutex_lock(&mb.mutex)
 		mb.busy = busy
 		if pv.marks_changed {
@@ -1836,12 +1893,17 @@ preview_request :: proc(app: ^App_State, p: ^platform.Platform) {
 			table_copy(&mb.bands_wanted, bands)
 			mb.bands_wanted_seq += 1
 		}
+		if images_changed {
+			table_copy(&mb.images_wanted, pv.images_open[:])
+			mb.images_wanted_seq += 1
+		}
 		sync.cond_signal(&mb.cond)
 		sync.mutex_unlock(&mb.mutex)
 		pv.sent_busy = busy
 		pv.sent_bookmark = pv.bookmark
 		table_copy(&pv.sent_thumbs, wanted)
 		table_copy(&pv.sent_bands, bands)
+		table_copy(&pv.sent_images, pv.images_open[:])
 	}
 
 	// The scale that fits the video's panel (kept while it is hidden),
@@ -1964,7 +2026,7 @@ preview_layout :: proc(app: ^App_State, p: ^platform.Platform) {
 		pv.bare_area = {0, 0, f32(p.width), f32(p.height)}
 		return
 	}
-	natural := [View_Kind]f32{.Video = -1, .Timeline = timeline_height(app) * pv.dpi, .Watch = -1}
+	natural := [View_Kind]f32{.Video = -1, .Timeline = timeline_height(app) * pv.dpi, .Watch = -1, .Image = -1}
 	// What is sized from the window's font, once: the window's bars and a
 	// leaf's tab bar.
 	font_px := pv.font_size * pv.dpi
@@ -2016,14 +2078,23 @@ preview_input :: proc(app: ^App_State, s: ^ui.State, p: ^platform.Platform) {
 			break
 		}
 	}
-	drag_input(&app.preview, s)
+	drag_input(app, s)
 }
 
 // A dragged tab's release (the left button's, as the UI's rows carry it):
-// RAD's drop kickoff, before the build.
+// RAD's drop kickoff, before the build. With no drag, a view made for one that
+// the button let go of first goes.
 @(private)
-drag_input :: proc(pv: ^Preview_State, s: ^ui.State) {
-	for a in s.actions.rows do if pv.drag == .Dragging && a.kind == .Mouse_Release && a.button == .Left do pv.drag = .Dropping
+drag_input :: proc(app: ^App_State, s: ^ui.State) {
+	pv := &app.preview
+	for a in s.actions.rows {
+		if a.kind != .Mouse_Release || a.button != .Left do continue
+		if pv.drag == .Dragging {
+			pv.drag = .Dropping
+		} else if pv.drag == .Null {
+			for v, i in pv.workspace.views do if v.live && v.transient do command_push(&app.commands, .Row_View_Close, {view = View_Id(i + 1)})
+		}
+	}
 }
 
 COLOR_TEXT :: [4]u8{232, 236, 242, 255}
@@ -2047,6 +2118,7 @@ SCENE_COLORS := [?][4]u8{{58, 96, 160, 255}, {92, 70, 150, 255}, {48, 120, 110, 
 preview_views :: proc(app: ^App_State, s: ^ui.State, p: ^platform.Platform) {
 	pv := &app.preview
 	dpi := p.dpi_scale
+	images_open_update(app)
 	if area, _ := view_area(app, .Video); pv.bare {
 		video_view(app, s, dpi, area)
 	} else {
@@ -2064,7 +2136,7 @@ preview_views :: proc(app: ^App_State, s: ^ui.State, p: ^platform.Platform) {
 		ui.pop_parent(s)
 	}
 	if pv.drag != .Null && ui.action_pressed(s, .Cancel) {
-		pv.drag, pv.drag_view = .Null, 0
+		preview_drag_end(app)
 		ui.kill_action(s)
 	}
 	for &a in s.actions.rows {

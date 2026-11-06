@@ -144,6 +144,8 @@ Command_Kind :: enum u8 {
 	Watch_Input_Set,
 	Watch_Input_Remove,
 	Watch_Input_Move,
+	Row_View_Open,
+	Row_View_Close,
 	Lister_Open,
 	Lister_Filter,
 	Lister_Close,
@@ -459,6 +461,8 @@ COMMAND_KINDS := [Command_Kind]Command_Descriptor {
 	.Watch_Input_Set = {help = "regs.view an expression Watch, regs.count an expression's place, regs.spec its new text", domain = .Workspace},
 	.Watch_Input_Remove = {help = "regs.view an expression Watch, regs.count the place of the expression removed", domain = .Workspace},
 	.Watch_Input_Move = {help = "regs.view an expression Watch, regs.count an expression's place, regs.option the place it moves to", domain = .Workspace},
+	.Row_View_Open = {help = "regs.view the view showing a row, regs.row the row's key, regs.view_kind what presents its value (.Scoped in regs.flags: a Watch whose top-level rows are its value's), regs.spec the value's expression, regs.flag it is only for a drag, and goes if it lands nowhere: the row's view, in no panel until a View_Move lands it as a tab", domain = .Workspace},
+	.Row_View_Close = {help = "regs.view a row's view: closes it, unless a View_Move has made it a tab", domain = .Workspace},
 	.Lister_Open = {help = "regs.lister the mode (what it lists; Query: regs.command's query), for leaf regs.panel (0: the focused one)", domain = .Workspace},
 	.Lister_Filter = {help = "regs.spec the lister's filter", domain = .Workspace},
 	.Lister_Close = {domain = .Workspace},
@@ -524,6 +528,7 @@ Command_Flag :: enum u8 {
 	Fullscreen, // preview: open fullscreen
 	Mute, // preview: no sound
 	No_Media, // script load: skip the media (the preview's worker loads it)
+	Scoped, // Row_View_Open: a Watch whose top-level rows are its value's
 	Svg, // frame: also write the frame's node tree as SVG
 	No_Script, // script load: the media only (a batch loads the script per row)
 	Timing, // debug: time and log what runs
@@ -573,6 +578,8 @@ Command_Regs :: struct {
 	panel:      Panel_Id,
 	view:       View_Id,
 	previous:   View_Id,
+	// Row_View_Open: the row's durable key (row_view_key).
+	row:        u64,
 	direction:  Direction,
 	view_kind:  View_Kind,
 	lister:     Lister_Mode,

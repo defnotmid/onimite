@@ -1,6 +1,7 @@
 package onimite_app
 
 import "core:fmt"
+import "core:hash"
 import "core:math"
 import "core:strings"
 import ui "../ui"
@@ -22,22 +23,26 @@ View_Kind :: enum u8 {
 	Video,
 	Timeline,
 	Watch,
+	Image,
 }
 
-// What a view is called and shows, and whether it opens as a Watch: on one
-// of the video's tables (WATCH_TABS), or empty, for the expressions you
-// type. The workspace holds at most one video, one timeline and one Watch
-// on each table; expression Watches, as many as are opened.
+// What a view is called and shows, whether it opens as a Watch: on one of
+// the video's tables (WATCH_TABS), or empty, for the expressions you type;
+// and whether it presents one row's value, so a row opens it and no lister
+// offers it. The workspace holds at most one video, one timeline and one
+// Watch on each table; expression Watches, as many as are opened.
 View_Descriptor :: struct {
 	name:    string,
 	about:   string,
 	watches: bool,
+	of_row:  bool,
 }
 
 VIEW_DESCRIPTORS :: [View_Kind]View_Descriptor {
-	.Video    = {"Video", "the rendered frame", false},
-	.Timeline = {"Timeline", "ruler, scenes, cues and sound", false},
-	.Watch    = {"Watch", "the expressions you type, each a row that unfolds", true},
+	.Video    = {"Video", "the rendered frame", false, false},
+	.Timeline = {"Timeline", "ruler, scenes, cues and sound", false, false},
+	.Watch    = {"Watch", "the expressions you type, each a row that unfolds", true, false},
+	.Image    = {"Image", "an image file", false, true},
 }
 
 // The Watch tabs on the video's tables: each the Watch of one fixed
@@ -95,6 +100,16 @@ View_Record :: struct {
 	scoped:         bool,
 	expanded:       [dynamic]string,
 	next_input:     u32,
+	// An image's view: where it looks (preview_media_views.odin).
+	bitmap:         Bitmap_View,
+	// A row's view (RAD's view of a row, raddbg_core.c:4071): the same record
+	// as a tab's, in no panel until it is dragged into one (View_Move, a tab's
+	// move), which makes it a tab like any other. The view showing the row, and
+	// the row's key (row_view_key), a tab's 0; and whether it was made only for
+	// a drag (the row shows no view of it), going if it lands nowhere.
+	owner:          View_Id,
+	owner_row:      u64,
+	transient:      bool,
 }
 
 // Where a panel is this window frame, in pixels: its whole area, below its
@@ -174,10 +189,10 @@ workspace_leaf :: proc(ws: ^Workspace, id: Panel_Id) -> ^Panel_Record {
 	return p if p != nil && p.children[0] == 0 else nil
 }
 
-// The first open view of `kind` (0: none).
+// The first open tab of `kind` (0: none).
 workspace_find :: proc(ws: ^Workspace, kind: View_Kind) -> View_Id {
 	for v, i in ws.views {
-		if v.live && v.kind == kind {
+		if v.live && v.kind == kind && v.panel != 0 {
 			return View_Id(i + 1)
 		}
 	}
@@ -187,11 +202,61 @@ workspace_find :: proc(ws: ^Workspace, kind: View_Kind) -> View_Id {
 // The open Watch tab on `expression` (0: none).
 workspace_find_watch :: proc(ws: ^Workspace, expression: string) -> View_Id {
 	for v, i in ws.views {
-		if v.live && v.kind == .Watch && v.scoped && len(v.inputs) == 1 && v.inputs[0].source == expression {
+		if v.live && v.kind == .Watch && v.panel != 0 && v.scoped && len(v.inputs) == 1 && v.inputs[0].source == expression {
 			return View_Id(i + 1)
 		}
 	}
 	return 0
+}
+
+// A row's durable key, as a row's view names it.
+row_view_key :: proc(row_key: string) -> u64 {return hash.fnv64a(transmute([]u8)row_key)}
+
+// The view of row `row` of view `owner` (0: none yet).
+workspace_row_view :: proc(ws: ^Workspace, owner: View_Id, row: u64) -> View_Id {
+	for v, i in ws.views {
+		if v.live && v.owner == owner && v.owner_row == row {
+			return View_Id(i + 1)
+		}
+	}
+	return 0
+}
+
+// Row `row` of `owner` has a view of `kind` on `expression`, or the one it
+// has follows the expression (a row's is written as its table's rows allow),
+// and stays if the row now shows it.
+@(private = "file")
+row_view_open :: proc(ws: ^Workspace, owner: View_Id, row: u64, kind: View_Kind, expression: string, scoped, transient: bool) {
+	if workspace_view(ws, owner) == nil {
+		return
+	}
+	if v := workspace_view(ws, workspace_row_view(ws, owner, row)); v != nil {
+		delete(v.inputs[0].source)
+		v.inputs[0].source = strings.clone(expression)
+		v.transient = v.transient && transient
+		return
+	}
+	append(&ws.views, View_Record{live = true, kind = kind, owner = owner, owner_row = row, scoped = scoped, transient = transient, next_input = 1})
+	append(&ws.views[len(ws.views) - 1].inputs, Watch_Input{strings.clone(expression), 0})
+}
+
+// The views of a closing view's rows go with it; those made tabs are their own.
+@(private = "file")
+row_views_close :: proc(ws: ^Workspace, owner: View_Id) {
+	for &v in ws.views {
+		if v.live && v.owner == owner {
+			view_record_free(&v)
+			v = {}
+		}
+	}
+}
+
+// A row shut: its view goes.
+@(private = "file")
+row_view_close :: proc(ws: ^Workspace, owner: View_Id, row_key: string) {
+	if id := workspace_row_view(ws, owner, row_view_key(row_key)); id != 0 {
+		workspace_close_view(ws, id)
+	}
 }
 
 // What a view owns, freed (a closed view stays a tombstone).
@@ -207,7 +272,7 @@ view_record_free :: proc(v: ^View_Record) {
 // The open view of `kind` when its panel shows it (0: none or hidden).
 workspace_shown :: proc(ws: ^Workspace, kind: View_Kind) -> View_Id {
 	for v, i in ws.views {
-		if v.live && v.kind == kind && ws.panels[v.panel - 1].shown == View_Id(i + 1) {
+		if v.live && v.kind == kind && v.panel != 0 && ws.panels[v.panel - 1].shown == View_Id(i + 1) {
 			return View_Id(i + 1)
 		}
 	}
@@ -220,11 +285,14 @@ panel_add :: proc(ws: ^Workspace) -> Panel_Id {
 	return Panel_Id(len(ws.panels))
 }
 
-// Takes view `id` out of its panel's tab list.
+// Takes view `id` out of its panel's tab list (a row's view is in none).
 @(private = "file")
 view_detach :: proc(ws: ^Workspace, id: View_Id) {
 	v := workspace_view(ws, id)
 	p := workspace_panel(ws, v.panel)
+	if p == nil {
+		return
+	}
 	if v.previous != 0 {
 		workspace_view(ws, v.previous).next = v.next
 	} else {
@@ -303,6 +371,7 @@ workspace_close_panel :: proc(ws: ^Workspace, panel: Panel_Id) {
 		return
 	}
 	for id := p.first; id != 0; {
+		row_views_close(ws, id)
 		v := workspace_view(ws, id)
 		id = v.next
 		view_record_free(v)
@@ -390,6 +459,7 @@ workspace_close_view :: proc(ws: ^Workspace, id: View_Id) {
 	if v == nil {
 		return
 	}
+	row_views_close(ws, id)
 	view_record_free(v)
 	v.filter, v.inputs, v.expanded = {}, {}, {}
 	panel := v.panel
@@ -400,7 +470,7 @@ workspace_close_view :: proc(ws: ^Workspace, id: View_Id) {
 
 // Shows view `id` in its panel and focuses the panel.
 workspace_select :: proc(ws: ^Workspace, id: View_Id) {
-	if v := workspace_view(ws, id); v != nil {
+	if v := workspace_view(ws, id); v != nil && v.panel != 0 {
 		workspace_panel(ws, v.panel).shown = id
 		ws.focused = v.panel
 	}
@@ -431,6 +501,8 @@ workspace_move :: proc(ws: ^Workspace, id: View_Id, panel: Panel_Id, previous: V
 	}
 	view_detach(ws, id)
 	view_attach(ws, id, target, previous if direction == .None else 0)
+	// A row's view that lands is a tab: its row makes itself another.
+	v.owner, v.owner_row, v.transient = 0, 0, false
 	if old != target {
 		collapse_empty(ws, old)
 	}
@@ -487,7 +559,11 @@ workspace_apply :: proc(ws: ^Workspace, kind: Command_Kind, regs: Command_Regs) 
 	case .View_Move:
 		workspace_move(ws, regs.view, regs.panel, regs.previous, regs.direction, f32(regs.ratio))
 	case .Watch_Expand, .Watch_Input_Add, .Watch_Input_Set, .Watch_Input_Remove, .Watch_Input_Move:
-		if v := workspace_view(ws, regs.view); v != nil && v.kind == .Watch do watch_apply(v, kind, regs)
+		if v := workspace_view(ws, regs.view); v != nil && v.kind == .Watch do watch_apply(ws, v, kind, regs)
+	case .Row_View_Open:
+		row_view_open(ws, regs.view, regs.row, regs.view_kind, regs.spec, .Scoped in regs.flags, regs.flag)
+	case .Row_View_Close:
+		if v := workspace_view(ws, regs.view); v != nil && v.owner != 0 do workspace_close_view(ws, regs.view)
 	case .Lister_Open:
 		if panel := regs.panel if regs.panel != 0 else ws.focused; workspace_leaf(ws, panel) != nil {
 			lister_open(&ws.lister, panel, regs.lister, regs.command)
@@ -504,11 +580,12 @@ workspace_apply :: proc(ws: ^Workspace, kind: Command_Kind, regs: Command_Regs) 
 // (regs.count; past the end: last), set, removed or moved to another place
 // (regs.option). Its open rows below a removed expression go with it.
 @(private = "file")
-watch_apply :: proc(v: ^View_Record, kind: Command_Kind, regs: Command_Regs) {
+watch_apply :: proc(ws: ^Workspace, v: ^View_Record, kind: Command_Kind, regs: Command_Regs) {
 	#partial switch kind {
 	case .Watch_Expand:
 		for key, i in v.expanded {
 			if key == regs.spec {
+				row_view_close(ws, regs.view, key)
 				delete(key)
 				ordered_remove(&v.expanded, i)
 				return
@@ -528,6 +605,7 @@ watch_apply :: proc(v: ^View_Record, kind: Command_Kind, regs: Command_Regs) {
 		prefix := fmt.tprintf("i%d", v.inputs[regs.count].id)
 		for i := len(v.expanded) - 1; i >= 0; i -= 1 {
 			if key := v.expanded[i]; key == prefix || strings.has_prefix(key, prefix) && (key[len(prefix)] == '/' || key[len(prefix)] == ',') {
+				row_view_close(ws, regs.view, key)
 				delete(key)
 				ordered_remove(&v.expanded, i)
 			}

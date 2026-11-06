@@ -59,9 +59,9 @@ scroll_bar_width :: proc(s: ^State) -> f32 {return math.round(stack_top(&s.font_
 // Begin a list of `rows` in a box `dim` big (in its parent's layout), each
 // `row_height` tall; returns the first row shown and the last (one past).
 // `row_blocks` (RAD's) map items to rows for a cursor over items taller
-// than a row. With a `cursor` (a row), the list has RAD's keyboard navigation and snap
+// than a row. With a `cursor` (an item: without blocks, a row), the list has RAD's keyboard navigation and snap
 // (UI_ScrollListFlag_Nav, _Snap): while its focus is active it takes every
-// row with a delta that deletes nothing, a Char step moving the cursor a row
+// row with a delta that deletes nothing, a Char step moving the cursor an item
 // (past either end, round to the other), a Word, Line or Page step three rows
 // short of what is in view, a Whole step to an end; a cursor that moved
 // scrolls into view with a row around it.
@@ -77,6 +77,12 @@ scroll_list_begin :: proc(s: ^State, key: string, dim: [2]f32, scroll: ^animatio
 	}
 	animation.scroll_limit(scroll, maximum)
 	if cursor != nil && is_focus_active(s) {
+		// (RAD's cursor_range: what the cursor goes over, items)
+		items := rows
+		if len(row_blocks) > 0 {
+			items = 0
+			for b in row_blocks do items += b.item_count
+		}
 		c, moved := cursor^, false
 		for &a in s.actions.rows {
 			if a.consumed || a.delta == {} || .Delete in a.flags do continue
@@ -87,18 +93,18 @@ scroll_list_begin :: proc(s: ^State, key: string, dim: [2]f32, scroll: ^animatio
 				moved = false
 			case .Char:
 				c += int(a.delta.y)
-				if c < 0 do c = rows - 1
-				if c > rows - 1 do c = 0
+				if c < 0 do c = items - 1
+				if c > items - 1 do c = 0
 			case .Word, .Line, .Page:
 				step := max(visible - 3, 1)
 				c += a.delta.y > 0 ? step : a.delta.y < 0 ? -step : 0
-				c = clamp(c, 0, max(rows - 1, 0))
+				c = clamp(c, 0, max(items - 1, 0))
 			case .Whole:
-				if a.delta.y != 0 do c = a.delta.y > 0 ? rows - 1 : 0
+				if a.delta.y != 0 do c = a.delta.y > 0 ? items - 1 : 0
 			}
 		}
 		if moved {
-			cursor^ = clamp(c, 0, max(rows - 1, 0))
+			cursor^ = clamp(c, 0, max(items - 1, 0))
 			// The cursor's rows: its item's, or a row around it (RAD's).
 			idx := int(scroll.track.target)
 			lo, hi := idx, idx + visible + 1

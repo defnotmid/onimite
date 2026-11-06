@@ -45,7 +45,8 @@ TRACK_HEIGHT :: 18
 // The rows below the scenes take at most this many points at the
 // timeline's natural height; past what its panel gives them, they scroll.
 ROWS_AREA_MAX :: 12 * LANE_HEIGHT
-// Clicks this far into a group's row open or close it.
+// This far into a row is its name: a press there doesn't scrub, a click on a
+// group's opens or closes it, and a drag out of the row takes it out as a tab.
 ROW_NAME_WIDTH :: 160
 RULER_BG :: [4]u8{22, 24, 30, 255}
 LANE_BG :: [4]u8{24, 26, 33, 255}
@@ -625,6 +626,7 @@ timeline_rows_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32, id: View_Id,
 			box := ui.build_box(s, {.Clickable}, fmt.tprintf("###timeline_row_%x_%d", it.key, int(it.kind)))
 			sig := ui.signal_from_box(s, box)
 			timeline_pointer(app, s, sig, rows_map, items[k])
+			timeline_row_drag_out(app, s, sig, id, items[k])
 			draw := new(Timeline_Draw, context.temp_allocator)
 			draw^ = {app, dpi, rows_map, items[k], k, f32(skipped) * unit}
 			ui.box_equip_custom_draw(box, row_draw, draw)
@@ -636,6 +638,21 @@ timeline_rows_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32, id: View_Id,
 	}
 	view_list_end(app, s, id)
 	return
+}
+
+// A row dragged out of itself by its name goes out as a tab, as every list's
+// (row_drag_out): the row of the tracks it shows. A part's notes, hits and bands
+// are the part's.
+@(private = "file")
+timeline_row_drag_out :: proc(app: ^App_State, s: ^ui.State, sig: ui.Signal, id: View_Id, item: int) {
+	pv := &app.preview
+	w := &pv.waves
+	if !pv.press_on_name || !ui.dragging(sig) do return
+	row := i32(-1)
+	for i := i32(item); i >= 0 && row < 0; i = w.items[i].parent do row = w.items[i].row
+	if row < 0 do return
+	r := preview_reader(app)
+	row_drag_out(app, s, sig, id, w.tracks[row].id, track_source(&r, row), {kind = .Track, ref = {.Track, row}})
 }
 
 // What the hovered row (`item`; the cues' band in the head is the cues
@@ -728,10 +745,10 @@ cue_labels :: proc(app: ^App_State, s: ^ui.State, dpi: f32, m: Time_Map) {
 }
 
 // One stage for the pointer on the timeline, the track's and each row's: a
-// press focuses the timeline's panel; on a group's name (`item`'s, across
-// its row's start) it opens or closes it, and the drag it starts doesn't
-// scrub; else a press or a drag scrubs (Frame_Set); a middle or right drag
-// pans from where the camera was when it was pressed.
+// press focuses the timeline's panel; on a row's name (`item`'s, across its
+// row's start) it doesn't scrub, and a click there opens or closes a group; else
+// a press or a drag scrubs (Frame_Set); a middle or right drag pans from where
+// the camera was when it was pressed.
 @(private = "file")
 timeline_pointer :: proc(app: ^App_State, s: ^ui.State, sig: ui.Signal, m: Time_Map, item: int) {
 	pv := &app.preview
@@ -739,11 +756,11 @@ timeline_pointer :: proc(app: ^App_State, s: ^ui.State, sig: ui.Signal, m: Time_
 	mouse := platform.mouse_pos(s.p)
 	if ui.pressed(sig) {
 		focus_panel(app, workspace_find(&pv.workspace, .Timeline))
-		pv.press_on_name = false
-		if item >= 0 && pv.waves.items[item].children > 0 && axis_point(m.a, mouse).x - m.x0 < ROW_NAME_WIDTH * app.preview.dpi {
-			pv.press_on_name = true
-			command_push(c, .Timeline_Row_Toggle, {spec = text_of(pv.waves.text[:], pv.waves.items[item].path)})
-		}
+		pv.press_on_name = item >= 0 && pv.waves.items[item].kind not_in bit_set[Timeline_Kind]{.Scenes, .Cues} && axis_point(m.a, mouse).x - m.x0 < ROW_NAME_WIDTH * app.preview.dpi
+	}
+	// (a drag let go on its own row is no click on it)
+	if ui.clicked(sig) && pv.press_on_name && pv.drag == .Null && item >= 0 && pv.waves.items[item].children > 0 {
+		command_push(c, .Timeline_Row_Toggle, {spec = text_of(pv.waves.text[:], pv.waves.items[item].path)})
 	}
 	if sig.flags & {.Middle_Pressed, .Right_Pressed} != {} {
 		start := pv.timeline_camera.first

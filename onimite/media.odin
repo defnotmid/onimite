@@ -153,6 +153,8 @@ Media_Image :: struct {
 	key:           u64,
 	// The latest frame that used the image; frames still in flight pin it.
 	last_use:      int,
+	// Readers of its pixels that outlast a frame (`media_image_hold`).
+	held:          int,
 }
 
 // The decoded images by last use, within a byte budget (pixels and
@@ -444,9 +446,25 @@ media_image :: proc(m: ^Media, name: string, frame := -1) -> (img: ^Media_Image,
 	return img, true
 }
 
+// Image `name`, kept decoded until `media_image_release`: its pixels stay
+// where they are for a reader that outlasts a frame (a preview's view of the
+// file), which shares them instead of copying them.
+media_image_hold :: proc(m: ^Media, name: string) -> (img: ^Media_Image, ok: bool) {
+	img, ok = media_image(m, name)
+	if !ok do return
+	sync.guard(&m.cache.lock)
+	img.held += 1
+	return
+}
+
+media_image_release :: proc(m: ^Media, img: ^Media_Image) {
+	sync.guard(&m.cache.lock)
+	img.held -= 1
+}
+
 // Frees the least recently used decoded images until the rest fit the
-// budget, sparing those used by frame `keep_from` or later (frames still
-// being built or played). With the default no frame is in flight: nothing
+// budget, sparing those held and those used by frame `keep_from` or later
+// (frames still being built or played). With the default no frame is in flight: nothing
 // is spared and the pins are dropped. Call between frames. The texture keys
 // of the evicted images (`key` and `key | 1`) are appended to `evicted`,
 // for shared textures the caller frees (`vg.shared_images_remove`).
@@ -456,7 +474,7 @@ media_evict :: proc(m: ^Media, keep_from := max(int), evicted: ^[dynamic]u64 = n
 	c.evicted = evicted
 	for node := c.lru.tail; node != nil && c.bytes > c.budget; {
 		prev := node.prev
-		if node.key.last_use < keep_from {
+		if node.key.last_use < keep_from && node.key.held == 0 {
 			lru.remove(&c.lru, node.key)
 		}
 		node = prev

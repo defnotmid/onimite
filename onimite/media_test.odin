@@ -180,6 +180,50 @@ test_time_terms :: proc(t: ^testing.T) {
 	testing.expect_value(t, tl.duration_frames, 75)
 }
 
+// A held image stays decoded past the budget, in place, however much else
+// wants the room; let go, it is the cache's again.
+@(test)
+test_image_hold :: proc(t: ^testing.T) {
+	dir, derr := os.make_directory_temp("", "onimite_image_hold_*", context.temp_allocator)
+	testing.expectf(t, derr == nil, "temp directory: %v", derr)
+	if derr != nil do return
+	defer os.remove_all(dir)
+	red: [8 * 8 * 4]u8
+	for i := 0; i < len(red); i += 4 {
+		red[i], red[i + 3] = 255, 255
+	}
+	odimg.write_png(fmt.tprintf("%s/a.png", dir), red[:], 8, 8)
+	odimg.write_png(fmt.tprintf("%s/b.png", dir), red[:], 8, 8)
+	media: Media
+	media_init(&media)
+	defer media_destroy(&media)
+	add_image_file(&media, "a.png", fmt.tprintf("%s/a.png", dir))
+	add_image_file(&media, "b.png", fmt.tprintf("%s/b.png", dir))
+	media.cache.budget = 300 // one image
+
+	a, ok := media_image_hold(&media, "a.png")
+	testing.expect(t, ok)
+	pixels := raw_data(a.pixels)
+	_, _ = media_image(&media, "b.png")
+	testing.expect_value(t, media.cache.bytes, 512)
+	media_evict(&media) // a is the least recently used, and held: b goes
+	testing.expect_value(t, media.cache.bytes, 256)
+	testing.expect(t, raw_data(a.pixels) == pixels)
+	testing.expect(t, media.images["b.png"].pixels == nil)
+
+	media.cache.budget = 100
+	media_evict(&media)
+	testing.expect(t, raw_data(a.pixels) == pixels, "past the budget, it stays")
+	media_image_release(&media, a)
+	media_evict(&media)
+	testing.expect(t, a.pixels == nil)
+	testing.expect_value(t, media.cache.bytes, 0)
+
+	// A file that can't be read is no hold.
+	_, missing := media_image_hold(&media, "none.png")
+	testing.expect(t, !missing)
+}
+
 @(test)
 test_image_eviction :: proc(t: ^testing.T) {
 	tmp := os.get_env("TMPDIR", context.temp_allocator)

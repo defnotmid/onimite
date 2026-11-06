@@ -104,6 +104,10 @@ Mailbox :: struct {
 	// The band sources the timeline's bands rows show (Band_Span.source).
 	bands_wanted:     [dynamic]i32,
 	bands_wanted_seq: u64,
+	// The files the open media views show, by durable id
+	// (preview_media_views.odin).
+	images_wanted:     [dynamic]u64,
+	images_wanted_seq: u64,
 	thumb_ack:        u64,
 	bookmark:         int,
 	bookmark_seq:     u64,
@@ -152,6 +156,13 @@ Mailbox :: struct {
 	// The band sources' textures (by source), bumping `bands_seq`.
 	bands_seq:        u64,
 	band_textures:    [dynamic]Band_Texture,
+	// The files shown, bumping `images_seq`, and the sequence the UI's copy
+	// has taken. `image_pixels` lies beside them, the shared pixels: read here,
+	// under the lock, as the worker clears a row before letting go of them.
+	images:           [dynamic]Image_Shown,
+	image_pixels:     [dynamic][]u8,
+	images_seq:       u64,
+	images_ack:       u64,
 	// Set by a pool job when a clip it built lands (the worker drains it).
 	clips_landed:     bool,
 }
@@ -165,6 +176,9 @@ mailbox_destroy :: proc(mb: ^Mailbox) {
 	delete(mb.marks_loaded)
 	delete(mb.bands_wanted)
 	delete(mb.band_textures)
+	delete(mb.images_wanted)
+	delete(mb.images)
+	delete(mb.image_pixels)
 	video_tables_destroy(&mb.tables)
 	wave_table_destroy(&mb.waves)
 	media_table_destroy(&mb.media)
@@ -295,6 +309,12 @@ Render_Worker :: struct {
 	band_views:       [dynamic]Band_View,
 	band_retired:     [dynamic]^sdl.GPUTexture,
 	bands_landed:     bool, // song segments landed since the views were drawn
+	// The files the media views show and what is made of them, and the
+	// textures the UI may still be drawing (preview_media_views.odin).
+	images_wanted:     [dynamic]u64,
+	images_wanted_seq: u64,
+	image_views:       [dynamic]Image_View,
+	image_retired:     [dynamic]^sdl.GPUTexture,
 	wanted_seq:     u64,
 	// Thumbnails draw video clips from their own decoders (one reader per
 	// clip, opened when the thumbnail renderer is made), so they never pull
@@ -658,6 +678,7 @@ worker_idle_ready :: proc(w: ^Render_Worker) -> (ready: bool, retry: time.Durati
 		w.wanted_seq = w.mb.thumb_wanted_seq
 		table_copy(&w.thumb_wanted, w.mb.thumb_wanted[:])
 	}
+	images_retired_release(w)
 	if w.mb.thumb_ack == w.thumb_gen {
 		if len(w.thumb_retired) > 0 {
 			append(&w.thumb_free, ..w.thumb_retired[:])
@@ -670,7 +691,7 @@ worker_idle_ready :: proc(w: ^Render_Worker) -> (ready: bool, retry: time.Durati
 			clear(&w.band_retired)
 		}
 	}
-	if w.mb.clips_landed || clips_built_here(w) || wave_builder_pending(&w.waves) || tables_pending(w) || media_pending(w) || om.music_queued(w.media) || bands_pending(w) {
+	if images_pending(w) || w.mb.clips_landed || clips_built_here(w) || wave_builder_pending(&w.waves) || tables_pending(w) || media_pending(w) || om.music_queued(w.media) || bands_pending(w) {
 		return true, 0
 	}
 	if thumb_next(w) < 0 {
@@ -776,6 +797,10 @@ worker_idle :: proc(w: ^Render_Worker, busy: bool) {
 		}
 		return
 	}
+	if images_pending(w) {
+		worker_images(w)
+		return
+	}
 	if ok, _ := thumbs_allowed(w, busy); !ok {
 		return
 	}
@@ -790,8 +815,10 @@ worker_idle :: proc(w: ^Render_Worker, busy: bool) {
 worker_load :: proc(w: ^Render_Worker, req: Render_Request, reload_media: bool) {
 	began := time.tick_now()
 	// The audio thread lets go of the samples a load may replace; the tracks
-	// come back with the new script (or the last good one).
+	// come back with the new script (or the last good one). So do the media
+	// views let go of the pixels; they are made again from what the load leaves.
 	audio_clear_tracks(w.audio)
+	worker_images_retire(w)
 	sync.mutex_lock(&w.mb.mutex)
 	w.mb.load_phase = .Script
 	w.mb.load_files = 0
@@ -1385,6 +1412,7 @@ worker_release :: proc(w: ^Render_Worker) {
 	delete(w.thumb_wanted)
 	delete(w.marks)
 	delete(w.bands_wanted)
+	worker_images_release(w)
 	delete(w.band_views)
 	om.timeline_destroy(&w.timeline)
 	om.placed_audio_destroy(&w.placed)
