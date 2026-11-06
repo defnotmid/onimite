@@ -71,14 +71,6 @@ Preview_State :: struct {
 	// The timeline's items open (their keys: their paths' hashes, so they
 	// stay open across reloads).
 	rows_open:          [dynamic]u64,
-	// The video's camera as shown: zoom (1 = fit), its centre and the offset
-	// that puts it there (normalized panel units), following `video_camera`,
-	// which commands set.
-	video_zoom:         f64,
-	video_center:       [2]f64,
-	video_pan:          [2]f64,
-	video_camera:       Video_Camera,
-	video_drag_moved:   bool,
 	// The press on the timeline began on a group's name (no scrubbing).
 	press_on_name:      bool,
 	// Points the timeline's rows below the scenes get in its panel, and
@@ -333,9 +325,55 @@ Timeline_Camera :: struct {
 	first, zoom: f64,
 }
 
-Video_Camera :: struct {
+// Where a picture view looks (Picture_Zoom, Picture_Pan, Picture_Fit): its zoom
+// on the picture fitted in its box (1: fit), and the point at the box's middle,
+// in fractions of the box from the picture's centre at zoom 1. Relative to the
+// box, so it follows a box that changes.
+Picture_Camera :: struct {
 	center: [2]f64,
 	zoom:   f64,
+}
+
+// What each picture view's camera opens at and a fit goes back to, on its fit
+// (0: the view shows no picture). An image keeps its canvas in sight around it,
+// as RAD's does (raddbg_views.c:4934).
+PICTURE_ZOOM := #partial [View_Kind]f64 {
+	.Video = 1,
+	.Image = 0.8,
+}
+
+picture_home :: proc(kind: View_Kind) -> Picture_Camera {
+	return {zoom = PICTURE_ZOOM[kind]}
+}
+
+// The video view's camera as shown, as far as it zooms in (what it renders at).
+@(private)
+video_zoom :: proc(pv: ^Preview_State) -> f64 {
+	v := workspace_view(&pv.workspace, workspace_find(&pv.workspace, .Video))
+	return v.shown.zoom if v != nil else 1
+}
+
+// The scale the worker renders at, for the video in a box `area`: what fits it,
+// times the camera's zoom when zoomed in, less while playing. Quantized, so a
+// window drag doesn't rebuild the renderer every pixel.
+@(private)
+video_scale :: proc(pv: ^Preview_State, area: Workspace_Rect) -> f32 {
+	fit := min(max(area.width, 16) / f32(pv.timeline.width), max(area.height, 16) / f32(pv.timeline.height)) * f32(max(video_zoom(pv), 1))
+	if pv.playing && !pv.scrubbing {
+		fit *= PLAY_SCALES[pv.play_level]
+	}
+	return clamp(math.ceil(fit * 32) / 32, 1.0 / 32, 2)
+}
+
+// The view a camera command is for: `id`; with none (a key's), the focused
+// panel's picture, or else the video.
+@(private)
+picture_target :: proc(ws: ^Workspace, id: View_Id) -> ^View_Record {
+	if id != 0 do return workspace_view(ws, id)
+	if p := workspace_panel(ws, ws.focused); p != nil {
+		if v := workspace_view(ws, p.shown); v != nil && PICTURE_ZOOM[v.kind] > 0 do return v
+	}
+	return workspace_view(ws, workspace_find(ws, .Video))
 }
 
 // Rate of the exponential approach (onib's, oasic's and odincade's).
@@ -387,7 +425,9 @@ camera_follow :: proc(center: []f64, zoom: ^f64, target_center: []f64, target_zo
 // Both cameras at rest, showing everything.
 preview_cameras_reset :: proc(pv: ^Preview_State) {
 	pv.zoom, pv.view_first, pv.timeline_camera = 1, 0, {0, 1}
-	pv.video_zoom, pv.video_center, pv.video_pan, pv.video_camera = 1, {}, {}, {{}, 1}
+	if v := workspace_view(&pv.workspace, workspace_find(&pv.workspace, .Video)); v != nil {
+		v.camera, v.shown = picture_home(.Video), picture_home(.Video)
+	}
 }
 
 // Preview: opens the window and runs it until it closes. The start
@@ -688,7 +728,8 @@ preview_report :: proc(app: ^App_State) {
 // reloads at window frame 60; "lanes" shows every audio lane; "seek" jumps
 // to frame 130, 75 and 340, then back to the start frame (40 window frames
 // apart; feedback buffers' checkpoints); "fullscreen" toggles fullscreen
-// every 60 window frames, from frame 30. The workspace: "watch" opens the
+// every 60 window frames, from frame 30; "closeup" zooms the focused picture four
+// times (20). The workspace: "watch" opens the
 // Watch's tab on its cues (window frame 2), "media" on the media (as I does),
 // "split" splits the video's panel to
 // the right, the new panel a third of it, so a timeline moved there is
@@ -816,6 +857,9 @@ preview_drive_workspace :: proc(app: ^App_State, drive: string, frames: int) {
 	ws := &app.preview.workspace
 	video := workspace_view(ws, workspace_find(ws, .Video))
 	timeline := workspace_find(ws, .Timeline)
+	if frames == 20 && strings.contains(drive, "closeup") {
+		command_push(c, .Picture_Zoom, {scalar = 4, at_xy = {0.5, 0.5}})
+	}
 	if frames == 2 && strings.contains(drive, "watch") {
 		command_push(c, .Watch_Show, {spec = "video:cues"})
 	}
@@ -1285,7 +1329,7 @@ preview_apply :: proc(app: ^App_State, kind: Command_Kind, regs: Command_Regs) {
 	case .Timeline_Fit:
 		pv.detached = false
 		pv.timeline_camera = {0, 1}
-		pv.video_camera = {{}, 1}
+		if v := workspace_view(&pv.workspace, workspace_find(&pv.workspace, .Video)); v != nil do v.camera = picture_home(.Video)
 	case .Timeline_Pan:
 		// A middle drag pans 1:1 with the pointer (flag: the shown camera
 		// snaps); the wheel's pans accumulate on the target and ease.
@@ -1309,26 +1353,30 @@ preview_apply :: proc(app: ^App_State, kind: Command_Kind, regs: Command_Regs) {
 		} else {
 			append(&pv.rows_open, h)
 		}
-	case .Video_Zoom:
-		// 2D zoom about the cursor (normalized panel units from the centre):
-		// the point under it keeps its place in the target; back at 1 the
-		// video is centred again.
-		cam := &pv.video_camera
-		at := [2]f64{f64(regs.at_xy.x) - 0.5, f64(regs.at_xy.y) - 0.5}
-		point := at / cam.zoom + cam.center
-		cam.zoom = clamp(cam.zoom * regs.scalar, 0.25, 32)
-		cam.center = point - at / cam.zoom if cam.zoom != 1 else {}
-	case .Video_Pan:
-		// A drag moves the video 1:1 with the pointer (the shown camera
-		// snaps), within half a panel past fitting.
-		cam := &pv.video_camera
-		bound := 0.5 * max(cam.zoom, 1)
-		pan := -cam.center * cam.zoom + {f64(regs.at_xy.x), f64(regs.at_xy.y)}
-		pan = {clamp(pan.x, -bound, bound), clamp(pan.y, -bound, bound)}
-		cam.center = -pan / cam.zoom
-		pv.video_center, pv.video_zoom, pv.video_pan = cam.center, cam.zoom, pan
-	case .Video_Fit:
-		pv.video_camera = {{}, 1}
+	case .Picture_Zoom:
+		// 2D zoom about the cursor (fractions of the box from its centre):
+		// the point under it keeps its place in the target; back at the zoom it
+		// opened at, the picture is centred again.
+		if v := picture_target(&pv.workspace, regs.view); v != nil {
+			cam := &v.camera
+			at := [2]f64{f64(regs.at_xy.x) - 0.5, f64(regs.at_xy.y) - 0.5}
+			point := at / cam.zoom + cam.center
+			cam.zoom = clamp(cam.zoom * regs.scalar, 1.0 / 256, 256)
+			cam.center = point - at / cam.zoom if cam.zoom != PICTURE_ZOOM[v.kind] else {}
+		}
+	case .Picture_Pan:
+		// A drag moves the picture 1:1 with the pointer (the shown camera
+		// snaps), within half a box past fitting.
+		if v := picture_target(&pv.workspace, regs.view); v != nil {
+			cam := &v.camera
+			bound := 0.5 * max(cam.zoom, 1)
+			pan := -cam.center * cam.zoom + {f64(regs.at_xy.x), f64(regs.at_xy.y)}
+			pan = {clamp(pan.x, -bound, bound), clamp(pan.y, -bound, bound)}
+			cam.center = -pan / cam.zoom
+			v.shown = cam^
+		}
+	case .Picture_Fit:
+		if v := picture_target(&pv.workspace, regs.view); v != nil do v.camera = picture_home(v.kind)
 	case .Fullscreen_Toggle:
 		pv.fullscreen = !pv.fullscreen
 	case .Watch_Show:
@@ -1731,8 +1779,11 @@ preview_motion_advance :: proc(app: ^App_State, dt: f32) {
 	camera_follow(first[:], &pv.zoom, {pv.timeline_camera.first}, pv.timeline_camera.zoom, dt, false, 1e-4 * f64(preview_duration(app)))
 	pv.view_first = first[0]
 	view_clamp(app)
-	camera_follow(pv.video_center[:], &pv.video_zoom, pv.video_camera.center[:], pv.video_camera.zoom, dt, false, 1e-5)
-	pv.video_pan = -pv.video_center * pv.video_zoom
+	for &v in pv.workspace.views {
+		if v.live && PICTURE_ZOOM[v.kind] > 0 {
+			camera_follow(v.shown.center[:], &v.shown.zoom, v.camera.center[:], v.camera.zoom, dt, false, 1e-5)
+		}
+	}
 }
 
 // Keeps the playhead inside the zoomed timeline while following (oasic's
@@ -1957,14 +2008,7 @@ preview_request :: proc(app: ^App_State, p: ^platform.Platform) {
 	// The scale that fits the video's panel (kept while it is hidden),
 	// multiplied by the video camera's zoom when zoomed in.
 	scale := pv.asked_scale if pv.asked_scale > 0 else 1
-	if area, shown := view_area(app, .Video); shown && pv.timeline.width > 0 {
-		fit := min(max(area.width, 16) / f32(pv.timeline.width), max(area.height, 16) / f32(pv.timeline.height)) * f32(max(pv.video_zoom, 1))
-		if pv.playing && !pv.scrubbing {
-			fit *= PLAY_SCALES[pv.play_level]
-		}
-		// Quantized, so a window drag doesn't rebuild the renderer every pixel.
-		scale = clamp(math.ceil(fit * 32) / 32, 1.0 / 32, 2)
-	}
+	if area, shown := view_area(app, .Video); shown && pv.timeline.width > 0 do scale = video_scale(pv, area)
 	frame, hold, through := preview_asked(app)
 	fps := max(preview_fps(app), 1)
 	if pv.asked_frame == frame && pv.asked_hold == hold && pv.asked_through == through && pv.asked_scale == scale && pv.reload_gen == pv.asked_reload && pv.asked_now_start == pv.now_start {
@@ -2196,87 +2240,20 @@ preview_views :: proc(app: ^App_State, s: ^ui.State, p: ^platform.Platform) {
 	}
 }
 
-// What the video's box draws: the worker's newest frame, through a
-// borrowed image, where the video camera puts it.
-@(private = "file")
-Video_Draw :: struct {
-	pv: ^Preview_State,
-	r:  ^render.Renderer,
-}
-
-@(private = "file")
-video_draw :: proc(s: ^ui.State, box: ^ui.Box, c: ^vg.Canvas) {
-	d := (^Video_Draw)(box.custom_data)
-	pv := d.pv
-	if pv.video_texture == nil || pv.blackout {
-		return
-	}
-	w := box.rect.max.x - box.rect.min.x
-	h := box.rect.max.y - box.rect.min.y
-	if w <= 0 || h <= 0 || pv.video_size.x <= 0 || pv.video_size.y <= 0 {
-		return
-	}
-	iw, ih := f32(pv.video_size.x), f32(pv.video_size.y)
-	fit := min(w / iw, h / ih)
-	z := f32(max(pv.video_zoom, 1e-4))
-	dw, dh := iw * fit * z, ih * fit * z
-	cx := box.rect.min.x + w * (0.5 + f32(pv.video_pan.x))
-	cy := box.rect.min.y + h * (0.5 + f32(pv.video_pan.y))
-	image := render.image_borrow(d.r, c, pv.video_texture, pv.video_size.x, pv.video_size.y)
-	vg.path_reset(&s.path)
-	vg.path_rect(&s.path, cx - dw * 0.5, cy - dh * 0.5, dw, dh)
-	vg.fill_path(c, &s.path, vg.paint_image(image, cx - dw * 0.5, cy - dh * 0.5, dw, dh, 0))
-}
-
-// The video, letterboxed in `area` with 2D wheel zoom and drag pan; a click
-// toggles playback and a double-click fits the camera (a live board's takes
-// none of it). A drag pans from where the camera was when it was pressed
-// (RAD's stored drag state and drag delta); the wheel with Control over it
-// zooms too (as RAD's views take it while hovered). Over it, what the worker
-// is doing until the first frame shows, and a failed reload.
+// The video: the worker's newest frame as a picture (picture_gestures), and a
+// click toggles playback (a live board's takes none of it). Over it, what the
+// worker is doing until the first frame shows, and a failed reload.
 @(private)
 video_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32, area: Workspace_Rect) {
 	pv := &app.preview
 	c := &app.commands
 	ui.set_next_pref_width(s, ui.pct(1)); ui.set_next_pref_height(s, ui.pct(1, 0)); ui.set_next_child_layout_axis(s, .Y)
 	video := ui.build_box(s, {.Clickable, .Scroll, .Clip}, "###video")
-	draw := new(Video_Draw, context.temp_allocator)
-	draw^ = {pv, pv.renderer}
-	ui.box_equip_custom_draw(video, video_draw, draw)
 	sig := ui.signal_from_box(s, video)
-	w, h := video.rect.max.x - video.rect.min.x, video.rect.max.y - video.rect.min.y
-	if sig.flags & {.Left_Pressed, .Middle_Pressed, .Right_Pressed} != {} {
-		pv.video_drag_moved = false
-		start := -pv.video_camera.center * pv.video_camera.zoom
-		ui.store_drag_struct(s, &start)
-	}
-	if ui.pressed(sig) && !pv.bare {
-		focus_panel(app, workspace_find(&pv.workspace, .Video))
-	}
-	if w > 0 && h > 0 && !pv.live {
-		if ui.dragging(sig) && (abs(sig.drag_delta.x) > 3 * dpi || abs(sig.drag_delta.y) > 3 * dpi) {
-			pv.video_drag_moved = true
-		}
-		if (pv.video_drag_moved && ui.dragging(sig)) || ui.middle_dragging(sig) || ui.right_dragging(sig) {
-			d := ui.drag_delta(s)
-			want := ui.drag_struct(s, [2]f64)^ + {f64(d.x / w), f64(d.y / h)}
-			if at := -pv.video_camera.center * pv.video_camera.zoom; want != at {
-				command_push(c, .Video_Pan, {at_xy = {f32(want.x - at.x), f32(want.y - at.y)}})
-			}
-		}
-		// A notch up zooms in 1.25 times.
-		wheel := sig.scroll.y
-		if ui.hovering(sig) do wheel += ui.action_scroll_take(s, {.Control}, any = true)
-		if wheel != 0 {
-			mouse := platform.mouse_pos(s.p)
-			at_xy := [2]f32 {
-				clamp((mouse.x - video.rect.min.x) / w, 0, 1),
-				clamp((mouse.y - video.rect.min.y) / h, 0, 1),
-			}
-			command_push(c, .Video_Zoom, {scalar = math.pow(1.25, -f64(wheel) / ui.NOTCH_STEPS), at_xy = at_xy})
-		}
-	}
-	if ui.clicked(sig) && !pv.video_drag_moved && !pv.live {
+	id := workspace_find(&pv.workspace, .Video)
+	if ui.pressed(sig) && !pv.bare do focus_panel(app, id)
+	moved := !pv.live && picture_gestures(app, s, id, sig, video)
+	if ui.clicked(sig) && !moved && !pv.live {
 		command_push(c, .Present_Next if pv.present else .Playback_Toggle)
 	}
 	if pv.present && ui.right_clicked(sig) {
@@ -2329,6 +2306,13 @@ video_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32, area: Workspace_Rect
 			first_line = first_line[:i]
 		}
 		label_row(s, dpi, fmt.tprintf("reload failed: %s###reload_error", first_line), {70, 24, 28, 235}, {255, 220, 220, 255})
+	}
+	// Built last, it lies under them.
+	if v := workspace_view(&pv.workspace, id); v != nil && pv.video_texture != nil && !pv.blackout && pv.video_size.x > 0 && pv.video_size.y > 0 && area.width > 0 && area.height > 0 {
+		// (`area` as the layout places its box this frame, on whole pixels)
+		dim := [2]f32{math.floor(area.x + area.width) - math.floor(area.x), math.floor(area.y + area.height) - math.floor(area.y)}
+		lo, hi := picture_rect({f32(pv.video_size.x), f32(pv.video_size.y)}, dim, v.shown)
+		picture_box(s, {pv.renderer, pv.video_texture, pv.video_size, {}, lo, hi}, {}, "###video_picture")
 	}
 }
 

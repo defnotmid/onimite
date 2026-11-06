@@ -454,7 +454,7 @@ watch_visualizer_view :: proc(app: ^App_State, s: ^ui.State, id: View_Id, row: V
 	sig: ui.Signal
 	switch lens {
 	case .Image:
-		sig = bitmap_view(app, s, &view.bitmap, file, key, dim, false)
+		sig = bitmap_view(app, s, view_id, file, key, dim, false)
 	case .Audio:
 		sig = audio_view(app, s, file, key, dim)
 	}
@@ -540,9 +540,8 @@ image_contain_draw :: proc(s: ^ui.State, box: ^ui.Box, c: ^vg.Canvas) {
 	x, y := box.rect.min.x, box.rect.min.y
 	w, h := box.rect.max.x - x, box.rect.max.y - y
 	if d.size.x == 0 || d.size.y == 0 || w <= 0 || h <= 0 do return
-	scale := min(w / f32(d.size.x), h / f32(d.size.y))
-	dw, dh := f32(d.size.x) * scale, f32(d.size.y) * scale
-	dx, dy := x + (w - dw) * 0.5, y + (h - dh) * 0.5
+	lo, hi := picture_rect({f32(d.size.x), f32(d.size.y)}, {w, h})
+	dx, dy, dw, dh := x + lo.x, y + lo.y, hi.x - lo.x, hi.y - lo.y
 	vg.path_reset(&s.path)
 	vg.path_rect(&s.path, dx, dy, dw, dh)
 	vg.fill_path(c, &s.path, vg.paint_image(d.image, dx, dy, dw, dh, 0, box.opacity))

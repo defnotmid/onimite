@@ -444,9 +444,9 @@ table's in its panel. A row's arrow (or a press on it) unfolds it into its
 members, as a debugger's watch does: a scene into its `name`, `start`,
 `end`, `cue`, `source`, `hold`, `status` and its `problems`, which unfold
 in turn; a problem into what it says and the `scenes` it was seen in. An
-image unfolds into the picture itself, eight rows tall: a drag pans it and a
-double click puts it back, while the wheel still scrolls the list; it stays
-where you left it until you close its row. A sound unfolds into a player, four
+image unfolds into the picture itself, eight rows tall: a drag pans it, Ctrl+wheel
+zooms it and a double click puts it back, as over the video, while the plain wheel
+still scrolls the list; it stays where you left it until you close its row. A sound unfolds into a player, four
 rows tall: its waveform, with a button that plays and pauses it, as Enter or
 Space does on its row; a press on the waveform plays from there and a drag
 follows the pointer. The file plays alone, as it is, with nothing of the mix
@@ -455,7 +455,7 @@ the file ends, when you close the file's last view, or when you play or move
 the video; the video stays paused unless it was you who played it. Any row
 dragged out of itself onto a panel, on the same drop sites as a tab, opens
 there as a tab of its own: an image as the picture, taking its pan with it,
-where the wheel zooms about the pointer and the pixel under the pointer is
+where the plain wheel zooms too and the pixel under the pointer is
 outlined with its colour in a tooltip, while its row stays open with a fresh
 view; a sound as its player, where Enter or Space plays and pauses it with its
 panel focused; anything else as a Watch on it, and dragged again, that same
@@ -507,7 +507,7 @@ repeats. A wheel notch scrolls a list three rows.
 | Delete, Backspace (video, timeline) | remove the mark under the playhead |
 | = / - | zoom the timeline (also Ctrl+wheel over it; a zoomed timeline you scroll stops following the playhead until Follow); Ctrl+0 fits it |
 | T | collapse / expand the timeline |
-| Z | fit the video in its panel (the wheel over the video zooms around the cursor, dragging pans) |
+| Z | fit the focused picture, or else the video, in its panel (over either the wheel zooms around the cursor, dragging pans and a double click fits it) |
 | F, Ctrl+Enter | fullscreen |
 | D / I | the Watch's problems / media tab |
 | N / Shift+N | next / previous scene, cue, problem or media row with a warning or an error |
@@ -515,7 +515,7 @@ repeats. A wheel notch scrolls a list three rows.
 | R | reload |
 | Ctrl+P | go to a scene, cue, problem or mark (Go to: type to filter its names, Up/Down, Enter) |
 | Ctrl+F or / (in a Watch's panel: click it first) | opens or shuts its filter row (type to filter its rows; Enter shuts the row and keeps the filter, Esc clears the filter and shuts it) |
-| Alt+= / Alt+-, Ctrl+wheel (not over the video or the timeline) | the window's text a point larger / smaller |
+| Alt+= / Alt+-, Ctrl+wheel (not over a picture or the timeline) | the window's text a point larger / smaller |
 | Up / Down, Page Up / Down, Enter, Space (a focused Watch) | move its cursor row; Enter or Space goes to the row's frame (on an expression: edits it; on a sound's player: plays and pauses it) |
 | typing, Ctrl+V / Delete / Alt+Up, Alt+Down / Ctrl+C (an expression Watch) | add or edit an expression / remove it / move it / copy a row's expression |
 | Ctrl+C / Ctrl+X / Ctrl+V, Ctrl+A (in a field) | copy / cut / paste, select all |

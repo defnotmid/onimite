@@ -394,13 +394,13 @@ PgDn/S/W, PgUp/B/Shift+S next/previous scene · M set the bookmark (reloads retu
 `[` / `]` mark a range's in / out · P mark a moment (again: unmark) · Delete / Backspace remove
 the mark under the playhead (the marks file beside the script, `show marks`) ·
 Up/L, Down/H volume · Ctrl+Down/Ctrl+H mute · Shift+L loop · =/- zoom the timeline, Ctrl+0
-fit it · Z fit the video in its panel · T hide timeline · F or Ctrl+Enter fullscreen · D/I the Watch on problems/media · N/Shift+N
+fit it · Z fit the focused picture, or else the video, in its panel · T hide timeline · F or Ctrl+Enter fullscreen · D/I the Watch on problems/media · N/Shift+N
 next/previous row with a warning or error · Ctrl+P go to a scene, cue, problem or mark (type to
 filter, Up/Down, Enter) · Ctrl+F or / in a Watch's panel (click it first) opens or shuts its filter row (Enter keeps the filter, Esc clears it) · R reload · Ctrl+O open a script · Esc closes the list or a
 Watch's filter · Q close. Keys take exactly the modifiers listed and repeat while held.
 Click or drag the timeline to scrub; once zoomed, it stops following the playhead when you
-scroll it, and its Follow button brings it back. Over the video, the wheel zooms around the
-cursor and dragging pans (a click still plays/pauses); Ctrl+wheel over the video or the timeline zooms it, elsewhere it
+scroll it, and its Follow button brings it back. Over the video or an image's tab, the wheel zooms around the
+cursor, dragging pans (a click on the video still plays/pauses) and a double click fits it; Ctrl+wheel over a picture or the timeline zooms it (an image in a Watch's row, whose plain wheel is the list's, too), elsewhere it
 sizes the window's text. Views are tabs in panels (X, a middle click or Ctrl+W closes one): drag a tab to another panel or
 its edge, `+` lists the views to open in that panel and its splits (type to filter). A timeline
 in a panel at the side, taller than wide, runs its ruler, scenes and cues top to bottom, without its lanes (the scenes take the width beside a column of cue names); the lanes scroll as a list (wheel, scroll bar). Filters match each space-separated

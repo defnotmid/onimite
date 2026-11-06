@@ -184,9 +184,8 @@ clip_end :: proc(p: Pen) {vg.restore(p.c)}
 image :: proc(p: Pen, texture: ^sdl.GPUTexture, size: [2]u32, x, y, w, h: f32) {
 	wx, wy, ww, wh := axis_rect(p.a, x, y, w, h)
 	if texture == nil || size.x == 0 || size.y == 0 || ww <= 0 || wh <= 0 do return
-	scale := min(ww / f32(size.x), wh / f32(size.y))
-	dw, dh := f32(size.x) * scale, f32(size.y) * scale
-	dx, dy := wx + (ww - dw) * 0.5, wy + (wh - dh) * 0.5
+	lo, hi := picture_rect({f32(size.x), f32(size.y)}, {ww, wh})
+	dx, dy, dw, dh := wx + lo.x, wy + lo.y, hi.x - lo.x, hi.y - lo.y
 	id := render.image_borrow(p.r, p.c, texture, size.x, size.y)
 	vg.path_reset(&p.s.path)
 	vg.path_rect(&p.s.path, dx, dy, dw, dh)

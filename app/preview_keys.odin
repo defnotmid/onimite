@@ -61,7 +61,7 @@ PREVIEW_KEYS := [?]Key_Binding {
 	{key = .F, kind = .Fullscreen_Toggle},
 	{key = .Enter, mods = {.Control}, kind = .Fullscreen_Toggle}, // RAD's toggle_fullscreen
 	{key = .T, kind = .Timeline_Toggle},
-	{key = .Z, kind = .Video_Fit},
+	{key = .Z, kind = .Picture_Fit},
 	{key = .I, kind = .Watch_Show, regs = {spec = "video:media"}},
 	{key = .P, mods = {.Control}, kind = .Go_To}, // its query asks where (command_run)
 	{key = .W, mods = {.Control}, kind = .View_Close}, // RAD's close_tab: the focused panel's shown tab

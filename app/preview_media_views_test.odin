@@ -170,7 +170,7 @@ test_image_view_through_the_pipeline :: proc(t: ^testing.T) {
 	testing.expect(t, image != nil)
 	if image == nil do return
 	zoom := 8 * row_h / 2 * 0.8
-	testing.expect(t, abs(rv.bitmap.zoom - zoom) < 0.001)
+	testing.expect_value(t, rv.camera, picture_home(.Image))
 	testing.expect(t, abs((image.rect.max.x - image.rect.min.x) - 2 * zoom) <= 1)
 
 	// Over the picture in a row: no outline, no tooltip.
@@ -188,19 +188,26 @@ test_image_view_through_the_pipeline :: proc(t: ^testing.T) {
 	testing.expect_value(t, view_list(pv, id).cursor, 2) // a press puts the cursor on it
 	tp.p.input.mouse -= {20, 0}
 	test_frame(&tp)
-	testing.expect(t, abs(rv.bitmap.center.x - 20 / zoom) < 0.001)
+	testing.expect(t, abs(rv.camera.center.x - f64(20 / (canvas.rect.max.x - canvas.rect.min.x)) / 0.8) < 0.001)
+	testing.expect_value(t, rv.shown, rv.camera) // 1:1 with the pointer
 	test_frame(&tp, {kind = .Mouse_Release, button = .Left})
 	test_frame(&tp, {kind = .Mouse_Press, button = .Left})
 	test_frame(&tp, {kind = .Mouse_Release, button = .Left})
 	test_frame(&tp, {kind = .Mouse_Press, button = .Left})
 	test_frame(&tp, {kind = .Mouse_Release, button = .Left})
-	testing.expect(t, rv.bitmap.center == {} && rv.bitmap.zoom == 1)
-	rv.bitmap.center, rv.bitmap.zoom = {3, 4}, zoom
+	testing.expect_value(t, rv.camera, picture_home(.Image))
+	looking := Picture_Camera{{0.1, 0.2}, 0.8}
+	rv.camera, rv.shown = looking, looking
 
 	// The wheel over it is the list's: the rows move, the image doesn't zoom.
 	scrolled := test_frame(&tp, {kind = .Scroll, position = tp.p.input.mouse, delta = {0, -platform.WHEEL_NOTCH}})
 	testing.expect(t, test_has(scrolled, .View_Scroll))
-	testing.expect_value(t, rv.bitmap.zoom, zoom)
+	testing.expect_value(t, rv.camera, looking)
+	// With Control it is the picture's, as over any picture.
+	closer := test_frame(&tp, {kind = .Scroll, modifiers = {.Control}, position = tp.p.input.mouse, delta = {0, -platform.WHEEL_NOTCH}})
+	testing.expect(t, test_has(closer, .Picture_Zoom) && !test_has(closer, .View_Scroll))
+	testing.expect(t, abs(rv.camera.zoom - 0.8 * 1.25) < 1e-9)
+	rv.camera, rv.shown = looking, looking
 
 	// Scrolled off the window and back: still open, looking where it did, its
 	// file asked for all the while.
@@ -213,7 +220,7 @@ test_image_view_through_the_pipeline :: proc(t: ^testing.T) {
 	for _ in 0 ..< 3 do test_frame(&tp)
 	testing.expect(t, test_box(&tp.s, canvas_key) != nil, "back")
 	rv = row_view(pv, id, logo)
-	testing.expect(t, rv.bitmap.center == {3, 4} && rv.bitmap.zoom == zoom)
+	testing.expect_value(t, rv.camera, looking)
 
 	// A filter that hides it closes nothing.
 	append(&v.filter, "music")
@@ -277,11 +284,11 @@ test_row_views_name_their_files :: proc(t: ^testing.T) {
 
 	// Its expression edited to the same file: the row keeps its view, which
 	// follows what the row now says.
-	row_view(pv, other, top).bitmap.center = {7, 8}
+	row_view(pv, other, top).camera.center = {7, 8}
 	command_push(&app.commands, .Watch_Input_Set, {view = other, count = 0, spec = "media[1]"})
 	for _ in 0 ..< 3 do test_frame(&tp)
 	testing.expect_value(t, row_view(pv, other, top).inputs[0].source, "media[1]")
-	testing.expect_value(t, row_view(pv, other, top).bitmap.center, [2]f32{7, 8})
+	testing.expect_value(t, row_view(pv, other, top).camera.center, [2]f64{7, 8})
 
 	// (the first Watch's tab is hidden now: its row's view still stands)
 	command_push(&app.commands, .Watch_Input_Remove, {view = other, count = 0})
@@ -384,7 +391,7 @@ test_image_row_pulls_out_as_a_tab :: proc(t: ^testing.T) {
 	pulled := workspace_row_view(ws, id, row_view_key(logo.key))
 	testing.expect(t, pulled != 0)
 	if pulled == 0 do return
-	workspace_view(ws, pulled).bitmap.center = {0.25, 0.5}
+	workspace_view(ws, pulled).camera.center = {0.25, 0.5}
 	row_key := fmt.tprintf("###watch_row_%d_%s", id, logo.key)
 	video := workspace_view(ws, workspace_find(ws, .Video)).panel
 	over_video := ws.areas[video - 1].content
@@ -439,7 +446,7 @@ test_image_row_pulls_out_as_a_tab :: proc(t: ^testing.T) {
 	testing.expect(t, tab != nil && tab.panel == video && tab.owner == 0 && tab.kind == .Image)
 	if tab == nil do return
 	testing.expect_value(t, workspace_panel(ws, video).shown, pulled)
-	testing.expect_value(t, tab.bitmap.center, [2]f32{0.25, 0.5})
+	testing.expect_value(t, tab.camera.center, [2]f64{0.25, 0.5})
 	title, _ := view_title(app, pulled)
 	testing.expect_value(t, title, "logo.png")
 
@@ -447,7 +454,7 @@ test_image_row_pulls_out_as_a_tab :: proc(t: ^testing.T) {
 	for _ in 0 ..< 3 do test_frame(&tp)
 	fresh := workspace_row_view(ws, id, row_view_key(logo.key))
 	testing.expect(t, fresh != 0 && fresh != pulled)
-	testing.expect_value(t, workspace_view(ws, fresh).bitmap.center, [2]f32{0, 0})
+	testing.expect_value(t, workspace_view(ws, fresh).camera.center, [2]f64{0, 0})
 	testing.expect(t, len(pv.files_open) == 1 && pv.files_open[0] == file)
 
 	// The tab shows the file, with the wheel and the tooltip a row hasn't.
@@ -463,9 +470,9 @@ test_image_row_pulls_out_as_a_tab :: proc(t: ^testing.T) {
 	test_frame(&tp)
 	hex := test_box(&tp.s, "###color_tooltip_hex")
 	testing.expect(t, hex != nil && hex.str == "Hex: #ff0000ff")
-	zoom := workspace_view(ws, pulled).bitmap.zoom
+	zoom := workspace_view(ws, pulled).camera.zoom
 	test_frame(&tp, {kind = .Scroll, position = tp.p.input.mouse, delta = {0, -platform.WHEEL_NOTCH}})
-	testing.expect(t, workspace_view(ws, pulled).bitmap.zoom != zoom)
+	testing.expect(t, workspace_view(ws, pulled).camera.zoom != zoom)
 
 	// The tab outlives the row and its Watch, and the file stays with it.
 	command_push(&app.commands, .View_Close, {view = id})
@@ -894,45 +901,79 @@ test_image_view_in_a_tab :: proc(t: ^testing.T) {
 	mb.images_seq += 1
 	images_take(pv, &mb)
 
-	state: Bitmap_View
+	ws := &pv.workspace
+	append(&ws.views, View_Record{live = true, kind = .Image, camera = picture_home(.Image), shown = picture_home(.Image)})
+	id := View_Id(len(ws.views))
 	dim := [2]f32{400, 300}
-	frame :: proc(tp: ^Test_Preview, state: ^Bitmap_View, file: u64, dim: [2]f32, events: ..platform.Event) {
+	frame :: proc(tp: ^Test_Preview, id: View_Id, file: u64, dim: [2]f32, events: ..platform.Event) {
 		p := &tp.p
 		clear(&p.input.events)
 		for e in events do append(&p.input.events, e)
 		preview_input(&tp.app, &tp.s, p)
 		ui.build_begin(&tp.s)
-		bitmap_view(&tp.app, &tp.s, state, file, "tab", dim, true)
+		bitmap_view(&tp.app, &tp.s, id, file, "tab", dim, true)
 		ui.build_end(&tp.s)
+		dispatch(&tp.app)
 		clear(&p.input.events)
 	}
 	tp.p.input.mouse = {5000, 5000}
-	frame(&tp, &state, file, dim)
-	frame(&tp, &state, file, dim)
+	frame(&tp, id, file, dim)
+	frame(&tp, id, file, dim)
 	zoom := dim.y / 2 * 0.8
-	testing.expect(t, abs(state.zoom - zoom) < 0.001)
+	image := test_box(&tp.s, "###bmp_image_tab")
+	testing.expect(t, image != nil && abs(image.rect.max.y - image.rect.min.y - 2 * zoom) < 0.001)
 
-	// The second row's second pixel: right of and below the middle.
-	on_pixel := dim / 2 + [2]f32{zoom * 0.5, zoom * 0.5}
+	// The second row's second pixel: right of and below the middle (a tenth of a
+	// texel in: by the fit alone it would still be the first).
+	on_pixel := dim / 2 + [2]f32{zoom * 0.1, zoom * 0.1}
 	tp.p.input.mouse = on_pixel
-	frame(&tp, &state, file, dim)
-	frame(&tp, &state, file, dim)
+	frame(&tp, id, file, dim)
+	frame(&tp, id, file, dim)
 	testing.expect(t, test_box(&tp.s, "###bmp_pixel_tab") != nil)
 	hex := test_box(&tp.s, "###color_tooltip_hex")
 	testing.expect(t, hex != nil && hex.str == "Hex: #ffff0080")
 
 	// The wheel zooms about the pointer.
-	under := (on_pixel - dim / 2) / state.zoom + state.center
-	frame(&tp, &state, file, dim, platform.Event{kind = .Scroll, position = on_pixel, delta = {0, -platform.WHEEL_NOTCH}})
-	testing.expect(t, state.zoom != zoom)
-	after := (on_pixel - dim / 2) / state.zoom + state.center
+	v := workspace_view(ws, id)
+	at := [2]f64{f64(on_pixel.x / dim.x) - 0.5, f64(on_pixel.y / dim.y) - 0.5}
+	under := at / v.camera.zoom + v.camera.center
+	frame(&tp, id, file, dim, platform.Event{kind = .Scroll, position = on_pixel, delta = {0, -platform.WHEEL_NOTCH}})
+	testing.expect(t, abs(v.camera.zoom - 0.8 * 1.25) < 1e-9)
+	after := at / v.camera.zoom + v.camera.center
 	testing.expect(t, abs(after.x - under.x) < 0.001 && abs(after.y - under.y) < 0.001)
+
+	// A tab's drag and double press are its own camera's, wherever the focus is,
+	// and it lies on whole pixels, as its border does.
+	v.camera, v.shown = {{0.0123, 0.0456}, 1.17}, {{0.0123, 0.0456}, 1.17}
+	video := workspace_view(ws, workspace_find(ws, .Video))
+	video.camera = {{0.25, 0.25}, 2}
+	tp.s.press_keys[.Left] = {}
+	frame(&tp, id, file, dim)
+	whole := (^Picture)(test_box(&tp.s, "###bmp_image_tab").custom_data)
+	testing.expect(t, whole.lo.x == math.floor(whole.lo.x) && whole.lo.y == math.floor(whole.lo.y) && whole.hi.x == math.floor(whole.hi.x) && whole.hi.y == math.floor(whole.hi.y))
+	before := v.camera.center
+	frame(&tp, id, file, dim, platform.Event{kind = .Mouse_Press, button = .Left, position = on_pixel})
+	tp.p.input.mouse += {40, 0}
+	frame(&tp, id, file, dim)
+	testing.expect(t, abs(v.camera.center.x - (before.x - f64(40 / dim.x) / 1.17)) < 1e-4)
+	testing.expect_value(t, video.camera, Picture_Camera{{0.25, 0.25}, 2})
+	frame(&tp, id, file, dim, platform.Event{kind = .Mouse_Release, button = .Left, position = tp.p.input.mouse})
+	tp.p.input.mouse = on_pixel
+	tp.s.press_keys[.Left] = {}
+	frame(&tp, id, file, dim)
+	for _ in 0 ..< 2 {
+		frame(&tp, id, file, dim, platform.Event{kind = .Mouse_Press, button = .Left, position = on_pixel})
+		frame(&tp, id, file, dim, platform.Event{kind = .Mouse_Release, button = .Left, position = on_pixel})
+	}
+	testing.expect_value(t, v.camera, picture_home(.Image))
+	testing.expect_value(t, video.camera, Picture_Camera{{0.25, 0.25}, 2})
+	v.camera, v.shown = picture_home(.Image), picture_home(.Image)
 
 	// Its row taken out: nothing to read, and the texture still draws.
 	clear(&mb.images)
 	clear(&mb.image_pixels)
-	frame(&tp, &state, file, dim)
-	frame(&tp, &state, file, dim)
+	frame(&tp, id, file, dim)
+	frame(&tp, id, file, dim)
 	testing.expect(t, test_box(&tp.s, "###color_tooltip_hex") == nil)
 	testing.expect(t, test_box(&tp.s, "###bmp_image_tab") != nil)
 }
@@ -1406,6 +1447,172 @@ test_sound_view_plays_alone :: proc(t: ^testing.T) {
 // sound and the timeline's regions of it read the same one, an unplaced sound
 // gets its own, and the peaks are right. Asked for no more, a file's row goes;
 // its pyramid stays with the media's. Laid out again, nothing is made twice.
+// Where a picture lies: fitted in its box, letterboxed either way, then moved and
+// scaled by its camera.
+@(test)
+test_picture_rect :: proc(t: ^testing.T) {
+	check :: proc(t: ^testing.T, size, dim: [2]f32, cam: Picture_Camera, lo, hi: [2]f32, loc := #caller_location) {
+		a, b := picture_rect(size, dim, cam)
+		testing.expectf(t, a == lo && b == hi, "%v %v %v: %v..%v", size, dim, cam, a, b, loc = loc)
+	}
+	fit := Picture_Camera{zoom = 1}
+	check(t, {200, 100}, {800, 200}, fit, {200, 0}, {600, 200})
+	check(t, {200, 100}, {200, 800}, fit, {0, 350}, {200, 450})
+	// Twice as big, about the box's middle.
+	check(t, {200, 100}, {800, 200}, {zoom = 2}, {0, -100}, {800, 300})
+	// The point a quarter of the box right of its centre at the middle.
+	check(t, {200, 100}, {800, 200}, {{0.25, 0}, 1}, {0, 0}, {400, 200})
+	// (zoomed, the same point: the picture has moved twice as far)
+	check(t, {200, 100}, {800, 200}, {{0.25, 0}, 2}, {-400, -100}, {400, 300})
+	// With no camera, contained.
+	a, b := picture_rect({200, 100}, {800, 200})
+	testing.expect(t, a == [2]f32{200, 0} && b == [2]f32{600, 200})
+}
+
+// Every picture view takes the same gestures on its own camera, as commands with
+// its id: the video, and an image in a tab. A left drag starts past a few pixels,
+// so a click stays the video's; a double press fits; Z fits the focused picture,
+// or else the video. The video's camera places its frame.
+@(test)
+test_pictures_share_their_camera :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	tp: Test_Preview
+	testing.expect(t, test_preview_make(&tp))
+	defer test_preview_destroy(&tp)
+	app := &tp.app
+	pv := &app.preview
+	ws := &pv.workspace
+	tp.p.frame_dt = 1
+	pv.video_texture, pv.video_size = (^sdl.GPUTexture)(uintptr(8)), {1280, 720}
+	defer pv.video_texture = nil
+	for _ in 0 ..< 3 do test_frame(&tp)
+	id := workspace_find(ws, .Video)
+	v := workspace_view(ws, id)
+	box := test_box(&tp.s, "###video")
+	picture := test_box(&tp.s, "###video_picture")
+	if !testing.expect(t, box != nil && picture != nil) do return
+	testing.expect_value(t, v.camera, picture_home(.Video))
+	dim := box.rect.max - box.rect.min
+	placed :: proc(t: ^testing.T, tp: ^Test_Preview, v: ^View_Record, dim: [2]f32, loc := #caller_location) {
+		// (to the fraction of a pixel: it eases smoothly)
+		d := (^Picture)(test_box(&tp.s, "###video_picture").custom_data)
+		lo, hi := picture_rect({1280, 720}, dim, v.shown)
+		testing.expectf(t, d.lo == lo && d.hi == hi, "%v..%v, want %v..%v", d.lo, d.hi, lo, hi, loc = loc)
+	}
+	placed(t, &tp, v, dim)
+
+	// The wheel, and the frame follows the shown camera.
+	middle := box.rect.min + dim / 2
+	tp.p.input.mouse = middle
+	test_frame(&tp)
+	rows := test_frame(&tp, {kind = .Scroll, position = middle, delta = {0, -platform.WHEEL_NOTCH}})
+	testing.expect(t, test_has(rows, .Picture_Zoom))
+	testing.expect(t, abs(v.camera.zoom - 1.25) < 1e-9)
+	for _ in 0 ..< 60 do preview_motion_advance(app, 1)
+	testing.expect(t, abs(video_zoom(pv) - 1.25) < 1e-6)
+	test_frame(&tp)
+	test_frame(&tp)
+	placed(t, &tp, v, dim)
+
+	// A press without a drag is the video's click; two pixels is still a click.
+	test_frame(&tp)
+	test_frame(&tp, {kind = .Mouse_Press, button = .Left})
+	tp.p.input.mouse += {2, 0}
+	rows = test_frame(&tp)
+	testing.expect(t, !test_has(rows, .Picture_Pan))
+	rows = test_frame(&tp, {kind = .Mouse_Release, button = .Left})
+	testing.expect(t, test_has(rows, .Playback_Toggle))
+
+	// Past a few pixels it pans 1:1, and is no click. (This press is not a double.)
+	tp.p.input.mouse = middle
+	before := v.camera.center
+	tp.s.press_keys[.Left] = {}
+	test_frame(&tp)
+	test_frame(&tp, {kind = .Mouse_Press, button = .Left})
+	tp.p.input.mouse += {40, 0}
+	rows = test_frame(&tp)
+	testing.expect(t, test_has(rows, .Picture_Pan))
+	testing.expect(t, abs(v.camera.center.x - (before.x - f64(40 / dim.x) / 1.25)) < 1e-4)
+	testing.expect_value(t, v.shown, v.camera)
+	rows = test_frame(&tp, {kind = .Mouse_Release, button = .Left})
+	testing.expect(t, !test_has(rows, .Playback_Toggle))
+
+	// The other buttons pan at once, past no threshold.
+	v.camera, v.shown = picture_home(.Video), picture_home(.Video)
+	test_frame(&tp)
+	test_frame(&tp, {kind = .Mouse_Press, button = .Middle})
+	tp.p.input.mouse += {2, 0}
+	rows = test_frame(&tp)
+	testing.expect(t, test_has(rows, .Picture_Pan))
+	test_frame(&tp, {kind = .Mouse_Release, button = .Middle})
+	v.camera, v.shown = {{}, 1.25}, {{}, 1.25}
+
+	// A live board takes none of it.
+	pv.live = true
+	tp.p.input.mouse = middle
+	rows = test_frame(&tp, {kind = .Scroll, position = middle, delta = {0, -platform.WHEEL_NOTCH}})
+	testing.expect(t, !test_has(rows, .Picture_Zoom))
+	pv.live = false
+
+	// What the worker renders at follows the zoom, up to twice the video's size.
+	pv.timeline.width, pv.timeline.height = 1280, 720
+	v.shown.zoom = 1
+	testing.expect_value(t, video_scale(pv, {width = 640, height = 360}), f32(0.5))
+	v.shown.zoom = 2
+	testing.expect_value(t, video_scale(pv, {width = 640, height = 360}), f32(1))
+	v.shown.zoom = 16
+	testing.expect_value(t, video_scale(pv, {width = 640, height = 360}), f32(2))
+	v.shown.zoom = 1.25
+
+	// A double press fits it, and each click stays a click.
+	tp.p.input.mouse = middle
+	tp.s.press_keys[.Left] = {}
+	test_frame(&tp)
+	toggles := 0
+	for _ in 0 ..< 2 {
+		rows = test_frame(&tp, {kind = .Mouse_Press, button = .Left})
+		rows2 := test_frame(&tp, {kind = .Mouse_Release, button = .Left})
+		if test_has(rows2, .Playback_Toggle) do toggles += 1
+		if test_has(rows, .Picture_Fit) do testing.expect_value(t, v.camera, picture_home(.Video))
+	}
+	testing.expect_value(t, toggles, 2)
+	testing.expect_value(t, v.camera, picture_home(.Video))
+
+	// Z fits the focused picture; with none focused, the video.
+	append(&ws.views, View_Record{live = true, kind = .Image, camera = {{0.1, 0.1}, 3}, shown = {{0.1, 0.1}, 3}, panel = ws.focused})
+	image := View_Id(len(ws.views))
+	v = workspace_view(ws, id) // (the views have moved)
+	shown := workspace_panel(ws, ws.focused).shown
+	workspace_panel(ws, ws.focused).shown = image
+	v.camera = {{0.2, 0.2}, 2}
+	preview_apply(app, .Picture_Fit, {})
+	testing.expect_value(t, workspace_view(ws, image).camera, picture_home(.Image))
+	testing.expect_value(t, v.camera, Picture_Camera{{0.2, 0.2}, 2})
+	workspace_view(ws, image).camera = {{0.1, 0.1}, 3}
+	workspace_panel(ws, ws.focused).shown = workspace_find(ws, .Timeline)
+	preview_apply(app, .Picture_Fit, {})
+	testing.expect_value(t, workspace_view(ws, image).camera.zoom, 3)
+	testing.expect_value(t, v.camera, picture_home(.Video))
+	// The timeline's fit is the video's too, and a blackout shows no frame.
+	v.camera = {{0.2, 0.2}, 2}
+	preview_apply(app, .Timeline_Fit, {})
+	testing.expect_value(t, v.camera, picture_home(.Video))
+	// A command with an id is that view's, whatever has the focus.
+	preview_apply(app, .Picture_Zoom, {view = image, scalar = 2, at_xy = {0.5, 0.5}})
+	testing.expect_value(t, workspace_view(ws, image).camera.zoom, 6)
+	testing.expect_value(t, v.camera, picture_home(.Video))
+	workspace_panel(ws, ws.focused).shown = shown
+	workspace_view(ws, image).live = false
+	pv.blackout = true
+	for _ in 0 ..< 2 do test_frame(&tp)
+	testing.expect(t, test_box(&tp.s, "###video_picture") == nil)
+	pv.blackout = false
+	// While it eases, the frame lies where the shown camera is, not the target.
+	v.camera, v.shown = {{}, 2}, {{}, 1.5}
+	for _ in 0 ..< 2 do test_frame(&tp)
+	placed(t, &tp, v, dim)
+}
+
 // A placed file's lane goes by the id its media row and its view go by, whatever
 // its place among the rows, so a sound has one colour wherever it is drawn.
 @(test)

@@ -216,6 +216,8 @@ test_time_axis :: proc(t: ^testing.T) {
 test_timeline_and_video_camera :: proc(t: ^testing.T) {
 	app: App_State
 	pv := &app.preview
+	workspace_init(&pv.workspace)
+	defer workspace_destroy(&pv.workspace)
 	pv.timeline.frames = 1000
 	pv.timeline.fps = 30
 	preview_cameras_reset(pv)
@@ -249,13 +251,14 @@ test_timeline_and_video_camera :: proc(t: ^testing.T) {
 	// point fixed across every eased frame.
 	at_xy := [2]f32{0.75, 0.25}
 	at := [2]f64{f64(at_xy.x) - 0.5, f64(at_xy.y) - 0.5}
-	pt0 := [2]f64{(at.x - pv.video_pan.x) / pv.video_zoom, (at.y - pv.video_pan.y) / pv.video_zoom}
-	preview_apply(&app, .Video_Zoom, {scalar = 3.0, at_xy = at_xy})
+	video := workspace_view(&pv.workspace, workspace_find(&pv.workspace, .Video))
+	pt0 := at / video.shown.zoom + video.shown.center
+	preview_apply(&app, .Picture_Zoom, {scalar = 3.0, at_xy = at_xy})
 	for _ in 0 ..< 60 {
 		preview_motion_advance(&app, 1.0 / 60.0)
-		pt := [2]f64{(at.x - pv.video_pan.x) / pv.video_zoom, (at.y - pv.video_pan.y) / pv.video_zoom}
+		pt := at / video.shown.zoom + video.shown.center
 		testing.expect(t, abs(pt.x - pt0.x) < 1e-4 && abs(pt.y - pt0.y) < 1e-4)
 	}
-	testing.expect(t, abs(pv.video_zoom - 3.0) < 1e-3)
+	testing.expect(t, abs(video_zoom(pv) - 3.0) < 1e-3)
 }
 

@@ -102,8 +102,8 @@ View_Record :: struct {
 	scoped:         bool,
 	expanded:       [dynamic]string,
 	next_input:     u32,
-	// An image's view: where it looks (preview_media_views.odin).
-	bitmap:         Bitmap_View,
+	// A picture view's camera: as commands set it, and as shown, following.
+	camera, shown:  Picture_Camera,
 	// A row's view (RAD's view of a row, raddbg_core.c:4071): the same record
 	// as a tab's, in no panel until it is dragged into one (View_Move, a tab's
 	// move), which makes it a tab like any other. The view showing the row, and
@@ -238,7 +238,7 @@ row_view_open :: proc(ws: ^Workspace, owner: View_Id, row: u64, kind: View_Kind,
 		v.transient = v.transient && transient
 		return
 	}
-	append(&ws.views, View_Record{live = true, kind = kind, owner = owner, owner_row = row, scoped = scoped, transient = transient, next_input = 1})
+	append(&ws.views, View_Record{live = true, kind = kind, camera = picture_home(kind), shown = picture_home(kind), owner = owner, owner_row = row, scoped = scoped, transient = transient, next_input = 1})
 	append(&ws.views[len(ws.views) - 1].inputs, Watch_Input{strings.clone(expression), 0})
 }
 
@@ -445,7 +445,7 @@ workspace_open :: proc(ws: ^Workspace, panel: Panel_Id, kind: View_Kind, directi
 	if direction != .None {
 		target = workspace_split(ws, panel, direction, ratio)
 	}
-	append(&ws.views, View_Record{live = true, kind = kind})
+	append(&ws.views, View_Record{live = true, kind = kind, camera = picture_home(kind), shown = picture_home(kind)})
 	id := View_Id(len(ws.views))
 	if kind == .Watch && expression != "" {
 		v := workspace_view(ws, id)

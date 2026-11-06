@@ -266,7 +266,7 @@ media_tab_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32, id: View_Id, are
 	ui.push_focus(s, .Off)
 	switch lens {
 	case .Image:
-		bitmap_view(app, s, &v.bitmap, file, key, dim, true)
+		bitmap_view(app, s, id, file, key, dim, true)
 	case .Audio:
 		audio_view(app, s, file, key, dim)
 	}
@@ -295,81 +295,153 @@ image_pixel :: proc(mb: ^Mailbox, id: u64, x, y: int) -> (rgba: [4]u8, ok: bool)
 	return
 }
 
+// ---- a picture ----------------------------------------------------------------------------
+
+// Where a picture `size` big lies in a box `dim` big, from the box's top left:
+// fitted, then moved and scaled by a camera (with none: contained, letterboxed).
+picture_rect :: proc(size, dim: [2]f32, cam := Picture_Camera{zoom = 1}) -> (lo, hi: [2]f32) {
+	half := size * min(dim.x / size.x, dim.y / size.y) * f32(cam.zoom) / 2
+	at := 0.5 - cam.center * cam.zoom
+	middle := dim * [2]f32{f32(at.x), f32(at.y)}
+	return middle - half, middle + half
+}
+
+// What a drag on a picture's box keeps: the camera's pan where it was pressed,
+// and whether the left button's drag has begun.
+@(private = "file")
+Picture_Drag :: struct {
+	start: [2]f64,
+	moved: bool,
+}
+
+// A picture's box takes these on view `id`'s camera, as commands: any button's
+// drag pans it from where it was pressed (RAD's stored drag struct), the left's
+// past a few pixels so a click stays a click; the wheel zooms about the pointer,
+// 1.25 times a notch, where the box takes the wheel, and with Control anywhere;
+// a double press fits it. Whether the drag has begun.
+@(private)
+picture_gestures :: proc(app: ^App_State, s: ^ui.State, id: View_Id, sig: ui.Signal, box: ^ui.Box) -> (moved: bool) {
+	v := workspace_view(&app.preview.workspace, id)
+	if v == nil do return
+	c := &app.commands
+	pan := -v.camera.center * v.camera.zoom
+	if sig.flags & {.Left_Pressed, .Middle_Pressed, .Right_Pressed} != {} {
+		start := Picture_Drag{start = pan}
+		if ui.double_clicked(sig) {
+			start.start = {}
+			command_push(c, .Picture_Fit, {view = id})
+		}
+		ui.store_drag_struct(s, &start)
+	}
+	w, h := box.rect.max.x - box.rect.min.x, box.rect.max.y - box.rect.min.y
+	if w <= 0 || h <= 0 do return
+	left, others := ui.dragging(sig), ui.middle_dragging(sig) || ui.right_dragging(sig)
+	if left || others || ui.clicked(sig) {
+		drag := ui.drag_struct(s, Picture_Drag)
+		dpi := s.p.dpi_scale
+		if left && (abs(sig.drag_delta.x) > 3 * dpi || abs(sig.drag_delta.y) > 3 * dpi) do drag.moved = true
+		moved = drag.moved
+		if (left && moved) || others {
+			d := ui.drag_delta(s)
+			want := drag.start + {f64(d.x / w), f64(d.y / h)}
+			if want != pan do command_push(c, .Picture_Pan, {view = id, at_xy = {f32(want.x - pan.x), f32(want.y - pan.y)}})
+		}
+	}
+	wheel := sig.scroll.y
+	if ui.hovering(sig) do wheel += ui.action_scroll_take(s, {.Control}, any = true)
+	if wheel != 0 {
+		mouse := platform.mouse_pos(s.p)
+		at := [2]f32{clamp((mouse.x - box.rect.min.x) / w, 0, 1), clamp((mouse.y - box.rect.min.y) / h, 0, 1)}
+		command_push(c, .Picture_Zoom, {view = id, scalar = math.pow(1.25, -f64(wheel) / ui.NOTCH_STEPS), at_xy = at})
+	}
+	return
+}
+
+// The worker's texture, borrowed for the frame, and where it lies in its box's
+// parent (picture_rect's): to the fraction of a pixel, where a box lies on whole
+// pixels, so a camera easing moves it smoothly.
+@(private)
+Picture :: struct {
+	r:       ^render.Renderer,
+	texture: ^sdl.GPUTexture,
+	size:    [2]u32,
+	flags:   vg.Image_Flags,
+	lo, hi:  [2]f32,
+}
+
+@(private)
+picture_box :: proc(s: ^ui.State, p: Picture, flags: ui.Box_Flags, key: string) {
+	ui.set_next_fixed_x(s, p.lo.x); ui.set_next_fixed_y(s, p.lo.y)
+	ui.set_next_fixed_width(s, p.hi.x - p.lo.x); ui.set_next_fixed_height(s, p.hi.y - p.lo.y)
+	box := ui.build_box(s, flags, key)
+	ui.box_equip_custom_draw(box, picture_draw, new_clone(p, context.temp_allocator))
+}
+
+@(private = "file")
+picture_draw :: proc(s: ^ui.State, box: ^ui.Box, c: ^vg.Canvas) {
+	d := (^Picture)(box.custom_data)
+	id := render.image_borrow(d.r, c, d.texture, d.size.x, d.size.y, d.flags)
+	at, size := box.parent.rect.min + d.lo, d.hi - d.lo
+	ui.box_path(&s.path, at.x, at.y, size.x, size.y, {})
+	vg.fill_path(c, &s.path, vg.paint_image(id, at.x, at.y, size.x, size.y, 0, box.opacity))
+}
+
 // ---- the image view --------------------------------------------------------------------
 
 // RAD Debugger's bitmap view (raddbg_views.c:4885-5140), after onib's: the
-// file's pixels on a canvas, nearest-sampled, with a border and a shadow,
-// over a grid every ten ems. A drag pans it from where it was pressed and a
-// double press puts it back. It opens at four fifths of its rows' height.
-// In a tab, where it is looked into, the wheel zooms it about the pointer
-// (1/256 to 256) and the pixel under the pointer is outlined, its colour in
-// the tooltip. In a Watch's row it is the picture: the wheel is the list's, as
-// RAD's row denies its views the Y scroll (UI_PermissionFlags,
-// raddbg_core.c:4079), and the tooltip, which RAD's row has, would cover it.
-Bitmap_View :: struct {
-	zoom:   f32, // 0 until it first shows
-	center: [2]f32, // the canvas point at the middle, in pixels from the image's centre
-}
-
-// File `file_id` laid out at its parent's top left, `dim` big; its canvas's
-// signal.
-bitmap_view :: proc(app: ^App_State, s: ^ui.State, state: ^Bitmap_View, file_id: u64, id: string, dim: [2]f32, tab: bool) -> ui.Signal {
+// file's pixels as a picture on a canvas, nearest-sampled, with a border and a
+// shadow, over a grid every ten ems. It opens at four fifths of its fit. In a
+// tab, where it is looked into, the wheel zooms it and the pixel under the
+// pointer is outlined, its colour in the tooltip. In a Watch's row it is the
+// picture: the wheel is the list's, as RAD's row denies its views the Y scroll
+// (UI_PermissionFlags, raddbg_core.c:4079), and the tooltip, which RAD's row has,
+// would cover it.
+//
+// File `file_id` as view `id`, laid out at its parent's top left, `dim` big; its
+// canvas's signal.
+bitmap_view :: proc(app: ^App_State, s: ^ui.State, id: View_Id, file_id: u64, key: string, dim: [2]f32, tab: bool) -> ui.Signal {
 	pv := &app.preview
 	file := image_made(pv, file_id)
 	size := [2]f32{f32(file.size.x), f32(file.size.y)}
-	if state.zoom == 0 && size.y > 0 do state.zoom = dim.y / size.y * 0.8
-	zoom := state.zoom if state.zoom > 0 else 1
-
 	flags: ui.Box_Flags = {.Clip, .Clickable}
 	if tab do flags += {.Scroll}
 	ui.set_next_fixed_x(s, 0); ui.set_next_fixed_y(s, 0); ui.set_next_fixed_width(s, dim.x); ui.set_next_fixed_height(s, dim.y)
-	canvas := ui.build_box(s, flags, fmt.tprintf("###bmp_canvas_%s", id))
+	canvas := ui.build_box(s, flags, fmt.tprintf("###bmp_canvas_%s", key))
 	sig := ui.signal_from_box(s, canvas)
-	middle := dim / 2
-	mouse := platform.mouse_pos(s.p)
-	mouse_canvas := mouse - canvas.rect.min
-	if ui.dragging(sig) {
-		if ui.pressed(sig) do ui.store_drag_struct(s, &state.center)
-		state.center = ui.drag_struct(s, [2]f32)^ - sig.drag_delta / zoom
-	}
-	if sig.scroll.y != 0 {
-		next := clamp(zoom - zoom * sig.scroll.y / 10, 1.0 / 256, 256)
-		at := (mouse_canvas - middle) / zoom + state.center
-		state.center += (middle + (at - state.center) * next - mouse_canvas) / next
-		state.zoom, zoom = next, next
-	}
-	if ui.double_clicked(sig) {
-		ui.kill_action(s)
-		state.center = {}
-		state.zoom, zoom = 1, 1
-	}
+	picture_gestures(app, s, id, sig, canvas)
+	v := workspace_view(&pv.workspace, id)
+	cam := v.shown if v != nil else picture_home(.Image)
+	// The canvas's scale, in pixels a texel (with no picture yet, the camera's), and
+	// the texel at its middle.
+	fit := min(dim.x / size.x, dim.y / size.y) if size.x > 0 && size.y > 0 else 1
+	scale := fit * f32(cam.zoom)
+	middle := cam.center * [2]f64{f64(dim.x / fit), f64(dim.y / fit)}
 	fs := ui.top_font_size(s)
-	grid := new_clone(Bitmap_Grid{state.center, zoom, fs * 10, max(2, fs * 0.1)}, context.temp_allocator)
+	grid := new_clone(Bitmap_Grid{{f32(middle.x), f32(middle.y)}, scale, fs * 10, max(2, fs * 0.1)}, context.temp_allocator)
 	ui.box_equip_custom_draw(canvas, bitmap_grid_draw, grid)
 	if file.texture == nil do return sig
 
 	ui.push_parent(s, canvas)
 	defer ui.pop_parent(s)
-	lo := middle + (-size / 2 - state.center) * zoom
-	hi := middle + (size / 2 - state.center) * zoom
+	lo, hi := picture_rect(size, dim, cam)
 	// The pixel under the pointer, outlined, its colour in the tooltip.
 	if tab && ui.hovering(sig) && !ui.dragging(sig) {
-		p := (mouse_canvas - middle) / zoom + state.center + size / 2
+		mouse := platform.mouse_pos(s.p)
+		p := (mouse - canvas.rect.min - lo) / scale
 		if p.x >= 0 && p.y >= 0 && p.x < size.x && p.y < size.y {
 			px, py := int(p.x), int(p.y)
 			if c, ok := image_pixel(pv.mailbox, file_id, px, py); ok {
 				color_tooltip(s, {f64(c.r) / 255, f64(c.g) / 255, f64(c.b) / 255, f64(c.a) / 255}, mouse)
 			}
 			ui.set_next_border_color(s, {255, 255, 255, 255})
-			ui.set_next_fixed_x(s, lo.x + f32(px) * zoom); ui.set_next_fixed_y(s, lo.y + f32(py) * zoom)
-			ui.set_next_fixed_width(s, zoom); ui.set_next_fixed_height(s, zoom)
-			ui.build_box(s, {.Draw_Border}, fmt.tprintf("###bmp_pixel_%s", id))
+			ui.set_next_fixed_x(s, lo.x + f32(px) * scale); ui.set_next_fixed_y(s, lo.y + f32(py) * scale)
+			ui.set_next_fixed_width(s, scale); ui.set_next_fixed_height(s, scale)
+			ui.build_box(s, {.Draw_Border}, fmt.tprintf("###bmp_pixel_%s", key))
 		}
 	}
-	ui.set_next_fixed_x(s, lo.x); ui.set_next_fixed_y(s, lo.y)
-	ui.set_next_fixed_width(s, hi.x - lo.x); ui.set_next_fixed_height(s, hi.y - lo.y)
-	image := ui.build_box(s, {.Draw_Border, .Draw_Drop_Shadow}, fmt.tprintf("###bmp_image_%s", id))
-	ui.box_equip_custom_draw(image, bitmap_image_draw, new_clone(Bitmap_Image{pv.renderer, file.texture, file.size}, context.temp_allocator))
+	// (on whole pixels, as its border is)
+	whole_lo, whole_hi := [2]f32{math.floor(lo.x), math.floor(lo.y)}, [2]f32{math.floor(hi.x), math.floor(hi.y)}
+	picture_box(s, {pv.renderer, file.texture, file.size, {.Nearest, .Premultiplied}, whole_lo, whole_hi}, {.Draw_Border, .Draw_Drop_Shadow}, fmt.tprintf("###bmp_image_%s", key))
 	return sig
 }
 
@@ -397,24 +469,6 @@ bitmap_grid_draw :: proc(s: ^ui.State, box: ^ui.Box, c: ^vg.Canvas) {
 			vg.fill_path(c, &s.path, paint)
 		}
 	}
-}
-
-// The worker's texture, borrowed for the frame, nearest-sampled.
-@(private = "file")
-Bitmap_Image :: struct {
-	r:       ^render.Renderer,
-	texture: ^sdl.GPUTexture,
-	size:    [2]u32,
-}
-
-@(private = "file")
-bitmap_image_draw :: proc(s: ^ui.State, box: ^ui.Box, c: ^vg.Canvas) {
-	d := (^Bitmap_Image)(box.custom_data)
-	id := render.image_borrow(d.r, c, d.texture, d.size.x, d.size.y, {.Nearest, .Premultiplied})
-	x, y := box.rect.min.x, box.rect.min.y
-	w, h := box.rect.max.x - x, box.rect.max.y - y
-	ui.box_path(&s.path, x, y, w, h, {})
-	vg.fill_path(c, &s.path, vg.paint_image(id, x, y, w, h, 0, box.opacity))
 }
 
 // RAD's colour tooltip (ui_do_color_tooltip_hsva), after onib's: beside the
