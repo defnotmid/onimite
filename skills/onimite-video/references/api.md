@@ -58,8 +58,10 @@ scene { "Main", duration = 5, overlap = { previous = 0.5 },
   `{ audio = "intro" }` (a file's or a `say` line's length), `{ video = "clip.mp4", plus = { seconds = 2 } }`,
   or a list of these (summed).
 - `overlap = { previous = p, next = n }` extends the scene into its neighbour by `p` / `n`
-  seconds (a cross-fade window), **added to** `duration`: with `previous = 0.5` the scene
-  starts 0.5 s before the previous one ends and runs `duration + 0.5` s. To land scene `i`
+  seconds, **added to** `duration`: with `previous = 0.5` the scene starts 0.5 s before the
+  previous one ends and runs `duration + 0.5` s. It is a crossfade: both scenes fade across it
+  by themselves. `transition` on the entering scene picks another way across, and
+  `transition = false` leaves it to the scenes' renders (one sliding over the other). To land scene `i`
   on cue `c[i]` after a 0.5 s transition, use `duration = c[i+1] - c[i]` and
   `overlap = { previous = 0.5 }`. Check with `timeline`.
 - `hold` is what a presentation (`preview --present`) does at the scene's end, where it
@@ -296,7 +298,8 @@ transition("wipe", p,
 ```lua
 -- Between scenes: `transition = { kind, duration, easing, options }` on the entering scene.
 -- Its overlap.previous defaults to the duration (0.5): the scene starts that much early and
--- enters by the transition while the previous scene leaves by the same one.
+-- enters by the transition while the previous scene leaves by the same one. An overlap with
+-- no transition is a "fade"; transition = false leaves the overlap to the scenes' renders.
 scene { "A", duration = 3, render = function(f) rect { x = 0, y = 0, w = 1920, h = 1080, fill = "#0f766e" } end }
 scene { "B", duration = 3, transition = { "slide", from = "bottom", duration = 0.6,
   easing = spring { stiffness = 120, damping = 20 } },
@@ -304,8 +307,10 @@ scene { "B", duration = 3, transition = { "slide", from = "bottom", duration = 0
 ```
 
 - Implemented with groups (clip, opacity, transform), masks and clip paths. The overlap
-  window is both scenes' overlap (previous of the entering one plus next of the leaving one).
-  Timing goes through `ease(easing, t, window)`: pick a spring that settles inside it.
+  window is every frame both scenes are on screen: previous of the entering one, plus twice
+  next of the leaving one (it runs that much past its duration and the next scene starts that
+  much before it). A `fade` is equal power, so between two whole pictures what is behind them
+  shows through about a tenth at the middle. Timing goes through `ease(easing, t, window)`: pick a spring that settles inside it.
 - Draw opaque backgrounds inside each scene for slides, wipes and zooms; on a transparent
   scene the video background shows through the moved-out area.
 - `examples/transitions` shows every kind.

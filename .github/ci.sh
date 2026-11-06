@@ -92,7 +92,7 @@ smoke)
 	(cd "$out" && "$OLDPWD/build/onimite$exe" audio analyze sound.wav) | grep -q '^integrated'
 	# motion pairs each draw with itself a quarter frame earlier: the
 	# Middle title's card slides up as it enters, named by its line.
-	"build/onimite$exe" motion examples/scenes/video.lua Middle@0.1s --software | grep -q 'px a frame.*rect  video.lua:12'
+	"build/onimite$exe" motion examples/scenes/video.lua Middle@0.1s --software | grep -q 'px a frame.*rect  video.lua:9'
 	# show lists odawg's node kinds and a kind's fields from its registry.
 	"build/onimite$exe" show examples/scenes/video.lua node_kind/Filter --json | grep -q '"frequency"'
 	# The MCP server starts, answers, serves the guide and renders with

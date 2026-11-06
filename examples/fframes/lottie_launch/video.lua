@@ -129,7 +129,7 @@ local TILE_FILES = {
 local TILE, COLUMN, ROW, GRID_TOP = 220.0, 300.0, 255.0, 490.0
 
 -- the title enters while the hook leaves
-scene { "Grid", duration = { frames = B.beat_frames(B.CODE - B.GRID) }, overlap = { previous = 0.3 },
+scene { "Grid", duration = { frames = B.beat_frames(B.CODE - B.GRID) }, overlap = { previous = 0.3 }, transition = false,
   render = function(f)
     local t = f.global_seconds
     local b = B.global_beat(f) - B.GRID
@@ -199,7 +199,7 @@ local function code_block(typed, beat)
 end
 
 -- the tiger enters while the grid leaves
-scene { "Code", duration = { frames = B.beat_frames(B.ZOOM - B.CODE) }, overlap = { previous = 0.3 },
+scene { "Code", duration = { frames = B.beat_frames(B.ZOOM - B.CODE) }, overlap = { previous = 0.3 }, transition = false,
   render = function(f)
     local t = f.global_seconds
     local b = B.global_beat(f) - B.CODE
@@ -242,7 +242,7 @@ end }
 
 -- The wordmark, the feature flag and the address.
 -- the wordmark rises while the pupil fades
-scene { "Outro", duration = { frames = B.beat_frames(B.END - B.OUTRO) }, overlap = { previous = 0.3 },
+scene { "Outro", duration = { frames = B.beat_frames(B.END - B.OUTRO) }, overlap = { previous = 0.3 }, transition = false,
   render = function(f)
     local t = f.global_seconds
     local b = B.global_beat(f) - B.OUTRO

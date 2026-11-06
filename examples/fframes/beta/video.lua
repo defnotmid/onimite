@@ -244,7 +244,7 @@ local GITHUB_Y = { { 0.8, 6.3, 0, -1700, linear } }
 -- github_screenshot.png is 2560x5166, shown 1920 wide.
 local GITHUB_H = 1920 * 5166 / 2560
 
-scene { "GithubScene", duration = 5, overlap = { previous = 0.3 }, render = function(f)
+scene { "GithubScene", duration = 5, overlap = { previous = 0.3 }, transition = false, render = function(f)
   group({ transform = translate(animate(f, GITHUB_X), animate(f, GITHUB_Y)) }, function()
     image { src = "github_screenshot.png", x = 0, y = 0, w = 1920, h = GITHUB_H }
   end)

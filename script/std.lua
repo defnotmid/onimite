@@ -486,10 +486,18 @@ end
 
 local KINDS = {}
 
+-- What a fade gives a and b at p, equal power: of two whole pictures at the
+-- middle, what is behind them shows through a tenth, where 1 - p and p let a
+-- quarter through (each is drawn over the other's fade, not added to it).
+local function fades(p)
+  return cos(p * pi / 2), sin(p * pi / 2)
+end
+
 -- Both fade: a out, b in.
 function KINDS.fade(p, a, b, x, y, w, h, o)
-  group({ opacity = 1 - p }, a)
-  group({ opacity = p }, b)
+  local out, into = fades(p)
+  group({ opacity = out }, a)
+  group({ opacity = into }, b)
 end
 
 -- b pushes a out, entering from `from` (default "right").
@@ -561,8 +569,9 @@ function KINDS.zoom(p, a, b, x, y, w, h, o)
   local k = o.scale or 1.4
   local origin = { x + w / 2, y + h / 2 }
   group({ clip = { x = x, y = y, w = w, h = h } }, function()
-    group({ opacity = 1 - p, transform = { scale = 1 + (k - 1) * p, origin = origin } }, a)
-    group({ opacity = p, transform = { scale = 1 / k + (1 - 1 / k) * p, origin = origin } }, b)
+    local out, into = fades(p)
+    group({ opacity = out, transform = { scale = 1 + (k - 1) * p, origin = origin } }, a)
+    group({ opacity = into, transform = { scale = 1 / k + (1 - 1 / k) * p, origin = origin } }, b)
   end)
 end
 
@@ -601,12 +610,17 @@ end
 -- scene{ ..., transition = { "wipe", duration = 0.6, easing = ease_in_out,
 -- from = "right", ... } }: the scene enters over the overlap with the
 -- previous scene (overlap.previous, defaulting to the duration, 0.5) and
--- that scene leaves by the same transition; timing by `easing` (linear).
+-- that scene leaves by the same transition; timing by `easing` (linear). An
+-- overlap with no transition is a fade, so both scenes always cross it together;
+-- transition = false leaves the overlap to the scenes' own renders.
 local native_scene = scene
 local last -- the previous scene's slot
 
-local function window(slot, fps) -- frames both scenes are on screen
-  return floor(slot.overlap * fps + EPS) + (slot.prev and floor(slot.prev.next * fps + EPS) or 0)
+-- Frames both scenes are on screen, as the timeline places them: a scene's
+-- next overlap counts twice, as it runs that much past its duration and the
+-- next scene starts that much before it.
+local function window(slot, fps)
+  return floor(slot.overlap * fps + EPS) + (slot.prev and 2 * floor(slot.prev.next * fps + EPS) or 0)
 end
 
 -- scene{ clip = "a.mp4" } or clip = { "a.mp4", from = 12, to = 15.5, speed = 1, name,
@@ -696,6 +710,11 @@ function scene(t)
   if type(t) ~= "table" then return native_scene(t) end
   local overlap = t.overlap or {}
   local tr = t.transition
+  t.transition = nil
+  if tr == nil and last and ((overlap.previous or 0) > 0 or last.next > 0) then
+    tr = { "fade" }
+    overlap.previous = overlap.previous or 0
+  end
   if tr and overlap.previous == nil then
     overlap.previous = tr.duration or 0.5
     t.overlap = overlap
@@ -703,7 +722,6 @@ function scene(t)
   if t.clip ~= nil then clip_scene(t, overlap) end
   local slot = { render = t.render, next = overlap.next or 0 }
   if tr then
-    t.transition = nil
     slot.enter, slot.overlap, slot.prev = tr, overlap.previous, last
     if last then last.leave = slot end
   end

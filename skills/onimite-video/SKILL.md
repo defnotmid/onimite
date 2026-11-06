@@ -546,10 +546,12 @@ The short version of `references/design.md`:
   were (`examples/departures`). Draw from `f.now` for the time of day and from `f.seconds`
   for motion; check it at a moment with `frame video.lua 3s --now 2026-11-02T14:05:00Z`.
   To keep it up, run it from a service that restarts it (systemd: `Restart=always`).
-- Cross-fade scenes with `overlap = { previous = 0.4 }` (added to the scene's duration),
-  give the entering scene `transition = { "wipe", duration = 0.5, easing = ease_in_out }`
-  (fade, slide, wipe, clock_wipe, zoom, glitch; the previous scene leaves by it), or carry an
-  element across the cut. `transition(kind, p, a, b, opts)` switches content inside a scene.
+- Cross-fade scenes with `overlap = { previous = 0.4 }` (added to the scene's duration; both
+  scenes fade across it by themselves), give the entering scene another way across with
+  `transition = { "wipe", duration = 0.5, easing = ease_in_out }` (fade, slide, wipe,
+  clock_wipe, zoom, glitch; the previous scene leaves by it), or carry an element across the
+  cut with `transition = false`, which leaves the overlap to the scenes' renders.
+  `transition(kind, p, a, b, opts)` switches content inside a scene.
   With music, cut on bars and land hits on beats.
 - At 1920x1080: titles 96-140 px, body 44-60 px, at most ~8 words per line and 3 lines per
   card. Portrait 1080x1920: same pixel sizes or larger, content inside the middle 80%.

@@ -136,10 +136,9 @@ end }
   its target with `EASE_IN_OUT`.
 - **Line draw-on**: `path_length = 1, stroke_dasharray = {1, 1}` and animate
   `stroke_dashoffset` 1 -> 0.
-- **Cross-fade**: `overlap = { previous = 0.4 }` on the incoming scene, fade it in over
-  0.4 s and fade the outgoing scene out over its last 0.4 s
-  (`animate(f, { { start = f.scene.duration - 0.4, stop = f.scene.duration, from = 1, to = 0 } })`). A **push** moves
-  the outgoing scene -80 px while the incoming comes from +80 px.
+- **Cross-fade**: `overlap = { previous = 0.4 }` on the incoming scene: both scenes fade
+  across it by themselves. A **push** moves the outgoing scene -80 px while the incoming comes
+  from +80 px, over the same fade.
 - **Lower third**: a bar slides in from the left (`EASE_OUT_EXPO`, 0.5 s), the name fades up
   0.15 s later, the role 0.1 s after that, hold, then everything exits together in 0.25 s.
 - **Glitch cut**: for 2-3 frames after a cut, draw the scenes several times in horizontal

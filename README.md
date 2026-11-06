@@ -373,7 +373,7 @@ scene { "Intro", duration = 2, render = function(f)
   end)
 end }
 
-scene { "Outro", duration = 3, overlap = { previous = 0.5 }, render = function(f)
+scene { "Outro", duration = 3, overlap = { previous = 0.5 }, render = function(f)  -- crossfades with Intro
   text { "Bye", x = 960, y = 560, align = "center", font = "Bebas Neue", size = 160, fill = "#0ea5e9" }
 end }
 ```

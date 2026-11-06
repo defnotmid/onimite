@@ -261,7 +261,10 @@ for _, kind in ipairs { "fade", "slide", "wipe", "clock_wipe", "zoom", "glitch" 
 end
 drawn, groups = {}, {}
 transition("fade", 0.25, A, B)
-assert(groups[1].opacity == 0.75 and groups[2].opacity == 0.25)
+assert(near(groups[1].opacity, math.cos(0.125 * math.pi)) and near(groups[2].opacity, math.sin(0.125 * math.pi)))
+drawn, groups = {}, {}
+transition("zoom", 0.25, A, B)
+assert(near(groups[2].opacity, math.cos(0.125 * math.pi)) and near(groups[3].opacity, math.sin(0.125 * math.pi)))
 assert(not pcall(transition, "spin", 0.5, A, B))
 assert(not pcall(transition, "slide", 0.5, A, B, { from = "up" }))
 
@@ -337,6 +340,64 @@ scene { "C", duration = 1, overlap = { previous = 0.25 }, transition = { "wipe",
 	testing.expect_value(t, len(f.script.video.scenes), 3)
 	testing.expect_value(t, f.script.video.scenes[1].overlap.previous, 0.5)
 	testing.expect_value(t, f.script.video.scenes[2].overlap.previous, 0.25)
+}
+
+// An overlap is a crossfade: both scenes fade over all of it, whichever scene
+// names it, so neither pops in or leaves in one frame; transition = false leaves
+// it to their renders. Two whole pictures dip about a tenth at the middle.
+@(test)
+test_overlap_is_a_crossfade :: proc(t: ^testing.T) {
+	// A's half and B's half of row 0, as they read at each frame.
+	halves :: proc(t: ^testing.T, source: string, frames: []int) -> (out: [8][2]u8) {
+		f: Fixture
+		defer fixture_destroy(&f)
+		fixture_init(t, &f, source)
+		if !fixture_load(t, &f) do return
+		// (transition = false isn't an unused field)
+		testing.expect_value(t, len(f.script.load_problems), 0)
+		for i, k in frames {
+			px := fixture_frame(t, &f, i)
+			out[k] = {px[8 * 4], px[40 * 4]}
+		}
+		return
+	}
+	scenes :: proc(b: string) -> string {
+		return strings.concatenate({`
+video { width = 64, height = 36, fps = 10, background = "#000000" }
+scene { "A", duration = 2, render = function(f) rect { x = 0, y = 0, w = 32, h = 36, fill = "#ffffff" } end }
+scene { "B", duration = 2, `, b, ` render = function(f) rect { x = 32, y = 0, w = 32, h = 36, fill = "#ffffff" } end }
+`}, context.temp_allocator)
+	}
+	frames := []int{9, 11, 15, 19, 20}
+	// Together over frames 10..19: A from whole down to almost nothing, B the other way.
+	crossing :: proc(t: ^testing.T, name: string, h: [8][2]u8) {
+		testing.expectf(t, h[0] == {255, 0}, "%s, before it: %v", name, h[0])
+		testing.expectf(t, h[1][0] > 240 && h[1][1] < 60, "%s, just in: %v", name, h[1])
+		testing.expectf(t, abs(int(h[2][0]) - 180) < 8 && abs(int(h[2][1]) - 180) < 8, "%s, the middle: %v", name, h[2])
+		testing.expectf(t, h[3][0] < 60 && h[3][1] > 240, "%s, last frame: %v", name, h[3])
+		testing.expectf(t, h[4] == {0, 255}, "%s, after it: %v", name, h[4])
+	}
+	crossing(t, "previous", halves(t, scenes("overlap = { previous = 1 },"), frames))
+	// A next overlap: A runs half a second on and B starts half a second early.
+	crossing(t, "next", halves(t, `
+video { width = 64, height = 36, fps = 10, background = "#000000" }
+scene { "A", duration = 1.5, overlap = { next = 0.5 }, render = function(f) rect { x = 0, y = 0, w = 32, h = 36, fill = "#ffffff" } end }
+scene { "B", duration = 2, render = function(f) rect { x = 32, y = 0, w = 32, h = 36, fill = "#ffffff" } end }
+`, frames))
+
+	// Left to the renders: both whole until A goes in one frame.
+	alone := halves(t, scenes("overlap = { previous = 1 }, transition = false,"), frames)
+	testing.expectf(t, alone[1] == {255, 255} && alone[3] == {255, 255} && alone[4] == {0, 255}, "transition = false: %v", alone)
+	// A plain cut stays one.
+	cut := halves(t, scenes(""), {19, 20})
+	testing.expectf(t, cut[0] == {255, 0} && cut[1] == {0, 255}, "a cut: %v", cut)
+
+	whole := halves(t, `
+video { width = 64, height = 36, fps = 10, background = "#000000" }
+scene { "A", duration = 2, render = function(f) rect { x = 0, y = 0, w = 64, h = 36, fill = "#ffffff" } end }
+scene { "B", duration = 2, overlap = { previous = 1 }, render = function(f) rect { x = 0, y = 0, w = 64, h = 36, fill = "#ffffff" } end }
+`, {15})
+	testing.expectf(t, whole[0][0] > 225, "white over white at the middle: %d", whole[0][0])
 }
 
 // `hold`: what a presentation does at each scene's end (the default is

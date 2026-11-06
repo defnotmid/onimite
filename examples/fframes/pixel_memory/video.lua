@@ -945,7 +945,7 @@ end
 
 for i, s in ipairs(SCENES) do
   scene { s.name, duration = { frames = seconds_to_frames(s.duration) },
-    overlap = s.overlap > 0 and { next = s.overlap } or nil, render = s.render }
+    overlap = s.overlap > 0 and { next = s.overlap } or nil, transition = false, render = s.render }
 end
 
 video { width = W, height = H, fps = FPS, background = "#000000",

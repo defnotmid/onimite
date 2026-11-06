@@ -125,7 +125,7 @@ scene { "Rewind", clip = { "interview.mp4", from = 20, to = 24, speed = -2 } }  
   from `to` to `from`), `name`, then its two sides, `picture` and `sound`. Both read the same
   stretch at the same speed unless the sound is given a clock of its own.
 - The scene shows exactly `[from, to)`: it lasts `(to - from) / |speed|` including its overlaps,
-  so a transition crosses inside the cut and joined cuts are their lengths minus the
+  so a transition (a plain overlap's is a fade) crosses inside the cut and joined cuts are their lengths minus the
   transitions. `duration = s` in place of `to` takes `s` seconds of the scene from `from`.
 - `picture = { x, y, w, h, fit, align, opacity, fade_in, fade_out }` (the whole video and
   `contain` by default: mixed sizes and phone clips letterbox) drawn under the scene's
