@@ -99,7 +99,8 @@ onimite is built from sibling Odin projects and Odin's vendor packages:
   optional `morphs` and `material` overrides) into a box
   composited like any layer, on the GPU or, the same picture, on the CPU.
 - **Motion blur**: `motion_blur = { shutter = 180 }` opens a camera's
-  shutter on every frame: what moves streaks along its motion, 2D draws and
+  shutter on every frame, or in the seconds of its `during` or a scene's own:
+  what moves streaks along its motion, 2D draws and
   3D views alike (meshes, models, particles, the camera), on the GPU and the
   CPU, in renders and the preview; `onimite motion` shows the speeds.
 - **Physics**: rigid bodies simulated once at load and sampled per frame,

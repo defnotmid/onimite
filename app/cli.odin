@@ -958,10 +958,10 @@ video_render_to :: proc(app: ^App_State, regs: Command_Regs, fa: mem.Allocator) 
 		om.frame_player_init(&p, backend, &app.media, &shared)
 		if !r.is_software {
 			p.gpu3d = &app.gpu3d
-			if r.video.shutter > 0 {
+			if om.motion_blur_used(r.video, r.ctx.timeline) {
 				p.blur_gpu, p.blur_size = &blur_gpu, {r.width, r.height}
 			}
-		} else if r.video.shutter > 0 {
+		} else if om.motion_blur_used(r.video, r.ctx.timeline) {
 			p.software, p.blur, p.blur_pool = &sw, &blur, pool
 		}
 	}

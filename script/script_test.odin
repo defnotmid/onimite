@@ -2540,6 +2540,111 @@ video { width = 96, height = 64, fps = 30, duration = 2, background = "#000000",
 	testing.expectf(t, !r.motion.moves, "it doesn't stay on from the frame before")
 }
 
+// `during` opens the shutter in its seconds only, and a frame with it closed is
+// built once, nothing paired.
+@(test)
+test_motion_blur_during :: proc(t: ^testing.T) {
+	f: Fixture
+	defer fixture_destroy(&f)
+	fixture_init(t, &f, `
+video { width = 96, height = 64, fps = 30, duration = 4, background = "#000000",
+  motion_blur = { shutter = 90, during = { { 1, 2 }, { 3, 3.5 } } },
+  render = function(f) rect { x = f.seconds * 20, y = 0, w = 8, h = 8, fill = "#ff0000" } end }
+`)
+	if !fixture_load(t, &f) {
+		return
+	}
+	v := &f.script.video
+	r := fixture_renderer(t, &f)
+	for row in ([][2]f32{{29, 0}, {30, 90}, {59, 90}, {60, 0}, {90, 90}, {104, 90}, {105, 0}}) {
+		testing.expect_value(t, om.frame_shutter(v, r.ctx.timeline, int(row[0])), row[1])
+	}
+	testing.expect(t, om.motion_blur_used(v, r.ctx.timeline))
+	om.build_frame_shown(r, 40)
+	testing.expect_value(t, r.shutter, 90)
+	testing.expect(t, r.motion.moves, "the rect moves with the shutter open")
+	om.build_frame_shown(r, 70)
+	testing.expect_value(t, r.shutter, 0)
+}
+
+// A scene's motion_blur is in place of the video's while it plays, false
+// closing it; where scenes overlap the widest wins; a scene alone opens it in a
+// video with none.
+@(test)
+test_motion_blur_scenes :: proc(t: ^testing.T) {
+	f: Fixture
+	defer fixture_destroy(&f)
+	fixture_init(t, &f, `
+video { width = 96, height = 64, fps = 10, background = "#000000", motion_blur = { shutter = 180 } }
+scene { "Video's", duration = 1, render = function(f) end }
+scene { "Closed", duration = 1, motion_blur = false, render = function(f) end }
+scene { "Own", duration = 1, motion_blur = { shutter = 45 }, overlap = { next = 0.5 }, render = function(f) end }
+scene { "Wider", duration = 1, motion_blur = { shutter = 270 }, render = function(f) end }
+`)
+	if !fixture_load(t, &f) {
+		return
+	}
+	v := &f.script.video
+	r := fixture_renderer(t, &f)
+	tl := r.ctx.timeline
+	testing.expect_value(t, om.frame_shutter(v, tl, tl.scenes[0].start_frame), 180)
+	testing.expect_value(t, om.frame_shutter(v, tl, tl.scenes[1].start_frame), 0)
+	testing.expect_value(t, om.frame_shutter(v, tl, tl.scenes[2].start_frame), 45)
+	testing.expect_value(t, om.frame_shutter(v, tl, tl.scenes[3].start_frame), 270)
+	testing.expect_value(t, om.frame_shutter(v, tl, tl.scenes[2].end_frame - 1), 270)
+	none := om.Video{}
+	testing.expect(t, om.motion_blur_used(&none, tl), "a scene's shutter is enough")
+}
+
+@(test)
+test_motion_blur_during_errors :: proc(t: ^testing.T) {
+	for source in ([]string{
+		`video { width = 96, height = 64, fps = 30, duration = 1, motion_blur = { during = { { 2, 1 } } } }`,
+		`video { width = 96, height = 64, fps = 30, duration = 1, motion_blur = { during = { 1 } } }`,
+		`video { width = 96, height = 64, fps = 30, duration = 1, motion_blur = { shutter = 400 } }`,
+	}) {
+		f: Fixture
+		defer fixture_destroy(&f)
+		fixture_init(t, &f, source)
+		testing.expectf(t, load(&f.script, f.path, nil, &f.media, &f.shared) != nil, "%s should not load", source)
+	}
+}
+
+// A view's bloom reaches its scene with its radius in the view's pixels, and
+// leaves the tree without a group for it.
+@(test)
+test_view3d_bloom :: proc(t: ^testing.T) {
+	f: Fixture
+	defer fixture_destroy(&f)
+	fixture_init(t, &f, `
+video { width = 96, height = 64, fps = 30, duration = 1, background = "#000000",
+  render = function(f)
+    view3d { camera = { position = { 0, 0, 6 } }, bloom = { threshold = 1.5, intensity = 0.25, radius = 8 }, meshes = {
+      { geometry = { type = "BoxGeometry" }, material = { type = "MeshBasicMaterial", color = "#ffffff" } },
+    } }
+  end }
+`)
+	if !fixture_load(t, &f) {
+		return
+	}
+	r := fixture_renderer(t, &f)
+	om.build_frame(r, 0)
+	found := false
+	for n in r.ctx.tree.nodes {
+		#partial switch k in n.kind {
+		case om.View3d:
+			found = true
+			testing.expect_value(t, k.bloom.threshold, 1.5)
+			testing.expect_value(t, k.bloom.strength, 0.25)
+			testing.expect_value(t, k.bloom.radius, 8)
+		case om.Group:
+			_, filtered := k.filter.?
+			testing.expect(t, !filtered, "no filter group for a view's bloom")
+		}
+	}
+	testing.expect(t, found)
+}
+
 // motion_blur in 2D: a rect sliding 900 px a second streaks along its way
 // (the pixel ahead of where it is drawn takes some of it), a still circle
 // in front of it stays sharp, and a still frame is what it is without.

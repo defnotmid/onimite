@@ -238,7 +238,7 @@ local function moment(t)
     distance = 1.6, decay = 2 }
   local view = { x = 0, y = 0, w = W, h = H, camera = c, background = air,
     fog = { type = "FogExp2", color = air, density = 0.045 },
-    tone_mapping = "neutral", tone_mapping_exposure = 0.92, bloom = { threshold = 0.95, intensity = 0.4, radius = 24 },
+    tone_mapping = "neutral", tone_mapping_exposure = 0.92, bloom = { threshold = 1.2, intensity = 0.2, radius = 24 },
     environment = L.STUDIO, environment_intensity = L.STUDIO_PEAK * 0.6 * math.max(level, 0.04), reflector = L.REFLECTOR,
     lights = lamps, meshes = meshes, groups = placed, particles = sparks }
   view3d(view)
@@ -316,8 +316,9 @@ end
 
 video { width = W, height = H, fps = FPS, duration = { frames = math.floor(DURATION * FPS + 1e-4) },
   background = "#000000", audio = tracks, master_gain_db = 6.5, limiter = { ceiling_db = -1.3 },
-  -- the original renders three moments of a half-open shutter: the same shutter, blurred
-  motion_blur = { shutter = 180 },
+  -- the fast part, the spin to the throw's end: the original renders three moments of a
+  -- half-open shutter there and none elsewhere
+  motion_blur = { shutter = 180, during = { { letters[3].placed + 0.45, beats.drop + 1.25 } } },
   render = function(f)
     local c = moment(f.seconds)
     marker(f.seconds, c)

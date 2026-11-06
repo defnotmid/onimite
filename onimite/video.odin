@@ -46,6 +46,9 @@ Scene :: struct {
 	// What `preview --present` does at the scene's end (`hold` in scripts).
 	// Renders play straight through.
 	hold:     Hold,
+	// The shutter while the scene plays (`motion_blur` in scripts, 0: none),
+	// in place of the video's; nil: the video's.
+	shutter:  Maybe(f32),
 	// Free for the video's own state.
 	user:     rawptr,
 }
@@ -86,6 +89,9 @@ Video :: struct {
 	// half the frame's time, centred on its moment); 0, the default, is
 	// none. 3D views blur what moves in them over the shutter (motion.odin).
 	shutter:       f32,
+	// The frames it opens on, as spans [from, to); none: all of them. A
+	// scene's own shutter comes first (`frame_shutter`).
+	shutter_during: [][2]int,
 	// The wall clock at its first frame, seconds since 1970 (UTC): `f.now`
 	// is it plus the frame's time. The load's (`--now`, else 0); the
 	// preview's --live sets it per frame from the system clock.

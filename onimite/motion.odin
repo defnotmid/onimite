@@ -67,11 +67,56 @@ motion_shift :: proc "contextless" (v: ^Video) -> f64 {
 	return -f64(angle) / 360 / 2 / f64(v.fps)
 }
 
-// Builds frame `index` to be drawn: with its motion when the video's shutter
-// is open (motion blur), else as `build_frame`.
+// Frame `index`'s shutter: the widest its scenes ask for when one of them says,
+// else the video's while it is open.
+frame_shutter :: proc(v: ^Video, t: ^Timeline, index: int) -> f32 {
+	said := false
+	widest: f32
+	if t != nil {
+		for &info in t.scenes {
+			if index >= info.start_frame && index < info.end_frame {
+				if s, ok := info.scene.shutter.?; ok {
+					said = true
+					widest = max(widest, s)
+				}
+			}
+		}
+	}
+	if said {
+		return widest
+	}
+	if len(v.shutter_during) == 0 {
+		return v.shutter
+	}
+	for span in v.shutter_during {
+		if index >= span[0] && index < span[1] {
+			return v.shutter
+		}
+	}
+	return 0
+}
+
+// Whether any frame can open its shutter: its blur is made ready for them.
+motion_blur_used :: proc(v: ^Video, t: ^Timeline) -> bool {
+	if v.shutter > 0 {
+		return true
+	}
+	if t != nil {
+		for &info in t.scenes {
+			if s, ok := info.scene.shutter.?; ok && s > 0 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// Builds frame `index` to be drawn: with its motion when its shutter is open
+// (motion blur), else as `build_frame`.
 build_frame_shown :: proc(r: ^Renderer, index: int) {
-	if r.video.shutter > 0 {
-		build_motion(r, index, motion_shift(r.video))
+	r.shutter = frame_shutter(r.video, r.ctx.timeline, index)
+	if r.shutter > 0 {
+		build_motion(r, index, -f64(r.shutter) / 360 / 2 / f64(r.video.fps))
 	} else {
 		build_frame(r, index)
 	}

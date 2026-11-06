@@ -181,7 +181,7 @@ function M.build(cells, seed)
       rect { x = 0, y = 0, w = 1920, h = 1080, fill = radial_gradient { cx = (lit.top + 0.5) * CW, cy = -60, r = 1500,
         stops = { { 0, "#9cbcff" }, { 0.35, "#36466e" }, { 1, BG } } }, opacity = math.min(light, 1) * 0.55 }
     end
-    group({ bloom = { threshold = 0.5, intensity = 1.1, radius = 24 } }, function()
+    group({ bloom = { threshold = 0.5, intensity = 2.2, radius = 24 } }, function()
       -- the text: faded to the storm's colours and back, lit by the flash,
       -- struck letters glowing
       for i = 1, n do

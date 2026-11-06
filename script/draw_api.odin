@@ -608,69 +608,38 @@ read_filter :: proc(L: ^lua.State, t: c.int) -> (f: vg.Filter, images: []string,
 	return {primitives = prims[:], merge_refs = refs[:], srgb = srgb, region = region, values = values[:]}, image_names[:], true
 }
 
-// `bloom = { threshold = 0.65, intensity = 0.6, radius = 12 }` (or `bloom = 12`):
-// extracts pixels above `threshold`, blurs them by `radius`, and adds them
-// back scaled by `intensity`.
+// `bloom = { threshold = 0.65, intensity = 1.7, radius = 12 }` (or `bloom = 12`, a
+// radius), on a group or a view3d, the same glow on either: the light above
+// `threshold`, a Gaussian of `radius` over it, `intensity` of that added.
 @(private)
-read_bloom_into :: proc(L: ^lua.State, t: c.int, prims: ^[dynamic]vg.Filter_Primitive) -> bool {
+read_bloom :: proc(L: ^lua.State, t: c.int) -> (threshold, intensity, radius: f32, ok: bool) {
 	field(L, t, "bloom")
 	defer lua.pop(L, 1)
-	threshold := f32(0.65)
-	intensity := f32(0.6)
-	radius := f32(0)
+	threshold, intensity = 0.65, 1.7
 	if lua.type(L, -1) == .NUMBER {
 		radius = max(f32(lua.tonumber(L, -1)), 0)
 	} else if lua.istable(L, -1) {
 		e := lua.absindex(L, -1)
 		bloom_fields := fields_push(L, e)
-		threshold = clamp(get_num(L, e, "threshold", 0.65), 0, 0.999)
-		intensity = max(get_num(L, e, "intensity", 0.6), 0)
+		threshold = max(get_num(L, e, "threshold", 0.65), 0)
+		intensity = max(get_num(L, e, "intensity", 1.7), 0)
 		radius = max(get_num(L, e, "radius", 12), 0)
 		fields_pop(L, host(L), e, "bloom", bloom_fields)
 	} else {
-		return false
+		return
 	}
-	if radius <= 0 || intensity <= 0 {
-		return false
-	}
-	base_ref := vg.Filter_Ref{kind = .Source_Graphic} if len(prims) == 0 else vg.Filter_Ref{kind = .Result, index = u16(len(prims) - 1)}
-	// What passes the threshold, as light: slope (c - threshold) on the
-	// premultiplied colour and alpha alike (an arithmetic composite works
-	// on premultiplied values; a component transfer would divide by alpha
-	// first, so a faint glow over nothing would bloom as if it were bright).
-	slope := 1.0 / max(1.0 - threshold, 1e-3)
-	append(
-		prims,
-		vg.Filter_Primitive{
-			op = .Composite,
-			in1 = base_ref,
-			in2 = base_ref,
-			composite = .Arithmetic,
-			k = {0, slope, 0, -threshold * slope},
-		},
-		vg.Filter_Primitive{
-			op = .Gaussian_Blur,
-			in1 = {kind = .Previous},
-			std = {radius, radius},
-		},
-		vg.Filter_Primitive{
-			op = .Composite,
-			in1 = base_ref,
-			in2 = {kind = .Previous},
-			composite = .Arithmetic,
-			k = {0, 1, intensity, 0},
-		},
-	)
-	return true
+	return threshold, intensity, radius, radius > 0 && intensity > 0
 }
 
 @(private)
-read_bloom_filter :: proc(L: ^lua.State, t: c.int) -> (f: vg.Filter, ok: bool) {
-	prims := make([dynamic]vg.Filter_Primitive, context.temp_allocator)
-	if !read_bloom_into(L, t, &prims) {
-		return {}, false
+read_bloom_into :: proc(L: ^lua.State, t: c.int, prims: ^[dynamic]vg.Filter_Primitive) -> bool {
+	threshold, intensity, radius, ok := read_bloom(L, t)
+	if !ok {
+		return false
 	}
-	return {primitives = prims[:]}, true
+	base_ref := vg.Filter_Ref{kind = .Source_Graphic} if len(prims) == 0 else vg.Filter_Ref{kind = .Result, index = u16(len(prims) - 1)}
+	append(prims, vg.Filter_Primitive{op = .Bloom, in1 = base_ref, threshold = threshold, intensity = intensity, std = {radius, radius}})
+	return true
 }
 
 // A component transfer function table: `{type = "table", values = {...}}`.

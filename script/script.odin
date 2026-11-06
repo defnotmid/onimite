@@ -28,6 +28,8 @@ Script :: struct {
 	L:            ^lua.State,
 	path:         string,
 	video:        om.Video,
+	// The spans of `video.shutter_during`, in frames.
+	shutter_during: [dynamic][2]int,
 	scenes:       [dynamic]om.Scene,
 	slots:        [dynamic]Scene_Slot,
 	video_render: c.int,
@@ -324,6 +326,7 @@ unload :: proc(s: ^Script) {
 	delete(s.node_sources)
 	delete(s.node_text)
 	delete(s.scenes)
+	delete(s.shutter_during)
 	delete(s.slots)
 	delete(s.tracks)
 	for b in s.owned_buses {
@@ -1008,15 +1011,37 @@ l_video :: proc "c" (L: ^lua.State) -> c.int {
 		v.mix.no_limiter = true
 	}
 	lua.pop(L, 1)
-	// `motion_blur = { shutter = 180 }`: the shutter's angle, in degrees of a frame.
+	// `motion_blur = { shutter = 180, during = { { from, to }, ... } }`: the
+	// shutter's angle, in degrees of a frame; the seconds it opens in, or always.
 	field(L, 1, "motion_blur")
 	if lua.istable(L, -1) {
 		blur_fields := fields_push(L, -1)
-		v.shutter = get_num(L, -1, "shutter", 180)
-		fields_pop(L, s, -1, "motion_blur", blur_fields)
-		if v.shutter <= 0 || v.shutter > 360 {
-			lua.L_error(L, "video: motion_blur.shutter is an angle in degrees, above 0 and up to 360")
+		v.shutter = read_shutter(L, -1, "video")
+		clear(&s.shutter_during)
+		during_at := lua.absindex(L, -1)
+		field(L, during_at, "during")
+		if lua.istable(L, -1) {
+			for i in 1 ..= lua.rawlen(L, -1) {
+				lua.rawgeti(L, -1, lua.Integer(i))
+				bad := !lua.istable(L, -1)
+				from, to: f64
+				if !bad {
+					lua.rawgeti(L, -1, 1)
+					lua.rawgeti(L, -2, 2)
+					bad = lua.type(L, -2) != .NUMBER || lua.type(L, -1) != .NUMBER
+					from, to = f64(lua.tonumber(L, -2)), f64(lua.tonumber(L, -1))
+					lua.pop(L, 2)
+				}
+				if bad || from >= to {
+					lua.L_error(L, "video: motion_blur.during is a list of { from, to } in seconds, from before to")
+				}
+				lua.pop(L, 1)
+				append(&s.shutter_during, [2]int{int(math.round(from * f64(v.fps))), int(math.round(to * f64(v.fps)))})
+			}
+			v.shutter_during = s.shutter_during[:]
 		}
+		lua.pop(L, 1)
+		fields_pop(L, s, -1, "motion_blur", blur_fields)
 	}
 	lua.pop(L, 1)
 	field(L, 1, "render")
@@ -1027,6 +1052,16 @@ l_video :: proc "c" (L: ^lua.State) -> c.int {
 	}
 	fields_end(L, s, 1, "video")
 	return 0
+}
+
+// A `motion_blur` table's shutter, in degrees of a frame.
+@(private = "file")
+read_shutter :: proc(L: ^lua.State, t: c.int, what: string) -> f32 {
+	shutter := get_num(L, t, "shutter", 180)
+	if shutter <= 0 || shutter > 360 {
+		lua.L_error(L, "%s: motion_blur.shutter is an angle in degrees, above 0 and up to 360", strings.clone_to_cstring(what, context.temp_allocator))
+	}
+	return shutter
 }
 
 // scene{ "Name", duration = 2, overlap = {previous = 0.5, next = 0}, render = function(f) end }
@@ -1082,6 +1117,17 @@ l_scene :: proc "c" (L: ^lua.State) -> c.int {
 		lua.L_error(L, "scene needs a duration (or a start: it then lasts until the next scene's start)")
 	}
 	read_audio(s, L, 1, len(s.scenes))
+	// `motion_blur = { shutter = 180 }` or false: the shutter while the scene
+	// plays, in place of the video's.
+	field(L, 1, "motion_blur")
+	if lua.istable(L, -1) {
+		blur_fields := fields_push(L, -1)
+		sc.shutter = read_shutter(L, -1, "scene")
+		fields_pop(L, s, -1, "motion_blur", blur_fields)
+	} else if lua.isboolean(L, -1) && !lua.toboolean(L, -1) {
+		sc.shutter = f32(0)
+	}
+	lua.pop(L, 1)
 	field(L, 1, "overlap")
 	if lua.istable(L, -1) {
 		scene_fields := fields_push(L, -1)

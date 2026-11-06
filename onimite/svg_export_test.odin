@@ -166,3 +166,49 @@ test_svg_export_filters :: proc(t: ^testing.T) {
 	psnr := 10 * math.log10(255 * 255 / mse) if mse > 0 else 99
 	testing.expectf(t, psnr > 40, "round trip PSNR %.1f dB", psnr)
 }
+
+// SVG has no bloom: it is exported as its parts, which draw the same glow.
+@(test)
+test_svg_export_bloom :: proc(t: ^testing.T) {
+	@(static) scenes: [1]Scene
+	@(static) back: [1]Scene
+	scenes = [1]Scene{{name = "Bloom", duration = Frames(1), render = proc(f: Frame, ctx: ^Context) {
+				rect(ctx, {x = 0, y = 0, w = 200, h = 100, fill = BLACK})
+				prims := [?]vg.Filter_Primitive{{op = .Bloom, in1 = {kind = .Source_Graphic}, threshold = 0.5, intensity = 1.2, std = {6, 6}}}
+				group(ctx, {filter = vg.Filter{primitives = prims[:]}})
+				rect(ctx, {x = 80, y = 30, w = 40, h = 40, fill = WHITE})
+				group_end(ctx)
+			}}}
+	back = [1]Scene{{name = "Back", duration = Frames(1), render = proc(f: Frame, ctx: ^Context) {
+				svg(ctx, {src = "bloom.svg", x = 0, y = 0, w = 200, h = 100})
+			}}}
+	v := Video{width = 200, height = 100, fps = 30, background = BLACK, scenes = scenes[:]}
+	media: Media
+	media_init(&media)
+	defer media_destroy(&media)
+	r: Renderer
+	testing.expect_value(t, renderer_init(&r, &v, &media), Error.None)
+	defer renderer_destroy(&r)
+	want := make([]u8, 200 * 100 * 4)
+	defer delete(want)
+	copy(want, render_frame(&r, 0))
+	b := strings.builder_make()
+	defer strings.builder_destroy(&b)
+	svg_export(&r, &b)
+	doc := strings.to_string(b)
+	testing.expectf(t, strings.contains(doc, "<feGaussianBlur"), "no blur in the export")
+	testing.expect_value(t, media_load_test_files(&media, {"bloom.svg", doc}), Error.None)
+	v2 := Video{width = 200, height = 100, fps = 30, background = BLACK, scenes = back[:]}
+	r2: Renderer
+	testing.expect_value(t, renderer_init(&r2, &v2, &media), Error.None)
+	defer renderer_destroy(&r2)
+	got := render_frame(&r2, 0)
+	sum: f64
+	for k in 0 ..< len(want) {
+		d := f64(want[k]) - f64(got[k])
+		sum += d * d
+	}
+	mse := sum / f64(len(want))
+	psnr := 10 * math.log10(255 * 255 / mse) if mse > 0 else 99
+	testing.expectf(t, psnr > 40, "round trip PSNR %.1f dB", psnr)
+}

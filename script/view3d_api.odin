@@ -86,17 +86,10 @@ l_view3d :: proc "c" (L: ^lua.State) -> c.int {
 	resolve_attach_names(L, &items)
 	v.meshes, v.models, v.particles, v.labels = items.meshes[:], items.models[:], items.particles[:], items.labels[:]
 	v.panels = read_panels(L, s, 1)
-	bloom_filter, has_bloom := read_bloom_filter(L, 1)
-	if has_bloom {
-		om.group_begin(ctx, om.Group{filter = bloom_filter})
-		if s.node_sources_on {
-			node_source_record(s, L)
-		}
+	if threshold, intensity, radius, has_bloom := read_bloom(L, 1); has_bloom {
+		v.bloom = {threshold, intensity, radius}
 	}
 	om.view3d(ctx, s.frame, v)
-	if has_bloom {
-		om.group_end(ctx)
-	}
 	fields_end(L, s, 1, "view3d")
 	return 0
 }

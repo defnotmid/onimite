@@ -162,7 +162,7 @@ function M.build(cells, seed)
       rect { x = 0, y = 0, w = 1920, h = 1080, fill = radial_gradient { cx = cx, cy = cy, r = 900,
         stops = { { 0, "#ff6a1a" }, { 0.45, "#5a1404" }, { 1, "#0b0d12" } } }, opacity = 0.55 * glow }
     end
-    group({ bloom = { threshold = 0.6, intensity = 0.9, radius = 20 } }, function()
+    group({ bloom = { threshold = 0.6, intensity = 2.25, radius = 20 } }, function()
       for i = 1, n do
         local c, age = cells[i], t - start[i]
         local col

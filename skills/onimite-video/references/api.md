@@ -192,6 +192,10 @@ without the shutter. A still draw in front of a moving one stays sharp over its 
 - Anything moved by `f.index` doesn't move within a frame: animate from `f.seconds`.
 - Streaks are capped at 4% of the frame's height either side. The blur runs on the GPU and with
   `--software`, in renders and in the preview; it costs the frame's second build and one pass.
+- Open it only for the shots that move fast, as a frame with its shutter closed costs none of
+  that: `motion_blur = { shutter = 180, during = { { 12.5, 16 }, { 31, 33 } } }` on `video{}` opens
+  it in those seconds; on a `scene{}`, `motion_blur = { shutter = 180 }` or `motion_blur = false`
+  sets it while the scene plays, in place of the video's (when scenes overlap, the widest wins).
 
 ## Composition helpers (standard library)
 
@@ -603,7 +607,7 @@ group({ box = { x = 100, y = 240, w = 540, h = 640, name = "card" } }, function(
 end)
 
 group({ blur = 8 }, function() circle { cx = 1000, cy = 800, r = 80, fill = "#22d3ee" } end)
-group({ bloom = { threshold = 0.65, intensity = 0.6, radius = 12 } }, function() ... end)  -- bright parts glow (or bloom = 12)
+group({ bloom = { threshold = 0.65, intensity = 1.7, radius = 12 } }, function() ... end)  -- the light above threshold, a Gaussian of radius over it, intensity of that added (or bloom = 12); a view3d's is the same (3d.md)
 group({ shadow = { dx = 0, dy = 12, blur = 20, color = "#000", opacity = 0.5 } }, function()
   rect { x = 1300, y = 650, w = 300, h = 200, rx = 24, fill = "#f8fafc" }
 end)

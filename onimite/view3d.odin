@@ -59,6 +59,8 @@ View3d :: struct {
 	background_blurriness: f32,
 	tone_mapping:          o3d.Tone_Mapping,
 	tone_mapping_exposure: f32,
+	// Bloom on its light, before tone mapping; its radius in video pixels.
+	bloom:                 o3d.Bloom,
 	fog:                   o3d.Fog,
 	// The timeline index of the scene that drew it (-1: the video's own
 	// render), for `geometry_growth`.
@@ -1150,7 +1152,7 @@ draw_view3d :: proc(r: ^Renderer, n: View3d) {
 	}
 	// With the shutter open, the same view at the shutter's opening.
 	opened: ^View3d
-	if i := int(r.ctx.node) - 1; r.video.shutter > 0 && i >= 0 && i < len(r.motion.pair) && r.motion.pair[i] != NO_NODE {
+	if i := int(r.ctx.node) - 1; r.shutter > 0 && i >= 0 && i < len(r.motion.pair) && r.motion.pair[i] != NO_NODE {
 		opened = &r.motion.tree.nodes[r.motion.pair[i]].kind.(View3d)
 	}
 	sync.shared_lock(&v.lock)
@@ -1223,9 +1225,9 @@ view3d_scene :: proc(r: ^Renderer, n: View3d, scene: ^o3d.Scene, size: [2]int, l
 	paired: []Mesh
 	paired_models: []Model_Pose
 	opened_now: f32
-	if r.video.shutter > 0 {
+	if r.shutter > 0 {
 		// particles smear by their own velocity over it
-		scene.camera.shutter = r.video.shutter / 360 / f32(r.video.fps)
+		scene.camera.shutter = r.shutter / 360 / f32(r.video.fps)
 	}
 	if o := opened; o != nil {
 		c := o.camera
@@ -1450,6 +1452,8 @@ view3d_scene :: proc(r: ^Renderer, n: View3d, scene: ^o3d.Scene, size: [2]int, l
 	scene.background_blurriness = n.background_blurriness
 	scene.tone_mapping = n.tone_mapping
 	scene.tone_mapping_exposure = n.tone_mapping_exposure
+	scene.bloom = n.bloom
+	scene.bloom.radius *= f32(size.y) / max(n.h, 1)
 	scene.fog = n.fog
 }
 

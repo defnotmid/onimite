@@ -334,6 +334,32 @@ export_primitive :: proc(e: ^Svg_Export, fl: vg.Filter, images: []string, p: vg.
 	// Elements with children close with this tag.
 	close := ""
 	switch p.op {
+	case .Bloom:
+		// SVG has no bloom: its parts, the last taking this primitive's place.
+		strings.write_string(b, `<feComposite operator="arithmetic"`)
+		filter_ref_attr(b, "in", p.in1, k)
+		filter_ref_attr(b, "in2", p.in1, k)
+		num_attr(b, "k1", 0)
+		num_attr(b, "k2", 1)
+		num_attr(b, "k3", 0)
+		num_attr(b, "k4", -p.threshold)
+		strings.write_string(b, ` result="r`)
+		strings.write_int(b, k)
+		strings.write_string(b, `above"/>`+"\n"+`<feGaussianBlur in="r`)
+		strings.write_int(b, k)
+		strings.write_string(b, `above"`)
+		std_attr(b, p.std)
+		strings.write_string(b, ` result="r`)
+		strings.write_int(b, k)
+		strings.write_string(b, `glow"/>`+"\n"+`<feComposite operator="arithmetic"`)
+		filter_ref_attr(b, "in", p.in1, k)
+		strings.write_string(b, ` in2="r`)
+		strings.write_int(b, k)
+		strings.write_string(b, `glow"`)
+		num_attr(b, "k1", 0)
+		num_attr(b, "k2", 1)
+		num_attr(b, "k3", p.intensity)
+		num_attr(b, "k4", 0)
 	case .Gaussian_Blur:
 		strings.write_string(b, "<feGaussianBlur")
 		filter_ref_attr(b, "in", p.in1, k)

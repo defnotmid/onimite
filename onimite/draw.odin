@@ -52,6 +52,8 @@ Renderer :: struct {
 	// The frame's motion when built with `build_motion`, and what blurs a
 	// frame drawn on the CPU by it (motion.odin).
 	motion:    Motion,
+	// The shutter of the frame being drawn (`frame_shutter`), set as it is built.
+	shutter:   f32,
 	// A presentation's hold (Hold.Alive): the scenes that start at or before
 	// frame `held_through` run `clock_offset` seconds ahead, so the held scene
 	// keeps moving on its last frame and leaves (its transition) from where
@@ -230,12 +232,12 @@ render_frame :: proc(r: ^Renderer, index: int, output: vg.Render_Output = 0, rea
 	r.software.pool = software_pool(r)
 	flush_frame(r, output)
 	if r.is_software {
-		if r.video.shutter > 0 {
+		if r.shutter > 0 {
 			frame_blur_software(&r.blur, &r.software, r.pool)
 		}
 		return r.software.pixels
 	}
-	if r.video.shutter > 0 && r.gpu3d != nil {
+	if r.shutter > 0 && r.gpu3d != nil {
 		out := (^vgsdl.Output)(uintptr(output))
 		if err := frame_blur_gpu(r.gpu3d, &r.blur_gpu, (^vgsdl.SDL_Backend)(r.canvas.backend.data), out.texture if out != nil else nil, {r.width, r.height}); err != nil {
 			report(&r.ctx, .Error, {code = .View3d_Render, o3d = err})
@@ -283,7 +285,7 @@ draw_frame :: proc(r: ^Renderer) {
 	c := &r.canvas
 	// Motion blur: the frame keeps each draw's motion (set_motion in
 	// draw_node), the screen's from its start (set_size), when any moved.
-	vg.canvas_motion_blur(c, r.video.shutter > 0 && r.motion.moves)
+	vg.canvas_motion_blur(c, r.shutter > 0 && r.motion.moves)
 	vg.set_size(c, r.width, r.height)
 	vg.reset(c)
 	vg.clear_rect(c, 0, 0, r.width, r.height, r.video.background)
@@ -436,7 +438,7 @@ draw_node :: proc(r: ^Renderer, i: i32) {
 	node := r.ctx.tree.nodes[i]
 	if _, is_group := node.kind.(Group); !is_group {
 		check_box(r, i)
-		if r.video.shutter > 0 {
+		if r.shutter > 0 {
 			vg.set_motion(&r.canvas, motion_opened(r, int(i)))
 		}
 	}
