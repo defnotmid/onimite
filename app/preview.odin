@@ -549,8 +549,10 @@ preview_run :: proc(app: ^App_State, capture, drive, start_spec: string) -> Erro
 	}
 	worker_start(worker)
 	defer {
-		// The worker releases its GPU objects before the device goes.
+		// The worker lets go of its GPU objects, and they go back, before the
+		// device goes.
 		worker_stop(worker)
+		preview_retired_release(p.device, mb)
 		audio.sdl_stream = nil // the playhead stops asking the stream
 		audio_close(pv.audio_stream)
 		mailbox_destroy(mb)
@@ -634,6 +636,7 @@ preview_run :: proc(app: ^App_State, capture, drive, start_spec: string) -> Erro
 		}
 
 		presented := time.tick_now()
+		preview_retired_release(p.device, mb)
 		preview_frame_apply(app)
 		if pv.quit {
 			break
@@ -2005,10 +2008,7 @@ preview_request :: proc(app: ^App_State, p: ^platform.Platform) {
 		table_copy(&pv.sent_images, pv.files_open[:])
 	}
 
-	// The scale that fits the video's panel (kept while it is hidden),
-	// multiplied by the video camera's zoom when zoomed in.
-	scale := pv.asked_scale if pv.asked_scale > 0 else 1
-	if area, shown := view_area(app, .Video); shown && pv.timeline.width > 0 do scale = video_scale(pv, area)
+	scale := preview_asked_scale(app, pv)
 	frame, hold, through := preview_asked(app)
 	fps := max(preview_fps(app), 1)
 	if pv.asked_frame == frame && pv.asked_hold == hold && pv.asked_through == through && pv.asked_scale == scale && pv.reload_gen == pv.asked_reload && pv.asked_now_start == pv.now_start {
@@ -2029,6 +2029,17 @@ preview_request :: proc(app: ^App_State, p: ^platform.Platform) {
 	pv.asked_scale = scale
 	pv.asked_reload = pv.reload_gen
 	pv.reload_media = false
+}
+
+// The scale the worker is asked for: what fits the video's panel (kept while
+// it is hidden), multiplied by the video camera's zoom when zoomed in. None
+// until the first load tells the film's size: the worker loads and draws
+// nothing at 0, so a first frame is drawn once, at the size it will stay.
+@(private)
+preview_asked_scale :: proc(app: ^App_State, pv: ^Preview_State) -> f32 {
+	if pv.timeline.width <= 0 do return pv.asked_scale
+	if area, shown := view_area(app, .Video); shown do return video_scale(pv, area)
+	return pv.asked_scale if pv.asked_scale > 0 else 1
 }
 
 // The frame the worker is asked for, and the hold it runs the scenes up to

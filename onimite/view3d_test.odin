@@ -12,6 +12,7 @@ import "core:strings"
 import "core:sync"
 import "core:testing"
 import "deps:o3d"
+import o3d_gpu "deps:o3d/sdlgpu"
 import vgsdl "deps:ovg/sdlgpu"
 import sdl "vendor:sdl3"
 
@@ -1099,4 +1100,38 @@ test_look_at_world :: proc(t: ^testing.T) {
 	// Without a look, the rotation is kept as given.
 	plain := pose_world(parent, {}, {0, 0, 1}, {1, 1, 1}, nil)
 	testing.expect(t, plain == parent * o3d.compose({}, {0, 0, 1}, {1, 1, 1}))
+}
+
+// What o3d lets go of waits in the table its owner gave it: the thread that
+// presents gives it back, so none of it reaches SDL from another thread.
+@(test)
+test_view3d_gpu_lets_go_through_the_table :: proc(t: ^testing.T) {
+	sync.guard(&sdl_lock)
+	if !sdl.Init({.VIDEO}) {
+		sdl.SetHint(sdl.HINT_VIDEO_DRIVER, "offscreen")
+		if !sdl.Init({.VIDEO}) {
+			log.info("no SDL video: GPU skipped")
+			return
+		}
+	}
+	defer sdl.Quit()
+	device := sdl.CreateGPUDevice({.SPIRV, .MSL}, false, nil)
+	if device == nil {
+		log.infof("no SDL_GPU device (%s): GPU skipped", sdl.GetError())
+		return
+	}
+	defer sdl.DestroyGPUDevice(device)
+	table: o3d_gpu.Retired
+	defer o3d_gpu.retired_destroy(&table)
+	defer o3d_gpu.retired_release(device, &table)
+	g := View3d_Gpu {
+		device  = device,
+		retired = &table,
+	}
+	if !testing.expect(t, view3d_gpu_ready(&g)) {
+		view3d_gpu_destroy(&g)
+		return
+	}
+	view3d_gpu_destroy(&g)
+	testing.expect(t, len(table.textures) > 0, "a GPU's textures wait in the table")
 }

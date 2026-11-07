@@ -1449,6 +1449,25 @@ test_sound_view_plays_alone :: proc(t: ^testing.T) {
 // its pyramid stays with the media's. Laid out again, nothing is made twice.
 // Where a picture lies: fitted in its box, letterboxed either way, then moved and
 // scaled by its camera.
+// The worker's GPU memory goes back on the UI's thread: a release during its
+// present writes to freed memory.
+@(test)
+test_worker_lets_go_through_the_table :: proc(t: ^testing.T) {
+	mb: Mailbox
+	defer mailbox_destroy(&mb)
+	w := Render_Worker {
+		mb = &mb,
+	}
+	defer delete(w.image_retired)
+	// (Never a real texture: it mustn't reach SDL here, and a release would.)
+	texture := (^sdl.GPUTexture)(uintptr(0x1000))
+	append(&w.image_retired, texture)
+	images_retired_release(&w)
+	testing.expect_value(t, len(w.image_retired), 0)
+	testing.expect_value(t, len(mb.retired.textures), 1)
+	clear(&mb.retired.textures)
+}
+
 @(test)
 test_picture_rect :: proc(t: ^testing.T) {
 	check :: proc(t: ^testing.T, size, dim: [2]f32, cam: Picture_Camera, lo, hi: [2]f32, loc := #caller_location) {
@@ -1554,8 +1573,27 @@ test_pictures_share_their_camera :: proc(t: ^testing.T) {
 	testing.expect(t, !test_has(rows, .Picture_Zoom))
 	pv.live = false
 
-	// What the worker renders at follows the zoom, up to twice the video's size.
+	// Nothing is asked of the worker's renderer before the film's size is known,
+	// so a first frame isn't drawn at a guess and then all over again.
+	pv.timeline.width, pv.timeline.height = 0, 0
+	pv.asked_scale = 0
+	testing.expect_value(t, preview_asked_scale(app, pv), f32(0))
+	{
+		mb: Mailbox
+		defer mailbox_destroy(&mb)
+		sc: script.Script
+		w := Render_Worker {
+			mb     = &mb,
+			script = &sc,
+		}
+		testing.expect(t, worker_renderer(&w, 0) == nil)
+		// (Nothing was opened to find that out.)
+		testing.expect(t, !w.renderer_ok && !w.gpu_ok && !w.software)
+	}
 	pv.timeline.width, pv.timeline.height = 1280, 720
+	testing.expect(t, preview_asked_scale(app, pv) > 0)
+
+	// What the worker renders at follows the zoom, up to twice the video's size.
 	v.shown.zoom = 1
 	testing.expect_value(t, video_scale(pv, {width = 640, height = 360}), f32(0.5))
 	v.shown.zoom = 2

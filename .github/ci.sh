@@ -12,6 +12,7 @@
 #   bash .github/ci.sh readmes # no measured loudness figures in example READMEs (they go stale)
 #   bash .github/ci.sh facts   # bench/facts.json measures the latest release; no race figures typed into READMEs
 #   bash .github/ci.sh pins    # every sibling checkout names a tag, the same one in both workflows
+#   bash .github/ci.sh retired # GPU textures and buffers go back through the table, not straight to SDL
 #
 # ONIMITE_TEST_LDFLAGS (set by .github/actions/setup-toolchain) points the
 # links at CI's SDL3; unset, the system's is used.
@@ -217,6 +218,18 @@ media)
 		esac
 	done < <(list)
 	exit $fail
+	;;
+retired)
+	# A release frees the object's container at once, while the UI's present
+	# may be writing to it, so what the preview's worker drives lets go through
+	# a Retired table (preview_retired_release). render/ is the UI thread's own,
+	# and SDL never moves transfer buffers, so neither needs one.
+	hits=$(grep -nE 'sdl\.ReleaseGPU(Texture|Buffer)\(' app/*.odin onimite/*.odin | grep -v '_test\.odin:' || true)
+	if [ -n "$hits" ]; then
+		echo "$hits"
+		echo "a GPU texture or buffer released straight to SDL: use retire_texture or retire_buffer"
+		exit 1
+	fi
 	;;
 readmes)
 	# An example's README states no measured loudness: a figure copied from

@@ -13,6 +13,7 @@ import enc "../encode"
 import script "../script"
 import vg "deps:ovg"
 import vgsdl "deps:ovg/sdlgpu"
+import o3d_gpu "deps:o3d/sdlgpu"
 import sdl "vendor:sdl3"
 
 // The preview's render worker: one thread owning the Lua state, the media,
@@ -118,6 +119,11 @@ Mailbox :: struct {
 	marks:            [dynamic]Mark,
 	marks_seq:        u64,
 
+	// The textures and buffers the worker has let go of (ovg's and o3d's too,
+	// which push here themselves), given back by the UI: preview_retired_release.
+	retired:          vgsdl.Retired,
+	retired3d:        o3d_gpu.Retired,
+
 	// Published by the worker.
 	published_seq:    u64,
 	slot:             int, // index of the newest finished frame's texture (-1: none yet)
@@ -170,7 +176,21 @@ Mailbox :: struct {
 	clips_landed:     bool,
 }
 
+// Gives back what the worker let go of, on the thread that presents, after
+// its present, every window frame. A release frees the object's container
+// at once, under a lock the defragmenter in SDL's presenting submit doesn't
+// hold while it writes to that container, so no other thread may release
+// while this one presents (as RAD's r_tex2d_release only queues and its
+// r_end_frame frees).
+@(private)
+preview_retired_release :: proc(device: ^sdl.GPUDevice, mb: ^Mailbox) {
+	vgsdl.retired_release(device, &mb.retired)
+	o3d_gpu.retired_release(device, &mb.retired3d)
+}
+
 mailbox_destroy :: proc(mb: ^Mailbox) {
+	vgsdl.retired_destroy(&mb.retired)
+	o3d_gpu.retired_destroy(&mb.retired3d)
 	preview_timeline_destroy(&mb.timeline)
 	script.failure_destroy(&mb.reload_failure)
 	delete(mb.device_name)
@@ -730,7 +750,7 @@ worker_idle_ready :: proc(w: ^Render_Worker) -> (ready: bool, retry: time.Durati
 		}
 		if len(w.band_retired) > 0 {
 			for t in w.band_retired {
-				sdl.ReleaseGPUTexture(w.device, t)
+				vgsdl.retire_texture(w.device, &w.mb.retired, t)
 			}
 			clear(&w.band_retired)
 		}
@@ -1005,7 +1025,7 @@ worker_load :: proc(w: ^Render_Worker, req: Render_Request, reload_media: bool) 
 		thumb_size := [2]u32{u32(f32(v.width) * thumb_scale + 0.5), u32(f32(v.height) * thumb_scale + 0.5)}
 		if thumb_size != w.thumb_size {
 			for t in w.thumb_free {
-				sdl.ReleaseGPUTexture(w.device, t)
+				vgsdl.retire_texture(w.device, &w.mb.retired, t)
 			}
 			clear(&w.thumb_free)
 			append(&w.band_retired, ..w.thumb_retired[:])
@@ -1083,7 +1103,7 @@ worker_load :: proc(w: ^Render_Worker, req: Render_Request, reload_media: bool) 
 @(private = "file")
 worker_backend :: proc(w: ^Render_Worker, b: ^vgsdl.SDL_Backend, ok: ^bool) -> Maybe(vg.Backend) {
 	if !w.software && !ok^ {
-		if err := vgsdl.init(b, w.device); err != nil {
+		if err := vgsdl.init(b, w.device, retired = &w.mb.retired); err != nil {
 			warn("no GPU canvas in the preview (%v), drawing on the CPU", err)
 			w.software = true
 		} else {
@@ -1096,9 +1116,10 @@ worker_backend :: proc(w: ^Render_Worker, b: ^vgsdl.SDL_Backend, ok: ^bool) -> M
 	return nil
 }
 
-@(private = "file")
+@(private)
 worker_renderer :: proc(w: ^Render_Worker, scale: f32) -> ^om.Renderer {
-	if w.script == nil {
+	// (Scale 0: the UI hasn't seen the film's size, and asks again once it has.)
+	if w.script == nil || scale == 0 {
 		return nil
 	}
 	if w.renderer_ok && w.renderer.scale != scale {
@@ -1125,7 +1146,7 @@ renderer_open :: proc(w: ^Render_Worker, r: ^om.Renderer, gpu: ^vgsdl.SDL_Backen
 		return false
 	}
 	if backend != nil {
-		gpu3d.device = w.device
+		gpu3d.device, gpu3d.retired = w.device, &w.mb.retired3d
 		r.gpu3d = gpu3d
 	}
 	r.pool = w.pool
@@ -1188,7 +1209,7 @@ worker_render :: proc(w: ^Render_Worker, req: Render_Request) {
 	s := &w.slots[slot]
 	if s.texture == nil || s.size != size {
 		if s.texture != nil {
-			sdl.ReleaseGPUTexture(w.device, s.texture)
+			vgsdl.retire_texture(w.device, &w.mb.retired, s.texture)
 		}
 		s.texture = make_target(w.device, size)
 		s.size = size
@@ -1427,25 +1448,25 @@ worker_release :: proc(w: ^Render_Worker) {
 	thumb_clips_release(w)
 	for &s in w.slots {
 		if s.texture != nil {
-			sdl.ReleaseGPUTexture(w.device, s.texture)
+			vgsdl.retire_texture(w.device, &w.mb.retired, s.texture)
 			s.texture = nil
 		}
 	}
 	for t in w.thumbs {
-		sdl.ReleaseGPUTexture(w.device, t.texture)
+		vgsdl.retire_texture(w.device, &w.mb.retired, t.texture)
 	}
 	for t in w.thumb_free {
-		sdl.ReleaseGPUTexture(w.device, t)
+		vgsdl.retire_texture(w.device, &w.mb.retired, t)
 	}
 	for t in w.thumb_retired {
-		sdl.ReleaseGPUTexture(w.device, t)
+		vgsdl.retire_texture(w.device, &w.mb.retired, t)
 	}
 	for t in w.band_retired {
-		sdl.ReleaseGPUTexture(w.device, t)
+		vgsdl.retire_texture(w.device, &w.mb.retired, t)
 	}
 	for v in w.band_views {
 		if v.texture.texture != nil {
-			sdl.ReleaseGPUTexture(w.device, v.texture.texture)
+			vgsdl.retire_texture(w.device, &w.mb.retired, v.texture.texture)
 		}
 		delete(v.levels)
 		delete(v.drawn)

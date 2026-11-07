@@ -63,7 +63,7 @@ jobs:
         with:
           repository: defnotmid/ovg
           path: ovg
-          ref: v0.0.63
+          ref: v0.0.64
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/ocurves
@@ -97,8 +97,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/o3d
-          # Pinned like ottis: o3d is released on its own (v0.0.55).
-          ref: v0.0.55
+          # Pinned like ottis: o3d is released on its own (v0.0.56).
+          ref: v0.0.56
           path: o3d
       - uses: actions/checkout@v4
         with:

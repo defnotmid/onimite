@@ -9,6 +9,7 @@ import platform "../platform"
 import render "../render"
 import ui "../ui"
 import vg "deps:ovg"
+import vgsdl "deps:ovg/sdlgpu"
 import sdl "vendor:sdl3"
 
 // What a media row unfolds into (RAD's view rules, picked by the value's
@@ -177,7 +178,7 @@ worker_images_retire :: proc(w: ^Render_Worker) {
 @(private)
 images_retired_release :: proc(w: ^Render_Worker) {
 	if w.mb.images_ack != w.mb.images_seq do return
-	for t in w.image_retired do sdl.ReleaseGPUTexture(w.device, t)
+	for t in w.image_retired do vgsdl.retire_texture(w.device, &w.mb.retired, t)
 	clear(&w.image_retired)
 }
 
@@ -186,9 +187,9 @@ images_retired_release :: proc(w: ^Render_Worker) {
 worker_images_release :: proc(w: ^Render_Worker) {
 	for v in w.image_views {
 		if v.image != nil && w.media != nil do om.media_image_release(w.media, v.image)
-		if v.texture != nil do sdl.ReleaseGPUTexture(w.device, v.texture)
+		if v.texture != nil do vgsdl.retire_texture(w.device, &w.mb.retired, v.texture)
 	}
-	for t in w.image_retired do sdl.ReleaseGPUTexture(w.device, t)
+	for t in w.image_retired do vgsdl.retire_texture(w.device, &w.mb.retired, t)
 	delete(w.image_views)
 	delete(w.image_retired)
 	delete(w.files_wanted)

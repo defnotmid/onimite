@@ -15,6 +15,9 @@ import sdl "vendor:sdl3"
 // starts its mirror over.
 View3d_Gpu :: struct {
 	device:  ^sdl.GPUDevice,
+	// Set when another thread presents on this device: what this GPU lets go
+	// of waits here for that thread (o3d's Retired).
+	retired: ^o3d_gpu.Retired,
 	gpu:     o3d_gpu.GPU,
 	state:   enum u8 {
 		Untried,
@@ -154,7 +157,7 @@ view3d_job_run_software :: proc(job: ^View3d_Job, images: ^vg.Image_Store) {
 view3d_gpu_ready :: proc(g: ^View3d_Gpu) -> bool {
 	switch g.state {
 	case .Untried:
-		if g.failure = o3d_gpu.init(&g.gpu, g.device); g.failure != nil {
+		if g.failure = o3d_gpu.init(&g.gpu, g.device, g.retired); g.failure != nil {
 			o3d_gpu.destroy(&g.gpu)
 			g.state = .Failed
 			return false
@@ -183,7 +186,7 @@ frame_blur_gpu_destroy :: proc(g: ^View3d_Gpu, b: ^Frame_Blur_Gpu) {
 	}
 	for t in ([]^sdl.GPUTexture{b.color, b.out}) {
 		if t != nil {
-			sdl.ReleaseGPUTexture(g.device, t)
+			o3d_gpu.retire_texture(g.device, g.retired, t)
 		}
 	}
 	b^ = {}
@@ -206,7 +209,7 @@ frame_blur_gpu :: proc(g: ^View3d_Gpu, b: ^Frame_Blur_Gpu, vgb: ^vgsdl.SDL_Backe
 	if b.size != size || b.color == nil {
 		for t in ([]^sdl.GPUTexture{b.color, b.out}) {
 			if t != nil {
-				sdl.ReleaseGPUTexture(g.device, t)
+				o3d_gpu.retire_texture(g.device, g.retired, t)
 			}
 		}
 		info := sdl.GPUTextureCreateInfo{type = .D2, format = o3d_gpu.LIGHT_FORMAT, usage = {.SAMPLER, .COLOR_TARGET}, width = size.x, height = size.y, layer_count_or_depth = 1, num_levels = 1}
