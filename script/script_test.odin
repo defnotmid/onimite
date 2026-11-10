@@ -400,6 +400,39 @@ scene { "B", duration = 2, overlap = { previous = 1 }, render = function(f) rect
 	testing.expectf(t, whole[0][0] > 225, "white over white at the middle: %d", whole[0][0])
 }
 
+// A text painted with a pattern that holds text: the tile's text lays out on
+// its own, so the outer text still draws, its pattern span and its plain one.
+@(test)
+test_text_in_a_text_pattern :: proc(t: ^testing.T) {
+	f: Fixture
+	defer fixture_destroy(&f)
+	fixture_init(t, &f, `
+video { width = 200, height = 60, fps = 10, duration = 0.1, background = "#000000" }
+scene { duration = 0.1, render = function(f)
+  text { x = 4, y = 50, size = 56, weight = 700, spans = {
+    { "HH", fill = pattern { x = 0, y = 0, w = 30, h = 30, content = function()
+      rect { x = 0, y = 0, w = 30, h = 30, fill = "#ff0000" }
+      text { "x", x = 4, y = 24, size = 24, fill = "#00ff00" } end } },
+    { "HH", fill = "#0000ff" },
+  } }
+end }
+`)
+	if !fixture_load(t, &f) {
+		return
+	}
+	px := fixture_frame(t, &f, 0)
+	red, green, blue: int
+	for i := 0; i + 3 < len(px); i += 4 {
+		r, g, b := px[i], px[i + 1], px[i + 2]
+		if r > 200 && g < 60 && b < 60 {red += 1}
+		if g > 200 && r < 60 && b < 60 {green += 1}
+		if b > 200 && r < 60 && g < 60 {blue += 1}
+	}
+	testing.expectf(t, red > 200, "the pattern span's tile: %d red pixels", red)
+	testing.expectf(t, green > 0, "the tile's own text: %d green pixels", green)
+	testing.expectf(t, blue > 200, "the plain span: %d blue pixels", blue)
+}
+
 // `hold`: what a presentation does at each scene's end (the default is
 // alive); a held scene's clock runs on past its last frame (clock_offset);
 // any other value is an error naming the choices.

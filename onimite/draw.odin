@@ -68,8 +68,9 @@ Renderer :: struct {
 	evictions: u64,
 	layers:    vg.Layer_Stack,
 	path:      vg.Path,
-	// Scratch paths of outer shapes while a pattern tile draws (by depth).
-	saved_paths: [dynamic]vg.Path,
+	// What the outer shape or text still uses while a pattern tile it is
+	// painted with draws (by depth): its scratch path and its layout.
+	saved: [dynamic]Pattern_Saved,
 	pattern_depth: int,
 	// Groups with shape-rendering="crispEdges" around the node being drawn.
 	crisp_depth:   int,
@@ -194,10 +195,11 @@ renderer_destroy :: proc(r: ^Renderer) {
 	delete(r.video_uploads)
 	vg.path_destroy(&r.path)
 	vg.path_destroy(&r.bbox_path)
-	for &p in r.saved_paths {
-		vg.path_destroy(&p)
+	for &saved in r.saved {
+		vg.path_destroy(&saved.path)
+		vg.text_layout_destroy(&saved.text)
 	}
-	delete(r.saved_paths)
+	delete(r.saved)
 	tree_destroy(&r.ctx.tree)
 	diagnostics_clear(&r.ctx)
 	delete(r.ctx.diagnostics)
@@ -777,18 +779,33 @@ pattern_paint :: proc(r: ^Renderer, pat: Pattern, box: vg.Rect) -> (vg.Paint, bo
 	vg.reset_transform(c)
 	vg.reset_scissor(c)
 	vg.scale(c, f32(pw) / w, f32(ph) / h)
-	// The shape being painted owns `r.path`: draw the tile with another.
-	for len(r.saved_paths) <= r.pattern_depth {
-		append(&r.saved_paths, vg.Path{})
+	// The shape or text being painted owns `r.path` and `r.text`: draw the
+	// tile with others (a text in the tile lays out in its own).
+	for len(r.saved) <= r.pattern_depth {
+		append(&r.saved, Pattern_Saved{})
 	}
-	r.path, r.saved_paths[r.pattern_depth] = r.saved_paths[r.pattern_depth], r.path
+	pattern_swap(r)
 	r.pattern_depth += 1
 	draw_children(r, pat.content)
 	r.pattern_depth -= 1
-	r.path, r.saved_paths[r.pattern_depth] = r.saved_paths[r.pattern_depth], r.path
+	pattern_swap(r)
 	vg.restore(c)
 	vg.layer_pattern_end(&r.layers, c)
 	return vg.paint_image(tile, x, y, w, h, 0), true
+}
+
+Pattern_Saved :: struct {
+	path: vg.Path,
+	text: vg.Text_Layout,
+}
+
+// Swaps the renderer's scratch path and layout with the saved ones at the
+// current pattern depth (by index: a deeper tile may grow `r.saved`).
+@(private = "file")
+pattern_swap :: proc(r: ^Renderer) {
+	s := &r.saved[r.pattern_depth]
+	r.path, s.path = s.path, r.path
+	r.text, s.text = s.text, r.text
 }
 
 // Draws the nodes under `content` (`w x h` units, origin top-left) into a
