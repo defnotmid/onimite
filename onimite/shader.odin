@@ -196,12 +196,18 @@ Shader_Library :: struct {
 	stateful: [dynamic]bool,
 	by_hash:  map[u64]int,
 	arena:    virtual.Arena,
+	// The layer vertex shader every program draws with (oksl's
+	// LAYER_VERTEX_GLSL), compiled with the first program registered and
+	// freed with the library: a recorded program reads its code as long as
+	// its fragment shader's.
+	vertex:   ^oksl.Module,
 }
 
 shader_library_destroy :: proc(l: ^Shader_Library) {
 	for g in l.graphs {
 		oksl.destroy_program(g)
 	}
+	oksl.destroy(l.vertex)
 	delete(l.hashes)
 	delete(l.labels)
 	delete(l.graphs)
@@ -893,6 +899,17 @@ shader_program :: proc(r: ^Renderer, i, pass: int, m: ^oksl.Module) -> (vg.Progr
 @(private)
 shader_register :: proc(r: ^Renderer, m: ^oksl.Module, cpu: ^^Shader_Cpu) -> (vg.Program_Id, vg.Error) {
 	s := &r.shader_state
+	l := &r.ctx.shaders
+	if l.vertex == nil {
+		// a fixed source (oksl's test_layer_vertex compiles it): failing is
+		// oksl's bug, reported as the program's load
+		v, _, ok := oksl.compile(oksl.LAYER_VERTEX_GLSL, {profile = .Glsl, stage = .Vertex, no_cpu = true})
+		if !ok {
+			oksl.destroy(v)
+			return {}, .General
+		}
+		l.vertex = v
+	}
 	cpu^ = new(Shader_Cpu)
 	cpu^^ = {m, r}
 	return vg.create_program(
@@ -902,10 +919,10 @@ shader_register :: proc(r: ^Renderer, m: ^oksl.Module, cpu: ^^Shader_Cpu) -> (vg
 			frag_spirv_entry = oksl.SPIRV_ENTRY,
 			frag_msl = transmute([]u8)m.msl,
 			frag_msl_entry = oksl.MSL_ENTRY,
-			vert_spirv = oksl.LAYER_VERTEX_SPIRV,
-			vert_spirv_entry = oksl.LAYER_VERTEX_SPIRV_ENTRY,
-			vert_msl = transmute([]u8)oksl.LAYER_VERTEX_MSL,
-			vert_msl_entry = oksl.LAYER_VERTEX_MSL_ENTRY,
+			vert_spirv = slice.to_bytes(l.vertex.spirv),
+			vert_spirv_entry = oksl.SPIRV_ENTRY,
+			vert_msl = transmute([]u8)l.vertex.msl,
+			vert_msl_entry = oksl.MSL_ENTRY,
 			uniform_size = m.block_size,
 			num_samplers = m.num_samplers,
 			cpu = shader_cpu_run,
@@ -1054,7 +1071,9 @@ shader_child_image :: proc(r: ^Renderer, name: string) -> vg.Image_Id {
 
 // ---- CPU interpreter ----------------------------------------------------------------
 
-// Rows per band: oksl shades 8x2 blocks, so bands start on even rows.
+// Rows per band: oksl shades 8x8 batches of 2x2 quads laid out from a run's
+// origin, so a band starting on an even row pairs its quads (and their
+// derivatives) as the whole layer's run does.
 @(private = "file")
 BAND_ROWS :: 16
 

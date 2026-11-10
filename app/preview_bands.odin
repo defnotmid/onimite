@@ -68,9 +68,10 @@ worker_bands_take :: proc(w: ^Render_Worker) -> bool {
 }
 
 // Whether a request is new, or rows landed since the views were drawn.
+// `asked`: the mailbox's bands_wanted_seq, read under its lock by the caller.
 @(private)
-bands_pending :: proc(w: ^Render_Worker) -> bool {
-	return w.mb.bands_wanted_seq != w.bands_wanted_seq || (w.bands_landed && len(w.band_views) > 0)
+bands_pending :: proc(w: ^Render_Worker, asked: u64) -> bool {
+	return asked != w.bands_wanted_seq || (w.bands_landed && len(w.band_views) > 0)
 }
 
 // One step: the requests taken, each view's song asked for its rows (its

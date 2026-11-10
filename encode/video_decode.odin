@@ -42,6 +42,9 @@ Video_Decoders :: struct {
 	// others on their first use. Stable pointers: workers are shared with
 	// their threads.
 	workers: [dynamic][CLIP_STREAMS]^Clip_Worker,
+	// By handle: the opens not closed yet (vs_close). At 0 the clip's
+	// streams stop and go; its handle is never given again.
+	refs:    [dynamic]int,
 	// Decode with oicut's native codecs where this build has them
 	// (`native_decodes`) rather than the system's. Backward seeks cost ~5 ms
 	// native against 27-40 ms on Vulkan, so interactive previews set it;
@@ -113,39 +116,68 @@ Clip_Worker :: struct {
 
 video_decoders_init :: proc(d: ^Video_Decoders, native := false) {
 	d.workers = make([dynamic][CLIP_STREAMS]^Clip_Worker)
+	d.refs = make([dynamic]int)
 	d.native = native
 }
 
 // Stops every decode thread and frees the clips.
 video_decoders_destroy :: proc(d: ^Video_Decoders) {
 	for streams in d.workers {
-		for w in streams {
-			if w == nil {
-				continue
-			}
-			if w.thread != nil {
-				sync.mutex_lock(&w.mutex)
-				w.stop = true
-				sync.cond_broadcast(&w.work)
-				sync.mutex_unlock(&w.mutex)
-				thread.join(w.thread)
-				thread.destroy(w.thread)
-			}
-			video.close_reader(&w.reader)
-			for b in w.buffers {
-				delete(b)
-			}
-			delete(w.path)
-			free(w)
-		}
+		clip_streams_free(streams)
 	}
 	delete(d.workers)
+	delete(d.refs)
 	d^ = {}
+}
+
+// Stops a clip's decode threads and frees its streams.
+@(private = "file")
+clip_streams_free :: proc(streams: [CLIP_STREAMS]^Clip_Worker) {
+	for w in streams {
+		if w == nil {
+			continue
+		}
+		if w.thread != nil {
+			sync.mutex_lock(&w.mutex)
+			w.stop = true
+			sync.cond_broadcast(&w.work)
+			sync.mutex_unlock(&w.mutex)
+			thread.join(w.thread)
+			thread.destroy(w.thread)
+		}
+		video.close_reader(&w.reader)
+		for b in w.buffers {
+			delete(b, w.allocator)
+		}
+		delete(w.path, w.allocator)
+		free(w, w.allocator)
+	}
 }
 
 // The `Video_Source` for onimite' media.
 video_source :: proc(d: ^Video_Decoders) -> om.Video_Source {
-	return {data = d, open = vs_open, request = vs_request, release = vs_release, prefetch = vs_prefetch, to_rgba = vs_to_rgba}
+	return {data = d, open = vs_open, request = vs_request, release = vs_release, close = vs_close, prefetch = vs_prefetch, to_rgba = vs_to_rgba}
+}
+
+// One open of `clip` let go: the last stops its threads and frees it (off
+// the table's lock, as joining waits for a decode).
+@(private = "file")
+vs_close :: proc(data: rawptr, clip: int) {
+	d := (^Video_Decoders)(data)
+	sync.mutex_lock(&d.mutex)
+	if clip < 0 || clip >= len(d.refs) || d.refs[clip] <= 0 {
+		sync.mutex_unlock(&d.mutex)
+		return
+	}
+	d.refs[clip] -= 1
+	if d.refs[clip] > 0 {
+		sync.mutex_unlock(&d.mutex)
+		return
+	}
+	streams := d.workers[clip]
+	d.workers[clip] = {}
+	sync.mutex_unlock(&d.mutex)
+	clip_streams_free(streams)
 }
 
 @(private = "file")
@@ -163,6 +195,7 @@ vs_open :: proc(data: rawptr, path: string) -> (clip: int, info: om.Video_Info, 
 			if first := streams[0]; first != nil && first.path == path && first.stamp == stamp {
 				v := first.info
 				info = {v.width, v.height, v.duration, first.fps, v.frame_count, v.rotation, first.has_audio, first.format}
+				d.refs[idx] += 1
 				sync.mutex_unlock(&d.mutex)
 				return idx, info, {}, nil
 			}
@@ -214,6 +247,7 @@ vs_open :: proc(data: rawptr, path: string) -> (clip: int, info: om.Video_Info, 
 	sync.mutex_lock(&d.mutex)
 	clip = len(d.workers)
 	append(&d.workers, [CLIP_STREAMS]^Clip_Worker{w, nil, nil, nil})
+	append(&d.refs, 1)
 	sync.mutex_unlock(&d.mutex)
 	return clip, {v.width, v.height, v.duration, fps, v.frame_count, v.rotation, w.has_audio, w.format}, {}, nil
 }
@@ -295,6 +329,9 @@ worker_of :: proc(d: ^Video_Decoders, clip: int, stream: int) -> ^Clip_Worker {
 	}
 	streams := &d.workers[clip]
 	k := clamp(stream, 0, CLIP_STREAMS - 1)
+	if streams[0] == nil {
+		return nil // closed
+	}
 	if streams[k] == nil {
 		first := streams[0]
 		context.allocator = first.allocator

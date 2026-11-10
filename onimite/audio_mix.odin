@@ -252,8 +252,10 @@ frames_to_samples :: #force_inline proc "contextless" (frames, fps: int) -> int 
 // is placed track i's tracks in the song (first, count). All in `arena`.
 Mix :: struct {
 	arena:  virtual.Arena,
+	// Its sample sets are its own view (song.bank: clips' and renders'
+	// samples lent to it, then the songs' sets as the video's bank has
+	// them), so nothing another thread loads moves what it plays.
 	song:   osong.Song,
-	bank:   odevice.Bank,
 	tracks: [][2]i32,
 	// Per placed track, its song's placement in the mix (-1: a clip, or a
 	// song played as its render).
@@ -276,23 +278,15 @@ mix_init :: proc(mx: ^Mix, placed: []Placed_Track, opts: Mix_Options, samples :=
 	_ = virtual.arena_init_growing(&mx.arena)
 	context.allocator = virtual.arena_allocator(&mx.arena)
 	osong.mix_init(&mx.song)
-	mx.song.bank = &mx.bank
 	mx.tracks = make([][2]i32, len(placed))
 	mx.placements = make([]i32, len(placed))
 	slice.fill(mx.placements, -1)
-	// the sample sets the songs play, loaded and viewed as the video's bank
-	// has them
-	if samples {
+	// the sample sets the songs play, loaded into the video's bank (viewed
+	// below, once the mix knows every set it names)
+	if samples && load {
 		for p in placed {
-			if p.song != nil && load {
+			if p.song != nil {
 				song_clip_load(p.song)
-			}
-		}
-		for p in placed {
-			if p.song != nil && p.song.song.bank != nil {
-				sync.guard(&p.song.music.bank_lock)
-				odevice.bank_view(&mx.bank, p.song.song.bank)
-				break
 			}
 		}
 	}
@@ -304,7 +298,7 @@ mix_init :: proc(mx: ^Mix, placed: []Placed_Track, opts: Mix_Options, samples :=
 			// its render as a clip: song time 0 at the track's file start
 			set, known := sets[p.song]
 			if !known {
-				set = odevice.bank_borrow(&mx.bank, tr.src, p.song.render.samples)
+				set = odevice.bank_borrow(&mx.song.bank, tr.src, p.song.render.samples)
 				sets[p.song] = set
 			}
 			c := osong.Clip {
@@ -337,7 +331,7 @@ mix_init :: proc(mx: ^Mix, placed: []Placed_Track, opts: Mix_Options, samples :=
 			if samples {
 				known: bool
 				if set, known = sets[p.clip]; !known {
-					set = odevice.bank_borrow(&mx.bank, tr.src, p.clip.samples[:p.clip.frames * 2])
+					set = odevice.bank_borrow(&mx.song.bank, tr.src, p.clip.samples[:p.clip.frames * 2])
 					sets[p.clip] = set
 				}
 			}
@@ -384,6 +378,18 @@ mix_init :: proc(mx: ^Mix, placed: []Placed_Track, opts: Mix_Options, samples :=
 		release    = LIMITER_RELEASE,
 	}
 	osong.mix_end(&mx.song)
+	// the songs' sets as the video's bank has them now, each once, after the
+	// clips' lent above: the mix's one view (odawg's song_bank_view)
+	if samples {
+		for p in placed {
+			if p.song != nil && p.song.music != nil {
+				mu := p.song.music
+				sync.guard(&mu.bank_lock)
+				osong.song_bank_view(&mx.song, &mu.bank)
+				break
+			}
+		}
+	}
 }
 
 mix_destroy :: proc(mx: ^Mix) {
@@ -448,7 +454,7 @@ mix_tracks :: proc(placed: []Placed_Track, from, to: int, opts: Mix_Options = {}
 	return mix_render(&mx, from, to, pool, allocator)
 }
 
-// The mix played block by block (the preview's audio callback): one
+// The mix played block by block (the preview's audio feeder): one
 // engine streaming it, put where a block asks when the position jumps (a
 // seek: notes sounding there are picked up, effects start afresh), so
 // consecutive blocks are the render's samples.

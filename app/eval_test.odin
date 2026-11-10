@@ -515,7 +515,7 @@ test_expression_watch_rows :: proc(t: ^testing.T) {
 	type :: proc(tp: ^Test_Preview, text: string) -> []Command_Row {return test_frame(tp, ..text_events(text))}
 	key :: proc(tp: ^Test_Preview, k: platform.Key, mods: ui.Modifiers = {}) -> []Command_Row {return test_frame(tp, key_press(k, mods))}
 	// Real key presses alongside text events on the empty row must not fire single-key commands (s -> Scene_Step, q -> Quit).
-	first_s := test_frame(&tp, key_press(.S), text_events("s")[0])
+	first_s := test_frame(&tp, key_press(.S), text_events("s", from_press = true)[0])
 	testing.expect_value(t, len(first_s), 0)
 	type(&tp, "cenes")
 	testing.expect_value(t, pv.watch_edit.view, id)
@@ -552,7 +552,7 @@ test_expression_watch_rows :: proc(t: ^testing.T) {
 	append(&field.text, "ma")
 	append(&v.filter, "ma")
 	key(&tp, .Enter)
-	testing.expect_value(t, len(test_frame(&tp, key_press(.Q), text_events("q")[0])), 0)
+	testing.expect_value(t, len(test_frame(&tp, key_press(.Q), text_events("q", from_press = true)[0])), 0)
 	type(&tp, "nonsense")
 	testing.expect_value(t, len(key(&tp, .Escape)), 0)
 	testing.expect(t, pv.watch_edit.view == 0 && v.inputs[0].source == "marks")

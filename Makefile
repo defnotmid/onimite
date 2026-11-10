@@ -1,7 +1,9 @@
 ODIN ?= odin
 BUILD_DIR ?= build
 OUT ?= $(BUILD_DIR)/onimite
-FLAGS ?= -collection:deps=..
+# x86-64 builds target x86-64-v3 (AVX2: Haswell and later), as the releases do.
+MICROARCH := $(if $(filter x86_64 amd64,$(shell uname -m)),-microarch:x86-64-v3,)
+FLAGS ?= -collection:deps=.. $(MICROARCH)
 
 build:
 	@mkdir -p $(BUILD_DIR)

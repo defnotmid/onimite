@@ -2,6 +2,7 @@ package onimite
 
 import "core:encoding/endian"
 import "core:encoding/json"
+import "core:fmt"
 import "core:math"
 import "core:os"
 import "core:path/filepath"
@@ -371,6 +372,138 @@ test_load_frees_retired_songs_and_their_sets :: proc(t: ^testing.T) {
 		}
 	}
 	testing.expect(t, loud)
+}
+
+// A song the script no longer names goes with the load that drops it, as a
+// replaced song does: out of the songs at once (nothing finds, lists or
+// renders it), freed with its sets once the load after that takes.
+@(test)
+test_load_retires_songs_it_no_longer_names :: proc(t: ^testing.T) {
+	dir, derr := os.make_directory_temp("", "onimite_song_named", context.temp_allocator)
+	testing.expect(t, derr == nil)
+	defer os.remove_all(dir)
+	kick, _ := filepath.join({dir, "kick.wav"}, context.temp_allocator)
+	write_test_wav(kick, 4800)
+	snare, _ := filepath.join({dir, "snare.wav"}, context.temp_allocator)
+	write_test_wav(snare, 9600)
+	m: Media
+	media_init(&m)
+	defer media_destroy(&m)
+	m.dir = strings.clone(dir)
+	spec :: proc(t: ^testing.T, name, file: string) -> json.Value {
+		text := fmt.tprintf(`{{ name: "%s", bpm: 120, sets: {{ kit: {{ pads: {{ hit: "%s" }} }} }}, sections: [ {{ name: "a", duration: "1m" }} ],
+			parts: {{ drums: {{ instrument: {{ name: "Sampler", set: "kit" }}, play: [ {{ name: "a", steps: {{ hit: "x...x...x...x..." }} }} ] }} }} }}`, name, file)
+		v, err := json.parse_string(text, .JSON5, true, context.temp_allocator)
+		testing.expect(t, err == nil)
+		return v
+	}
+	set_of :: proc(sc: ^Song_Clip) -> odevice.Set_Id {
+		sets := make([dynamic]odevice.Set_Id, context.temp_allocator)
+		osong.sets_of_song(&sc.song, &sets)
+		return len(sets) == 1 ? sets[0] : 0
+	}
+	va, vb := spec(t, "a", "kick.wav"), spec(t, "b", "snare.wav")
+
+	// A first load names both.
+	mark := music_retired_mark(&m)
+	a, _ := media_song_put(&m, "a", va, value_key(va))
+	b, _ := media_song_put(&m, "b", vb, value_key(vb))
+	testing.expect(t, a.ok && b.ok)
+	b_set, a_set := set_of(b), set_of(a)
+	testing.expect(t, a_set != 0 && b_set != 0 && a_set != b_set)
+	music_retire(&m, mark)
+	testing.expect_value(t, len(m.music.songs), 2)
+	testing.expect_value(t, len(m.music.retired), 0)
+
+	// The next names `a` only (kept as it is): `b` leaves the songs.
+	mark = music_retired_mark(&m)
+	kept, fresh := media_song_put(&m, "a", va, value_key(va))
+	testing.expect(t, kept == a && !fresh)
+	music_retire(&m, mark)
+	testing.expect_value(t, len(m.music.songs), 1)
+	testing.expect(t, media_song(&m, "b") == nil)
+	testing.expect(t, media_song(&m, "a") == a)
+	testing.expect_value(t, len(m.music.retired), 1)
+	testing.expect(t, len(m.music.retired) == 1 && m.music.retired[0] == b)
+	// the script it replaced is gone, but `b` was retired after the mark
+	music_drain(&m)
+	testing.expect_value(t, len(m.music.retired), 1)
+	bank := &m.music.bank
+	testing.expect(t, odevice.bank_set_row(bank, b_set) >= 0)
+
+	// The load after that frees it, with the set only it named.
+	mark = music_retired_mark(&m)
+	media_song_put(&m, "a", va, value_key(va))
+	music_retire(&m, mark)
+	music_drain(&m)
+	testing.expect_value(t, len(m.music.retired), 0)
+	testing.expect(t, odevice.bank_set_row(bank, b_set) < 0)
+	testing.expect(t, odevice.bank_set_row(bank, a_set) >= 0)
+	testing.expect(t, media_song(&m, "a") == a)
+}
+
+// A loaded song plays from a view of its own: the video's bank growing
+// under it (another song's sets declared and loaded, as a reload does while
+// a render runs on the background pool) moves nothing it reads, and it
+// sounds the same after. Before, every song read the video's bank itself.
+@(test)
+test_song_plays_its_own_view :: proc(t: ^testing.T) {
+	dir, derr := os.make_directory_temp("", "onimite_song_view", context.temp_allocator)
+	testing.expect(t, derr == nil)
+	defer os.remove_all(dir)
+	m: Media
+	media_init(&m)
+	defer media_destroy(&m)
+	m.dir = strings.clone(dir)
+	spec :: proc(t: ^testing.T, dir, name: string, frames: int) -> json.Value {
+		file := fmt.tprintf("%s.wav", name)
+		path, _ := filepath.join({dir, file}, context.temp_allocator)
+		write_test_wav(path, frames)
+		text := fmt.tprintf(`{{ name: "%s", bpm: 120, sets: {{ kit: {{ pads: {{ hit: "%s" }} }} }}, sections: [ {{ name: "a", duration: "1m" }} ],
+			parts: {{ drums: {{ instrument: {{ name: "Sampler", set: "kit" }}, play: [ {{ name: "a", steps: {{ hit: "x...x...x...x..." }} }} ] }} }} }}`, name, file)
+		v, err := json.parse_string(text, .JSON5, true, context.temp_allocator)
+		testing.expect(t, err == nil)
+		return v
+	}
+	va := spec(t, dir, "a", 4800)
+	a, _ := media_song_put(&m, "a", va, value_key(va))
+	testing.expect(t, a.ok && a.has_needs && song_clip_loading(a))
+	song_clip_load(a)
+	testing.expect(t, !song_clip_loading(a))
+	bank := &m.music.bank
+	testing.expect(t, len(a.song.bank.zones) > 0)
+	testing.expect(t, raw_data(a.song.bank.zones) != raw_data(bank.zones))
+	view_zones, view_samples := raw_data(a.song.bank.zones), raw_data(a.song.bank.samples)
+	frames := int(math.ceil((f64(a.song.duration) + a.tail) * MIX_RATE))
+	before := orender.output_from_song(&a.song, {to = obase.Seconds(f64(frames) / MIX_RATE)}, context.temp_allocator)
+
+	// The video's bank grows past where its rows were: 40 more songs' sets.
+	grown_from := raw_data(bank.zones)
+	for i in 0 ..< 40 {
+		name := fmt.tprintf("s%d", i)
+		v := spec(t, dir, name, 2400 + i)
+		sc, _ := media_song_put(&m, name, v, value_key(v))
+		song_clip_load(sc)
+	}
+	testing.expect(t, raw_data(bank.zones) != grown_from, "the bank's rows moved")
+	testing.expect(t, raw_data(a.song.bank.zones) == view_zones && raw_data(a.song.bank.samples) == view_samples)
+	after := orender.output_from_song(&a.song, {to = obase.Seconds(f64(frames) / MIX_RATE)}, context.temp_allocator)
+	same := after.frames == before.frames
+	loud := false
+	for i in 0 ..< min(after.frames, before.frames) {
+		same &&= after.left[i] == before.left[i] && after.right[i] == before.right[i]
+		loud ||= before.left[i] != 0
+	}
+	testing.expect(t, same && loud)
+
+	// A mix of it plays its samples too, from the mix's own view.
+	placed := []Placed_Track{{track = {src = "a"}, song = a, start = 0, end = frames}}
+	mixed, _ := mix_tracks(placed, 0, frames, {no_limiter = true}, allocator = context.temp_allocator)
+	heard := false
+	for x in mixed {
+		heard ||= x != 0
+	}
+	testing.expect(t, heard, "the mix plays the song's samples")
 }
 
 // A song is what it is made of: its spec and the files it reads. The same

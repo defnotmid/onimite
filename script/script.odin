@@ -350,11 +350,7 @@ unload :: proc(s: ^Script) {
 		delete(src)
 	}
 	delete(s.shader_files)
-	for &d in s.load_problems {
-		delete(d.name)
-		delete(d.a)
-		delete(d.b)
-	}
+	om.diagnostics_free(s.load_problems[:])
 	delete(s.load_problems)
 	delete(s.path)
 	failure_destroy(&s.failure)

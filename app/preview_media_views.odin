@@ -53,9 +53,10 @@ worker_image_next :: proc(w: ^Render_Worker) -> int {
 }
 
 // Whether a request is new, or an image asked for has no view yet.
+// `asked`: the mailbox's files_wanted_seq, read under its lock by the caller.
 @(private)
-files_pending :: proc(w: ^Render_Worker) -> bool {
-	return w.mb.files_wanted_seq != w.files_wanted_seq || worker_image_next(w) >= 0
+files_pending :: proc(w: ^Render_Worker, asked: u64) -> bool {
+	return asked != w.files_wanted_seq || worker_image_next(w) >= 0
 }
 
 // The sound files asked for, by the clips of the media as it is.
@@ -622,7 +623,7 @@ solo_set :: proc(app: ^App_State, file: u64, at: int, playing: bool) {
 	}
 	if at >= 0 do pv.solo.at = i64(at)
 	pv.solo.playing = playing
-	// (told to play before it seeks: a callback between the two would otherwise
+	// (told to play before it seeks: a block between the two would otherwise
 	// say it isn't advancing, which solo_update takes for the file's end)
 	preview_sync_audio(app)
 	if file != 0 do audio_seek(pv.audio, pv.solo.at)

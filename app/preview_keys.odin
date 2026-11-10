@@ -155,9 +155,9 @@ key_press :: proc(key: platform.Key, mods: ui.Modifiers = {}, repeat := false) -
 }
 
 // The characters of `typed` as Text events, for the drives and the tests.
-text_events :: proc(typed: string) -> []platform.Event {
+text_events :: proc(typed: string, from_press := false) -> []platform.Event {
 	out := make([dynamic]platform.Event, context.temp_allocator)
-	for r in typed do append(&out, platform.Event{kind = .Text, character = r})
+	for r in typed do append(&out, platform.Event{kind = .Text, character = r, from_press = from_press})
 	return out[:]
 }
 
@@ -174,8 +174,12 @@ preview_key_input :: proc(app: ^App_State, s: ^ui.State, p: ^platform.Platform) 
 // its modifiers (key_binding_run), unless it types a character while text
 // is edited (RAD's allow_text_hotkeys; Enter while no multi-line text is:
 // the UI's text_edit_mode from last frame, read and cleared here), and a
-// row run eats the character its key typed (RAD's wm_text); a character
-// left is insert_text ('\n' only while multi-line text is edited).
+// row run eats the text its press typed: the Text marked from it (the
+// platform's `from_press`) right after it, whatever its characters (RAD's
+// wm_text matches the character a US layout gives, so CapsLock or another
+// layout typed it into the field the row opened); an input method's text
+// is its own. A character left is insert_text ('\n' only while multi-line
+// text is edited).
 key_route :: proc(app: ^App_State, s: ^ui.State, events: []platform.Event) {
 	editing, multi_line := s.text_edit_mode, s.text_edit_mode_multiline
 	s.text_edit_mode, s.text_edit_mode_multiline = false, false
@@ -184,11 +188,13 @@ key_route :: proc(app: ^App_State, s: ^ui.State, events: []platform.Event) {
 		if eaten[i] || ui.action_push_event(&s.actions, e) do continue
 		#partial switch e.kind {
 		case .Key_Press:
+			// (whether the press could type: then text being edited takes it)
 			character := key_character(e.key, e.modifiers)
 			if character != 0 && editing && (character != '\n' || multi_line) do continue
-			if !key_binding_run(app, s, e) || character == 0 do continue
+			if !key_binding_run(app, s, e) do continue
 			for j in i + 1 ..< len(events) {
-				if !eaten[j] && events[j].kind == .Text && events[j].character == character {eaten[j] = true; break}
+				if events[j].kind == .Key_Press || (events[j].kind == .Text && !events[j].from_press) do break
+				if events[j].kind == .Text do eaten[j] = true
 			}
 		case .Text:
 			if e.character == '\n' && !multi_line do continue

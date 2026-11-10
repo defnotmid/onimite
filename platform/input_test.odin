@@ -82,6 +82,11 @@ test_focus_lost_sends_no_release :: proc(t: ^testing.T) {
 // for half a second, and never while the window has the focus.
 @(test)
 test_pump_focus_loss_and_parking :: proc(t: ^testing.T) {
+	when ODIN_OS == .Darwin {
+		// events pushed from a test's thread don't come back through the pump
+		// on macOS (both pump tests fail on an M4): Linux runs these
+		return
+	}
 	if !sdl.Init({.EVENTS}) {
 		testing.expectf(t, false, "SDL events: %s", sdl.GetError())
 		return
@@ -132,4 +137,95 @@ test_frame_rate_follows_rads_targets :: proc(t: ^testing.T) {
 	testing.expect_value(t, frame_target_hz(144, slow[:], 33), 60)
 	testing.expect_value(t, frame_target_hz(60, slower[:], 33), 60)
 	testing.expect_value(t, frame_target_hz(144, slow[:4], 33), 60)
+}
+
+// Through the pump: a TEXT_INPUT that comes right after a mapped KEY_DOWN is
+// that press's text (`from_press`), whatever its characters, as SDL sends a
+// key's text from the same handler; text on its own (an input method's
+// commit), or after another event, is not.
+@(test)
+test_pump_marks_a_press_text :: proc(t: ^testing.T) {
+	when ODIN_OS == .Darwin {
+		return // as test_pump_focus_loss_and_parking
+	}
+	if !sdl.Init({.EVENTS}) {
+		testing.expectf(t, false, "SDL events: %s", sdl.GetError())
+		return
+	}
+	defer sdl.Quit()
+	p: Platform
+	defer delete(p.input.events)
+	defer delete(p.input.dropped_files)
+	p.input.primed, p.input.focused = true, true
+	key :: proc(code: sdl.Scancode) {
+		e: sdl.Event
+		e.type = .KEY_DOWN
+		e.key.type = .KEY_DOWN
+		e.key.scancode = code
+		e.key.down = true
+		e.key.timestamp = sdl.GetTicksNS()
+		_ = sdl.PushEvent(&e)
+	}
+	text :: proc(s: cstring) {
+		e: sdl.Event
+		e.type = .TEXT_INPUT
+		e.text.type = .TEXT_INPUT
+		e.text.text = s
+		e.text.timestamp = sdl.GetTicksNS()
+		_ = sdl.PushEvent(&e)
+	}
+	editing :: proc() {
+		e: sdl.Event
+		e.type = .TEXT_EDITING
+		e.edit.type = .TEXT_EDITING
+		e.edit.text = "r"
+		e.edit.timestamp = sdl.GetTicksNS()
+		_ = sdl.PushEvent(&e)
+	}
+	motion :: proc() {
+		e: sdl.Event
+		e.type = .MOUSE_MOTION
+		e.motion.type = .MOUSE_MOTION
+		e.motion.timestamp = sdl.GetTicksNS()
+		_ = sdl.PushEvent(&e)
+	}
+	marks :: proc(p: ^Platform) -> (out: [dynamic]bool) {
+		out = make([dynamic]bool, context.temp_allocator)
+		for e in p.input.events do if e.kind == .Text do append(&out, e.from_press)
+		return
+	}
+	key(.R)
+	text("к")
+	text("日")
+	_pump(&p)
+	m := marks(&p)
+	testing.expect(t, len(m) == 2 && m[0] && !m[1], "the press's text, then a commit of its own")
+	key(.R)
+	motion()
+	text("r")
+	_pump(&p)
+	m = marks(&p)
+	testing.expect(t, len(m) == 1 && !m[0], "after another event it isn't the press's")
+	key(.RETURN)
+	_pump(&p)
+	m = marks(&p)
+	testing.expect(t, len(m) == 1 && m[0], "Enter's newline is its press's")
+	// a preedit between them (an input method's), or a key the platform
+	// doesn't map: not the press's
+	key(.R)
+	editing()
+	text("r")
+	key(.INTERNATIONAL1)
+	text("¥")
+	_pump(&p)
+	m = marks(&p)
+	testing.expect(t, len(m) == 2 && !m[0] && !m[1], "after a preedit, and an unmapped key's")
+	// a repeat is a press again, its text its own
+	key(.R)
+	text("r")
+	key(.R)
+	text("r")
+	_pump(&p)
+	m = marks(&p)
+	testing.expect(t, len(m) == 2 && m[0] && m[1], "each repeat's text")
 }

@@ -264,10 +264,7 @@ load_problem :: proc(s: ^Script, severity: om.Severity, d: om.Diagnostic) {
 	}
 	d := d
 	d.severity = severity
-	d.name = strings.clone(d.name)
-	d.a = strings.clone(d.a)
-	d.b = strings.clone(d.b)
-	append(&s.load_problems, d)
+	append(&s.load_problems, om.diagnostic_clone(d))
 }
 
 // Raises a Lua error at load with the text a frame would report for `d`,

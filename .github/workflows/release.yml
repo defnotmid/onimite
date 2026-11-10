@@ -63,48 +63,48 @@ jobs:
         with:
           repository: defnotmid/ovg
           path: ovg
-          ref: v0.0.64
+          ref: v0.0.66
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/ocurves
           # Pinned like ovg and o3d, which keep their paths and shapes in its contour tables (v0.0.9: build_append grows a frame's shape words geometrically; ovg v0.0.58 needs it).
-          ref: v0.0.11
+          ref: v0.0.13
           path: ocurves
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/oglyph
           # Pinned like ovg: fonts, font collections, text shaping, bidi and line breaks, which ovg draws through (v0.0.12; ovg v0.0.58 needs it).
-          ref: v0.0.13
+          ref: v0.0.14
           path: oglyph
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/oksl
           # Pinned like o3d, whose shaders and onimite's it compiles (v0.0.3; o3d v0.0.50 needs it).
-          ref: v0.0.5
+          ref: v0.0.6
           path: oksl
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/oicut
-          # Pinned like ottis: onimite decodes and encodes through oicut v0.0.26: H.264 / H.265 by the system (VideoToolbox, Vulkan Video, Media Foundation on Windows, else the system's libavcodec, loaded at run time), natively only with -define:OICUT_PATENTED=true; AV1 (render --codec av1, clips) natively in every build; ovg, o3d, odawg and ottis at their pins use nothing it changed since v0.0.16.
-          ref: v0.0.26
+          # Pinned like ottis: onimite decodes and encodes through oicut v0.0.27: H.264 / H.265 by the system (VideoToolbox, Vulkan Video, Media Foundation on Windows, else the system's libavcodec, loaded at run time), natively only with -define:OICUT_PATENTED=true; AV1 (render --codec av1, clips) natively in every build; ovg, o3d, odawg and ottis at their pins use nothing it changed since v0.0.16.
+          ref: v0.0.27
           path: oicut
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/ottis
           # Pinned: ottis is released on its own; a new tag is taken on purpose.
-          ref: v0.0.14
+          ref: v0.0.15
           path: ottis
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/o3d
-          # Pinned like ottis: o3d is released on its own (v0.0.56).
-          ref: v0.0.56
+          # Pinned like ottis: o3d is released on its own (v0.0.57).
+          ref: v0.0.57
           path: o3d
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/odawg
-          # Pinned like ottis: odawg is released on its own (v0.0.53).
-          ref: v0.0.53
+          # Pinned like ottis: odawg is released on its own. At its main after v0.0.53 until a tag (153cd290: a song plays its own view of the sample bank, which onimite's music loads through).
+          ref: 153cd290b164cdb90d48ab04f3a6648ceb52fbdd
           path: odawg
 
       - uses: ./onimite/.github/actions/setup-toolchain
@@ -123,7 +123,8 @@ jobs:
           mkdir -p "$stage"
           # Odin links with -rpath $ORIGIN by default, so the binary loads the
           # libSDL3.so.0 copied next to it.
-          odin build . -collection:deps=.. -o:speed -define:ONIMITE_VERSION="$GITHUB_REF_NAME" -out:"$stage/onimite" -extra-linker-flags:"$ONIMITE_LDFLAGS"
+          # x86-64-v3 (AVX2: Haswell and later), as ci.sh builds it.
+          odin build . -collection:deps=.. -o:speed -microarch:x86-64-v3 -define:ONIMITE_VERSION="$GITHUB_REF_NAME" -out:"$stage/onimite" -extra-linker-flags:"$ONIMITE_LDFLAGS"
           # No native H.264 / H.265 ships (read before strip drops the symbols).
           bash .github/ci.sh no-patents "$stage/onimite"
           strip "$stage/onimite"
@@ -175,7 +176,7 @@ jobs:
           # Built without -define:OICUT_PATENTED like the others; the MSVC
           # binary's symbols are in its PDB, so nm can't check it here (the
           # Linux and macOS builds of the same source are).
-          odin build . -collection:deps=.. -o:speed -define:ONIMITE_VERSION="$GITHUB_REF_NAME" -out:"$stage/onimite.exe"
+          odin build . -collection:deps=.. -o:speed -microarch:x86-64-v3 -define:ONIMITE_VERSION="$GITHUB_REF_NAME" -out:"$stage/onimite.exe"
           vendor="$(cygpath -u "$ODIN_ROOT")/vendor"
           cp "$vendor/sdl3/SDL3.dll" "$vendor/lua/5.4/windows/lua54.dll" "$stage/"
 

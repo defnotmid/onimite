@@ -97,15 +97,23 @@ report :: proc(ctx: ^Context, severity: Severity, d: Diagnostic) {
 			d.scene = info.scene.name
 		}
 	}
+	append(&ctx.diagnostics, diagnostic_clone(d))
+}
+
+// `d` owning its strings: every one diagnostics_free frees (the scene's and
+// the video failure's are not owned). Every list of diagnostics is made of
+// these, so one free fits them all.
+diagnostic_clone :: proc(d: Diagnostic) -> Diagnostic {
+	d := d
 	d.name = strings.clone(d.name)
 	d.a = strings.clone(d.a)
 	d.b = strings.clone(d.b)
 	e := &d.shader
 	e.name, e.a, e.b, e.c = strings.clone(e.name), strings.clone(e.a), strings.clone(e.b), strings.clone(e.c)
-	append(&ctx.diagnostics, d)
+	return d
 }
 
-// Frees the strings `report` cloned.
+// Frees the strings diagnostic_clone cloned.
 diagnostics_free :: proc(list: []Diagnostic) {
 	for d in list {
 		delete(d.name)

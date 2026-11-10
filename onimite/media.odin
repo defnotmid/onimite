@@ -900,10 +900,7 @@ decode_task :: proc(task: thread.Task) {
 media_problem :: proc(m: ^Media, d: Diagnostic) {
 	d := d
 	d.severity = .Warning
-	d.name = strings.clone(d.name)
-	d.a = strings.clone(d.a)
-	d.b = strings.clone(d.b)
-	append(&m.problems, d)
+	append(&m.problems, diagnostic_clone(d))
 }
 
 // The best face for `family` (case-insensitive): matching style first, then

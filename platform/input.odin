@@ -159,6 +159,10 @@ Event :: struct {
 	position:  [2]f32, // pixels
 	delta:     [2]f32, // Scroll
 	character: rune, // Text
+	// Text the key press just before it typed: SDL sends a key's text back
+	// to back with its KEY_DOWN, from the same handler, where an input
+	// method's commit comes on its own (oui's and onib's rule).
+	from_press: bool,
 }
 // RAD's wheel units a notch (WHEEL_DELTA).
 WHEEL_NOTCH :: 120
@@ -176,6 +180,9 @@ Input :: struct {
 	// Whether the window has the keyboard's focus; unfocused, the pointer
 	// is away (at -100, -100, as RAD's) half a second after it last moved.
 	focused:       bool,
+	// The last SDL event was a mapped KEY_DOWN: a TEXT_INPUT now is its
+	// text (`from_press`).
+	after_press:   bool,
 	moved_ns:      u64,
 	dropped_files: [dynamic]string, // dropped on the window or picked in the open-file dialog this frame (owned)
 	primed:        bool, // first tick has established button state
@@ -401,6 +408,9 @@ _pump :: proc(p: ^Platform) {
 	ev: sdl.Event
 	for sdl.PollEvent(&ev) {
 		p.had_event = true
+		// (a mapped KEY_DOWN: the TEXT_INPUT right after it is its text)
+		pressed := false
+		defer inp.after_press = pressed
 		#partial switch ev.type {
 		case .QUIT:
 			p.should_close = true
@@ -426,8 +436,9 @@ _pump :: proc(p: ^Platform) {
 				inp.key_down[k] = true
 				// Enter types a newline, as RAD's window layer gives it.
 				if k == .Enter && mods & {.Control, .Alt} == {} {
-					append(&inp.events, Event{kind = .Text, modifiers = mods, position = inp.mouse, character = '\n'})
+					append(&inp.events, Event{kind = .Text, modifiers = mods, position = inp.mouse, character = '\n', from_press = true})
 				}
+				pressed = true
 			}
 		case .KEY_UP:
 			inp.mods = modifiers_of_keymod(ev.key.mod)
@@ -477,7 +488,7 @@ _pump :: proc(p: ^Platform) {
 			// A character an event, as RAD's, whatever the modifiers but
 			// Alt alone (text_typed).
 			if mods := inp.mods; ev.text.text != nil && text_typed(mods) {
-				for r in string(ev.text.text) do append(&inp.events, Event{kind = .Text, modifiers = mods, position = inp.mouse, character = r})
+				for r in string(ev.text.text) do append(&inp.events, Event{kind = .Text, modifiers = mods, position = inp.mouse, character = r, from_press = inp.after_press})
 			}
 		case .DROP_FILE:
 			if ev.drop.data != nil {

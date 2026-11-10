@@ -323,3 +323,61 @@ test_av1_round_trip :: proc(t: ^testing.T) {
 		src.release(src.data, clip, 0)
 	}
 }
+
+// A clip decodes while something holds it: each open is a hold and each
+// close lets one go. Two clip tables naming the same file share its decoder
+// (a reload keeps its threads); the last to go stops its threads and frees
+// its frames, and its handle is never given again.
+@(test)
+test_video_clip_goes_when_nothing_holds_it :: proc(t: ^testing.T) {
+	path := fixture("clip_high.mp4")
+	if path == "" {
+		testing.fail_now(t, "missing testdata fixture")
+	}
+	d: Video_Decoders
+	video_decoders_init(&d, native = true)
+	defer video_decoders_destroy(&d)
+	src := video_source(&d)
+	old, next: om.Video_Clips
+	old.source, next.source = src, src
+	sync.lock(&vulkan_start)
+	testing.expect(t, om.video_clips_add(&old, "a.mp4", path) == nil)
+	sync.unlock(&vulkan_start)
+	testing.expect(t, om.video_clips_add(&next, "a.mp4", path) == nil)
+	clip := old.handles[0]
+	testing.expect(t, clip >= 0 && next.handles[0] == clip)
+	testing.expect_value(t, d.refs[clip], 2)
+	for stream in 0 ..< 2 {
+		f := src.request(src.data, clip, stream, 0.5, .Block)
+		testing.expect(t, f.ok)
+		src.release(src.data, clip, stream)
+	}
+	testing.expect(t, d.workers[clip][1] != nil && d.workers[clip][1].thread != nil)
+
+	// The old table goes: the next one still decodes the clip.
+	om.video_clips_destroy(&old)
+	testing.expect_value(t, d.refs[clip], 1)
+	f := src.request(src.data, clip, 0, 1.0, .Block)
+	testing.expect(t, f.ok)
+	src.release(src.data, clip, 0)
+
+	// The last goes: its streams stop and go, and nothing answers for it.
+	om.video_clips_destroy(&next)
+	testing.expect_value(t, d.refs[clip], 0)
+	testing.expect(t, d.workers[clip] == [CLIP_STREAMS]^Clip_Worker{})
+	gone := src.request(src.data, clip, 0, 1.0, .Block)
+	testing.expect(t, !gone.ok)
+	src.release(src.data, clip, 0)
+	src.close(src.data, clip) // one close too many is ignored
+	testing.expect_value(t, d.refs[clip], 0)
+
+	// The file opened again is a new clip.
+	again: om.Video_Clips
+	again.source = src
+	defer om.video_clips_destroy(&again)
+	testing.expect(t, om.video_clips_add(&again, "a.mp4", path) == nil)
+	testing.expect(t, again.handles[0] >= 0 && again.handles[0] != clip)
+	f = src.request(src.data, again.handles[0], 0, 0.5, .Block)
+	testing.expect(t, f.ok)
+	src.release(src.data, again.handles[0], 0)
+}

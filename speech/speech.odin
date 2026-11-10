@@ -517,14 +517,14 @@ from_result :: proc(r: ^pocket.Result) -> (l: Line) {
 	l.chunks = make([]Chunk, len(r.chunks))
 	b := make([dynamic]u8)
 	for w, i in r.words {
-		append(&b, w.text)
+		append(&b, pocket.text_of(r, w.text))
 		l.words[i] = {f32(w.start), f32(w.end), u32(len(b)), 0, b32(w.estimated)}
 	}
 	for ch, k in r.chunks {
 		for i in ch.first_word ..< ch.first_word + ch.word_count {
 			l.words[i].chunk = u32(k)
 		}
-		append(&b, strings.trim_space(ch.text))
+		append(&b, strings.trim_space(pocket.text_of(r, ch.text)))
 		l.chunks[k] = {f32(ch.start), f32(ch.end), u32(len(b)), u32(ch.first_word), u32(ch.word_count)}
 	}
 	l.text = b[:]

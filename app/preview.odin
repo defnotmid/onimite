@@ -532,7 +532,7 @@ preview_run :: proc(app: ^App_State, capture, drive, start_spec: string) -> Erro
 		pv.device_name = fmt.aprintf("%s (%s)", name, sdl.GetGPUDeviceDriver(p.device))
 	}
 
-	// The threads: audio (SDL's, through the callback) and the render worker.
+	// The threads: audio (our feeder, filling SDL's stream) and the render worker.
 	mb := new(Mailbox)
 	mb.slot = -1
 	mb.displayed_slot = -1
@@ -553,8 +553,7 @@ preview_run :: proc(app: ^App_State, capture, drive, start_spec: string) -> Erro
 		// device goes.
 		worker_stop(worker)
 		preview_retired_release(p.device, mb)
-		audio.sdl_stream = nil // the playhead stops asking the stream
-		audio_close(pv.audio_stream)
+		audio_close(audio, pv.audio_stream)
 		mailbox_destroy(mb)
 		audio_shared_destroy(audio)
 		free(worker)

@@ -89,6 +89,48 @@ test_preview_keys :: proc(t: ^testing.T) {
 	testing.expect_value(t, press(&app, &s, .Escape).kind, Command_Kind.None)
 }
 
+// A row that ran eats the text its press typed whatever that text is: with
+// CapsLock or another layout the press of R types "R" or "к", which RAD's
+// match against the US character ("r") let through into the field the row
+// opened. Text no press typed (an input method's commit) is its own.
+@(test)
+test_key_route_eats_any_layouts_text :: proc(t: ^testing.T) {
+	app: App_State
+	app.commands = command_storage_make()
+	defer command_storage_destroy(&app.commands)
+	s: ui.State
+	s.actions = ui.action_storage_make()
+	defer ui.action_storage_destroy(&s.actions)
+	defer free_all(context.temp_allocator)
+	for text in ([]string{"R", "к", "r"}) {
+		events := make([dynamic]platform.Event, context.temp_allocator)
+		append(&events, key_press(.R))
+		append(&events, ..text_events(text, from_press = true))
+		key_route(&app, &s, events[:])
+		testing.expectf(t, len(app.commands.pending.rows) == 1, "%q: R reloads", text)
+		testing.expectf(t, len(s.actions.rows) == 0, "%q: the press's text is eaten", text)
+		clear(&app.commands.pending.rows)
+		ui.action_storage_clear(&s.actions)
+	}
+	// An input method's commit after the press (not from it) stays.
+	events := make([dynamic]platform.Event, context.temp_allocator)
+	append(&events, key_press(.R))
+	append(&events, ..text_events("日"))
+	key_route(&app, &s, events[:])
+	testing.expect(t, len(s.actions.rows) == 1 && s.actions.rows[0].text == "日")
+	clear(&app.commands.pending.rows)
+	ui.action_storage_clear(&s.actions)
+	// Text after the next press is that press's, not this one's: K steps a
+	// frame and types nothing, and Y (no row) typed the "y".
+	events = make([dynamic]platform.Event, context.temp_allocator)
+	append(&events, key_press(.K))
+	append(&events, key_press(.Y))
+	append(&events, ..text_events("y", from_press = true))
+	key_route(&app, &s, events[:])
+	testing.expect_value(t, len(app.commands.pending.rows), 1)
+	testing.expect(t, len(s.actions.rows) == 1 && s.actions.rows[0].text == "y")
+}
+
 // RAD's text hotkeys: while a field edits (the UI's text_edit_mode, from
 // last frame), a key that types a character types it instead of running
 // its row; otherwise its row runs and eats the character it typed (RAD's
@@ -105,10 +147,14 @@ test_key_route_types_while_editing :: proc(t: ^testing.T) {
 	typed :: proc(key: platform.Key, text: string) -> []platform.Event {
 		out := make([dynamic]platform.Event, context.temp_allocator)
 		append(&out, key_press(key))
-		append(&out, ..text_events(text))
+		append(&out, ..text_events(text, from_press = true))
 		return out[:]
 	}
-	key_route(&app, &s, typed(.R, "rλ"))
+	// (R's own "r", then a "λ" no press typed)
+	rl := make([dynamic]platform.Event, context.temp_allocator)
+	append(&rl, ..typed(.R, "r"))
+	append(&rl, ..text_events("λ"))
+	key_route(&app, &s, rl[:])
 	testing.expect_value(t, len(app.commands.pending.rows), 1) // R reloads
 	testing.expect(t, len(s.actions.rows) == 1 && s.actions.rows[0].kind == .Text && s.actions.rows[0].text == "λ")
 	clear(&app.commands.pending.rows)

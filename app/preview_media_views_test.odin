@@ -1011,7 +1011,7 @@ test_worker_shares_what_the_views_show :: proc(t: ^testing.T) {
 	defer finding_table_destroy(&findings)
 	video_tables_build(&w.tables, {fps = 30, findings = &findings, media = &m})
 	file := w.tables.media[0].id
-	testing.expect(t, !files_pending(&w))
+	testing.expect(t, !files_pending(&w, w.mb.files_wanted_seq))
 
 	want :: proc(mb: ^Mailbox, ids: ..u64) {
 		table_copy(&mb.files_wanted, ids)
@@ -1019,9 +1019,9 @@ test_worker_shares_what_the_views_show :: proc(t: ^testing.T) {
 	}
 	img := m.images["logo.png"]
 	want(&mb, file)
-	testing.expect(t, files_pending(&w))
+	testing.expect(t, files_pending(&w, w.mb.files_wanted_seq))
 	worker_files(&w)
-	testing.expect(t, !files_pending(&w))
+	testing.expect(t, !files_pending(&w, w.mb.files_wanted_seq))
 	testing.expect_value(t, img.held, 1)
 	testing.expect(t, len(mb.images) == 1 && mb.images[0].id == file && mb.images[0].size == {2, 1})
 	testing.expect(t, raw_data(mb.image_pixels[0]) == raw_data(img.pixels), "the store's own bytes, not a copy")
@@ -1038,14 +1038,14 @@ test_worker_shares_what_the_views_show :: proc(t: ^testing.T) {
 	worker_files(&w)
 	testing.expect_value(t, len(mb.images), 2)
 	testing.expect(t, mb.images[1].id == file + 1 && mb.images[1].texture == nil && mb.image_pixels[1] == nil)
-	testing.expect(t, !files_pending(&w))
+	testing.expect(t, !files_pending(&w, w.mb.files_wanted_seq))
 
 	// A load: the table clear before the hold goes, then made again.
 	worker_images_retire(&w)
 	testing.expect_value(t, len(mb.images), 0)
 	testing.expect_value(t, len(mb.image_pixels), 0)
 	testing.expect_value(t, img.held, 0)
-	testing.expect(t, files_pending(&w))
+	testing.expect(t, files_pending(&w, w.mb.files_wanted_seq))
 	worker_files(&w)
 	worker_files(&w)
 	testing.expect_value(t, len(mb.images), 2)
@@ -1754,7 +1754,7 @@ test_worker_plays_a_file_alone :: proc(t: ^testing.T) {
 	}
 	// (asked of the worker as any idle work is)
 	mb.solo_file = id
-	worker_idle(&w, false)
+	worker_idle(&w, {})
 	testing.expect_value(t, mb.solo_heard, id)
 	testing.expect(t, a.stream != nil)
 	testing.expect_value(t, a.total, i64(frames))
@@ -1796,6 +1796,79 @@ test_worker_plays_a_file_alone :: proc(t: ^testing.T) {
 	testing.expect(t, a.stream == nil)
 }
 
+// Sound on a thread of ours: the feeder keeps the device's buffer and a
+// block more queued, mixing as the device drains it, and stops when told.
+// A seek, or a pause, drops what is queued, so it is heard at once.
+@(test)
+test_feeder_keeps_the_stream_filled :: proc(t: ^testing.T) {
+	spec := sdl.AudioSpec{format = .F32, channels = 2, freq = om.MIX_RATE}
+	stream := sdl.CreateAudioStream(&spec, &spec)
+	testing.expect(t, stream != nil)
+	if stream == nil do return
+	defer sdl.DestroyAudioStream(stream)
+	a: Audio_Shared
+	defer audio_shared_destroy(&a)
+	frames := 4 * om.MIX_RATE
+	samples := make([]f32, frames * 2)
+	defer delete(samples)
+	for i in 0 ..< frames do samples[i * 2], samples[i * 2 + 1] = 0.5, -0.5
+	clip := om.Audio_Clip{samples = samples, frames = frames}
+	placed := [1]om.Placed_Track{{track = {src = "tone"}, clip = &clip, end = frames}}
+	audio_set_tracks(&a, placed[:], i64(frames), {no_limiter = true})
+	audio_set_gain(&a, 1)
+	audio_set_state(&a, true, false, false)
+	a.device_frames = 512
+	FRAME :: 2 * size_of(f32)
+	target := int(a.device_frames) + AUDIO_CHUNK / 2
+	queued :: proc(s: ^sdl.AudioStream) -> int {return int(sdl.GetAudioStreamQueued(s)) / FRAME}
+	wait_for :: proc(s: ^sdl.AudioStream, want: int) -> bool {
+		for _ in 0 ..< 400 {
+			if queued(s) >= want do return true
+			thread.yield()
+			time_sleep_ms(1)
+		}
+		return false
+	}
+
+	a.feeder = thread.create_and_start_with_poly_data2(&a, stream, audio_feed)
+	testing.expect(t, wait_for(stream, target), "filled to the device's buffer and a block")
+	// The device takes some: the feeder puts it back, from the mix.
+	out := make([]f32, 1000 * 2)
+	defer delete(out)
+	got := sdl.GetAudioStreamData(stream, raw_data(out), i32(len(out) * size_of(f32)))
+	testing.expect_value(t, int(got), len(out) * size_of(f32))
+	testing.expect(t, out[0] == 0.5 && out[1] == -0.5)
+	testing.expect(t, wait_for(stream, target), "topped up again")
+	before := sync.atomic_load(&a.fed)
+	testing.expect(t, before >= i64(target + 1000))
+
+	// A seek drops what was queued: what is queued after it is from there.
+	sync.mutex_lock(&a.lock)
+	audio_seek(&a, i64(2 * om.MIX_RATE))
+	audio_step(&a, stream, 0)
+	testing.expect_value(t, queued(stream), 0)
+	testing.expect_value(t, a.position, i64(2 * om.MIX_RATE))
+	sync.mutex_unlock(&a.lock)
+	testing.expect(t, wait_for(stream, target), "filled from the seek")
+	heard, _, _ := audio_position(&a)
+	testing.expect(t, heard >= i64(2 * om.MIX_RATE), "heard from the seek")
+
+	// A pause drops it too.
+	audio_set_state(&a, false, false, false)
+	sync.mutex_lock(&a.lock)
+	audio_step(&a, stream, 0)
+	testing.expect_value(t, queued(stream), 0)
+	sync.mutex_unlock(&a.lock)
+
+	audio_close(&a, nil)
+	testing.expect(t, a.feeder == nil)
+}
+
+@(private = "file")
+time_sleep_ms :: proc(ms: int) {
+	sdl.Delay(u32(ms))
+}
+
 // The file through the audio thread's own callback: from where it is asked to its
 // last sample, the very samples of the file, the playhead following what is
 // heard; paused and played on from there; a callback while paused doesn't read as
@@ -1831,10 +1904,10 @@ test_file_plays_to_its_end :: proc(t: ^testing.T) {
 	BLOCK :: 1024
 	heard := make([]f32, BLOCK * 2)
 	defer delete(heard)
-	// A request of the device's: what it hands over, drained at once so the
-	// heard position is the fed one.
+	// A block of the feeder's: what it hands over, drained at once as the
+	// device would, so the heard position is the fed one.
 	request :: proc(a: ^Audio_Shared, stream: ^sdl.AudioStream, out: []f32) {
-		audio_callback(a, stream, i32(len(out) * size_of(f32)), i32(len(out) * size_of(f32)))
+		audio_step(a, stream, len(out) / 2)
 		got := sdl.GetAudioStreamData(stream, raw_data(out), i32(len(out) * size_of(f32)))
 		assert(int(got) == len(out) * size_of(f32))
 	}
@@ -1940,9 +2013,9 @@ test_worker_makes_a_sounds_pyramid :: proc(t: ^testing.T) {
 		mb.files_wanted_seq += 1
 	}
 	want(&mb, file)
-	testing.expect(t, files_pending(&w))
+	testing.expect(t, files_pending(&w, w.mb.files_wanted_seq))
 	worker_files(&w)
-	testing.expect(t, !files_pending(&w))
+	testing.expect(t, !files_pending(&w, w.mb.files_wanted_seq))
 	testing.expect_value(t, len(w.image_views), 0)
 	testing.expect_value(t, mb.waves_seq, 1)
 	testing.expect(t, len(mb.waves.sounds) == 1 && mb.waves.sounds[0].id == file)

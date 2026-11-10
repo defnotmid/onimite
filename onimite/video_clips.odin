@@ -82,6 +82,9 @@ Video_Source :: struct {
 	// decoded on its own so two times of one clip don't seek each other.
 	request: proc(data: rawptr, clip: int, stream: int, seconds: f64, wait: Video_Wait) -> Video_Frame,
 	release: proc(data: rawptr, clip: int, stream: int),
+	// Lets go of a clip `open` gave, once per open: a clip nothing holds
+	// stops decoding and frees its frames. Nothing asks it for frames after.
+	close:   proc(data: rawptr, clip: int),
 	// Hints that frames from `seconds` on will be asked for (prefetch).
 	prefetch: proc(data: rawptr, clip: int, stream: int, seconds: f64),
 	// Converts a frame to premultiplied RGBA8 into `out` (`width * height
@@ -103,8 +106,16 @@ Video_Clips :: struct {
 	source:  Video_Source,
 }
 
-// Frees the table (the source's clips stay open: their decoders own them).
+// Frees the table and lets go of its clips: a clip another table opened
+// too (the next load's media) keeps decoding.
 video_clips_destroy :: proc(v: ^Video_Clips) {
+	if v.source.close != nil {
+		for h in v.handles {
+			if h >= 0 {
+				v.source.close(v.source.data, h)
+			}
+		}
+	}
 	for s in v.names {delete(s)}
 	for s in v.paths {delete(s)}
 	delete(v.names)
@@ -137,7 +148,13 @@ video_clips_add :: proc(v: ^Video_Clips, name, path: string) -> Error {
 		handle, info, why, err = v.source.open(v.source.data, path)
 	}
 	if i, exists := v.by_name[name]; exists {
+		// the clip it named before (another file) is let go
+		if old := v.handles[i]; old >= 0 && v.source.close != nil {
+			v.source.close(v.source.data, old)
+		}
 		v.infos[i], v.handles[i], v.failures[i] = info, handle, why
+		delete(v.paths[i])
+		v.paths[i] = strings.clone(path)
 	} else {
 		owned := strings.clone(name)
 		v.by_name[owned] = len(v.names) // the key is the name's own string

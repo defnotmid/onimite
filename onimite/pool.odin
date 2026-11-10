@@ -144,6 +144,8 @@ Pool_Work :: struct {
 	live:      sync.Futex,
 	// Call number << 32 | next range (TICKET_CLOSED while a call is set up).
 	ticket:    u64,
+	// The current call's ranges (atomic: a helper reads it before its
+	// ticket's swap confirms the call).
 	count:     int,
 	task:      common.Range_Proc,
 	data:      rawptr,
@@ -182,7 +184,8 @@ pool_work_run :: proc(wp: ^common.Work_Pool, count: int, task: common.Range_Proc
 		return
 	}
 	call := (sync.atomic_load(&w.ticket) >> 32) + 1
-	w.count, w.task, w.data = count, task, data
+	w.task, w.data = task, data
+	sync.atomic_store(&w.count, count)
 	sync.atomic_store(&w.finished, 0)
 	sync.atomic_store(&w.ticket, call << 32)
 	// Helpers still queued from earlier calls take this one's ranges too.
@@ -214,15 +217,17 @@ pool_work_helper :: proc(t: thread.Task) {
 	}
 }
 
-// Codes ranges of the current call until none are left. A range's fields
-// are read only after the ticket confirmed it belongs to the current call
-// (the call can't change until its ranges finish).
+// Codes ranges of the current call until none are left. The count is read
+// before the ticket's swap confirms the call: it is stored before the
+// ticket, so it is this call's or a later one's, and a later one's either
+// fails the swap or ends the loop early. The task and data are read only
+// after the swap (the call can't change until its ranges finish).
 @(private)
 pool_work_take :: proc(w: ^Pool_Work) {
 	for {
 		v := sync.atomic_load(&w.ticket)
 		i := int(v & TICKET_CLOSED)
-		count := w.count
+		count := sync.atomic_load(&w.count)
 		if u64(i) == TICKET_CLOSED || i >= count {
 			return
 		}

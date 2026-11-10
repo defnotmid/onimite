@@ -30,6 +30,14 @@ mkdir -p build
 # releases build without the define (`release`).
 PATENTED=-define:OICUT_PATENTED=true
 
+# x86-64 builds target x86-64-v3 (AVX2, FMA, BMI2: Intel Haswell, AMD
+# Excavator and later), as the releases do: oksl's CPU shading runs about a
+# quarter faster. Apple Silicon builds are arm64 and take no flag.
+MICROARCH=
+case $(uname -m) in
+x86_64 | amd64 | AMD64) MICROARCH=-microarch:x86-64-v3 ;;
+esac
+
 # The symbols of oicut's native H.264 / H.265 decoding and encoding (the
 # pattern oicut's CI checks) in binary $1 (unstripped): a default build links
 # only the parsing VideoToolbox and Vulkan Video need.
@@ -44,12 +52,12 @@ no_patents() {
 
 case ${1:-} in
 build)
-	odin build . -collection:deps=.. -o:speed $PATENTED -define:ONIMITE_VERSION=v0.0.0-ci -out:"build/onimite$exe" ${ONIMITE_TEST_LDFLAGS:+"-extra-linker-flags:$ONIMITE_TEST_LDFLAGS"}
+	odin build . -collection:deps=.. -o:speed $MICROARCH $PATENTED -define:ONIMITE_VERSION=v0.0.0-ci -out:"build/onimite$exe" ${ONIMITE_TEST_LDFLAGS:+"-extra-linker-flags:$ONIMITE_TEST_LDFLAGS"}
 	;;
 release)
 	# As release.yml builds it: no native H.264 / H.265 compiled in, and
 	# render refuses --native before loading the script.
-	odin build . -collection:deps=.. -o:speed -define:ONIMITE_VERSION=v0.0.0-ci -out:"build/onimite-release$exe" ${ONIMITE_TEST_LDFLAGS:+"-extra-linker-flags:$ONIMITE_TEST_LDFLAGS"}
+	odin build . -collection:deps=.. -o:speed $MICROARCH -define:ONIMITE_VERSION=v0.0.0-ci -out:"build/onimite-release$exe" ${ONIMITE_TEST_LDFLAGS:+"-extra-linker-flags:$ONIMITE_TEST_LDFLAGS"}
 	no_patents "build/onimite-release$exe"
 	out=${RUNNER_TEMP:-${TMPDIR:-/tmp}}/onimite-release
 	mkdir -p "$out"
@@ -70,7 +78,7 @@ test)
 	# of o3d's own tests runs here (no O3D_NO_GPU needed).
 	for pkg in onimite script app encode speech; do
 		echo "::group::odin test $pkg"
-		odin test "$pkg" -collection:deps=.. $PATENTED -out:"build/test_$pkg$exe" ${ONIMITE_TEST_LDFLAGS:+"-extra-linker-flags:$ONIMITE_TEST_LDFLAGS"}
+		odin test "$pkg" -collection:deps=.. $MICROARCH $PATENTED -out:"build/test_$pkg$exe" ${ONIMITE_TEST_LDFLAGS:+"-extra-linker-flags:$ONIMITE_TEST_LDFLAGS"}
 		echo "::endgroup::"
 	done
 	;;

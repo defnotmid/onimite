@@ -47,6 +47,8 @@ Music :: struct {
 	retired: [dynamic]^Song_Clip,
 	retire_through: int,
 	collect: bool,
+	// Loads begun (music_retired_mark): what each song's `named` counts.
+	loads:   u64,
 	// The sample sets the songs' Samplers play (by id): declared when a
 	// song is composed, and only the zones its notes reach loaded, when its
 	// sound is first wanted (music_load).
@@ -116,11 +118,16 @@ Song_Clip :: struct {
 	// Seconds of sound past its last section (release tails, reverbs).
 	tail:     f64,
 	ok:       bool,
-	// The keys of each sample set its notes play, and whether they are in
-	// the bank yet.
-	needs:    [dynamic]odevice.Sample_Need,
+	// Whether its notes reach sample sets, and whether it is loaded: those
+	// sets' zones in the video's bank, and its own view of them (its rows
+	// copied, the samples shared), which is all its renders read, so a load
+	// of another song never moves what a render of it reads (atomic).
+	has_needs: bool,
 	loaded:   bool,
 	music:    ^Music, // whose bank it plays
+	// The load that last made or kept it (Music.loads): a song the current
+	// script no longer names is retired with the songs it replaced.
+	named:    u64,
 	// Its render and the tables read from it: heap memory, freed with it.
 	render:   Song_Render,
 	tables:   [dynamic]^Sound_Table,
@@ -176,8 +183,9 @@ music_load :: proc(m: ^Media) {
 	}
 }
 
-// Loads what one song plays that isn't in the bank yet (once), then tells
-// the host (the preview's worker) that it is in.
+// Loads what one song plays that isn't in the bank yet and makes its own
+// view of it (once: odawg's song_load), then tells the host (the preview's
+// worker) that it is in. A song plays no samples before this.
 song_clip_load :: proc(sc: ^Song_Clip) {
 	if sc == nil || sync.atomic_load(&sc.loaded) || !sc.ok || sc.music == nil {
 		return
@@ -191,7 +199,9 @@ song_clip_load :: proc(sc: ^Song_Clip) {
 		context.allocator = runtime.heap_allocator()
 		host := oassets.Bank_Host{root = mu.host_root, pinning = mu.pinning, pool = &mu.load_work.work_pool}
 		sc.load_findings = make(obase.Findings)
-		oassets.bank_load(&mu.bank, sc.needs[:], &sc.load_findings, oassets.progress_stderr, &host)
+		// the view's rows go to the song's own allocator (its arena, given
+		// when it was composed), whatever this context's is
+		oassets.song_load(&sc.song, &mu.bank, &sc.load_findings, oassets.progress_stderr, &host)
 		sync.atomic_store(&sc.loaded, true)
 		sync.atomic_add(&mu.banks, 1)
 	}
@@ -202,9 +212,9 @@ song_clip_load :: proc(sc: ^Song_Clip) {
 
 // Whether a song's sample sets are still to load (fetched on first use):
 // until then its notes that reach them are silent. A set that can't be had
-// counts as loaded (its finding says so).
+// counts as loaded (its finding says so); a song that plays none, too.
 song_clip_loading :: proc(sc: ^Song_Clip) -> bool {
-	return sc != nil && sc.ok && !sync.atomic_load(&sc.loaded)
+	return sc != nil && sc.ok && sc.has_needs && !sync.atomic_load(&sc.loaded)
 }
 
 @(private = "file")
@@ -314,19 +324,21 @@ media_song_put :: proc(m: ^Media, name: string, v: json.Value, key: u64) -> (sc:
 				virtual.arena_destroy(&sc.arena)
 				delete(sc.tables)
 				free(sc, made_with)
+				old.named = mu.loads
 				return old, false
 			}
 			sc.ok = osong.song_from_spec(&sc.spec, &sc.song, &mu.bank)
 			append(&sc.findings, ..sc.song.findings[:])
 			if sc.ok {
 				sc.tail = f64(orender.tail_from_song(&sc.song))
-				sc.needs = make([dynamic]odevice.Sample_Need)
-				osong.sample_needs(&sc.song, &sc.needs)
-				sc.loaded = len(sc.needs) == 0
+				needs := make([dynamic]odevice.Sample_Need, context.temp_allocator)
+				osong.sample_needs(&sc.song, &needs)
+				sc.has_needs = len(needs) > 0
 			}
 		}
 	}
 	sc.key = full
+	sc.named = mu.loads
 	if old, seen := mu.songs[name]; seen {
 		append(&mu.retired, old)
 		mu.songs[name] = sc
@@ -818,19 +830,22 @@ music_drain :: proc(m: ^Media) {
 }
 
 // The songs retired so far: what a load's own script can't be reading, since
-// it hasn't made them yet. The host takes this before it loads a script.
+// it hasn't made them yet. The host takes this before it loads a script,
+// which begins a load: the songs it makes or keeps are named by it.
 music_retired_mark :: proc(m: ^Media) -> int {
 	if m == nil || m.music == nil {
 		return 0
 	}
 	sync.guard(&m.music.lock)
+	m.music.loads += 1
 	return len(m.music.retired)
 }
 
 // A load kept this media and took: the script it replaces is gone, with what
 // else read its songs (its renderers, views and mix). The songs retired before
-// `mark` (music_retired_mark, from before that load) can go. A load that fails
-// must not say so: the last good script still reads them.
+// `mark` (music_retired_mark, from before that load) can go, and the songs it
+// didn't name are retired. A load that fails must not say so: the last good
+// script still reads them.
 music_retire :: proc(m: ^Media, mark: int) {
 	if m == nil || m.music == nil {
 		return
@@ -839,6 +854,19 @@ music_retire :: proc(m: ^Media, mark: int) {
 	sync.guard(&mu.lock)
 	mu.retire_through = mark
 	mu.collect = true
+	// The songs this load didn't name: only the script it replaces read
+	// them. They are retired as the songs it replaced are.
+	gone := make([dynamic]string, context.temp_allocator)
+	for name, sc in mu.songs {
+		if sc.named != mu.loads {
+			append(&gone, name)
+		}
+	}
+	for name in gone {
+		append(&mu.retired, mu.songs[name])
+		delete_key(&mu.songs, name)
+		delete(name)
+	}
 }
 
 // Frees what music_retire let go, unless the driver runs: a render reads the

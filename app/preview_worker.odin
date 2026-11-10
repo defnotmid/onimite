@@ -417,9 +417,9 @@ worker_main :: proc(w: ^Render_Worker) {
 			continue
 		}
 		if w.mb.request_seq == w.handled_seq {
-			busy := w.mb.busy
+			asked := Idle_Asked{busy = w.mb.busy, bands = w.mb.bands_wanted_seq, files = w.mb.files_wanted_seq}
 			sync.mutex_unlock(&w.mb.mutex)
-			worker_idle(w, busy)
+			worker_idle(w, asked)
 			free_all(context.temp_allocator)
 			continue
 		}
@@ -755,7 +755,7 @@ worker_idle_ready :: proc(w: ^Render_Worker) -> (ready: bool, retry: time.Durati
 			clear(&w.band_retired)
 		}
 	}
-	if w.mb.solo_file != w.solo_file || files_pending(w) || w.mb.clips_landed || clips_built_here(w) || wave_builder_pending(&w.waves) || tables_pending(w) || media_pending(w) || om.music_queued(w.media) || bands_pending(w) {
+	if w.mb.solo_file != w.solo_file || files_pending(w, w.mb.files_wanted_seq) || w.mb.clips_landed || clips_built_here(w) || wave_builder_pending(&w.waves) || tables_pending(w) || media_pending(w) || om.music_queued(w.media) || bands_pending(w, w.mb.bands_wanted_seq) {
 		return true, 0
 	}
 	if thumb_next(w) < 0 {
@@ -816,9 +816,18 @@ thumbs_allowed :: proc(w: ^Render_Worker, busy: bool) -> (ok: bool, retry: time.
 	return false, THUMB_QUIET - since
 }
 
+// What an idle step reads of the mailbox, taken under its lock by the
+// loop: the UI's busy flag and the request rows' sequence numbers.
+@(private)
+Idle_Asked :: struct {
+	busy:  bool,
+	bands: u64,
+	files: u64,
+}
+
 // One step of idle work, in priority order.
 @(private)
-worker_idle :: proc(w: ^Render_Worker, busy: bool) {
+worker_idle :: proc(w: ^Render_Worker, asked: Idle_Asked) {
 	// what this step asked of the songs (a lane, a thumbnail)
 	defer om.music_drain(w.media)
 	worker_solo(w)
@@ -838,7 +847,7 @@ worker_idle :: proc(w: ^Render_Worker, busy: bool) {
 		worker_tables(w)
 		return
 	}
-	if bands_pending(w) {
+	if bands_pending(w, asked.bands) {
 		worker_bands(w)
 		return
 	}
@@ -862,11 +871,11 @@ worker_idle :: proc(w: ^Render_Worker, busy: bool) {
 		}
 		return
 	}
-	if files_pending(w) {
+	if files_pending(w, asked.files) {
 		worker_files(w)
 		return
 	}
-	if ok, _ := thumbs_allowed(w, busy); !ok {
+	if ok, _ := thumbs_allowed(w, asked.busy); !ok {
 		return
 	}
 	if i := thumb_next(w); i >= 0 {

@@ -61,11 +61,11 @@ To install by hand instead, download the archive for your platform from
 [github.com/defnotmid/onimite/releases](https://github.com/defnotmid/onimite/releases)
 (`X.Y.Z` is the release):
 
-- Linux x86_64: `onimite-vX.Y.Z-linux-x86_64.tar.gz` (glibc 2.34+; needs the system libcurl,
-  `libcurl.so.4`)
+- Linux x86_64: `onimite-vX.Y.Z-linux-x86_64.tar.gz` (glibc 2.34+, a CPU with AVX2: Intel Haswell,
+  AMD Excavator or later; needs the system libcurl, `libcurl.so.4`)
 - macOS Apple Silicon: `onimite-vX.Y.Z-macos-arm64.tar.gz` (signed and notarized)
 - Windows x86_64: `onimite-vX.Y.Z-windows-x86_64.zip` (when present; unsigned, best effort,
-  tested only in CI)
+  tested only in CI; a CPU with AVX2, as on Linux)
 - `SHA256SUMS` to check them: `sha256sum -c --ignore-missing SHA256SUMS`
 
 Each unpacks to `onimite-vX.Y.Z-<platform>/` with the binary and the SDL3 library next to

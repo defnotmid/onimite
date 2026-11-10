@@ -264,9 +264,9 @@ tags, with the tag as their
 
 | asset | |
 | --- | --- |
-| `onimite-vX.Y.Z-linux-x86_64.tar.gz` | built on Ubuntu 22.04 (needs glibc 2.34+: its newest symbol), `libSDL3.so.0` beside the binary (rpath `$ORIGIN`); needs the system libcurl (`libcurl.so.4`) |
+| `onimite-vX.Y.Z-linux-x86_64.tar.gz` | built on Ubuntu 22.04 (needs glibc 2.34+: its newest symbol) for x86-64-v3 (a CPU with AVX2: Intel Haswell, AMD Excavator or later), `libSDL3.so.0` beside the binary (rpath `$ORIGIN`); needs the system libcurl (`libcurl.so.4`) |
 | `onimite-vX.Y.Z-macos-arm64.tar.gz` | macOS 11+, `libSDL3.0.dylib` beside the binary (rpath `@executable_path`) |
-| `onimite-vX.Y.Z-windows-x86_64.zip` | best effort (unsigned, tested only in CI), left out if the Windows build fails; `SDL3.dll` and `lua54.dll` beside the binary |
+| `onimite-vX.Y.Z-windows-x86_64.zip` | best effort (unsigned, tested only in CI), left out if the Windows build fails; for x86-64-v3 (AVX2) like the Linux build; `SDL3.dll` and `lua54.dll` beside the binary |
 | `onimite-video-skill-vX.Y.Z.tar.gz` | the agent skill as of the tag (`onimite-video/` with `SKILL.md`, `references/` and `LICENSE`), matching the binaries |
 | `SHA256SUMS` | checksums of the archives |
 
