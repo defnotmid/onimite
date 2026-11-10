@@ -80,7 +80,7 @@ jobs:
         with:
           repository: defnotmid/oksl
           # Pinned like o3d, whose shaders and onimite's it compiles (v0.0.3; o3d v0.0.50 needs it).
-          ref: v0.0.6
+          ref: v0.0.7
           path: oksl
       - uses: actions/checkout@v4
         with:
