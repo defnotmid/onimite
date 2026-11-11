@@ -43,7 +43,7 @@ jobs:
         with:
           repository: defnotmid/ovg
           path: ovg
-          ref: v0.0.73
+          ref: v0.0.74
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/ocurves
@@ -138,7 +138,7 @@ jobs:
         with:
           repository: defnotmid/ovg
           path: ovg
-          ref: v0.0.73
+          ref: v0.0.74
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/ocurves
