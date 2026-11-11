@@ -5,6 +5,7 @@ import "core:sync"
 import "core:thread"
 import "core:time"
 import om "../onimite"
+import orender "deps:odawg/render"
 import sdl "vendor:sdl3"
 
 // Preview sound, on a thread of ours: the feeder keeps SDL's stream filled
@@ -21,8 +22,20 @@ import sdl "vendor:sdl3"
 // playback clock, so picture follows sound. The worker hands over a new mix
 // under the feeder's lock (held while a block is mixed): only the worker ever
 // waits, for one block.
+//
+// What it mixes is also analysed as it goes, for the controls' spectrum
+// analyzer (preview_spectrum.odin): the mix hands odawg's engine's two sides,
+// before the volume, to odawg's streaming Analyzer, which makes a .Bands row
+// (the 31 third-octave levels) every ANALYZER_STEP samples on the clock it
+// mixes on, into a ring of the last ANALYZER_ROWS rows the UI reads without
+// waiting: the feeder publishes the next step it makes, and at a seek or a
+// loop back to the start (a run that doesn't follow the last) the first step
+// since, with a bump of the generation. The ring holds more than the feeder
+// runs ahead of what is heard.
 
 AUDIO_CHUNK :: 2048 // frames mixed per step at most
+ANALYZER_STEP :: 1024 // samples from one band row to the next (21 ms)
+ANALYZER_ROWS :: 64 // the rows its ring keeps (1.4 s)
 
 Audio_State :: enum u32 {
 	Playing,
@@ -65,6 +78,23 @@ Audio_Shared :: struct {
 	device_frames: i64,
 	feeder:        ^thread.Thread,
 	quit:          bool,
+	// The feeder's analyzer (the mix pushes into it, om.mix_block) and its
+	// ring of rows (ANALYZER_ROWS of BAND_COUNT levels, dB; step k's in slot
+	// k % ANALYZER_ROWS), which the UI reads as far as the counters below say
+	// they are made.
+	analyzer:      orender.Analyzer,
+	analyzed:      []f32,
+	// The feeder's (atomics, read by the UI): the next step it makes, the
+	// first it made since the last seek, and that seek's generation.
+	analyzed_next: i64,
+	analyzed_from: i64,
+	analyzed_gen:  u32,
+}
+
+// The analyzer and its ring, before the feeder starts.
+audio_analyzer_init :: proc(a: ^Audio_Shared) {
+	a.analyzed = make([]f32, ANALYZER_ROWS * om.BAND_COUNT)
+	orender.analyzer_init(&a.analyzer, .Bands, ANALYZER_STEP, 1, ANALYZER_ROWS, 0, values = a.analyzed)
 }
 
 audio_shared_destroy :: proc(a: ^Audio_Shared) {
@@ -73,6 +103,28 @@ audio_shared_destroy :: proc(a: ^Audio_Shared) {
 		free(a.stream)
 		a.stream = nil
 	}
+	orender.analyzer_destroy(&a.analyzer)
+	delete(a.analyzed)
+	a.analyzed = nil
+}
+
+// The analyzer for a run of the mix from sample `at` (nil: none): it starts
+// again there when the run doesn't follow the last, and that is published.
+audio_analyzer_at :: proc(a: ^Audio_Shared, at: i64) -> ^orender.Analyzer {
+	if a.analyzed == nil {
+		return nil
+	}
+	if at != a.analyzer.pos {
+		orender.analyzer_seek(&a.analyzer, at)
+		sync.atomic_store_explicit(&a.analyzed_from, i64(a.analyzer.next), .Relaxed)
+		sync.atomic_add_explicit(&a.analyzed_gen, 1, .Release)
+	}
+	return &a.analyzer
+}
+
+// The rows made so far, published once they are written.
+audio_analyzer_publish :: proc(a: ^Audio_Shared) {
+	sync.atomic_store_explicit(&a.analyzed_next, i64(a.analyzer.next), .Release)
 }
 
 // Builds the mix of `placed` (nil or none stops every sound: before the
@@ -154,9 +206,10 @@ audio_position :: proc(a: ^Audio_Shared) -> (sample: i64, playing: bool, fed: i6
 }
 
 // One block of `frames` into `stream`, with `lock` held: drains the UI's
-// rows, then streams the mix at the play position. Silence while paused or
-// muted; muted playback still advances. A seek, or playing stopping, drops
-// what is still queued, so it is heard at once.
+// rows, then streams the mix at the play position, analysed before the
+// volume. Silence while paused or muted; muted playback still advances, and
+// is still mixed and analysed (the analyzer shows it). A seek, or playing
+// stopping, drops what is still queued, so it is heard at once.
 audio_step :: proc(a: ^Audio_Shared, stream: ^sdl.AudioStream, frames: int) {
 	gen := sync.atomic_load_explicit(&a.seek_gen, .Acquire)
 	state := transmute(bit_set[Audio_State;u32])sync.atomic_load_explicit(&a.state, .Acquire)
@@ -189,11 +242,13 @@ audio_step :: proc(a: ^Audio_Shared, stream: ^sdl.AudioStream, frames: int) {
 				a.seek_floor = 0
 			}
 			run := min(n - k, int(a.total - a.position))
-			if .Muted not_in state && a.stream != nil {
+			if a.stream != nil {
 				part := buf[k * 2:][:run * 2]
-				om.mix_block(a.stream, int(a.position), part)
+				om.mix_block(a.stream, int(a.position), part, audio_analyzer_at(a, a.position))
+				audio_analyzer_publish(a)
+				g := gain if .Muted not_in state else 0
 				for &x in part {
-					x *= gain
+					x *= g
 				}
 			}
 			a.position += i64(run)
@@ -253,6 +308,7 @@ audio_open :: proc(a: ^Audio_Shared) -> ^sdl.AudioStream {
 	if sdl.GetAudioDeviceFormat(sdl.GetAudioStreamDevice(stream), &spec_out, &frames) {
 		a.device_frames = i64(frames) * om.MIX_RATE / i64(max(spec_out.freq, 1))
 	}
+	audio_analyzer_init(a)
 	// high, as SDL's own audio thread is: a late block is a gap heard
 	a.feeder = thread.create_and_start_with_poly_data2(a, stream, audio_feed, priority = .High)
 	sdl.ResumeAudioStreamDevice(stream)

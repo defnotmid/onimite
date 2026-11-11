@@ -252,6 +252,9 @@ Preview_State :: struct {
 	worker:             ^Render_Worker,
 	audio:              ^Audio_Shared,
 	audio_stream:       ^sdl.AudioStream,
+	// The controls' spectrum analyzer of the sound as it is heard
+	// (preview_spectrum.odin).
+	spectrum:           Spectrum,
 	// Per window frame: the UI thread's work before presenting, and the
 	// interval between frames (vsync included), in ms. For --exit-after and
 	// ONIMITE_DEBUG.
@@ -2328,10 +2331,13 @@ video_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32, area: Workspace_Rect
 
 // The transport controls across the window, under the panels: a media
 // player's bar (RAD has none; its layout approved) laid out by RAD's passes
-// (a children-sum column, a WidthFill column): at the left the playback
-// group (play/pause, the time, loop) and the bookmark (an icon); at the
-// right Reload, the sound (an icon) and its volume (the timeline's zoom is
-// the timeline's, at its ruler's end: timeline_zoom_view). Text buttons fill the
+// (a children-sum column, a WidthFill column): at the left every button, in
+// places that never move (play/pause, loop, the bookmark, the sound and its
+// volume, Reload), then the time, so the time growing or shrinking moves no
+// button; at the right end, a fixed width that never moves either, a
+// spectrum analyzer of the sound as it is heard (preview_spectrum.odin) (the
+// timeline's zoom is the timeline's, at its ruler's end:
+// timeline_zoom_view). Text buttons fill the
 // bar's height and are as wide as their text and RAD's padding (its menu
 // bar's text_dim(20), its text padding three tenths of an em), drawn inside
 // half an em of the bar's height and a quarter em across (visual margins);
@@ -2363,29 +2369,20 @@ controls_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32) {
 	// from the time.
 	narrow := f32(s.p.width) / dpi < 1000
 
-	// Left: play / pause, the time, loop, the bookmark.
+	// Left: play / pause, loop, the bookmark, the sound and its volume,
+	// Reload, then the time.
 	ui.set_next_pref_width(s, ui.children_sum()); ui.set_next_child_layout_axis(s, .X)
 	ui.push_parent(s, ui.build_box(s, {}, "###controls_left"))
 	ui.spacer(s, ui.px(math.floor(fs * 0.5)))
 	space: Key_Binding // play / pause is Space's accept in the video or the timeline
 	for b in PREVIEW_KEYS do if b.kind == .Accept && b.key == .Space do space = b
 	if icon_button(s, .Pause if pv.playing else .Play, "###play", h, false, "Pause" if pv.playing else "Play", space) do command_push(c, .Playback_Toggle)
-	clock := fmt.tprintf("%s · f %d", clock_label(app, pv.frame), pv.frame) if narrow else time_label(app, pv.frame)
-	ui.set_next_pref_width(s, ui.text_content(math.floor(fs), 1)); ui.set_next_text_align(s, .Center)
-	ui.build_box(s, {.Draw_Text}, fmt.tprintf("%s###time", clock))
 	loop, _ := command_binding(.Loop_Toggle)
 	if icon_button(s, .Loop, "###loop", h, pv.loop, "Loop", loop) do command_push(c, .Loop_Toggle)
 	// The bookmark: on while one is set, its time in its tooltip.
 	mark, _ := command_binding(.Bookmark_Toggle)
 	mark_tip := "Mark" if pv.bookmark < 0 else fmt.tprintf("Mark · %s", clock_label(app, pv.bookmark))
 	if icon_button(s, .Bookmark, "###bookmark", h, pv.bookmark >= 0, mark_tip, mark) do command_push(c, .Bookmark_Toggle)
-	ui.pop_parent(s)
-
-	// Right: reload, the sound and its volume.
-	ui.set_next_pref_width(s, ui.fill()); ui.set_next_child_layout_axis(s, .X)
-	ui.push_parent(s, ui.build_box(s, {}, "###controls_right"))
-	ui.spacer(s, ui.fill())
-	if !narrow && button(s, "Reload###reload", margin) do command_push(c, .Script_Reload, {flag = true})
 	// The sound: a speaker, its waves or (muted, on) an X.
 	mute, _ := command_binding(.Mute_Toggle)
 	if icon_button(s, .Muted if pv.muted else .Sound, "###mute", h, pv.muted, "Unmute" if pv.muted else "Mute", mute) do command_push(c, .Mute_Toggle)
@@ -2403,7 +2400,19 @@ controls_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32) {
 	ui.pop_parent(s)
 	if volume != before do command_push(c, .Volume_Set, {scalar = f64(volume)})
 	ui.spacer(s, ui.px(math.floor(fs * 0.5)))
+	if !narrow && button(s, "Reload###reload", margin) do command_push(c, .Script_Reload, {flag = true})
+	clock := fmt.tprintf("%s · f %d", clock_label(app, pv.frame), pv.frame) if narrow else time_label(app, pv.frame)
+	ui.set_next_pref_width(s, ui.text_content(math.floor(fs), 1)); ui.set_next_text_align(s, .Center)
+	ui.build_box(s, {.Draw_Text}, fmt.tprintf("%s###time", clock))
 	ui.pop_parent(s)
+
+	// The analyzer at the right end, half an em in, placed from the bar's own
+	// edge (floating), so nothing laid out before it moves it: an em a band
+	// (half in a narrow window), at most a third of the window, a quarter em
+	// in from the bar's top and bottom.
+	inset := math.floor(fs * 0.25)
+	width := min(math.floor(fs * (0.5 if narrow else 1)) * om.BAND_COUNT, math.floor(f32(s.p.width) / 3))
+	spectrum_view(pv, s, {f32(s.p.width) - math.floor(fs * 0.5) - width, inset}, {width, h - 2 * inset})
 }
 
 // An icon button, square at the bar's height `h` and drawn inside half an

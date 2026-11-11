@@ -481,8 +481,9 @@ mix_stream_destroy :: proc(st: ^Mix_Stream) {
 }
 
 // Mixes the `len(out) / 2` samples from `from` into `out` (interleaved
-// stereo), continuing `st`. Scratch comes from the temp allocator.
-mix_block :: proc(st: ^Mix_Stream, from: int, out: []f32) {
+// stereo), continuing `st`; an `analyzer` (at `from`) takes the engine's two
+// sides as they come out. Scratch comes from the temp allocator.
+mix_block :: proc(st: ^Mix_Stream, from: int, out: []f32, analyzer: ^orender.Analyzer = nil) {
 	n := len(out) / 2
 	if n == 0 || !st.ready {
 		return
@@ -493,6 +494,9 @@ mix_block :: proc(st: ^Mix_Stream, from: int, out: []f32) {
 	buf := make([]f32, 2 * n, context.temp_allocator)
 	l, r := buf[:n], buf[n:]
 	orender.engine_process(&st.engine, l, r)
+	if analyzer != nil {
+		orender.analyzer_push(analyzer, l, r)
+	}
 	for i in 0 ..< n {
 		out[i * 2], out[i * 2 + 1] = l[i], r[i]
 	}

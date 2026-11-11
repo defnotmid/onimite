@@ -410,8 +410,11 @@ Saving any file in the script's folder reloads it within a quarter second
 while the last good version keeps playing. The status line shows the GPU,
 the preview resolution, render time, latency and the problems found in the
 frames shown; a click opens them in the Watch. The bar above it holds
-play / pause, the time, loop and the bookmark at the left (hover an icon
-for its key), and Reload, the sound and its volume at the right. The timeline's zoom (and Follow, once zoomed) sits at the right end
+play / pause, loop, the bookmark, the sound, its volume and Reload at the
+left (hover an icon for its key), then the time, and at the right end a
+spectrum analyzer of the sound as it is heard (a bar per third-octave band
+of odawg's, 20 Hz at the left, each with a peak mark; muted, it still
+shows). The timeline's zoom (and Follow, once zoomed) sits at the right end
 of its ruler.
 
 The video, the timeline and Watch views are tabs in panels, as in oasic:
