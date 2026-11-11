@@ -879,7 +879,10 @@ paint_shape :: proc(r: ^Renderer, style: Shape_Style, rule := vg.Fill_Rule.Non_Z
 layout_text :: proc(r: ^Renderer, t: Text) -> ^vg.Text_Layout {
 	// Paint tags: 0 is the text's own fill, i + 1 is span i's.
 	clear(&r.pieces)
-	style := vg.Text_Style{family = t.font, size = t.size, weight = t.weight, italic = t.italic, letter_spacing = t.letter_spacing, features = t.features, variations = t.variations}
+	// The text's variations hold for its spans too; a weight no face has
+	// (on a variable font) is resolved for each piece's own family.
+	m := r.media
+	style := vg.Text_Style{family = t.font, size = t.size, weight = t.weight, italic = t.italic, letter_spacing = t.letter_spacing, features = t.features, variations = media_text_variations(m, t.font, t.weight, t.italic, t.variations)}
 	append(&r.pieces, vg.Text_Piece{t.text, style, 0, 0})
 	for span, i in t.spans {
 		st := style
@@ -889,12 +892,12 @@ layout_text :: proc(r: ^Renderer, t: Text) -> ^vg.Text_Layout {
 		if it, ok := span.italic.?; ok {st.italic = it}
 		if ls, ok := span.letter_spacing.?; ok {st.letter_spacing = ls}
 		if span.features != nil {st.features = span.features}
+		st.variations = media_text_variations(m, st.family, st.weight, st.italic, t.variations)
 		st.paint = u32(i + 1)
 		append(&r.pieces, vg.Text_Piece{span.text, st, span.dx, span.dy})
 	}
 	l := &r.text
-	fonts := media_text_fonts(r.media, t.font, t.weight, t.italic, t.variations)
-	vg.text_layout(fonts, r.pieces[:], {x = t.x, y = t.y, align = vg.Text_Align(t.align), baseline = vg.Text_Baseline(t.baseline), line_height = t.line_height}, l)
+	vg.text_layout(&m.fonts, r.pieces[:], {x = t.x, y = t.y, align = vg.Text_Align(t.align), baseline = vg.Text_Baseline(t.baseline), line_height = t.line_height}, l)
 	return l
 }
 

@@ -9,6 +9,7 @@ import "core:strings"
 import "core:testing"
 import oanalyze "deps:odawg/analyze"
 import vg "deps:ovg"
+import ft "deps:oglyph/font"
 import odimg "deps:oicut/image"
 
 @(test)
@@ -350,24 +351,55 @@ test_media_follows_links :: proc(t: ^testing.T) {
 	testing.expect(t, !dangling)
 }
 
-// A variable font's instance is an artifact: the first text that asks makes
-// it, the same instance again is the same collection (its durable id), another
-// value another one, and no variations the media's own collection.
+// A text's variations as drawn: as given; with none, a weight a variable
+// family has no face for is its wght axis's value (CSS's font-weight on a
+// variable font), clamped to the axis, while a weight a face has, or a static
+// family, is none. ovg's layout makes the instance: wght's two ends lay the
+// same text out at different widths.
 @(test)
-test_font_instances :: proc(t: ^testing.T) {
+test_text_variations :: proc(t: ^testing.T) {
+	// A system variable font: Linux's Adwaita Sans, macOS's Skia (read before
+	// the media, which it must outlive).
+	data: []u8
+	for path in ([?]string{"/usr/share/fonts/Adwaita/AdwaitaSans-Regular.ttf", "/System/Library/Fonts/Supplemental/Skia.ttf"}) {
+		if d, err := os.read_entire_file(path, context.allocator); err == nil {
+			data = d
+			break
+		}
+	}
+	defer delete(data)
 	m: Media
 	media_init(&m)
 	defer media_destroy(&m)
 	w500 := []Font_Variation{{"wght", 500}}
-	a := media_text_fonts(&m, "DM Sans", 400, false, w500)
-	b := media_text_fonts(&m, "DM Sans", 400, false, []Font_Variation{{"wght", 500}})
-	c := media_text_fonts(&m, "DM Sans", 400, false, []Font_Variation{{"wght", 600}})
-	testing.expect(t, a != &m.fonts && a == b)
-	testing.expect(t, c != a)
-	testing.expect(t, len(m.instances.list) == 2)
+	testing.expect(t, raw_data(media_text_variations(&m, "DM Sans", 400, false, w500)) == raw_data(w500))
 	// a static family at a weight it has a face for, and one it hasn't
-	// (no wght axis): the media's collection, nothing made
-	testing.expect(t, media_text_fonts(&m, "DM Sans", 700, false, nil) == &m.fonts)
-	testing.expect(t, media_text_fonts(&m, "DM Sans", 900, false, nil) == &m.fonts)
-	testing.expect(t, len(m.instances.list) == 2)
+	testing.expect(t, media_text_variations(&m, "DM Sans", 700, false, nil) == nil)
+	testing.expect(t, media_text_variations(&m, "DM Sans", 900, false, nil) == nil)
+	if data == nil {
+		log.info("no variable system font found: the rest skipped")
+		return
+	}
+	testing.expect(t, media_add_font(&m, data))
+	face := m.fonts.faces[0]
+	id, found := vg.font_collection_find(&m.fonts, face.family, face.weight)
+	testing.expect(t, found)
+	wght: ft.Axis
+	font := vg.font_collection_font(&m.fonts, id)
+	for i in 0 ..< font.face.axis_count {
+		if a, ok := ft.axis(&font.face, i); ok && a.tag == "wght" {
+			wght = a
+		}
+	}
+	testing.expect_value(t, wght.tag, "wght")
+	testing.expect(t, media_text_variations(&m, face.family, face.weight, false, nil) == nil)
+	off := face.weight + 250 if face.weight < 600 else face.weight - 250
+	got := media_text_variations(&m, face.family, off, false, nil)
+	testing.expectf(t, len(got) == 1 && got[0].tag == "wght" && got[0].value == clamp(f32(off), wght.min, wght.max), "weight %d: %v", off, got)
+	q := Font_Query{family = face.family, size = 40}
+	q.variations = {{"wght", wght.min}}
+	light, _ := text_width(&m, q, "Variable fonts")
+	q.variations = {{"wght", wght.max}}
+	heavy, _ := text_width(&m, q, "Variable fonts")
+	testing.expectf(t, light != heavy, "wght %v and %v lay out alike: %v", wght.min, wght.max, light)
 }

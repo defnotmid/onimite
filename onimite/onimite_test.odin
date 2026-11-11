@@ -403,7 +403,7 @@ test_text_helpers :: proc(t: ^testing.T) {
 	for s in ([]string{"office affiliation officially", "क्षत्रिय क्षत्रिय", "éééééééé", "👩‍💻👍🏽🇯🇵👩‍💻👍🏽🇯🇵"}) {
 		layout: vg.Text_Layout
 		vg.text_layout_init(&layout, context.temp_allocator)
-		vg.text_layout(media_text_fonts(&media, q.family, q.weight, q.italic, q.variations), {text_piece(q, s)}, {}, &layout)
+		vg.text_layout(&media.fonts, {text_piece(&media, q, s)}, {}, &layout)
 		starts := make([]bool, strings.rune_count(s) + 1, context.temp_allocator)
 		for c in layout.clusters {
 			starts[c] = true

@@ -139,7 +139,7 @@ end }
   reads those folders itself, so the video renders the same everywhere. `show video.lua fonts`
   lists the families text can use. A variable font draws at any instance:
   `text{ ..., variations = { wght = 650, wdth = 90 } }` (and `weight` alone moves its `wght`);
-  a sweep steps through a set of values, each made once and kept (`references/api.md`).
+  any value on any frame, so an axis can animate smoothly (`references/api.md`).
 - `require("name")` and `dofile` resolve beside the script; `SCRIPT_DIR` is its directory
   (for `io.open` on data files). Script lines in errors, `inspect` and `show` (and a file's
   `debug.getinfo` source) are paths from the script's folder (`scenes/race.lua:23`), whatever

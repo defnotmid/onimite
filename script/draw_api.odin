@@ -235,8 +235,8 @@ read_features :: proc(L: ^lua.State, t: c.int) -> []om.Font_Feature {
 }
 
 // `variations = { wght = 333, opsz = 32 }`: a variable font's instance, an
-// axis tag and its value in the axis's units each (`media_text_fonts` makes
-// the instance the first time it is drawn). nil when absent.
+// axis tag and its value in the axis's units each (ovg's layout makes the
+// instance where it is drawn). nil when absent.
 @(private)
 read_variations :: proc(L: ^lua.State, t: c.int) -> []om.Font_Variation {
 	field(L, t, "variations")

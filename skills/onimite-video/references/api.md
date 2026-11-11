@@ -684,9 +684,9 @@ text { "Variable", x = 960, y = 800, font = "Adwaita Sans", size = 120, fill = "
   `font-variation-settings`: `{ wght = 650, wdth = 87.5, opsz = 32 }`, each axis by its tag in
   its own units (axes not named keep their default; a tag the font lacks does nothing). It
   holds for the whole text, spans included. On a variable font, `weight` alone sets its
-  `wght` axis when no face has that weight. Each instance is made the first time a frame
-  draws it (about 0.3 ms) and kept for the render, so step through a set of values (a
-  sweep's nearest of 97, say) rather than a new value every frame. `text_width`, `text_fit`,
+  `wght` axis when no face has that weight (a span's own `weight` too). The instance is made
+  where the text is laid out and nothing is kept, so a value can change every frame: animate
+  an axis directly (`wght = 100 + 800 * p`), no need to step through a set. `text_width`, `text_fit`,
   `text_lines`, `text_size`, `outline{}` take `variations` too; `--svg` writes it as
   `font-variation-settings`.
 - `features` turns a font's OpenType features on or off over its defaults, as CSS

@@ -57,12 +57,9 @@ Media :: struct {
 	dir:      string,
 	// Owned file contents (font data must outlive the fonts).
 	blobs:    [dynamic][]u8,
-	// Variable fonts' instances texts asked for (`media_text_fonts`);
-	// shared by copies of the media.
-	instances: ^Font_Instances,
-	// The font files behind `fonts` and every instance's collection: each
-	// face's family, layout tables and shaping plans made once for all of
-	// them (ovg's Font_Files); shared by copies of the media.
+	// The font files behind `fonts`: each face's family, layout tables and
+	// shaping plans made once (ovg's Font_Files; a variable font's instances,
+	// which ovg's layouts make, share them too); shared by copies of the media.
 	files:     ^vg.Font_Files,
 	// How many of `fonts.faces`, at the end, are BUILTIN_FONTS.
 	builtin_faces: int,
@@ -215,8 +212,6 @@ media_init :: proc(m: ^Media) {
 	m.analysis.entries = make(map[string]Clip_Analysis_Entry)
 	m.music = new(Music)
 	music_init(m.music)
-	m.instances = new(Font_Instances)
-	m.instances.list = make([dynamic]^Font_Instance)
 	m.captions = make(map[string]Captions)
 	m.shaders = make(map[string]string)
 	m.svgs = make(map[string]^Svg_Asset)
@@ -228,22 +223,7 @@ media_init :: proc(m: ^Media) {
 
 media_destroy :: proc(m: ^Media) {
 	vg.font_collection_destroy(&m.fonts)
-	if m.instances != nil {
-		// made with the heap allocator (media_text_fonts), whichever thread
-		a := runtime.heap_allocator()
-		for inst in m.instances.list {
-			vg.font_collection_destroy(&inst.fonts)
-			delete(inst.family, a)
-			for v in inst.variations {
-				delete(v.tag, a)
-			}
-			delete(inst.variations, a)
-			free(inst, a)
-		}
-		delete(m.instances.list)
-		free(m.instances)
-	}
-	// after every collection reading it
+	// after the collection reading it
 	if m.files != nil {
 		vg.font_files_destroy(m.files)
 		free(m.files)
@@ -909,78 +889,29 @@ media_find_font :: proc(m: ^Media, family: string, weight: int, italic := false)
 	return vg.font_collection_find(&m.fonts, family, weight, italic)
 }
 
-// A variable font at an instance (`text{ variations = { wght = 333 } }`): the
-// family's face at those axis values, in a collection of its own (the
-// built-in fallback behind it). It is made the first time a text asks, by
-// whichever frame or worker asks, and kept with the media: an artifact,
-// never evicted, its index in `list` a durable id. A collection of its own,
-// so making one never moves a face a running layout reads in the media's.
-Font_Instance :: struct {
-	family:     string,
-	weight:     int,
-	italic:     bool,
-	variations: []Font_Variation,
-	fonts:      vg.Font_Collection,
-}
-
-Font_Instances :: struct {
-	lock: sync.Mutex,
-	list: [dynamic]^Font_Instance,
-}
-
-// The collection a text in this style lays out in: the media's, or with
-// `variations`, its instance's (made now if no text asked for it before).
-// A weight the family has no face for, on a variable font with a wght axis,
-// is that instance too (CSS's font-weight on a variable font). A family the
-// media lacks lays out in the media's, on the fallback.
-media_text_fonts :: proc(m: ^Media, family: string, weight: int, italic: bool, variations: []Font_Variation) -> ^vg.Font_Collection {
-	if m.instances == nil {
-		return &m.fonts
-	}
-	variations := variations
-	w: [1]Font_Variation
-	if len(variations) == 0 {
-		face, found := vg.font_collection_find(&m.fonts, family, weight, italic)
-		want := weight if weight != 0 else 400
-		if !found || vg.font_collection_face(&m.fonts, face).weight == want {
-			return &m.fonts
-		}
-		font := vg.font_collection_font(&m.fonts, face)
-		for i in 0 ..< font.face.axis_count {
-			if a, ok := ft.axis(&font.face, i); ok && a.tag == "wght" {
-				w = {{"wght", clamp(f32(want), a.min, a.max)}}
-				variations = w[:]
-				break
-			}
-		}
-		if len(variations) == 0 {
-			return &m.fonts
-		}
-	}
-	insts := m.instances
-	sync.guard(&insts.lock)
-	for inst in insts.list {
-		if inst.weight == weight && inst.italic == italic && strings.equal_fold(inst.family, family) && slice.equal(inst.variations, variations) {
-			return &inst.fonts
-		}
+// The variations a text in this style draws with (ovg's layout makes that
+// instance of the face the family, weight and style pick): `variations` as
+// given, or with none, on a variable font with a wght axis, a weight the
+// family has no face for as that axis's value (CSS's font-weight on a
+// variable font). nil otherwise; a made list is in the temp allocator.
+media_text_variations :: proc(m: ^Media, family: string, weight: int, italic: bool, variations: []Font_Variation) -> []Font_Variation {
+	if len(variations) > 0 {
+		return variations
 	}
 	face, found := vg.font_collection_find(&m.fonts, family, weight, italic)
-	if !found {
-		return &m.fonts
+	want := weight if weight != 0 else 400
+	if !found || vg.font_collection_face(&m.fonts, face).weight == want {
+		return nil
 	}
-	base := vg.font_collection_font(&m.fonts, face)
-	a := runtime.heap_allocator()
-	inst := new(Font_Instance, a)
-	inst.family = strings.clone(family, a)
-	inst.weight, inst.italic = weight, italic
-	inst.variations = make([]Font_Variation, len(variations), a)
-	for v, i in variations {
-		inst.variations[i] = {strings.clone(v.tag, a), v.value}
+	font := vg.font_collection_font(&m.fonts, face)
+	for i in 0 ..< font.face.axis_count {
+		if a, ok := ft.axis(&font.face, i); ok && a.tag == "wght" {
+			out := make([]Font_Variation, 1, context.temp_allocator)
+			out[0] = {"wght", clamp(f32(want), a.min, a.max)}
+			return out
+		}
 	}
-	vg.font_collection_init(&inst.fonts, BUILTIN_FONTS[0], allocator = a, files = m.files)
-	vg.font_collection_add(&inst.fonts, base.data, variations = inst.variations)
-	append(&insts.list, inst)
-	return &inst.fonts
+	return nil
 }
 
 @(private)

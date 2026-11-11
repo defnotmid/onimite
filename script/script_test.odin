@@ -400,6 +400,43 @@ scene { "B", duration = 2, overlap = { previous = 1 }, render = function(f) rect
 	testing.expectf(t, whole[0][0] > 225, "white over white at the middle: %d", whole[0][0])
 }
 
+// A variable font's text with a span in another family: the span finds its
+// own family. (A text with variations used to lay out in a collection of its
+// instance alone, where another family fell back to the built-in font.)
+@(test)
+test_variable_text_spans :: proc(t: ^testing.T) {
+	// A system variable font: Linux's Adwaita Sans, macOS's Skia (read before
+	// the fixture's media, which it must outlive).
+	data: []u8
+	for path in ([?]string{"/usr/share/fonts/Adwaita/AdwaitaSans-Regular.ttf", "/System/Library/Fonts/Supplemental/Skia.ttf"}) {
+		if d, err := os.read_entire_file(path, context.allocator); err == nil {
+			data = d
+			break
+		}
+	}
+	defer delete(data)
+	if data == nil {
+		return
+	}
+	f: Fixture
+	defer fixture_destroy(&f)
+	fixture_init(t, &f, `
+video { width = 400, height = 100, fps = 10, duration = 0.1, background = "#000000" }
+scene { duration = 0.1, render = function(f)
+  text { x = 4, y = 60, size = 40, variations = { wght = 700 }, fill = "#ffffff",
+    spans = { { "Heavy " }, { "mono", font = "JetBrains Mono" } } }
+end }
+`)
+	testing.expect(t, om.media_add_font(&f.media, data))
+	if !fixture_load(t, &f) {
+		return
+	}
+	_ = fixture_frame(t, &f, 0)
+	for d in f.r.ctx.diagnostics {
+		testing.expectf(t, d.code != .Missing_Font, "the span's family is missing: %v", d)
+	}
+}
+
 // A text painted with a pattern that holds text: the tile's text lays out on
 // its own, so the outer text still draws, its pattern span and its plain one.
 @(test)

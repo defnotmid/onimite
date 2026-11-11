@@ -283,7 +283,7 @@ Text :: struct {
 	letter_spacing: f32,
 	features:       []Font_Feature,
 	// A variable font's instance for the whole text, spans included
-	// (`media_text_fonts`); nil: the font's default.
+	// (`media_text_variations`); nil: the font's default.
 	variations:     []Font_Variation,
 	line_height:    f32,
 	fill:           Paint,

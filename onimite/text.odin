@@ -16,7 +16,7 @@ Font_Query :: struct {
 	letter_spacing: f32,
 	features:       []Font_Feature,
 	// A variable font's instance: axis tags ("wght", "wdth", "opsz") and
-	// values in the axis's units (`media_text_fonts`).
+	// values in the axis's units (`media_text_variations`).
 	variations:     []Font_Variation,
 }
 
@@ -41,7 +41,7 @@ text_fit :: proc(m: ^Media, q: Font_Query, s: string, max_width: f32, ellipsis :
 	ok = font_found(m, q)
 	layout: vg.Text_Layout
 	vg.text_layout_init(&layout, context.temp_allocator)
-	vg.text_layout(media_text_fonts(m, q.family, q.weight, q.italic, q.variations), {text_piece(q, s)}, {}, &layout)
+	vg.text_layout(&m.fonts, {text_piece(m, q, s)}, {}, &layout)
 	if len(layout.lines) == 0 || vg.text_layout_width(&layout) <= max_width {
 		return s, ok
 	}
@@ -68,7 +68,7 @@ text_fit :: proc(m: ^Media, q: Font_Query, s: string, max_width: f32, ellipsis :
 text_break_lines :: proc(m: ^Media, q: Font_Query, s: string, max_width: f32, allocator := context.temp_allocator) -> (lines: []string, ok: bool) {
 	layout: vg.Text_Layout
 	vg.text_layout_init(&layout, context.temp_allocator)
-	vg.text_layout(media_text_fonts(m, q.family, q.weight, q.italic, q.variations), {text_piece(q, s)}, {width = max_width}, &layout)
+	vg.text_layout(&m.fonts, {text_piece(m, q, s)}, {width = max_width}, &layout)
 	// each codepoint's byte offset in `s` (a line's ends are codepoint indices), and the end
 	at := make([dynamic]int, 0, len(s) + 1, context.temp_allocator)
 	for _, i in s {
@@ -105,7 +105,7 @@ font_found :: proc(m: ^Media, q: Font_Query) -> bool {
 measure :: proc(m: ^Media, q: Font_Query, s: string) -> f32 {
 	layout: vg.Text_Layout
 	vg.text_layout_init(&layout, context.temp_allocator)
-	vg.text_layout(media_text_fonts(m, q.family, q.weight, q.italic, q.variations), {text_piece(q, s)}, {}, &layout)
+	vg.text_layout(&m.fonts, {text_piece(m, q, s)}, {}, &layout)
 	return vg.text_layout_width(&layout)
 }
 
@@ -122,8 +122,8 @@ codepoint_offset :: proc(s: string, index: int) -> int {
 	return len(s)
 }
 
-// `s` as one piece in the query's style.
-@(private)
-text_piece :: proc(q: Font_Query, s: string) -> vg.Text_Piece {
-	return {text = s, style = {family = q.family, size = q.size, weight = q.weight, italic = q.italic, letter_spacing = q.letter_spacing, features = q.features, variations = q.variations}}
+// `s` as one piece in the query's style (its variations as drawn:
+// `media_text_variations`).
+text_piece :: proc(m: ^Media, q: Font_Query, s: string) -> vg.Text_Piece {
+	return {text = s, style = {family = q.family, size = q.size, weight = q.weight, italic = q.italic, letter_spacing = q.letter_spacing, features = q.features, variations = media_text_variations(m, q.family, q.weight, q.italic, q.variations)}}
 }
