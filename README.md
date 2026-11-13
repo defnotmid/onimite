@@ -10,6 +10,17 @@ sheets, problems found automatically, loudness and beats. It is built so
 that a coding agent can make a video end to end and know it is right
 without watching it.
 
+<a href="https://defnotmid.com/onimite"><img src="assets/hero.webp" width="720" alt="A four-line Lua script is typed and onimite render video.lua writes video.mp4: a passage of examples/why_onimite, rendered by onimite itself. The whole film, with sound, is on defnotmid.com."></a>
+
+Install it (what the installer does is under [Releases](#releases)):
+
+```sh
+curl -fsSL https://defnotmid.com/install.sh | sh          # macOS (Apple Silicon), Linux (x86_64)
+irm https://defnotmid.com/install.ps1 | iex               # Windows (PowerShell)
+```
+
+Then, in a clone of this repository:
+
 ```sh
 onimite render examples/why_onimite/video.lua -o why_onimite.mp4
 onimite preview examples/why_onimite/video.lua      # plays with sound, reloads on save
@@ -150,60 +161,6 @@ The full script API is [skills/onimite-video/references/api.md](skills/onimite-v
 [skills/onimite-video](skills/onimite-video) is a skill for coding agents
 that make videos with onimite.
 
-## Build
-
-```sh
-git clone https://github.com/defnotmid/onimite
-git clone https://github.com/defnotmid/ovg
-git clone https://github.com/defnotmid/oglyph
-git clone https://github.com/defnotmid/ocurves
-git clone https://github.com/defnotmid/oksl
-git clone https://github.com/defnotmid/oicut
-git clone https://github.com/defnotmid/ottis
-git clone https://github.com/defnotmid/o3d
-git clone https://github.com/defnotmid/odawg
-cd onimite
-mkdir -p build    # a fresh clone has no build/ (gitignored); Odin will not create it
-odin build . -collection:deps=.. -o:speed -out:build/onimite
-```
-
-`deps` is the parent directory holding `ovg`, `oglyph`, `ocurves`, `oksl`, `oicut`, `ottis`, `o3d` and `odawg`. It
-needs Odin dev-2026-11a or later (CI's pin is in `.github/actions/setup-toolchain`). Use
-`-o:speed`: unoptimized builds are many times slower. On Linux the binary
-links the system SDL3 (`pacman -S sdl3`, `apt install libsdl3-dev` on Ubuntu
-25.04+, otherwise build SDL 3 from source as `.github/actions/setup-toolchain`
-does) and libcurl (ottis downloads its models and odawg its sample sets with it: `pacman -S curl`,
-`apt install libcurl4-openssl-dev`); Odin
-ships SDL3 for Windows. Odin's Linux release ships some vendor C libraries
-as source; build them once:
-
-```sh
-bash "$(odin root)/vendor/box2d/build_box2d.sh"   # needs a C compiler; fetches Box2D 3.2.0 (its WASM step may fail: harmless)
-```
-
-Tests (every package that has them, as CI runs them):
-
-```sh
-bash .github/ci.sh test
-```
-
-### macOS
-
-Apple Silicon, SDL_GPU on Metal (the committed MSL shaders). With the Xcode
-command line tools and Homebrew:
-
-```sh
-brew install sdl3 lua@5.4        # lua@5.4 is keg-only; `lua` is 5.5
-# vendor:lua links `lua5.4`; point the linker at the keg:
-odin build . -collection:deps=.. -o:speed -out:build/onimite \
-    -extra-linker-flags:"-L$(brew --prefix lua@5.4)/lib"
-```
-
-Tests take the same flag. SDL's Metal driver needs Cocoa, which starts only
-on the main thread, so the GPU tests in `encode` and `onimite` (view3d's GPU
-half) skip under the test runner on macOS. On macOS `render` encodes with
-VideoToolbox, in hardware or Apple's software codecs.
-
 ## Use it with an AI agent
 
 The `onimite-video` skill (`skills/onimite-video`) teaches a coding agent to write, check
@@ -236,15 +193,10 @@ The extension's "Check for updates" setting turns the check off.
 
 ## Releases
 
-Install the latest release with one command (it checks the archive against
-`SHA256SUMS` and puts an `onimite` launcher in `~/.local/bin`, on Windows its
-folder on the user `PATH`; run it again to update, `ONIMITE_VERSION=vX.Y.Z`
-pins a release):
-
-```sh
-curl -fsSL https://defnotmid.com/install.sh | sh          # macOS (Apple Silicon), Linux (x86_64)
-irm https://defnotmid.com/install.ps1 | iex               # Windows (PowerShell)
-```
+The install command at the top of this page fetches the latest release: it
+checks the archive against `SHA256SUMS` and puts an `onimite` launcher in
+`~/.local/bin` (on Windows its folder on the user `PATH`). Run it again to
+update; `ONIMITE_VERSION=vX.Y.Z` pins a release.
 
 `onimite --version` prints the release it is. `onimite update` replaces it with
 the latest release: it reads that release's `SHA256SUMS`, downloads this
@@ -620,6 +572,60 @@ fframes and Remotion install. `examples/fframes/fetch.sh` fetches fframes
 and the ports' media first.
 
 [PARITY.md](PARITY.md) maps every fframes feature to onimite.
+
+## Build
+
+```sh
+git clone https://github.com/defnotmid/onimite
+git clone https://github.com/defnotmid/ovg
+git clone https://github.com/defnotmid/oglyph
+git clone https://github.com/defnotmid/ocurves
+git clone https://github.com/defnotmid/oksl
+git clone https://github.com/defnotmid/oicut
+git clone https://github.com/defnotmid/ottis
+git clone https://github.com/defnotmid/o3d
+git clone https://github.com/defnotmid/odawg
+cd onimite
+mkdir -p build    # a fresh clone has no build/ (gitignored); Odin will not create it
+odin build . -collection:deps=.. -o:speed -out:build/onimite
+```
+
+`deps` is the parent directory holding `ovg`, `oglyph`, `ocurves`, `oksl`, `oicut`, `ottis`, `o3d` and `odawg`. It
+needs Odin dev-2026-11a or later (CI's pin is in `.github/actions/setup-toolchain`). Use
+`-o:speed`: unoptimized builds are many times slower. On Linux the binary
+links the system SDL3 (`pacman -S sdl3`, `apt install libsdl3-dev` on Ubuntu
+25.04+, otherwise build SDL 3 from source as `.github/actions/setup-toolchain`
+does) and libcurl (ottis downloads its models and odawg its sample sets with it: `pacman -S curl`,
+`apt install libcurl4-openssl-dev`); Odin
+ships SDL3 for Windows. Odin's Linux release ships some vendor C libraries
+as source; build them once:
+
+```sh
+bash "$(odin root)/vendor/box2d/build_box2d.sh"   # needs a C compiler; fetches Box2D 3.2.0 (its WASM step may fail: harmless)
+```
+
+Tests (every package that has them, as CI runs them):
+
+```sh
+bash .github/ci.sh test
+```
+
+### macOS
+
+Apple Silicon, SDL_GPU on Metal (the committed MSL shaders). With the Xcode
+command line tools and Homebrew:
+
+```sh
+brew install sdl3 lua@5.4        # lua@5.4 is keg-only; `lua` is 5.5
+# vendor:lua links `lua5.4`; point the linker at the keg:
+odin build . -collection:deps=.. -o:speed -out:build/onimite \
+    -extra-linker-flags:"-L$(brew --prefix lua@5.4)/lib"
+```
+
+Tests take the same flag. SDL's Metal driver needs Cocoa, which starts only
+on the main thread, so the GPU tests in `encode` and `onimite` (view3d's GPU
+half) skip under the test runner on macOS. On macOS `render` encodes with
+VideoToolbox, in hardware or Apple's software codecs.
 
 ## Layout
 
