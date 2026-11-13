@@ -60,7 +60,7 @@ onimite is built from sibling Odin projects and Odin's vendor packages:
 | [`ovg`](https://github.com/defnotmid/ovg) | 2D vector canvas (femtovg lineage): software backend + SDL_GPU (Vulkan / Metal / D3D12) |
 | [`oglyph`](https://github.com/defnotmid/oglyph) | fonts and OpenType text shaping in native Odin (HarfBuzz's rules, checked against it), which ovg draws text through |
 | [`oicut`](https://github.com/defnotmid/oicut) | H.264 / H.265 / AAC codecs (native Odin, Vulkan Video when available), MP4, clip decoding; every image (PNG, JPEG, GIF, WebP, ...) and audio file (WAV, FLAC, MP3, Ogg, M4A) |
-| [`oksl`](https://github.com/defnotmid/oksl) | shader compiler for SkSL, Shadertoy and GLSL: SPIR-V, MSL and a CPU interpreter |
+| [`oksl`](https://github.com/defnotmid/oksl) | shader compiler for SkSL, Shadertoy and GLSL: SPIR-V, MSL and a CPU program (machine code through its AVX2 JIT on x86-64 Linux and macOS, an interpreter elsewhere); ovg and o3d write their own shaders in it too |
 | [`ottis`](https://github.com/defnotmid/ottis) | text to speech with word timings (Kyutai's Pocket TTS through ONNX Runtime, loaded at run time; models downloaded on first use) |
 | [`odawg`](https://github.com/defnotmid/odawg) | sound in Tone.js's vocabulary: songs composed from data (`song{}`, `sound{}`), the mix, master and preview stream, loudness, onsets and spectra; sample sets downloaded on first use |
 | [`o3d`](https://github.com/defnotmid/o3d) | 3D in three.js's vocabulary: an SDL_GPU renderer and a software one drawing the same pixels, glTF 2.0 (skins, morph targets, animations), 3MF and OBJ import |
@@ -91,7 +91,7 @@ onimite is built from sibling Odin projects and Odin's vendor packages:
   and multipass programs mixing them (`passes`: feedback, any pass's last
   frame; Shadertoy's Common + Buffer A-D + Image is one spelling). Images,
   clips and groups of nodes bind as inputs. The software backend runs the same
-  shaders on oksl's CPU interpreter.
+  shaders as oksl CPU programs.
 - **3D** (o3d): `view3d{}` draws a scene described in three.js's terms
   (perspective cameras with a physical lens, f-stop and focus on a point,
   and orthographic ones; ambient, hemisphere, point, directional and spot
@@ -209,10 +209,9 @@ does that check once as it starts (off with `--update-check false` or
 
 Push a tag `vX.Y.Z` (`git tag v0.1.0 && git push origin v0.1.0`; a tag with
 a `-`, like `v0.2.0-rc1`, makes a prerelease, which the installers skip).
-`.github/workflows/release.yml` builds `-o:speed` stripped binaries against the
-default branch of oksl and ovg, oglyph, oicut, ottis, o3d and odawg at their pinned
-tags, with the tag as their
-`--version`, and publishes a GitHub release:
+`.github/workflows/release.yml` builds `-o:speed` stripped binaries against
+ovg, ocurves, oglyph, oksl, oicut, ottis, o3d and odawg at their pinned tags,
+with the tag as their `--version`, and publishes a GitHub release:
 
 | asset | |
 | --- | --- |
@@ -612,7 +611,8 @@ bash .github/ci.sh test
 
 ### macOS
 
-Apple Silicon, SDL_GPU on Metal (the committed MSL shaders). With the Xcode
+Apple Silicon, SDL_GPU on Metal (ovg, o3d and the encoder compile their shaders
+to MSL with oksl as they start). With the Xcode
 command line tools and Homebrew:
 
 ```sh
@@ -633,11 +633,10 @@ VideoToolbox, in hardware or Apple's software codecs.
 | --- | --- | --- |
 | `onimite/` | `onimite` | core: timeline and easing, scenes, node tree, drawing, text, media, captions, 3D layers, time specs, SVG export |
 | `script/` | `onimite_script` | the Lua host: the script API bound to the core builders; `std.lua`, the standard library |
-| `encode/` | `onimite_encode` | RGBA to BT.709 I420 (GPU compute or CPU), oicut H.264 / H.265, MP4; clip and audio decoding |
+| `encode/` | `onimite_encode` | RGBA to BT.709 I420 (an oksl compute shader on the GPU, or the CPU), oicut H.264 / H.265, MP4; clip and audio decoding |
 | `app/` | `onimite_app` | command rows and one dispatch (after paf / raddbg): the commands, their output, batches, the preview |
 | `main.odin` | `main` | the command line: parses arguments into command rows |
 | `platform/`, `render/`, `ui/` | | SDL3 window and input, the UI's frame drawn as one ovg canvas (as onib draws its own), the raddbg-style UI (ported from paf) |
-| `shaders/` | | Slang shaders (UI, GPU colour conversion) with committed SPIR-V and MSL (`build.sh`) |
 | `tools/` | | `gen_media/` (generated media), `bench.sh`, `threads_check.sh` |
 
 Each package's errors are codes with operands (`*/errors.odin`); text is

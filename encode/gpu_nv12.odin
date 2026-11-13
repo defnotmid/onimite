@@ -1,9 +1,11 @@
 package onimite_encode
 
+import "core:mem"
+import oksl "deps:oksl"
 import video "deps:oicut/video"
 import sdl "vendor:sdl3"
 
-// Converts GPU-rendered frames to NV12 on the GPU (shaders/rgba_to_nv12.slang)
+// Converts GPU-rendered frames to NV12 on the GPU (rgba_to_nv12.comp)
 // and reads them back pipelined: `submit` records the conversion and the
 // download after the frame's render and returns; `feed` hands the downloads
 // that are done to the encoder as they are mapped (the encoder reads them
@@ -65,7 +67,7 @@ GPU_NV12_Slot :: struct {
 	queued:   i64,
 }
 
-// Matches `Params` in rgba_to_nv12.slang.
+// The uniform block of rgba_to_nv12.comp: its four uniforms in order, std140.
 @(private)
 GPU_NV12_Params :: struct {
 	ky, ku, kv: [4]i32,
@@ -73,9 +75,7 @@ GPU_NV12_Params :: struct {
 }
 
 @(private)
-RGBA_TO_NV12_SPV :: #load("../shaders/rgba_to_nv12.comp.spv")
-@(private)
-RGBA_TO_NV12_MSL :: #load("../shaders/rgba_to_nv12.comp.msl")
+RGBA_TO_NV12_COMP :: #load("rgba_to_nv12.comp", string)
 
 // `.Gpu_Unsupported` when the device can't run the pass (the caller reads
 // RGBA back and converts on the CPU instead). Sizes must be even, as for
@@ -86,32 +86,32 @@ gpu_nv12_init :: proc(g: ^GPU_NV12, device: ^sdl.GPUDevice, width, height: int) 
 	g.size = g.y_stride * height * 3 / 2
 
 	formats := sdl.GetGPUShaderFormats(device)
-	code: []u8
-	format: sdl.GPUShaderFormat
-	entry: cstring
-	switch {
-	case .SPIRV in formats:
-		code, format, entry = RGBA_TO_NV12_SPV, {.SPIRV}, "main"
-	case .MSL in formats:
-		code, format, entry = RGBA_TO_NV12_MSL, {.MSL}, "cs_main"
-	case:
+	spirv := .SPIRV in formats
+	if !spirv && .MSL not_in formats {
 		return .Gpu_Unsupported
 	}
-	g.pipeline = sdl.CreateGPUComputePipeline(
-		device,
-		{
-			code_size = len(code),
-			code = raw_data(code),
-			entrypoint = entry,
-			format = format,
-			num_readonly_storage_textures = 1,
-			num_readwrite_storage_buffers = 1,
-			num_uniform_buffers = 1,
-			threadcount_x = 8,
-			threadcount_y = 8,
-			threadcount_z = 1,
-		},
-	)
+	m, errors, compiled := oksl.compile(RGBA_TO_NV12_COMP, {profile = .Glsl, stage = .Compute, no_cpu = true, no_spirv = !spirv, no_msl = spirv})
+	defer oksl.destroy(m)
+	// The shader is fixed, so failing to compile it is a bug in it or in oksl.
+	assert(compiled, oksl.format_errors(errors, context.temp_allocator))
+	assert(m.block_size == size_of(GPU_NV12_Params))
+	code := mem.slice_to_bytes(m.spirv) if spirv else transmute([]u8)m.msl
+	info := sdl.GPUComputePipelineCreateInfo {
+		format                         = {.SPIRV} if spirv else {.MSL},
+		code_size                      = len(code),
+		code                           = raw_data(code),
+		entrypoint                     = oksl.SPIRV_ENTRY if spirv else oksl.MSL_ENTRY,
+		num_samplers                   = u32(m.num_samplers),
+		num_readonly_storage_textures  = u32(m.num_readonly_storage_textures),
+		num_readonly_storage_buffers   = u32(m.num_readonly_storage_buffers),
+		num_readwrite_storage_textures = u32(m.num_readwrite_storage_textures),
+		num_readwrite_storage_buffers  = u32(m.num_readwrite_storage_buffers),
+		num_uniform_buffers            = u32(m.num_uniform_buffers),
+		threadcount_x                  = m.threadcount.x,
+		threadcount_y                  = m.threadcount.y,
+		threadcount_z                  = m.threadcount.z,
+	}
+	g.pipeline = sdl.CreateGPUComputePipeline(device, info)
 	ok := g.pipeline != nil
 	for &s in g.slots {
 		s.buffer = sdl.CreateGPUBuffer(device, {usage = {.COMPUTE_STORAGE_WRITE}, size = u32(g.size)})

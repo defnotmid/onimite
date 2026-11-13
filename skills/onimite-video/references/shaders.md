@@ -112,7 +112,7 @@ shader(f, { sksl = HAZE, x = 0, y = 0, w = 1920, h = 1080, uniforms = {
   undeclared or unset uniforms warn. Always look at a `frame` PNG of a shader: a clean
   inspect does not prove it looks right.
 - A shader layer composes like an image (transforms, clips, masks, filters, opacity) and runs
-  at its on-screen pixel size; `--software` runs oksl's CPU interpreter.
+  at its on-screen pixel size; `--software` runs the shader as an oksl CPU program.
 
 ## Passes: multipass in any dialect
 

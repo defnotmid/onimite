@@ -1,0 +1,74 @@
+#version 310 es
+// Rendered RGBA8 frame to the encoder's NV12 planes (Y, then interleaved
+// U and V: the layout Vulkan Video encodes), on the GPU, so the readback is
+// 1.5 bytes a pixel instead of 4 and the CPU converts nothing.
+// Same Q16 fixed point as oicut's movie writer (rgb_to_yuv_coefficients) and
+// encode.odin's CPU path, so every backend writes identical planes.
+// gpu_nv12.odin compiles it with oksl as the encoder starts.
+//
+// One invocation owns an 8x2 pixel block: two Y words per row and two UV
+// words, so no two invocations write the same word. Both planes are packed
+// in `destination` with `y_stride` (a multiple of 8) bytes per row.
+//
+// The frame is read as a storage image, not sampled: SDL_GPU's sampler
+// barriers only cover the vertex and fragment stages, so a compute pass
+// sampling a texture rendered just before could read it before the render
+// finished; a storage read gets a barrier from the colour target to the
+// compute stage.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(rgba8) readonly uniform highp image2D source;
+buffer Destination {
+	uint words[];
+} destination;
+
+uniform ivec4 ky;   // R, G, B weights, y bias (Q16)
+uniform ivec4 ku;   // R, G, B weights, chroma bias (Q18, for a 2x2 sum)
+uniform ivec4 kv;   // R, G, B weights, chroma max
+uniform uvec4 size; // width, height, y_stride, uv plane offset (bytes)
+
+ivec3 texel(int x, int y) {
+	vec4 c = imageLoad(source, ivec2(min(x, int(size.x) - 1), min(y, int(size.y) - 1)));
+	return ivec3(round(c.rgb * 255.0));
+}
+
+uint luma(ivec3 c) {
+	return uint(clamp((ky.x * c.r + ky.y * c.g + ky.z * c.b + ky.w) >> 16, 0, 255));
+}
+
+void main() {
+	uvec3 id = gl_GlobalInvocationID;
+	uint y_stride = size.z;
+	if (id.x * 8u >= y_stride || id.y * 2u >= size.y) {
+		return;
+	}
+	int x0 = int(id.x * 8u);
+	int y0 = int(id.y * 2u);
+	uint y_words[4] = uint[4](0u, 0u, 0u, 0u);
+	uint uv_words[2] = uint[2](0u, 0u);
+	for (int i = 0; i < 4; ++i) {
+		int x = x0 + i * 2;
+		ivec3 a = texel(x, y0);
+		ivec3 b = texel(x + 1, y0);
+		ivec3 c = texel(x, y0 + 1);
+		ivec3 d = texel(x + 1, y0 + 1);
+		int w = i / 2;
+		uint shift = uint(i % 2) * 16u;
+		y_words[w] |= (luma(a) | (luma(b) << 8u)) << shift;
+		y_words[w + 2] |= (luma(c) | (luma(d) << 8u)) << shift;
+		ivec3 s = a + b + c + d;
+		uint u = uint(clamp((ku.x * s.r + ku.y * s.g + ku.z * s.b + ku.w) >> 18, 0, kv.w));
+		uint v = uint(clamp((kv.x * s.r + kv.y * s.g + kv.z * s.b + ku.w) >> 18, 0, kv.w));
+		uv_words[w] |= (u | (v << 8u)) << shift;
+	}
+	uint stride_words = y_stride >> 2u;
+	uint row0 = (uint(y0) * y_stride + id.x * 8u) >> 2u;
+	destination.words[row0] = y_words[0];
+	destination.words[row0 + 1u] = y_words[1];
+	destination.words[row0 + stride_words] = y_words[2];
+	destination.words[row0 + stride_words + 1u] = y_words[3];
+	uint chroma = (size.w + id.y * y_stride + id.x * 8u) >> 2u;
+	destination.words[chroma] = uv_words[0];
+	destination.words[chroma + 1u] = uv_words[1];
+}

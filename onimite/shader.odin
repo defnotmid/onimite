@@ -246,7 +246,9 @@ shader_library_get :: proc(l: ^Shader_Library, passes: []Shader_Pass, common: st
 		shader_add_errors(&errors, pass.name, errs)
 	}
 	for &spec, pi in specs {
-		spec.channels = shader_channel_refs(passes, pi, spec.module, &errors)
+		// The rest of oksl's SAMPLER_COUNT channels stay unbound (.None).
+		refs := shader_channel_refs(passes, pi, spec.module, &errors)
+		copy(spec.channels[:], refs[:])
 	}
 	g, errs, made := oksl.make_program(specs, output)
 	shader_add_errors(&errors, "", errs)
@@ -481,7 +483,7 @@ shader :: proc(ctx: ^Context, f: Frame, p: Shader_Params) -> bool {
 			n.channels[pi][ch] = {kind = .Depth, of = of}
 		}
 		// Channels reading a pass, or an input that shows this frame.
-		bound: bit_set[0 ..< oksl.CHANNEL_COUNT]
+		bound: bit_set[0 ..< oksl.SAMPLER_COUNT]
 		for e in g.edges[pass.edges.start:][:pass.edges.count] {
 			ch := n.channels[pi][e.channel]
 			if e.source == .External && ch.kind == .None {
