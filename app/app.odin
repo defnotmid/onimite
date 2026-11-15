@@ -406,7 +406,8 @@ renderer :: proc(app: ^App_State, scale: f32) -> (^om.Renderer, Error) {
 	return &app.renderer, nil
 }
 
-// PNG from premultiplied RGBA8 (straight alpha in the file).
+// PNG from premultiplied RGBA8 (straight alpha in the file, un-premultiplied
+// a row at a time as it is written, so no frame-sized copy).
 write_png :: proc(path: string, pixels: []u8, w, h: u32) -> bool {
-	return odimg.write_png(path, om.straight_alpha(pixels), int(w), int(h)) == .None
+	return odimg.write_png(path, pixels, int(w), int(h), premultiplied = true) == .None
 }

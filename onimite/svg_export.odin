@@ -1138,14 +1138,15 @@ export_raster :: proc(e: ^Svg_Export, i: i32, box: vg.Rect, m: vg.Transform2D) {
 	strings.write_string(b, "<image")
 	rect_attrs(b, box)
 	strings.write_string(b, ` preserveAspectRatio="none"`)
-	png_href(b, straight_alpha(px[:int(pw * ph * 4)]), int(pw), int(ph))
+	png_href(b, px[:int(pw * ph * 4)], int(pw), int(ph), premultiplied = true)
 	strings.write_string(b, "/>\n")
 }
 
-// ` href="data:image/png;base64,..."` of straight RGBA8 pixels.
+// ` href="data:image/png;base64,..."` of RGBA8 pixels, straight unless
+// `premultiplied` (a rendered frame).
 @(private = "file")
-png_href :: proc(b: ^strings.Builder, pixels: []u8, w, h: int) {
-	png, _ := odimg.encode_png(pixels, w, h, context.temp_allocator)
+png_href :: proc(b: ^strings.Builder, pixels: []u8, w, h: int, premultiplied := false) {
+	png, _ := odimg.encode_png(pixels, w, h, context.temp_allocator, premultiplied)
 	strings.write_string(b, ` href="data:image/png;base64,`)
 	base64.encode_into(strings.to_writer(b), png)
 	strings.write_byte(b, '"')
