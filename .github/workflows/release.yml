@@ -63,7 +63,7 @@ jobs:
         with:
           repository: defnotmid/ovg
           path: ovg
-          ref: v0.0.76
+          ref: v0.0.78
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/ocurves
@@ -80,7 +80,7 @@ jobs:
         with:
           repository: defnotmid/oksl
           # Pinned like o3d, whose shaders and onimite's it compiles (v0.0.3; o3d v0.0.50 needs it).
-          ref: v0.0.13
+          ref: v0.0.14
           path: oksl
       - uses: actions/checkout@v4
         with:
