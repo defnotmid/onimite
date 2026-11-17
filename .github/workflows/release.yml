@@ -9,6 +9,8 @@ name: Release
 #   onimite-TAG-{macos-arm64,windows-x86_64}.mcpb  Claude Desktop extensions
 #   onimite-{macos-arm64,windows-x86_64}.mcpb      the same, version-free names
 #   SHA256SUMS
+# The registry job then lists the two .mcpb bundles in the official MCP
+# registry (server.json, filled in with this tag).
 # Each archive holds one directory, onimite-TAG-PLATFORM/, with the binary,
 # the SDL3 shared library next to it (lua54.dll too on Windows), LICENSE,
 # LICENSES/ and THIRD_PARTY_NOTICES.md.
@@ -63,48 +65,48 @@ jobs:
         with:
           repository: defnotmid/ovg
           path: ovg
-          ref: v0.0.82
+          ref: v0.1.0
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/ocurves
           # Pinned like ovg and o3d, which keep their paths and shapes in its contour tables (v0.0.16: build_append can map the curves by a given frame, which ovg v0.0.73's coarse levels build with; ovg v0.0.73 needs it).
-          ref: v0.0.19
+          ref: v0.1.0
           path: ocurves
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/oglyph
           # Pinned like ovg: fonts, font collections, text shaping, bidi and line breaks, which ovg draws through (v0.0.12; ovg v0.0.58 needs it).
-          ref: v0.0.14
+          ref: v0.1.0
           path: oglyph
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/oksl
           # Pinned like o3d, whose shaders and onimite's it compiles (v0.0.3; o3d v0.0.50 needs it).
-          ref: v0.0.28
+          ref: v0.1.0
           path: oksl
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/oicut
           # Pinned like ottis: onimite decodes and encodes through oicut v0.0.27: H.264 / H.265 by the system (VideoToolbox, Vulkan Video, Media Foundation on Windows, else the system's libavcodec, loaded at run time), natively only with -define:OICUT_PATENTED=true; AV1 (render --codec av1, clips) natively in every build; ovg, o3d, odawg and ottis at their pins use nothing it changed since v0.0.16.
-          ref: v0.0.30
+          ref: v0.1.0
           path: oicut
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/ottis
           # Pinned: ottis is released on its own; a new tag is taken on purpose.
-          ref: v0.0.17
+          ref: v0.1.0
           path: ottis
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/o3d
           # Pinned like ottis: o3d is released on its own (v0.0.59).
-          ref: v0.0.64
+          ref: v0.1.0
           path: o3d
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/odawg
           # Pinned like ottis: odawg is released on its own (v0.0.55: a SIMD sampler kernel, and voice spans merged once per mix for ducking).
-          ref: v0.0.56
+          ref: v0.1.0
           path: odawg
 
       - uses: ./onimite/.github/actions/setup-toolchain
@@ -501,3 +503,58 @@ jobs:
             --generate-notes \
             --verify-tag \
             "${prerelease[@]}"
+
+  # The official MCP registry (registry.modelcontextprotocol.io) lists this
+  # release's Claude Desktop bundles as io.github.defnotmid/onimite: server.json
+  # gets the tag's version and each bundle's URL and SHA-256, and GitHub's OIDC
+  # token proves the namespace (no secret). A version is published once and
+  # never changes; prereleases are left out. A failure here leaves the release
+  # as it is.
+  registry:
+    name: MCP registry
+    needs: publish
+    if: ${{ !contains(github.ref_name, '-') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ github.ref_name }}
+      PUBLISHER: "1.8.9"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: server.json
+          sparse-checkout-cone-mode: false
+
+      - name: Fill in server.json
+        run: |
+          set -euo pipefail
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern SHA256SUMS
+          url="https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG"
+          packages='[]'
+          for target in macos-arm64 windows-x86_64; do
+            file="onimite-$TAG-$target.mcpb"
+            sum=$(awk -v f="$file" '$2 == f { print $1 }' SHA256SUMS)
+            if [ -z "$sum" ]; then
+              echo "::warning::$file is not in the release: not listed"
+              continue
+            fi
+            packages=$(jq -c --arg id "$url/$file" --arg v "${TAG#v}" --arg sum "$sum" \
+              '. + [{registryType: "mcpb", identifier: $id, version: $v, fileSha256: $sum, transport: {type: "stdio"}}]' <<< "$packages")
+          done
+          jq --arg v "${TAG#v}" --argjson p "$packages" '.version = $v | .packages = $p' server.json > server.tmp
+          mv server.tmp server.json
+          cat server.json
+
+      - name: Publish
+        run: |
+          set -euo pipefail
+          gh release download "v$PUBLISHER" --repo modelcontextprotocol/registry \
+            --pattern mcp-publisher_linux_amd64.tar.gz --pattern "registry_${PUBLISHER}_checksums.txt"
+          grep ' mcp-publisher_linux_amd64.tar.gz$' "registry_${PUBLISHER}_checksums.txt" | sha256sum -c -
+          tar -xzf mcp-publisher_linux_amd64.tar.gz mcp-publisher
+          ./mcp-publisher validate
+          ./mcp-publisher login github-oidc
+          ./mcp-publisher publish
