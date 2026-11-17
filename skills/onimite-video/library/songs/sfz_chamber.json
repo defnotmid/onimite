@@ -33,8 +33,8 @@
       "pan": -0.2,
       "sends": { "hall": -10 },
       "play": [
-        { "name": [ "intro", "theme", "coda" ], "arpeggio": { "pattern": "upDown", "interval": "8n", "octaves": 2 }, "octave": 3, "velocity": 0.5, "humanize": 0.006 },
-        { "name": [ "answer", "swell" ], "arpeggio": { "pattern": "up", "interval": "8n", "octaves": 2 }, "octave": 3, "velocity": 0.56, "humanize": 0.005 }
+        { "range": [ "intro", "theme", "coda" ], "arpeggio": { "pattern": "upDown", "interval": "8n", "octaves": 2 }, "octave": 3, "velocity": 0.5, "humanize": 0.006 },
+        { "range": [ "answer", "swell" ], "arpeggio": { "pattern": "up", "interval": "8n", "octaves": 2 }, "octave": 3, "velocity": 0.56, "humanize": 0.005 }
       ]
     },
     "cellos": {
@@ -43,9 +43,9 @@
       "pan": 0.1,
       "sends": { "hall": -12 },
       "play": [
-        { "name": [ "theme", "answer" ], "degrees": "1", "subdivision": "2n.", "octave": 2, "velocity": 0.5, "humanize": 0.004 },
-        { "name": "swell", "degrees": "1", "subdivision": "2n.", "octave": 2, "velocity": 0.64 },
-        { "name": "coda", "degrees": "1", "subdivision": "2n.", "octave": 2, "velocity": 0.5 }
+        { "range": [ "theme", "answer" ], "degrees": "1", "subdivision": "2n.", "octave": 2, "velocity": 0.5, "humanize": 0.004 },
+        { "range": "swell", "degrees": "1", "subdivision": "2n.", "octave": 2, "velocity": 0.64 },
+        { "range": "coda", "degrees": "1", "subdivision": "2n.", "octave": 2, "velocity": 0.5 }
       ]
     },
     "flute": {
@@ -54,10 +54,10 @@
       "pan": 0.15,
       "sends": { "hall": -11 },
       "play": [
-        { "name": "theme", "notes": "F#5 - A5 C#6 - B5 B5 A5 G5 A5 - - D6 - C#6 B5 - A5 G5 F#5 E5 E5 - .", "subdivision": "4n", "velocity": 0.48, "humanize": 0.006 },
-        { "name": "answer", "notes": "D6 B5 A5 C#6 B5 A5 G5 A5", "subdivision": "2n.", "velocity": 0.36, "humanize": 0.006 },
-        { "name": "swell", "notes": "D6 E6 C#6 D6", "subdivision": "2n.", "velocity": 0.72 },
-        { "name": "coda", "notes": "B5 - A5 A5 - G5 F#5 - - - - .", "subdivision": "4n", "velocity": 0.48, "humanize": 0.008 }
+        { "range": "theme", "notes": "F#5 - A5 C#6 - B5 B5 A5 G5 A5 - - D6 - C#6 B5 - A5 G5 F#5 E5 E5 - .", "subdivision": "4n", "velocity": 0.48, "humanize": 0.006 },
+        { "range": "answer", "notes": "D6 B5 A5 C#6 B5 A5 G5 A5", "subdivision": "2n.", "velocity": 0.36, "humanize": 0.006 },
+        { "range": "swell", "notes": "D6 E6 C#6 D6", "subdivision": "2n.", "velocity": 0.72 },
+        { "range": "coda", "notes": "B5 - A5 A5 - G5 F#5 - - - - .", "subdivision": "4n", "velocity": 0.48, "humanize": 0.008 }
       ]
     },
     "violin": {
@@ -66,9 +66,9 @@
       "pan": -0.1,
       "sends": { "hall": -11 },
       "play": [
-        { "name": "theme", "notes": "D5 C#5 B4 C#5 D5 D5 B4 C#5", "subdivision": "2n.", "velocity": 0.36, "humanize": 0.005 },
-        { "name": "answer", "notes": "D5 - F#5 G5 - B5 A5 - F#5 E5 - - D5 E5 G5 F#5 - A5 G5 F#5 E5 C#5 - .", "subdivision": "4n", "velocity": 0.72, "humanize": 0.006 },
-        { "name": "swell", "notes": "B5 C#6 A5 B5", "subdivision": "2n.", "velocity": 0.72 }
+        { "range": "theme", "notes": "D5 C#5 B4 C#5 D5 D5 B4 C#5", "subdivision": "2n.", "velocity": 0.36, "humanize": 0.005 },
+        { "range": "answer", "notes": "D5 - F#5 G5 - B5 A5 - F#5 E5 - - D5 E5 G5 F#5 - A5 G5 F#5 E5 C#5 - .", "subdivision": "4n", "velocity": 0.72, "humanize": 0.006 },
+        { "range": "swell", "notes": "B5 C#6 A5 B5", "subdivision": "2n.", "velocity": 0.72 }
       ]
     },
     "trumpet": {
@@ -77,8 +77,8 @@
       "pan": 0.25,
       "sends": { "hall": -9 },
       "play": [
-        { "name": "answer@7m..answer", "notes": "A4 - B4 C#5 - E5", "subdivision": "4n", "velocity": 0.55 },
-        { "name": "swell", "notes": "D5 - B4 C#5 - E5 F#5 - A5 F#5 - -", "subdivision": "4n", "velocity": 0.72 }
+        { "range": "answer@7m..answer", "notes": "A4 - B4 C#5 - E5", "subdivision": "4n", "velocity": 0.55 },
+        { "range": "swell", "notes": "D5 - B4 C#5 - E5 F#5 - A5 F#5 - -", "subdivision": "4n", "velocity": 0.72 }
       ]
     }
   }

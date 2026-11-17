@@ -83,7 +83,7 @@
       },
       "play": [
         {
-          "name": "intro..chorus2",
+          "range": "intro..chorus2",
           "degrees": "1 5 8 10 8 5",
           "subdivision": "8n",
           "octave": 3,
@@ -91,7 +91,7 @@
           "humanize": 0.008
         },
         {
-          "name": "intro..chorus2",
+          "range": "intro..chorus2",
           "degrees": "1 . . . . .",
           "subdivision": "8n",
           "octave": 2,
@@ -99,7 +99,7 @@
           "humanize": 0.008
         },
         {
-          "name": "outro",
+          "range": "outro",
           "degrees": "1 5 8 10 8 5 1 5 8 10 12 15",
           "subdivision": "8n",
           "octave": 3,
@@ -119,7 +119,7 @@
       },
       "play": [
         {
-          "name": [
+          "range": [
             "verse",
             "verse2"
           ],
@@ -129,7 +129,7 @@
           "humanize": 0.01
         },
         {
-          "name": [
+          "range": [
             "chorus",
             "chorus2"
           ],
@@ -139,14 +139,14 @@
           "humanize": 0.01
         },
         {
-          "name": "bridge",
+          "range": "bridge",
           "notes": "E5 - G5 C6 - - B5 - - D5 - - E5 - - G5 - B5 D5 - - - - -",
           "subdivision": "8n",
           "velocity": 0.62,
           "humanize": 0.01
         },
         {
-          "name": "outro",
+          "range": "outro",
           "notes": "B5 - - A5 - G5 Bb5 - - - - - A5 - - F#5 - - D5 - - - - - - - - - - -",
           "subdivision": "8n",
           "velocity": 0.55,
@@ -163,14 +163,14 @@
       "gain_db": -14,
       "play": [
         {
-          "name": "verse2..chorus2",
+          "range": "verse2..chorus2",
           "degrees": "1 - - 5 - -",
           "subdivision": "8n",
           "octave": 2,
           "velocity": 0.6
         },
         {
-          "name": "outro",
+          "range": "outro",
           "degrees": "1 - - - - -",
           "subdivision": "8n",
           "octave": 2,
@@ -191,7 +191,7 @@
       },
       "play": [
         {
-          "name": "verse2",
+          "range": "verse2",
           "chords": {
             "voicing": "spread"
           },
@@ -199,7 +199,7 @@
           "velocity": 0.4
         },
         {
-          "name": "chorus..outro",
+          "range": "chorus..outro",
           "chords": {
             "voicing": "spread"
           },
@@ -219,7 +219,7 @@
       },
       "play": [
         {
-          "name": "verse2",
+          "range": "verse2",
           "velocity": 0.4,
           "humanize": 0.008,
           "steps": {
@@ -229,7 +229,7 @@
           }
         },
         {
-          "name": [
+          "range": [
             "chorus",
             "chorus2"
           ],
@@ -271,7 +271,7 @@
           }
         },
         {
-          "name": "bridge",
+          "range": "bridge",
           "velocity": 0.4,
           "humanize": 0.008,
           "steps": {
@@ -281,7 +281,7 @@
           }
         },
         {
-          "name": "outro",
+          "range": "outro",
           "velocity": 0.35,
           "steps": {
             "ride": [

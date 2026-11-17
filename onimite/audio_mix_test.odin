@@ -140,9 +140,9 @@ test_mix_stream_plays_song_render :: proc(t: ^testing.T) {
 	media_init(&m)
 	defer media_destroy(&m)
 	v, err := json.parse_string(`{ name: "s", bpm: 120, sections: [ { name: "a", duration: "4m" } ],
-		parts: { drums: { instrument: "MembraneSynth", play: [ { name: "a", notes: "C2 - C2 -", subdivision: "8n" } ] },
+		parts: { drums: { instrument: "MembraneSynth", play: [ { range: "a", notes: "C2 - C2 -", subdivision: "8n" } ] },
 		         lead: { instrument: "PluckSynth", effects: [ { name: "FeedbackDelay", delay_time: "8n", feedback: 0.4, wet: 0.3 } ],
-		                 play: [ { name: "a", notes: "A4 C5 E5 -", subdivision: "8n" } ] } } }`, .JSON5, true, context.temp_allocator)
+		                 play: [ { range: "a", notes: "A4 C5 E5 -", subdivision: "8n" } ] } } }`, .JSON5, true, context.temp_allocator)
 	testing.expect(t, err == nil)
 	sc, _ := media_song_put(&m, "s", v, value_key(v))
 	testing.expect(t, sc.ok)
@@ -187,9 +187,9 @@ test_song_tables_are_render :: proc(t: ^testing.T) {
 	media_init(&m)
 	defer media_destroy(&m)
 	v, err := json.parse_string(`{ name: "s", bpm: 120, sections: [ { name: "a", duration: "2m" } ],
-		parts: { drums: { instrument: "MembraneSynth", play: [ { name: "a", notes: "C2 - C2 -", subdivision: "8n" } ] },
+		parts: { drums: { instrument: "MembraneSynth", play: [ { range: "a", notes: "C2 - C2 -", subdivision: "8n" } ] },
 		         lead: { instrument: "PluckSynth", effects: [ { name: "FeedbackDelay", delay_time: "8n", feedback: 0.4, wet: 0.3 } ],
-		                 play: [ { name: "a", notes: "A4 C5 E5 -", subdivision: "8n" } ] } } }`, .JSON5, true, context.temp_allocator)
+		                 play: [ { range: "a", notes: "A4 C5 E5 -", subdivision: "8n" } ] } } }`, .JSON5, true, context.temp_allocator)
 	testing.expect(t, err == nil)
 	sc, _ := media_song_put(&m, "s", v, value_key(v))
 	testing.expect(t, sc.ok)
@@ -261,7 +261,7 @@ test_song_load_on_the_pool_is_the_same_song :: proc(t: ^testing.T) {
 		write_test_wav(path, 2400 + 1200 * i)
 	}
 	v, err := json.parse_string(`{ name: "s", bpm: 120, sets: { kit: { pads: { a: "a.wav", b: "b.wav", c: "c.wav", d: "d.wav", e: "e.wav", f: "f.wav" } } }, sections: [ { name: "a", duration: "2m" } ],
-		parts: { drums: { instrument: { name: "Sampler", set: "kit" }, play: [ { name: "a", steps: { a: "x...............", b: "..x.............", c: "....x...........", d: "......x.........", e: "........x.......", f: "..........x....." } } ] } } }`, .JSON5, true, context.temp_allocator)
+		parts: { drums: { instrument: { name: "Sampler", set: "kit" }, play: [ { range: "a", steps: { a: "x...............", b: "..x.............", c: "....x...........", d: "......x.........", e: "........x.......", f: "..........x....." } } ] } } }`, .JSON5, true, context.temp_allocator)
 	testing.expect(t, err == nil)
 	render :: proc(t: ^testing.T, dir: string, v: json.Value, pool: ^thread.Pool) -> []i16 {
 		m: Media
@@ -319,7 +319,7 @@ test_load_frees_retired_songs_and_their_sets :: proc(t: ^testing.T) {
 	defer media_destroy(&m)
 	m.dir = strings.clone(dir)
 	v, err := json.parse_string(`{ name: "s", bpm: 120, sets: { kit: { pads: { kick: "kick.wav" } } }, sections: [ { name: "a", duration: "1m" } ],
-		parts: { drums: { instrument: { name: "Sampler", set: "kit" }, play: [ { name: "a", steps: { kick: "x...x...x...x..." } } ] } } }`, .JSON5, true, context.temp_allocator)
+		parts: { drums: { instrument: { name: "Sampler", set: "kit" }, play: [ { range: "a", steps: { kick: "x...x...x...x..." } } ] } } }`, .JSON5, true, context.temp_allocator)
 	testing.expect(t, err == nil)
 	set_of :: proc(sc: ^Song_Clip) -> odevice.Set_Id {
 		sets := make([dynamic]odevice.Set_Id, context.temp_allocator)
@@ -392,7 +392,7 @@ test_load_retires_songs_it_no_longer_names :: proc(t: ^testing.T) {
 	m.dir = strings.clone(dir)
 	spec :: proc(t: ^testing.T, name, file: string) -> json.Value {
 		text := fmt.tprintf(`{{ name: "%s", bpm: 120, sets: {{ kit: {{ pads: {{ hit: "%s" }} }} }}, sections: [ {{ name: "a", duration: "1m" }} ],
-			parts: {{ drums: {{ instrument: {{ name: "Sampler", set: "kit" }}, play: [ {{ name: "a", steps: {{ hit: "x...x...x...x..." }} }} ] }} }} }}`, name, file)
+			parts: {{ drums: {{ instrument: {{ name: "Sampler", set: "kit" }}, play: [ {{ range: "a", steps: {{ hit: "x...x...x...x..." }} }} ] }} }} }}`, name, file)
 		v, err := json.parse_string(text, .JSON5, true, context.temp_allocator)
 		testing.expect(t, err == nil)
 		return v
@@ -460,7 +460,7 @@ test_song_plays_its_own_view :: proc(t: ^testing.T) {
 		path, _ := filepath.join({dir, file}, context.temp_allocator)
 		write_test_wav(path, frames)
 		text := fmt.tprintf(`{{ name: "%s", bpm: 120, sets: {{ kit: {{ pads: {{ hit: "%s" }} }} }}, sections: [ {{ name: "a", duration: "1m" }} ],
-			parts: {{ drums: {{ instrument: {{ name: "Sampler", set: "kit" }}, play: [ {{ name: "a", steps: {{ hit: "x...x...x...x..." }} }} ] }} }} }}`, name, file)
+			parts: {{ drums: {{ instrument: {{ name: "Sampler", set: "kit" }}, play: [ {{ range: "a", steps: {{ hit: "x...x...x...x..." }} }} ] }} }} }}`, name, file)
 		v, err := json.parse_string(text, .JSON5, true, context.temp_allocator)
 		testing.expect(t, err == nil)
 		return v
@@ -522,7 +522,7 @@ test_song_is_its_files :: proc(t: ^testing.T) {
 	defer media_destroy(&m)
 	m.dir = strings.clone(dir)
 	v, err := json.parse_string(`{ name: "s", bpm: 120, sets: { kit: { pads: { kick: "kick.wav" } } }, sections: [ { name: "a", duration: "1m" } ],
-		parts: { drums: { instrument: { name: "Sampler", set: "kit" }, play: [ { name: "a", steps: { kick: "x...x...x...x..." } } ] } } }`, .JSON5, true, context.temp_allocator)
+		parts: { drums: { instrument: { name: "Sampler", set: "kit" }, play: [ { range: "a", steps: { kick: "x...x...x...x..." } } ] } } }`, .JSON5, true, context.temp_allocator)
 	testing.expect(t, err == nil)
 	first, fresh := media_song_put(&m, "s", v, value_key(v))
 	testing.expect(t, fresh && first.ok)

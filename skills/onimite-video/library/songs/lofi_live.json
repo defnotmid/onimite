@@ -29,7 +29,7 @@
       "octave": 3,
       "gain_db": -29.5,
       "room_db": -2,
-      "play": [ { "name": "lift..outro", "chords": { "voicing": "spread" }, "velocity": 0.5 } ]
+      "play": [ { "range": "lift..outro", "chords": { "voicing": "spread" }, "velocity": 0.5 } ]
     }
   }
 }

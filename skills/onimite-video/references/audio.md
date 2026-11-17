@@ -398,8 +398,8 @@ video { ..., audio = { { score, start = 0 } } }                -- a song or its 
   when it changes the sound), one not in the SFZ reference `unknown_opcode`, each once per
   file with its count and where it is first used (`note_selfmask isn't played (3 uses, first
   at lib/piano.sfz:12)`), and a file no
-  region of plays at its CCs `sfz_silent`. `{ "Sampler", set = "lib/piano.sfz", attack,
-  release }` still plays, with an `sfz_instrument` info finding naming the form above. The
+  region of plays at its CCs `sfz_silent`. `{ "Sampler", set = "lib/piano.sfz", ... }` is a
+  `bad_value` error: an SFZ file is the instrument itself (`instrument = "lib/piano.sfz"`). The
   notes an SFZ makes itself (release triggers, keyswitches) aren't in `score.hits`,
   `score.events` or `audio parts`.
 - **Style files**: `style = "styles/mine.json"` (a name with a `/` or ending `.json`), the

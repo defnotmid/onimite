@@ -61,7 +61,7 @@
       },
       "play": [
         {
-          "name": "head..head2",
+          "range": "head..head2",
           "velocity": 0.55,
           "humanize": 0.006,
           "steps": {
@@ -70,7 +70,7 @@
           }
         },
         {
-          "name": "head..head2",
+          "range": "head..head2",
           "velocity": 0.25,
           "humanize": 0.006,
           "steps": {
@@ -78,7 +78,7 @@
           }
         },
         {
-          "name": [
+          "range": [
             "head",
             "head2"
           ],
@@ -98,7 +98,7 @@
           }
         },
         {
-          "name": "solo",
+          "range": "solo",
           "velocity": 0.6,
           "humanize": 0.008,
           "steps": {
@@ -125,7 +125,7 @@
           }
         },
         {
-          "name": "intro",
+          "range": "intro",
           "velocity": 0.45,
           "humanize": 0.006,
           "steps": {
@@ -133,7 +133,7 @@
           }
         },
         {
-          "name": "ending",
+          "range": "ending",
           "velocity": 0.45,
           "steps": {
             "ride": [
@@ -167,14 +167,14 @@
       "gain_db": -15,
       "play": [
         {
-          "name": "intro",
+          "range": "intro",
           "notes": "C2 Eb2 E2 F2 Eb2 Db2 C2 Eb2 E2 F2 Eb2 Db2",
           "subdivision": "4n",
           "velocity": 0.7,
           "humanize": 0.004
         },
         {
-          "name": [
+          "range": [
             "head",
             "head2"
           ],
@@ -184,14 +184,14 @@
           "humanize": 0.004
         },
         {
-          "name": "solo",
+          "range": "solo",
           "notes": "Eb2 G2 A2 Ab2 C3 B2 Bb2 A2 Ab2 G2 B2 Db3 C3 G2 Gb2 F2 Eb2 Db2 D2 F2 Gb2 G2 F2 E2",
           "subdivision": "4n",
           "velocity": 0.8,
           "humanize": 0.004
         },
         {
-          "name": "ending",
+          "range": "ending",
           "notes": "C2 Eb2 E2 F2 Eb2 Db2 Bb1 - - - - -",
           "subdivision": "4n",
           "velocity": 0.7
@@ -210,7 +210,7 @@
       },
       "play": [
         {
-          "name": "intro..head2",
+          "range": "intro..head2",
           "chords": {
             "voicing": "close",
             "rhythm": "..x..x"
@@ -221,7 +221,7 @@
           "humanize": 0.01
         },
         {
-          "name": "ending",
+          "range": "ending",
           "chords": {
             "voicing": "spread",
             "rhythm": "x....."
@@ -249,7 +249,7 @@
       ],
       "play": [
         {
-          "name": [
+          "range": [
             "head",
             "head2"
           ],
@@ -259,14 +259,14 @@
           "humanize": 0.008
         },
         {
-          "name": "solo",
+          "range": "solo",
           "notes": "G5 F5 Eb5 D5 Bb4 G4 Ab4 C5 Eb5 Gb5 F5 Eb5 D5 - F5 A5 G5 F5 B4 D5 F5 Ab5 G5 F5 Eb5 G5 Bb5 - G5 Eb5 A4 C5 Eb5 - D5 C5 F5 - A5 C6 A5 F5 B5 - G5 F5 D5 B4",
           "subdivision": "8n",
           "velocity": 0.65,
           "humanize": 0.01
         },
         {
-          "name": "ending@2m",
+          "range": "ending@2m",
           "notes": "D5 - - - - - - - - - - -",
           "subdivision": "8n",
           "velocity": 0.6

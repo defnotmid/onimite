@@ -98,7 +98,7 @@
       },
       "play": [
         {
-          "name": "intro",
+          "range": "intro",
           "velocity": 0.75,
           "humanize": 0.004,
           "steps": {
@@ -114,7 +114,7 @@
           }
         },
         {
-          "name": [
+          "range": [
             "vamp",
             "vamp2"
           ],
@@ -150,7 +150,7 @@
           }
         },
         {
-          "name": [
+          "range": [
             "chorus",
             "chorus2"
           ],
@@ -216,7 +216,7 @@
           }
         },
         {
-          "name": "breakdown",
+          "range": "breakdown",
           "velocity": 0.7,
           "humanize": 0.005,
           "steps": {
@@ -229,7 +229,7 @@
           }
         },
         {
-          "name": "tag",
+          "range": "tag",
           "velocity": 0.85,
           "steps": {
             "kick": [
@@ -261,13 +261,13 @@
       "gain_db": -14,
       "play": [
         {
-          "name": "intro@1m..intro",
+          "range": "intro@1m..intro",
           "notes": ". . . . . . . . . . . . E2 G2 G#2 B2",
           "subdivision": "16n",
           "velocity": 0.75
         },
         {
-          "name": [
+          "range": [
             "vamp",
             "vamp2"
           ],
@@ -277,7 +277,7 @@
           "humanize": 0.003
         },
         {
-          "name": [
+          "range": [
             "chorus",
             "chorus2"
           ],
@@ -287,13 +287,13 @@
           "humanize": 0.003
         },
         {
-          "name": "breakdown",
+          "range": "breakdown",
           "notes": "E2 . . E2 . . E3 . D3 . E2 . . B1 D2 . E2 . E2 . . E3 . E2 . . D3 E3 . E2 . G#2",
           "subdivision": "16n",
           "velocity": 0.9
         },
         {
-          "name": "tag",
+          "range": "tag",
           "notes": "E2 . . E2 . . E3 . D3 . E2 . . B1 D2 . E2 . . . . . . . . . E2 . . . . .",
           "subdivision": "16n",
           "velocity": 0.9
@@ -309,7 +309,7 @@
       },
       "play": [
         {
-          "name": "intro",
+          "range": "intro",
           "chords": {
             "voicing": "close",
             "rhythm": ".x.x..x..x.x..x."
@@ -320,7 +320,7 @@
           "humanize": 0.003
         },
         {
-          "name": [
+          "range": [
             "vamp",
             "chorus",
             "vamp2",
@@ -336,7 +336,7 @@
           "humanize": 0.003
         },
         {
-          "name": "breakdown@2m..breakdown",
+          "range": "breakdown@2m..breakdown",
           "chords": {
             "voicing": "close",
             "rhythm": "......x.......x."
@@ -356,7 +356,7 @@
       },
       "play": [
         {
-          "name": [
+          "range": [
             "chorus",
             "chorus2"
           ],
@@ -369,7 +369,7 @@
           "velocity": 0.85
         },
         {
-          "name": "vamp2",
+          "range": "vamp2",
           "chords": {
             "voicing": "close",
             "rhythm": "..........x..x.."
@@ -379,7 +379,7 @@
           "velocity": 0.7
         },
         {
-          "name": "tag",
+          "range": "tag",
           "events": [
             {
               "time": "1:2:2",
@@ -424,7 +424,7 @@
       ],
       "play": [
         {
-          "name": [
+          "range": [
             "chorus",
             "chorus2"
           ],

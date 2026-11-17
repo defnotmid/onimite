@@ -85,6 +85,9 @@ video { width = 40, height = 40, fps = 10, duration = 9,
 		if strings.contains(msg, "bmp") {
 			found = true
 			testing.expectf(t, strings.has_prefix(msg, "video.lua:3: song \"score\": ") && strings.contains(msg, "unknown_key"), "finding: %s", msg)
+		} else {
+			// sound{} builds its song itself: odawg finds nothing in it.
+			testing.expectf(t, false, "unexpected finding: %s", msg)
 		}
 	}
 	testing.expect(t, found, "the misspelled key is a warning")
@@ -190,9 +193,9 @@ video { width = 40, height = 40, fps = 10, duration = 1 }
   },
   "parts": {
     "lead": { "instrument": { "name": "lead", "cutoff": 600 }, "effects": [ { "name": "Reverb", "wet": 0.2 } ],
-              "play": [ { "name": "drop", "notes": "C4 E4 G4" } ] },
+              "play": [ { "range": "drop", "notes": "C4 E4 G4" } ] },
     "drums": { "instrument": { "pads": { "kick": { "instrument": "MembraneSynth", "key": 36 } } },
-               "play": [ { "name": "drop", "steps": { "kick": "x...x..." } } ], "sidechain": { "name": "lead" } }
+               "play": [ { "range": "drop", "steps": { "kick": "x...x..." } } ], "sidechain": { "source": "lead" } }
   }
 }`
 	media: om.Media

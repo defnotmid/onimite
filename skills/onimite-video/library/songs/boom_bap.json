@@ -30,14 +30,14 @@
       "to": "drumbus",
       "sends": { "room": -14 },
       "play": [
-        { "name": "verse", "velocity": 0.8, "humanize": 0.006,
+        { "range": "verse", "velocity": 0.8, "humanize": 0.006,
           "steps": {
             "kick": [ "x......x.x......", "x......x..x.....", "x......x.x......", "x.....x...x..x.." ],
             "snare": [ "....X.......X...", "....X.......X...", "....X.......X...", "....X.......X.oX" ],
             "hat": [ "x.o.x.oox.o.x.o.", "x.o.x.o.x.o.x.oo", "x.o.x.oox.o.x.o.", "x.o.x.o.x.o.x..." ],
             "open_hat": [ "", "", "", "..............x." ]
           } },
-        { "name": "hook", "velocity": 0.85, "humanize": 0.005,
+        { "range": "hook", "velocity": 0.85, "humanize": 0.005,
           "steps": {
             "kick": [ "x......x.x....x.", "x......x..x.....", "x......x.x....x.", "x.....x...x..x.." ],
             "snare": [ "....X.......X...", "....X.......X..o", "....X.......X...", "....X..o....X.oX" ],
@@ -45,21 +45,21 @@
             "open_hat": [ "", "", "", "..............x." ],
             "crash": [ "x...............", "", "", "", "", "", "", "" ]
           } },
-        { "name": "verse2", "velocity": 0.75, "humanize": 0.006,
+        { "range": "verse2", "velocity": 0.75, "humanize": 0.006,
           "steps": {
             "kick": [ "x......x.x......", "x.........x.....", "x......x.x......", "x.....x...x..x.." ],
             "rim": [ "....x.......x...", "....x.......x...", "....x.......x...", "....x.......x.ox" ],
             "hat": [ "x...x...x...x...", "x...x...x...x.o.", "x...x...x...x...", "x...x...x...x..." ],
             "open_hat": [ "", "", "", "..............x." ]
           } },
-        { "name": "break", "velocity": 0.85, "humanize": 0.004,
+        { "range": "break", "velocity": 0.85, "humanize": 0.004,
           "steps": {
             "kick": [ "x......x.x......", "x.x....x..x.....", "x......x.x..x...", "x.x.x.x.x.x.xxxx" ],
             "snare": [ "....X.......X...", "....X..o....X...", "....X.......X..o", "....X...X.X.XXXX" ],
             "hat": [ "xoxoxoxoxoxoxoxo", "xoxoxoxoxoxoxoxo", "xoxoxoxoxoxoxoxo", "xoxo............" ],
             "tom_low": [ "", "", "", "........x.x....." ]
           } },
-        { "name": "hook2", "velocity": 0.9, "humanize": 0.005,
+        { "range": "hook2", "velocity": 0.9, "humanize": 0.005,
           "steps": {
             "kick": [ "x......x.x....x.", "x......x..x.....", "x......x.x....x.", "x.....x...x..x.." ],
             "snare": [ "....X.......X...", "....X.......X..o", "....X.......X...", "....X..o....X.oX" ],
@@ -72,9 +72,9 @@
     "bass": {
       "instrument": { "name": "bass", "cutoff": 110 },
       "gain_db": 4.8,
-      "sidechain": { "name": "drums/kick", "depth_db": -3.1, "release": 0.08 },
+      "sidechain": { "source": "drums/kick", "depth_db": -3.1, "release": 0.08 },
       "play": [
-        { "name": "verse..hook2", "notes": "Eb2 - - - . . . Eb2 C2 - - - . . . G1 F1 - - - . . F2 . Bb1 - - - . Bb1 C2 D2", "subdivision": "8n", "velocity": 0.8, "humanize": 0.004 }
+        { "range": "verse..hook2", "notes": "Eb2 - - - . . . Eb2 C2 - - - . . . G1 F1 - - - . . F2 . Bb1 - - - . Bb1 C2 D2", "subdivision": "8n", "velocity": 0.8, "humanize": 0.004 }
       ]
     },
     "keys": {
@@ -83,12 +83,12 @@
       "effects": [ { "name": "Chorus", "frequency": 0.6, "delay_time": 0.005, "depth": 0.6, "wet": 0.4 }, { "name": "Filter", "type": "lowpass", "frequency": 3200, "q": 0.7 } ],
       "sends": { "plate": -14 },
       "play": [
-        { "name": "intro", "chords": { "voicing": "close", "rhythm": "x...........x..." }, "duration": "2n", "octave": 4, "velocity": 0.5, "humanize": 0.01 },
-        { "name": "verse", "chords": { "voicing": "close", "rhythm": "..x.......x....." }, "duration": "4n.", "octave": 4, "velocity": 0.55, "humanize": 0.01 },
-        { "name": "hook", "chords": { "voicing": "close", "rhythm": "x.....x...x....." }, "duration": "4n", "octave": 4, "velocity": 0.65, "humanize": 0.01 },
-        { "name": "verse2", "chords": { "voicing": "close", "rhythm": "..x............." }, "duration": "2n.", "octave": 4, "velocity": 0.5, "humanize": 0.01 },
-        { "name": "hook2", "chords": { "voicing": "close", "rhythm": "x.....x...x....." }, "duration": "4n", "octave": 4, "velocity": 0.7, "humanize": 0.01 },
-        { "name": "outro", "chords": { "voicing": "close", "rhythm": "x..............." }, "duration": "1m", "octave": 4, "velocity": 0.45, "humanize": 0.01 }
+        { "range": "intro", "chords": { "voicing": "close", "rhythm": "x...........x..." }, "duration": "2n", "octave": 4, "velocity": 0.5, "humanize": 0.01 },
+        { "range": "verse", "chords": { "voicing": "close", "rhythm": "..x.......x....." }, "duration": "4n.", "octave": 4, "velocity": 0.55, "humanize": 0.01 },
+        { "range": "hook", "chords": { "voicing": "close", "rhythm": "x.....x...x....." }, "duration": "4n", "octave": 4, "velocity": 0.65, "humanize": 0.01 },
+        { "range": "verse2", "chords": { "voicing": "close", "rhythm": "..x............." }, "duration": "2n.", "octave": 4, "velocity": 0.5, "humanize": 0.01 },
+        { "range": "hook2", "chords": { "voicing": "close", "rhythm": "x.....x...x....." }, "duration": "4n", "octave": 4, "velocity": 0.7, "humanize": 0.01 },
+        { "range": "outro", "chords": { "voicing": "close", "rhythm": "x..............." }, "duration": "1m", "octave": 4, "velocity": 0.45, "humanize": 0.01 }
       ]
     },
     "bell": {
@@ -96,8 +96,8 @@
       "gain_db": 6.4,
       "sends": { "plate": -8 },
       "play": [
-        { "name": "hook", "notes": ". . G5 Bb5 . . . . . . G5 F5 . Eb5 . . . . C6 Bb5 . . . . . . Ab5 G5 . F5 . .", "subdivision": "8n", "velocity": 0.6, "humanize": 0.006 },
-        { "name": "hook2", "notes": ". . G5 Bb5 . . . . . . G5 F5 . Eb5 . . . . C6 Bb5 . . . . . . D6 C6 . Bb5 . .", "subdivision": "8n", "velocity": 0.65, "humanize": 0.006 }
+        { "range": "hook", "notes": ". . G5 Bb5 . . . . . . G5 F5 . Eb5 . . . . C6 Bb5 . . . . . . Ab5 G5 . F5 . .", "subdivision": "8n", "velocity": 0.6, "humanize": 0.006 },
+        { "range": "hook2", "notes": ". . G5 Bb5 . . . . . . G5 F5 . Eb5 . . . . C6 Bb5 . . . . . . D6 C6 . Bb5 . .", "subdivision": "8n", "velocity": 0.65, "humanize": 0.006 }
       ]
     }
   }

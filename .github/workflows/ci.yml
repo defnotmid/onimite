@@ -48,7 +48,7 @@ jobs:
         with:
           repository: defnotmid/ocurves
           # Pinned like ovg and o3d, which keep their paths and shapes in its contour tables (v0.0.16: build_append can map the curves by a given frame, which ovg v0.0.73's coarse levels build with; ovg v0.0.73 needs it).
-          ref: v0.0.17
+          ref: v0.0.19
           path: ocurves
       - uses: actions/checkout@v4
         with:
@@ -66,13 +66,13 @@ jobs:
         with:
           repository: defnotmid/oicut
           # Pinned like ottis: onimite decodes and encodes through oicut v0.0.27: H.264 / H.265 by the system (VideoToolbox, Vulkan Video, Media Foundation on Windows, else the system's libavcodec, loaded at run time), natively only with -define:OICUT_PATENTED=true; AV1 (render --codec av1, clips) natively in every build; ovg, o3d, odawg and ottis at their pins use nothing it changed since v0.0.16.
-          ref: v0.0.29
+          ref: v0.0.30
           path: oicut
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/ottis
           # Pinned: ottis is released on its own; a new tag is taken on purpose.
-          ref: v0.0.16
+          ref: v0.0.17
           path: ottis
       - uses: actions/checkout@v4
         with:
@@ -84,7 +84,7 @@ jobs:
         with:
           repository: defnotmid/odawg
           # Pinned like ottis: odawg is released on its own (v0.0.55: a SIMD sampler kernel, and voice spans merged once per mix for ducking).
-          ref: v0.0.55
+          ref: v0.0.56
           path: odawg
 
       - uses: ./onimite/.github/actions/setup-toolchain
@@ -143,7 +143,7 @@ jobs:
         with:
           repository: defnotmid/ocurves
           # Pinned like ovg and o3d, which keep their paths and shapes in its contour tables (v0.0.16: build_append can map the curves by a given frame, which ovg v0.0.73's coarse levels build with; ovg v0.0.73 needs it).
-          ref: v0.0.17
+          ref: v0.0.19
           path: ocurves
       - uses: actions/checkout@v4
         with:
@@ -161,13 +161,13 @@ jobs:
         with:
           repository: defnotmid/oicut
           # Pinned like ottis: onimite decodes and encodes through oicut v0.0.27: H.264 / H.265 by the system (VideoToolbox, Vulkan Video, Media Foundation on Windows, else the system's libavcodec, loaded at run time), natively only with -define:OICUT_PATENTED=true; AV1 (render --codec av1, clips) natively in every build; ovg, o3d, odawg and ottis at their pins use nothing it changed since v0.0.16.
-          ref: v0.0.29
+          ref: v0.0.30
           path: oicut
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/ottis
           # Pinned: ottis is released on its own; a new tag is taken on purpose.
-          ref: v0.0.16
+          ref: v0.0.17
           path: ottis
       - uses: actions/checkout@v4
         with:
@@ -179,7 +179,7 @@ jobs:
         with:
           repository: defnotmid/odawg
           # Pinned like ottis: odawg is released on its own (v0.0.55: a SIMD sampler kernel, and voice spans merged once per mix for ducking).
-          ref: v0.0.55
+          ref: v0.0.56
           path: odawg
 
       - uses: ./onimite/.github/actions/setup-toolchain

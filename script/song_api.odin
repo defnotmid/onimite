@@ -324,7 +324,7 @@ l_sound :: proc "c" (L: ^lua.State) -> c.int {
 		section["duration"] = json.String("1m")
 	}
 	play := make(json.Object, 2, ta)
-	play["name"] = json.String("sound")
+	play["range"] = json.String("sound")
 	events := make(json.Array, 0, 1, ta)
 	append(&events, event)
 	play["events"] = events
