@@ -814,7 +814,7 @@ shader_run_pass :: proc(r: ^Renderer, n: Shader, g: ^oksl.Pass_Graph, pi: int, p
 			if c.capture_depth {
 				r.depth_capture = &depth[ch]
 			}
-			channels[ch], res[ch] = shader_channel_image(r, c, n.w, n.h, sx, sy)
+			channels[ch], res[ch] = shader_channel_image(r, c, n.w, n.h, sx, sy, pass.module.profile == .Sksl)
 			r.depth_capture = nil
 		case .Buffer:
 			channels[ch], res[ch] = outputs.this[e.id], outputs.size
@@ -841,11 +841,13 @@ shader_run_pass :: proc(r: ^Renderer, n: Shader, g: ^oksl.Pass_Graph, pi: int, p
 	return true
 }
 
-// The image a channel binds and its size for `.eval` and texelFetch, for a
-// shader `w x h` units big drawn at `sx x sy` pixels per unit (a group
-// child is drawn now, so its commands run before the program's).
+// The image a channel binds and its iChannelResolution, for a shader `w x h`
+// units big drawn at `sx x sy` pixels per unit (a group child is drawn now,
+// so its commands run before the program's). The size is the image's pixels,
+// as textureSize and texelFetch see it, except a group's for SkSL (`units`),
+// whose `.eval` takes box-unit coordinates and divides by the resolution.
 @(private)
-shader_channel_image :: proc(r: ^Renderer, ch: Shader_Channel, w, h, sx, sy: f32) -> (vg.Image_Id, [3]f32) {
+shader_channel_image :: proc(r: ^Renderer, ch: Shader_Channel, w, h, sx, sy: f32, units: bool) -> (vg.Image_Id, [3]f32) {
 	id: vg.Image_Id
 	switch ch.kind {
 	case .None:
@@ -858,12 +860,12 @@ shader_channel_image :: proc(r: ^Renderer, ch: Shader_Channel, w, h, sx, sy: f32
 	case .Depth:
 		// bound by shader_run_pass from the group channel it reads
 	case .Group:
-		// `.eval` divides by the resolution: the box units, not the pixels.
 		cw := ch.w if ch.w > 0 else w
 		chh := ch.h if ch.h > 0 else h
 		gw := u32(clamp(math.ceil(cw * sx), 1, 8192))
 		gh := u32(clamp(math.ceil(chh * sy), 1, 8192))
-		return draw_content(r, ch.content, cw, chh, gw, gh), {cw, chh, 1}
+		size := [3]f32{cw, chh, 1} if units else {f32(gw), f32(gh), 1}
+		return draw_content(r, ch.content, cw, chh, gw, gh), size
 	}
 	if !vg.image_id_valid(id) {
 		return {}, {}
@@ -1140,7 +1142,7 @@ shader_bands :: proc(b: ^Shader_Band, scratch: ^oksl.Scratch) {
 			return
 		}
 		h := min(BAND_ROWS, b.height - y)
-		opts := oksl.Run_Options{sampler = b.sampler.sample, user = b.sampler.data, y = y, w = b.width, h = h, channel_sizes = b.sampler.sizes[:]}
+		opts := oksl.Run_Options{y = y, w = b.width, h = h, channel_images = b.sampler.images[:], channel_sizes = b.sampler.sizes[:]}
 		if b.format != .RGBA16F {
 			oksl.run(&b.module.program, b.uniforms, b.width, b.height, b.out, b.stride, scratch, opts)
 			continue

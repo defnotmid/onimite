@@ -86,7 +86,12 @@ shader(f, { sksl = HAZE, x = 0, y = 0, w = 1920, h = 1080, uniforms = {
   video channel's clip time), `iChannelResolution`, `iMouse`/`iDate` (zero). Bind
   `iChannel0..3` in `uniforms` like children (`iChannel0 = "photo.jpg"`, a clip table or a
   group) and sample with `texture(iChannelN, uv)`, uv 0..1 (also `textureLod`, `texelFetch`,
-  `textureSize`). `uniform shader` and `.eval` are SkSL only.
+  `textureSize`). `fragCoord` and `iResolution` are in the shader box's units, but
+  `iChannelResolution`, `textureSize` and `texelFetch` are in the channel image's own pixels
+  (a group is drawn at the output's scale, so they change with `--draft`, preview and 4K):
+  fetch with `texelFetch(iChannel0, ivec2(uv * vec2(textureSize(iChannel0, 0))), 0)`,
+  `uv = fragCoord / iResolution.xy`, never `ivec2(fragCoord)`. Outside the image
+  `texelFetch` reads 0. `uniform shader` and `.eval` are SkSL only.
 - GLSL (`glsl = [[...]]`, `.frag`) is a GLSL ES 3.0 fragment shader: `void main()` reading
   the layer's uv, `layout(location = 0) in vec2 uv` (0..1 from the box's top-left), and
   writing premultiplied colour to `layout(location = 0) out vec4 color`. Nothing is declared

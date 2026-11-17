@@ -43,7 +43,7 @@ jobs:
         with:
           repository: defnotmid/ovg
           path: ovg
-          ref: v0.0.80
+          ref: v0.0.82
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/ocurves
@@ -60,7 +60,7 @@ jobs:
         with:
           repository: defnotmid/oksl
           # Pinned like o3d, whose shaders and onimite's it compiles (v0.0.3; o3d v0.0.50 needs it).
-          ref: v0.0.19
+          ref: v0.0.28
           path: oksl
       - uses: actions/checkout@v4
         with:
@@ -78,7 +78,7 @@ jobs:
         with:
           repository: defnotmid/o3d
           # Pinned like ottis: o3d is released on its own (v0.0.59).
-          ref: v0.0.63
+          ref: v0.0.64
           path: o3d
       - uses: actions/checkout@v4
         with:
@@ -138,7 +138,7 @@ jobs:
         with:
           repository: defnotmid/ovg
           path: ovg
-          ref: v0.0.80
+          ref: v0.0.82
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/ocurves
@@ -155,7 +155,7 @@ jobs:
         with:
           repository: defnotmid/oksl
           # Pinned like o3d, whose shaders and onimite's it compiles (v0.0.3; o3d v0.0.50 needs it).
-          ref: v0.0.19
+          ref: v0.0.28
           path: oksl
       - uses: actions/checkout@v4
         with:
@@ -173,7 +173,7 @@ jobs:
         with:
           repository: defnotmid/o3d
           # Pinned like ottis: o3d is released on its own (v0.0.59).
-          ref: v0.0.63
+          ref: v0.0.64
           path: o3d
       - uses: actions/checkout@v4
         with:
