@@ -244,9 +244,9 @@ Reg_Slot :: enum u8 {
 COMMAND_KINDS := [Command_Kind]Command_Descriptor {
 	.None = {},
 	.Render = {
-		help = "regs.spec a range, regs.path the output (.mp4, or a directory for PNGs), regs.option codec (enc.Codec), regs.count qp (0 default), .Native / .Draft in regs.flags",
-		domain = .Script, flags = FRONT, args = Render_Args,
-		about = "the video to a file (.mp4 with the audio mix and a chapter per scene, or a directory of PNGs)",
+		help = "regs.spec a range, regs.path the output (.mp4, .webm, or a directory for PNGs: render_output), regs.option codec (enc.Codec; CODEC_OF_OUTPUT: the output's own), regs.count qp (0 default), .Native / .Draft in regs.flags",
+		domain = .Script, flags = FRONT, args = Render_Args, regs = {option = CODEC_OF_OUTPUT},
+		about = "the video to a file (.mp4 or .webm with the audio mix and a chapter per scene, or a directory of PNGs)",
 	},
 	.Frame = {
 		help = "regs.spec comma-separated frame specs, regs.path the output directory, .Svg in regs.flags: an SVG next to every PNG",

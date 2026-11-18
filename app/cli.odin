@@ -795,6 +795,56 @@ Render_Result :: struct {
 DEFAULT_QP :: 23
 DRAFT_QP :: 32
 
+// A render's regs.option when no codec is given: the output's own, H.264
+// in an .mp4 and VP9 in a .webm.
+CODEC_OF_OUTPUT :: -1
+
+// What a render writes.
+Render_Container :: enum u8 {
+	Mp4,
+	Webm,
+	// PNG frames into a directory.
+	Png_Dir,
+}
+
+// What a render to `path` writes (its extension: .mp4, .webm, or none for a
+// directory of PNGs, as is a path ending in a separator or a directory that
+// exists) and the codec in it, from `option` (regs.option: a codec, or
+// CODEC_OF_OUTPUT). An empty `path` is out.mp4, out.webm for VP9. Fails for
+// an extension render can not write and a codec its container does not
+// take, rather than writing something else under that name.
+render_output :: proc(path: string, option: int) -> (out: string, container: Render_Container, codec: enc.Codec, failure: Failure) {
+	given := option != CODEC_OF_OUTPUT
+	out = path
+	if out == "" {
+		out = "out.webm" if given && enc.Codec(option) == .VP9 else "out.mp4"
+	}
+	ext := strings.to_lower(filepath.ext(out), context.temp_allocator)
+	switch {
+	case ext == ".mp4":
+		container, codec = .Mp4, enc.Codec(option) if given else .H264
+	case ext == ".webm":
+		container, codec = .Webm, enc.Codec(option) if given else .VP9
+	case ext == "" || strings.has_suffix(out, "/") || strings.has_suffix(out, filepath.SEPARATOR_STRING) || os.is_dir(out):
+		return out, .Png_Dir, enc.Codec(option) if given else .H264, {}
+	case:
+		return out, .Png_Dir, .H264, {code = .Output_Format, path = out}
+	}
+	if (container == .Webm) != (codec == .VP9) {
+		failure = {code = .Output_Codec, path = out, name = CODEC_CHOICE[codec]}
+	}
+	return
+}
+
+// A codec as --codec names it.
+@(rodata)
+CODEC_CHOICE := [enc.Codec]string {
+	.H264 = "h264",
+	.H265 = "h265",
+	.AV1  = "av1",
+	.VP9  = "vp9",
+}
+
 @(private)
 video_render :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 	build_audio(app) or_return
@@ -849,9 +899,12 @@ render_chapters :: proc(t: ^om.Timeline, fps, start, end: int) -> []enc.Chapter 
 @(private)
 video_render_to :: proc(app: ^App_State, regs: Command_Regs, fa: mem.Allocator) -> (res: Render_Result, err: Error) {
 	began := time.tick_now()
-	// The native encoder's flags in a build without it: refused before the
-	// script loads.
-	codec := enc.Codec(regs.option)
+	// An output render can not write and the native encoder's flags in a
+	// build without it: refused before the script loads.
+	out, container, codec, wrong := render_output(regs.path, regs.option)
+	if wrong.code != .None {
+		return {}, fail(app, wrong)
+	}
 	if (.Native in regs.flags || regs.slices > 0) && !enc.native_built_in(codec) {
 		return {}, fail(app, {code = .Encoder, encoder = {code = .Native_Missing, codec = codec}})
 	}
@@ -860,8 +913,9 @@ video_render_to :: proc(app: ^App_State, regs: Command_Regs, fa: mem.Allocator) 
 	r := renderer_scaled(app, 0.5 if draft else 1) or_return
 	fps := r.video.fps
 	start, end := resolve_range(app, &r.timeline, fps, regs.spec) or_return
-	out := regs.path if regs.path != "" else "out.mp4"
-	as_png := !strings.has_suffix(strings.to_lower(out, context.temp_allocator), ".mp4")
+	as_png := container == .Png_Dir
+	// A WebM keeps the alpha of a video whose background lets it through.
+	transparent := container == .Webm && r.video.background.a < 1
 	if !as_png {
 		ensure_parent(out)
 	}
@@ -874,7 +928,7 @@ video_render_to :: proc(app: ^App_State, regs: Command_Regs, fa: mem.Allocator) 
 	defer enc.destroy(&e)
 	if as_png {
 		make_dir(app, out) or_return
-	} else if enc.open(&e, out, int(r.width), int(r.height), fps, {codec = codec, qp = qp, software = .Native in regs.flags, audio = has_audio(r.video), gop = fps if draft else 0, ultrafast = draft, slices = regs.slices, pool = app.pool, chapters = render_chapters(&r.timeline, fps, start, end)}) != nil {
+	} else if enc.open(&e, out, int(r.width), int(r.height), fps, {codec = codec, qp = qp, software = .Native in regs.flags, audio = has_audio(r.video), transparent = transparent, gop = fps if draft else 0, ultrafast = draft, slices = regs.slices, pool = app.pool, chapters = render_chapters(&r.timeline, fps, start, end)}) != nil {
 		return {}, fail(app, {code = .Encoder, encoder = e.failure})
 	}
 	if !as_png && e.audio {
@@ -898,8 +952,9 @@ video_render_to :: proc(app: ^App_State, regs: Command_Regs, fa: mem.Allocator) 
 	// Frames are built by builders on the pool (builders.odin) and taken in
 	// order here, where one player per builder plays them: on the GPU
 	// (converted to NV12 there and read back pipelined, or read back as RGBA
-	// for PNGs), or on one software backend whose bands run on the pool
-	// (converted to I420 here). PNGs are written by pool tasks either way.
+	// for PNGs and transparent video), or on one software backend whose
+	// bands run on the pool (converted to I420 here, with alpha for
+	// transparent video). PNGs are written by pool tasks either way.
 	pool := app.pool
 	run := Build_Run {
 		script_path  = app.script.path,
@@ -970,12 +1025,15 @@ video_render_to :: proc(app: ^App_State, regs: Command_Regs, fa: mem.Allocator) 
 		png_jobs = make([]Png_Job, len(builders.builders))
 	}
 	yuv: enc.GPU_NV12
-	gpu_yuv := !r.is_software && !as_png && enc.gpu_nv12_init(&yuv, app.gpu.device, int(r.width), int(r.height)) == nil
-	// A frame as I420 (`y_stride = width`) where it's converted here.
+	gpu_yuv := !r.is_software && !as_png && !transparent && enc.gpu_nv12_init(&yuv, app.gpu.device, int(r.width), int(r.height)) == nil
+	// A frame as I420 (`y_stride = width`), and its alpha when transparent,
+	// where it's converted here.
 	planes: []u8
 	if !as_png && !gpu_yuv {
-		planes = make([]u8, enc.i420_size(int(r.width), int(r.height)))
+		planes = make([]u8, enc.i420_size(int(r.width), int(r.height), transparent))
 	}
+	alpha_scratch: enc.Alpha_Scratch
+	defer enc.alpha_scratch_destroy(&alpha_scratch)
 	defer {
 		png_jobs_destroy(png_jobs)
 		delete(png_jobs)
@@ -1034,7 +1092,8 @@ video_render_to :: proc(app: ^App_State, regs: Command_Regs, fa: mem.Allocator) 
 				failed = encoder_failure(&e, err, f)
 			}
 		case:
-			// On the CPU, or a GPU with no compute pass: converted here.
+			// On the CPU, transparent, or a GPU with no compute pass:
+			// converted here.
 			om.play_frame(&players[k], &done.record)
 			pixels := sw.pixels
 			if !r.is_software {
@@ -1045,7 +1104,11 @@ video_render_to :: proc(app: ^App_State, regs: Command_Regs, fa: mem.Allocator) 
 				}
 				pixels = shot.pixels
 			}
-			enc.rgba_to_i420(pixels, int(r.width), int(r.height), planes)
+			if transparent {
+				enc.rgba_to_i420a(pixels, int(r.width), int(r.height), planes, &alpha_scratch)
+			} else {
+				enc.rgba_to_i420(pixels, int(r.width), int(r.height), planes)
+			}
 			if err := enc.write_i420(&e, planes, int(r.width)); err != nil {
 				failed = encoder_failure(&e, err, f)
 			}

@@ -125,9 +125,9 @@ A command that fails prints `error: message` on stderr, or with `--json` the doc
 duration, bad props), `renderer`, `spec_unknown_scene`, `spec_unknown_name` (neither a scene nor a cue; the
 message lists both), `spec_no_scenes`, `spec_ambiguous`, `spec_past_scene`,
 `spec_out_of_range` (the message names the valid frames, `frames 0..N-1`), `spec_invalid`,
-`create_dir`, `write`, `parts_read` (`audio parts --against`: the file is not an earlier `--json` of it), `png_many_frames` (`frame -o x.png` with more than one frame), `command_needs` (a command without an argument it needs, e.g. an MCP `onion` with an empty `range`; the message names it), `command_domain` (a command where it can not run, e.g. a preview command with no preview window open), `no_sheet_frames`, `snapshot_size` (`snapshot`: an approved PNG has
+`create_dir`, `write`, `output_format` (`render -o` with an extension it can not write: it takes `.mp4`, `.webm` or a directory, a name without an extension), `output_codec` (`--codec` the output can not hold: h264, h265 and av1 go in an `.mp4`, vp9 in a `.webm`), `parts_read` (`audio parts --against`: the file is not an earlier `--json` of it), `png_many_frames` (`frame -o x.png` with more than one frame), `command_needs` (a command without an argument it needs, e.g. an MCP `onion` with an empty `range`; the message names it), `command_domain` (a command where it can not run, e.g. a preview command with no preview window open), `no_sheet_frames`, `snapshot_size` (`snapshot`: an approved PNG has
 another size than the frame, e.g. checked at another `--scale`; the message gives both
-sizes; `--update` accepts the new size), `encoder` (the MP4 writer:
+sizes; `--update` accepts the new size), `encoder` (the MP4 or WebM writer:
 odd dimensions, no H.264 / H.265 encoder on the machine (the message names `--codec av1`, which
 encodes everywhere), the file, a frame, the GPU conversion), `read_back` (a frame could not be
 read back from the GPU), `batch_read`,

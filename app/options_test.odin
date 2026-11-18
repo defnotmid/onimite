@@ -2,6 +2,7 @@ package onimite_app
 
 import "core:strings"
 import "core:testing"
+import enc "../encode"
 
 // The command line finds an option by its spelling among the options of
 // its command (option_of checks each field's tags as it reads them; the
@@ -125,3 +126,41 @@ test_command_validate :: proc(t: ^testing.T) {
 	row = {.Onion, {spec = "0..10"}}
 	testing.expect_value(t, command_validate(&app, &row), Error.None)
 }
+
+// render -o and --codec: the extension picks the container and, without
+// --codec, its codec; an extension render can not write and a codec its
+// container does not take fail before anything is written.
+@(test)
+test_render_output :: proc(t: ^testing.T) {
+	defer free_all(context.temp_allocator)
+	rows, _ := cli_parse({"render", "v.lua"})
+	testing.expect_value(t, rows[.Command].regs.option, CODEC_OF_OUTPUT)
+	rows, _ = cli_parse({"render", "v.lua", "--codec", "vp9"})
+	testing.expect_value(t, rows[.Command].regs.option, int(enc.Codec.VP9))
+	for c in ([?]struct {
+			path:      string,
+			option:    int,
+			out:       string,
+			container: Render_Container,
+			codec:     enc.Codec,
+			code:      Error,
+		} {
+			{"", CODEC_OF_OUTPUT, "out.mp4", .Mp4, .H264, .None},
+			{"", int(enc.Codec.VP9), "out.webm", .Webm, .VP9, .None},
+			{"", int(enc.Codec.AV1), "out.mp4", .Mp4, .AV1, .None},
+			{"a.MP4", int(enc.Codec.H265), "a.MP4", .Mp4, .H265, .None},
+			{"a.webm", CODEC_OF_OUTPUT, "a.webm", .Webm, .VP9, .None},
+			{"a.webm", int(enc.Codec.VP9), "a.webm", .Webm, .VP9, .None},
+			{"frames", CODEC_OF_OUTPUT, "frames", .Png_Dir, .H264, .None},
+			{"frames.v2/", CODEC_OF_OUTPUT, "frames.v2/", .Png_Dir, .H264, .None},
+			{"a.mov", CODEC_OF_OUTPUT, "a.mov", .Png_Dir, .H264, .Output_Format},
+			{"a.png", CODEC_OF_OUTPUT, "a.png", .Png_Dir, .H264, .Output_Format},
+			{"a.mp4", int(enc.Codec.VP9), "a.mp4", .Mp4, .VP9, .Output_Codec},
+			{"a.webm", int(enc.Codec.H264), "a.webm", .Webm, .H264, .Output_Codec},
+			{"a.webm", int(enc.Codec.AV1), "a.webm", .Webm, .AV1, .Output_Codec},
+		}) {
+		out, container, codec, failure := render_output(c.path, c.option)
+		testing.expectf(t, out == c.out && container == c.container && codec == c.codec && failure.code == c.code, "%q, codec %d: %q %v %v %v", c.path, c.option, out, container, codec, failure.code)
+	}
+}
+

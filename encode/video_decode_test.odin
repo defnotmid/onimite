@@ -324,6 +324,75 @@ test_av1_round_trip :: proc(t: ^testing.T) {
 	}
 }
 
+// VP9 WebM, oicut's own encoder in every build: a transparent video keeps
+// its alpha (straight, as VP9 carries it) and its sound (Opus), and reads
+// back with every frame, the alpha where the picture was drawn and clear
+// elsewhere.
+@(test)
+test_vp9_transparent_round_trip :: proc(t: ^testing.T) {
+	W, H, N, S :: 128, 96, 24, 32
+	tmp := os.get_env("TMPDIR", context.temp_allocator)
+	path := fmt.tprintf("%s/onimite_vp9_test.webm", tmp if tmp != "" else "/tmp")
+	defer os.remove(path)
+
+	// A premultiplied opaque square moving two pixels a frame over nothing.
+	rgba := make([]u8, W * H * 4)
+	defer delete(rgba)
+	frame := make([]u8, i420_size(W, H, alpha = true))
+	defer delete(frame)
+	scratch: Alpha_Scratch
+	defer alpha_scratch_destroy(&scratch)
+	mix := make([]f32, om.MIX_RATE * 2 * N / 30)
+	defer delete(mix)
+	for &v, k in mix {
+		v = 0.25 if k / 2 % 100 < 50 else -0.25
+	}
+
+	e: Encoder
+	testing.expect_value(t, open(&e, path, W, H, 30, {codec = .VP9, qp = 23, audio = true, transparent = true}), nil)
+	testing.expect_value(t, write_audio(&e, mix), nil)
+	for i in 0 ..< N {
+		x0 := 8 + 2 * i
+		for y in 0 ..< H {
+			for x in 0 ..< W {
+				inside := x >= x0 && x < x0 + S && y >= 32 && y < 32 + S
+				px := [4]u8{200, 60, 40, 255} if inside else {}
+				copy(rgba[(y * W + x) * 4:][:4], px[:])
+			}
+		}
+		rgba_to_i420a(rgba, W, H, frame, &scratch)
+		testing.expect_value(t, write_i420(&e, frame, W), nil)
+	}
+	testing.expect_value(t, close(&e), nil)
+	destroy(&e)
+
+	d: Video_Decoders
+	video_decoders_init(&d, native = true)
+	defer video_decoders_destroy(&d)
+	src := video_source(&d)
+	sync.lock(&vulkan_start)
+	clip, info, why, err := src.open(src.data, path)
+	sync.unlock(&vulkan_start)
+	testing.expectf(t, err == nil && clip >= 0, "%v", why)
+	testing.expect_value(t, info.width, W)
+	testing.expect_value(t, info.height, H)
+	testing.expect_value(t, info.frames, N)
+	testing.expect(t, info.sound, "the WebM has no sound track")
+	testing.expect(t, info.format.alpha, "the WebM has no alpha")
+	for i in ([?]int{0, 11, 23}) {
+		f := src.request(src.data, clip, 0, (f64(i) + 0.5) / info.fps, .Block)
+		testing.expect(t, f.ok && f.index == i)
+		alpha := f.planes[3]
+		testing.expectf(t, len(alpha) == W * H, "frame %d: alpha plane of %d bytes", i, len(alpha))
+		if len(alpha) == W * H {
+			in_square := int(alpha[(32 + S / 2) * W + 8 + 2 * i + S / 2])
+			clear := int(alpha[(H - 4) * W + W - 4])
+			testing.expectf(t, in_square > 240 && clear < 16, "frame %d: alpha %d in the square, %d outside", i, in_square, clear)
+		}
+		src.release(src.data, clip, 0)
+	}
+}
+
 // A clip decodes while something holds it: each open is a hold and each
 // close lets one go. Two clip tables naming the same file share its decoder
 // (a reload keeps its threads); the last to go stops its threads and frees

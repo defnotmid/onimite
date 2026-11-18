@@ -73,15 +73,27 @@ pool_row_task :: proc(t: thread.Task) {
 	}
 }
 
-// Forgets finished tasks: `thread.Pool` keeps a record of each until popped,
-// and popping them one by one moves the rest each time.
-pool_drain_done :: proc(pool: ^thread.Pool) {
+// Forgets the finished tasks onimite queued (this file's, and `also`):
+// `thread.Pool` keeps a record of each until popped, and popping them one by
+// one moves the rest each time. Other borrowers' records stay for them to
+// take: o3d's software renderer waits for its own before returning, so one
+// forgotten under it (by the encoder thread, say) leaves it waiting forever.
+pool_drain_done :: proc(pool: ^thread.Pool, also: thread.Task_Proc = nil) {
 	if pool == nil {
 		return
 	}
 	sync.guard(&pool.mutex)
-	sync.atomic_sub(&pool.num_done, len(pool.tasks_done))
-	clear(&pool.tasks_done)
+	kept := 0
+	for t in pool.tasks_done {
+		p := t.procedure
+		if p == pool_row_task || p == pool_job_task || p == pool_work_helper || (also != nil && p == also) {
+			continue
+		}
+		pool.tasks_done[kept] = t
+		kept += 1
+	}
+	sync.atomic_sub(&pool.num_done, len(pool.tasks_done) - kept)
+	resize(&pool.tasks_done, kept)
 }
 
 // One task with its own completion, for pipelines: the owner spawns it,

@@ -11,6 +11,7 @@ import "core:slice"
 import "core:strings"
 import "core:time"
 import om "../onimite"
+import enc "../encode"
 import script "../script"
 
 // Batch rendering (Remotion's input props + renderMedia, fframes' videos per
@@ -35,6 +36,7 @@ Batch_Result :: struct {
 }
 
 BATCH_DEFAULT_OUTPUT :: "out/{index}.mp4"
+BATCH_DEFAULT_WEBM :: "out/{index}.webm"
 
 @(private)
 batch_render :: proc(app: ^App_State, regs: Command_Regs) -> Error {
@@ -55,6 +57,17 @@ batch_render :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 	if rows_err != nil {
 		return fail(app, why)
 	}
+	// The outputs' names, refused at once when what they would write fails
+	// every row (an extension or codec render_output turns away).
+	template := regs.path
+	if template == "" {
+		template = BATCH_DEFAULT_WEBM if regs.option == int(enc.Codec.VP9) else BATCH_DEFAULT_OUTPUT
+	}
+	if !strings.contains_rune(filepath.ext(template), '{') {
+		if _, _, _, wrong := render_output(template, regs.option); wrong.code != .None {
+			return fail(app, wrong)
+		}
+	}
 	first := max(regs.rows[0], 1)
 	last := regs.rows[1] if regs.rows[1] > 0 else len(rows)
 	if first > last || last > len(rows) {
@@ -68,7 +81,7 @@ batch_render :: proc(app: ^App_State, regs: Command_Regs) -> Error {
 		row := rows[res.row - 1]
 		// A failing row leaves its failure in `app.failure` until its
 		// message is made here.
-		out, row_err := batch_output(regs.path, row, res.row, ba, &why)
+		out, row_err := batch_output(template, row, res.row, ba, &why)
 		if row_err != nil {
 			fail(app, why)
 		} else {

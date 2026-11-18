@@ -1,23 +1,28 @@
-// Encodes rendered frames to MP4 with oicut's video writer: BT.709
+// Encodes rendered frames to MP4 or WebM with oicut's video writer: BT.709
 // limited-range 4:2:0 frames encoded as H.264 or H.265 by the system's
 // encoders (VideoToolbox on macOS, in hardware or Apple's software codecs;
 // Vulkan Video on Linux and Windows; Media Foundation on Windows: H.264,
 // H.265 with the HEVC Video Extensions; else the system's libavcodec,
 // loaded at run time), or by oicut's native encoders in a build with
 // -define:OICUT_PATENTED=true (`native_built_in`, `--native`); AV1 always by
-// oicut's own encoder, in every build, its tiles on the task pool. The audio
-// mix becomes an interleaved AAC track.
+// oicut's own encoder, in every build, its tiles on the task pool. Those go
+// in an MP4 with the audio mix as an interleaved AAC track. VP9, also
+// oicut's own in every build, goes in a WebM with the mix as Opus, and with
+// `transparent` the frames' alpha as a second VP9 stream, which browsers
+// composite.
 //
 // The work runs off the caller's thread so rendering never waits on
 // encoding: `write_nv12` queues the caller's frame as it is (GPU_NV12's
-// mapped download, no copy) and `write_i420` copies the frame into a ring
-// slot; both return at once unless the ring is full. An encoder thread
+// mapped download, no copy) and `write_i420` copies the frame (and its
+// alpha, when transparent) into a ring slot; both return at once unless the
+// ring is full. An encoder thread
 // feeds the audio that accompanies the frame and encodes it.
 // Only the encoder thread touches the video writer until `close`. GPU renders
 // convert to NV12 on the GPU (gpu_nv12.odin), the layout Vulkan Video takes;
 // software renders convert to I420 with `rgba_to_i420` on the thread that
 // drew them; both use oicut's conversion coefficients and produce identical
-// samples. The native encoder, where built in, codes its slices on the
+// samples. A transparent video converts on that thread too, GPU or not,
+// with `rgba_to_i420a`: oicut's straight-alpha conversion. The native encoder, where built in, codes its slices on the
 // application's task pool, shared with the frame builders (`Pool_Work`).
 package onimite_encode
 
@@ -30,10 +35,12 @@ import native "deps:oicut/media/native"
 import video "deps:oicut/video"
 import om "../onimite"
 
+// The video codec: H.264, H.265 and AV1 go in an MP4, VP9 in a WebM.
 Codec :: enum u8 {
 	H264,
 	H265,
 	AV1,
+	VP9,
 }
 
 @(rodata)
@@ -41,6 +48,7 @@ CODEC_NAME := [Codec]string {
 	.H264 = "H.264",
 	.H265 = "H.265",
 	.AV1  = "AV1",
+	.VP9  = "VP9",
 }
 
 // What failed. Text is made at the edge (`error_message`) from ERROR_TEXT,
@@ -134,10 +142,14 @@ Options :: struct {
 	software:       bool,
 	// oicut's ultrafast preset: encode speed over size (`render --draft`).
 	ultrafast:      bool,
-	// Add an AAC stereo track at onimite' mix rate (see `write_audio`).
+	// Add a stereo track at onimite's mix rate (see `write_audio`): AAC in
+	// an MP4, Opus in a WebM.
 	audio:          bool,
-	// AAC bit rate; 0 is 192 kb/s.
+	// The audio's bit rate; 0 is 192 kb/s.
 	audio_bit_rate: int,
+	// Keep the frames' alpha (VP9 only): frames then come through
+	// `write_i420` with their alpha plane (`rgba_to_i420a`).
+	transparent:    bool,
 	// H.264 slices the native encoder codes in parallel; 0 is NATIVE_SLICES.
 	// The bitstream's layout: the file depends on it, so it is never taken
 	// from the machine's cores or --threads.
@@ -156,8 +168,8 @@ Chapter :: video.Chapter
 // The native encoder's H.264 slices by default (oicut's own default).
 NATIVE_SLICES :: 4
 
-// Whether this build has oicut's native encoder for `codec`: AV1 always,
-// H.264 and H.265 only with -define:OICUT_PATENTED=true (or
+// Whether this build has oicut's native encoder for `codec`: AV1 and VP9
+// always, H.264 and H.265 only with -define:OICUT_PATENTED=true (or
 // OICUT_NATIVE_H264 / OICUT_NATIVE_H265).
 native_built_in :: proc "contextless" (codec: Codec) -> bool {
 	switch codec {
@@ -165,7 +177,7 @@ native_built_in :: proc "contextless" (codec: Codec) -> bool {
 		return native.OICUT_NATIVE_H264
 	case .H265:
 		return native.OICUT_NATIVE_H265
-	case .AV1:
+	case .AV1, .VP9:
 	}
 	return true
 }
@@ -175,6 +187,7 @@ VIDEO_CODEC := [Codec]video.Video_Codec {
 	.H264 = .H264,
 	.H265 = .H265,
 	.AV1  = .AV1,
+	.VP9  = .VP9,
 }
 
 // Frames in flight between the renderer and the encoder thread.
@@ -183,8 +196,8 @@ RING_SLOTS :: 4
 @(private)
 Slot :: struct {
 	// Y then the chroma: interleaved UV with `y_stride` per row (`nv12`), or
-	// U and V planes with `y_stride / 2`. The caller's bytes (`write_nv12`)
-	// or `own`'s.
+	// U and V planes with `y_stride / 2`, then, when transparent, alpha with
+	// `y_stride`. The caller's bytes (`write_nv12`) or `own`'s.
 	data:     []u8,
 	// The slot's copy of a `write_i420` frame (made on the first one).
 	own:      []u8,
@@ -200,6 +213,7 @@ Encoder :: struct {
 	height:      int,
 	fps:         int,
 	audio:       bool,
+	transparent: bool,
 	// The encoder implementation oicut selected.
 	backend:     string,
 	// The first failure (complete after `close`).
@@ -237,7 +251,7 @@ Encoder :: struct {
 // Creates the file and starts the encoder thread; on failure `e.failure`
 // says why.
 open :: proc(e: ^Encoder, path: string, width, height, fps: int, opts: Options = {}) -> Error {
-	e^ = {width = width, height = height, fps = fps, audio = opts.audio}
+	e^ = {width = width, height = height, fps = fps, audio = opts.audio, transparent = opts.transparent}
 	if width % 2 != 0 || height % 2 != 0 {
 		return set_error(e, {code = .Odd_Size, width = width, height = height})
 	}
@@ -248,6 +262,10 @@ open :: proc(e: ^Encoder, path: string, width, height, fps: int, opts: Options =
 	cfg.preference = .Native if opts.software else .Automatic
 	cfg.ultrafast = opts.ultrafast
 	cfg.alpha = .Premultiplied
+	if opts.transparent {
+		// VP9's alpha is straight: oicut's rgba_to_i420a unmultiplies.
+		cfg.transparency = .Straight
+	}
 	cfg.chapters = opts.chapters
 	om.pool_work_init(&e.work, opts.pool)
 	// A frame has at most one slice per macroblock row.
@@ -260,7 +278,7 @@ open :: proc(e: ^Encoder, path: string, width, height, fps: int, opts: Options =
 		cfg.audio_bit_rate = opts.audio_bit_rate if opts.audio_bit_rate > 0 else 192_000
 	}
 	if err := video.create(&e.writer, path, cfg); err != .None {
-		code: Error = .No_Encoder if err == .Unsupported && opts.codec != .AV1 else .Create
+		code: Error = .No_Encoder if err == .Unsupported && (opts.codec == .H264 || opts.codec == .H265) else .Create
 		set_error(e, {code = code, path = path, movie = err, detail = e.writer.error_detail, codec = opts.codec})
 		video.destroy(&e.writer)
 		return code
@@ -300,8 +318,9 @@ write_nv12 :: proc(e: ^Encoder, data: []u8, y_stride: int) -> (frame: i64, err: 
 }
 
 // Queues one I420 frame: Y with `y_stride` bytes per row, then U and V with
-// `y_stride / 2` (`rgba_to_i420` packs it with `y_stride = width`). Copied:
-// `data` is the caller's again on return.
+// `y_stride / 2`, then, when transparent, alpha with `y_stride`
+// (`rgba_to_i420` and `rgba_to_i420a` pack it with `y_stride = width`).
+// Copied: `data` is the caller's again on return.
 write_i420 :: proc(e: ^Encoder, data: []u8, y_stride: int) -> Error {
 	_, err := queue_frame(e, data, y_stride, false)
 	return err
@@ -487,7 +506,9 @@ encode_slot :: proc(e: ^Encoder, slot: ^Slot) {
 		err = video.write_nv12(&e.writer, {slot.data[:u], slot.data[u:u + ys * e.height / 2]}, {ys, ys})
 	} else {
 		v := u + cs * e.height / 2
-		err = video.write_i420(&e.writer, {slot.data[:u], slot.data[u:v], slot.data[v:v + cs * e.height / 2]}, {ys, cs, cs})
+		a := v + cs * e.height / 2
+		alpha := slot.data[a:][:ys * e.height] if e.transparent else nil
+		err = video.write_i420(&e.writer, {slot.data[:u], slot.data[u:v], slot.data[v:a]}, {ys, cs, cs}, alpha, ys)
 	}
 	if err != .None {
 		fail(e, {code = .Frame, frame = slot.frame, movie = err, detail = e.writer.error_detail})
@@ -496,9 +517,10 @@ encode_slot :: proc(e: ^Encoder, slot: ^Slot) {
 
 // ---- RGB -> YUV ------------------------------------------------------------------
 
-// Bytes of an I420 frame packed with `y_stride = width` (`rgba_to_i420`).
-i420_size :: proc(width, height: int) -> int {
-	return width * height * 3 / 2
+// Bytes of an I420 frame packed with `y_stride = width` (`rgba_to_i420`),
+// with its alpha plane after it when `alpha` (`rgba_to_i420a`).
+i420_size :: proc(width, height: int, alpha := false) -> int {
+	return width * height * 3 / 2 + (width * height if alpha else 0)
 }
 
 // Converts a frame of premultiplied RGBA8 rows to I420 planes packed with
@@ -509,4 +531,25 @@ rgba_to_i420 :: proc(pixels: []u8, width, height: int, out: []u8) {
 	cw, ch := width / 2, height / 2
 	y := width * height
 	video.rgba_to_i420(pixels, width * 4, width, height, {out[:y], out[y:][:cw * ch], out[y + cw * ch:][:cw * ch]}, {width, cw, cw}, &k, .Opaque, {})
+}
+
+// The straight-alpha conversion's images, kept from frame to frame by the
+// caller (`alpha_scratch_destroy`).
+Alpha_Scratch :: video.Alpha_Scratch
+
+alpha_scratch_destroy :: proc(s: ^Alpha_Scratch) {
+	video.destroy_alpha_scratch(s)
+}
+
+// Converts a frame of premultiplied RGBA8 rows to I420 planes and a
+// full-range alpha plane packed with `y_stride = width` in `out`
+// (`i420_size(width, height, alpha = true)` bytes), colour straight as
+// VP9's alpha needs it: oicut's converter, which smooths the colour hidden
+// under low alpha so 4:2:0 and the encoder leave no fringes. Even sizes.
+rgba_to_i420a :: proc(pixels: []u8, width, height: int, out: []u8, scratch: ^Alpha_Scratch) {
+	k := video.rgb_to_yuv_coefficients(.BT709, false)
+	cw, ch := width / 2, height / 2
+	y := width * height
+	planes := [3][]u8{out[:y], out[y:][:cw * ch], out[y + cw * ch:][:cw * ch]}
+	video.rgba_to_i420a(pixels, width * 4, width, height, planes, {width, cw, cw}, out[y + 2 * cw * ch:][:y], width, &k, .Premultiplied, .Straight, scratch)
 }

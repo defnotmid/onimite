@@ -40,6 +40,10 @@ Error :: enum u8 {
 	Create_Dir,
 	Png_Many_Frames,
 	Write,
+	// render -o: an extension it can not write; a codec its container
+	// does not take (`render_output`).
+	Output_Format,
+	Output_Codec,
 	// A row its kind's descriptor turns away: outside its domain, or
 	// without a register it needs (`command_validate`).
 	Command_Domain,
@@ -126,6 +130,8 @@ FAILURE_TEXT := [Error]string {
 	.Create_Dir         = "can not create {path}: {os}",
 	.Png_Many_Frames    = "-o {path} is one PNG but {n} frames were asked for; give a directory instead",
 	.Write              = "can not write {path}",
+	.Output_Format      = "-o {path}: render writes an .mp4, a .webm, or PNGs into a directory (a name without an extension)",
+	.Output_Codec       = "-o {path} can not hold {name}: an .mp4 takes h264, h265 or av1, a .webm vp9",
 	.No_Sheet_Frames    = "no frames for the contact sheet",
 	.Snapshot_Size      = "snapshot {path} is {n}x{m} but frame {spec} renders at {frame_size}: check it at the --scale it was approved at, or accept the new size with --update",
 	.Encoder            = "{encoder}",

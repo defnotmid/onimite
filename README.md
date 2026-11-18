@@ -142,7 +142,9 @@ onimite is built from sibling Odin projects and Odin's vendor packages:
   and never bundled), AV1 MP4 through oicut's own encoder in every build
   (`--codec av1`: royalty-free, needs no codec on the machine; at the same
   quality, from a little smaller than H.264 to larger on sharp motion
-  graphics), or PNG frames. Releases carry no H.264 / H.265
+  graphics), VP9 WebM through oicut's own encoder in every build (`-o x.webm`,
+  sound as Opus, transparent when the video's background is), or PNG frames.
+  Releases carry no H.264 / H.265
   codec of their own: oicut's native one is only in a build with
   `-define:OICUT_PATENTED=true`. With none of those on the machine, `render`
   to an MP4 says so and names `--codec av1` and PNG frames. Frames build on all cores and draw on the GPU
@@ -263,8 +265,9 @@ onimite update   [--check]                                # replace this release
 ```
 
 - `render`: `--draft` is half resolution (unless `--scale`), QP 32 and a one
-  second GOP; `--codec h264|h265|av1`, `--qp N` (default 23, the same scale for
-  every codec); in a build with
+  second GOP; `--codec h264|h265|av1|vp9` (vp9 writes a `.webm`; `-o` takes
+  `.mp4`, `.webm` or a directory and nothing else), `--qp N` (default 23, the
+  same scale for every codec); in a build with
   `-define:OICUT_PATENTED=true` (not the releases, which refuse them),
   `--native` (oicut's native encoder instead of the system's) and `--slices N`
   (its H.264 slices, default 4: more encode faster in a slightly larger file;
@@ -644,8 +647,9 @@ made only at the edge.
 
 ## Not yet
 
-WebM and alpha video output (oicut writes VP9 and HEVC with alpha, but its WebM
-has no sound yet; such clips work as inputs).
+Transparent video for Safari (HEVC with an alpha layer): oicut writes it only
+with its native H.265 encoder, which releases leave out. A transparent WebM
+plays in Chrome, Firefox and Edge.
 
 ## License
 

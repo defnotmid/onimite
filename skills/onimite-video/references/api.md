@@ -21,7 +21,7 @@ The rest is in topic files; read one when the video needs it:
 ```lua
 video {
   width = 1920, height = 1080, fps = 30,     -- integer fps
-  background = "#0b0d12",                    -- painted under every frame (default black)
+  background = "#0b0d12",                    -- painted under every frame (default black; "transparent": a .webm keeps the alpha)
   duration = 12,                             -- optional: default = the scenes' total
   audio = { { "music.mp3", start = 0, gain_db = -10, fade_out = 2 } },  -- see audio.md
   master_gain_db = 0,                        -- master bus gain before the limiter

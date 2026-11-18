@@ -82,9 +82,9 @@ Script_Options :: struct {
 Render_Args :: struct {
 	using script_arg:     Script_Arg,
 	using range_arg:      Range_Arg,
-	output:               string `cli:"-o|--output|--out" reg:"path" arg:"PATH" about:"the .mp4, or a directory for PNGs; with a batch, a name template with {field} from the row and {index}, the row number" default:"out.mp4; with a batch, out/{index}.mp4"`,
+	output:               string `cli:"-o|--output|--out" reg:"path" arg:"PATH" about:"the .mp4 or .webm, or a directory for PNGs (a name without an extension); with a batch, a name template with {field} from the row and {index}, the row number" default:"out.mp4, out.webm for vp9; with a batch, out/{index}.mp4 or .webm"`,
 	draft:                bool   `flag:"Draft" about:"half size, fastest encoding"`,
-	codec:                enc.Codec `reg:"option" about:"the video codec: h264 and h265 through the system's encoders, av1 through oicut's own, on every machine" default:"h264"`,
+	codec:                enc.Codec `reg:"option" about:"the video codec: in an .mp4, h264 and h265 through the system's encoders and av1 through oicut's own, on every machine; in a .webm, vp9 through oicut's own, on every machine, with the video's alpha when its background is transparent" default:"h264 for an .mp4, vp9 for a .webm"`,
 	qp:                   int    `reg:"count" arg:"N" about:"quantizer, 1 best .. 51, the same scale for every codec" default:"23; with --draft 32"`,
 	native:               bool   `flag:"Native" about:"oicut's native encoder instead of the system's (VideoToolbox, Vulkan Video, Media Foundation, libavcodec); only in a build with -define:OICUT_PATENTED=true, refused otherwise"`,
 	slices:               int    `arg:"N" about:"H.264 slices oicut's native encoder codes in parallel; the file depends on it (more: faster, slightly larger), never on the machine; the system's encoders ignore it; only in a build with the native encoder, refused otherwise" default:"4" check:"Positive" invalid:"needs a count of at least 1"`,
