@@ -60,7 +60,7 @@ onimite is built from sibling Odin projects and Odin's vendor packages:
 | [`ovg`](https://github.com/defnotmid/ovg) | 2D vector canvas (femtovg lineage): software backend + SDL_GPU (Vulkan / Metal / D3D12) |
 | [`oglyph`](https://github.com/defnotmid/oglyph) | fonts and OpenType text shaping in native Odin (HarfBuzz's rules, checked against it), which ovg draws text through |
 | [`oicut`](https://github.com/defnotmid/oicut) | H.264 / H.265 / AAC codecs (native Odin, Vulkan Video when available), MP4, clip decoding; every image (PNG, JPEG, GIF, WebP, ...) and audio file (WAV, FLAC, MP3, Ogg, M4A) |
-| [`oksl`](https://github.com/defnotmid/oksl) | shader compiler for SkSL, Shadertoy and GLSL: SPIR-V, MSL and a CPU program (machine code through its AVX2 JIT on x86-64 Linux and macOS, an interpreter elsewhere); ovg and o3d write their own shaders in it too |
+| [`oksl`](https://github.com/defnotmid/oksl) | shader compiler for SkSL, Shadertoy and GLSL: SPIR-V, MSL and a CPU program (machine code through its JIT on Linux and macOS, AVX2 on x86-64 and NEON on arm64; an interpreter on Windows); ovg and o3d write their own shaders in it too |
 | [`ottis`](https://github.com/defnotmid/ottis) | text to speech with word timings (Kyutai's Pocket TTS through ONNX Runtime, loaded at run time; models downloaded on first use) |
 | [`odawg`](https://github.com/defnotmid/odawg) | sound in Tone.js's vocabulary: songs composed from data (`song{}`, `sound{}`), the mix, master and preview stream, loudness, onsets and spectra; sample sets downloaded on first use |
 | [`o3d`](https://github.com/defnotmid/o3d) | 3D in three.js's vocabulary: an SDL_GPU renderer and a software one drawing the same pixels, glTF 2.0 (skins, morph targets, animations), 3MF and OBJ import |

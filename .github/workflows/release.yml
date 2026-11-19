@@ -82,13 +82,13 @@ jobs:
         with:
           repository: defnotmid/oksl
           # Pinned like o3d, whose shaders and onimite's it compiles (v0.0.3; o3d v0.0.50 needs it).
-          ref: v0.1.0
+          ref: v0.1.2
           path: oksl
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/oicut
           # Pinned like ottis: onimite decodes and encodes through oicut v0.0.27: H.264 / H.265 by the system (VideoToolbox, Vulkan Video, Media Foundation on Windows, else the system's libavcodec, loaded at run time), natively only with -define:OICUT_PATENTED=true; AV1 (render --codec av1, clips) natively in every build; ovg, o3d, odawg and ottis at their pins use nothing it changed since v0.0.16.
-          ref: v0.1.1
+          ref: v0.1.2
           path: oicut
       - uses: actions/checkout@v4
         with:
