@@ -291,13 +291,18 @@ jobs:
           # say() loads the ONNX Runtime ottis downloads, which Microsoft signs
           # with its own team ID; the hardened runtime's library validation
           # would refuse it ("different Team IDs"), so the binary is entitled
-          # to load libraries of other teams. Notarization accepts this.
+          # to load libraries of other teams. oksl's JIT (--software shaders)
+          # maps its code with MAP_JIT, which the hardened runtime refuses
+          # without allow-jit; oksl then runs the interpreter, about half as
+          # fast. Notarization accepts both.
           entitlements="$RUNNER_TEMP/onimite.entitlements"
           cat > "$entitlements" <<'PLIST'
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
           <dict>
+            <key>com.apple.security.cs.allow-jit</key>
+            <true/>
             <key>com.apple.security.cs.disable-library-validation</key>
             <true/>
           </dict>
@@ -312,7 +317,9 @@ jobs:
           for f in "$stage/libSDL3.0.dylib" "$stage/onimite"; do
             codesign --verify --strict --verbose=2 "$f"
           done
-          codesign -d --entitlements - "$stage/onimite" | grep -F disable-library-validation
+          ents=$(codesign -d --entitlements - "$stage/onimite" 2>/dev/null)
+          grep -F disable-library-validation <<<"$ents"
+          grep -F allow-jit <<<"$ents"
           codesign --display --verbose=2 "$stage/onimite" 2>&1 | grep -E '^(Authority|TeamIdentifier|Timestamp|Runtime)'
 
       - name: Notarize
