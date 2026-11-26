@@ -275,6 +275,7 @@ build_frame_at :: proc(r: ^Renderer, index: int, shift: f64, arena: ^virtual.Are
 	if r.video.render != nil {
 		// one render for the whole video: the hold runs it all on
 		f.shift += r.clock_offset
+		f.held = held_frames(r.clock_offset, r.video.fps)
 		r.video.render(f, &r.ctx)
 	} else {
 		render_scenes(f, &r.ctx)

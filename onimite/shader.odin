@@ -50,10 +50,15 @@ import "deps:oksl"
 // buffers, their catch-up when frames are not drawn in order, and the
 // preview's checkpoints), then the output pass into the box.
 
-// An image or a synced video clip from the media bound to a channel, or a
-// group of nodes.
+// An image or a synced video clip from the media bound to a channel, a
+// group of nodes, or pixels the script made for this frame (`data`).
 Shader_Input :: struct {
 	src:        string,
+	// RGBA8 pixels, `data_w x data_h`, rows top-down, in the frame's arena:
+	// a sound's texture (the script's `{ sound = name }`).
+	data:       []u8,
+	data_w:     int,
+	data_h:     int,
 	// The depth of the 3D layer drawn by the group input of this name: its
 	// distance from the camera per pixel (rgb, world units; a = 1 where
 	// drawn), from the same render as its colour.
@@ -137,6 +142,8 @@ Shader_Channel_Kind :: enum u8 {
 	Group,
 	// The depth of the 3D layer the group channel `of` draws.
 	Depth,
+	// Pixels made for the frame (`Shader_Input.data`), uploaded as drawn.
+	Data,
 }
 
 Shader_Channel :: struct {
@@ -147,9 +154,12 @@ Shader_Channel :: struct {
 	clip:    int,
 	stream:  int,
 	seconds: f64,
-	// Group content node and its pixel space (0: the shader box's).
+	// Group content node and its pixel space (0: the shader box's); Data:
+	// its pixels' size.
 	content: i32,
 	w, h:    f32,
+	// Data: the pixels (the frame's arena).
+	data:    []u8,
 	// A group: a depth channel reads its 3D layer's depth. Depth: the group
 	// channel it reads.
 	capture_depth: bool,
@@ -167,7 +177,9 @@ Shader :: struct {
 	blocks:     [][]u8,
 	channels:   [][oksl.CHANNEL_COUNT]Shader_Channel,
 	instance:   u64,
+	// iFrame: the frame's index and the held frames since (`held`).
 	frame:      int,
+	held:       int,
 }
 
 // Passes of a program, by index.
@@ -441,7 +453,8 @@ shader :: proc(ctx: ^Context, f: Frame, p: Shader_Params) -> bool {
 		blocks   = make([][]u8, len(g.passes), arena),
 		channels = make([][oksl.CHANNEL_COUNT]Shader_Channel, len(g.passes), arena),
 		instance = shader_instance(ctx, prog),
-		frame    = f.index,
+		frame    = f.index + f.held,
+		held     = f.held,
 	}
 	declared := make([]bool, len(p.uniforms), context.temp_allocator)
 	for pass, pi in g.passes {
@@ -580,7 +593,7 @@ shader_instance :: proc(ctx: ^Context, prog: int) -> u64 {
 shader_write_builtins :: proc(m: ^oksl.Module, block: []u8, f: Frame, p: Shader_Params) {
 	fps := f32(max(f.fps, 1))
 	time := p.time.? or_else frame_seconds(f)
-	oksl.write_builtins(m, block, {resolution = {p.w, p.h, 1}, time = time, time_delta = 1 / fps, frame = i32(f.index), frame_rate = fps, sample_rate = MIX_RATE})
+	oksl.write_builtins(m, block, {resolution = {p.w, p.h, 1}, time = time, time_delta = 1 / fps, frame = i32(f.index + f.held), frame_rate = fps, sample_rate = MIX_RATE})
 	autos := shader_auto_values(f, p)
 	for &a in autos {
 		oksl.set_uniform(m, block, a.name, a.values[:a.count])
@@ -598,7 +611,7 @@ Auto_Value :: struct {
 shader_auto_values :: proc(f: Frame, p: Shader_Params) -> [5]Auto_Value {
 	fps := f32(max(f.fps, 1))
 	time := p.time.? or_else frame_seconds(f)
-	return {{"iResolution", {p.w, p.h, 1}, 3}, {"iTime", {time, 0, 0}, 1}, {"iTimeDelta", {1 / fps, 0, 0}, 1}, {"iFrame", {f32(f.index), 0, 0}, 1}, {"iFrameRate", {fps, 0, 0}, 1}}
+	return {{"iResolution", {p.w, p.h, 1}, 3}, {"iTime", {time, 0, 0}, 1}, {"iTimeDelta", {1 / fps, 0, 0}, 1}, {"iFrame", {f32(f.index + f.held), 0, 0}, 1}, {"iFrameRate", {fps, 0, 0}, 1}}
 }
 
 @(private = "file")
@@ -671,6 +684,9 @@ shader_content_begin :: proc(ctx: ^Context) -> i32 {
 shader_channel :: proc(ctx: ^Context, f: Frame, label: string, in_: Shader_Input) -> Shader_Channel {
 	if in_.content > 0 {
 		return {kind = .Group, content = in_.content, w = max(in_.w, 0), h = max(in_.h, 0)}
+	}
+	if len(in_.data) > 0 && len(in_.data) == in_.data_w * in_.data_h * 4 {
+		return {kind = .Data, data = in_.data, w = f32(in_.data_w), h = f32(in_.data_h)}
 	}
 	if in_.src == "" {
 		return {}
@@ -859,6 +875,12 @@ shader_channel_image :: proc(r: ^Renderer, ch: Shader_Channel, w, h, sx, sy: f32
 		}
 	case .Depth:
 		// bound by shader_run_pass from the group channel it reads
+	case .Data:
+		dw, dh := u32(ch.w), u32(ch.h)
+		id = frame_image(r, dw, dh)
+		if vg.image_id_valid(id) {
+			vg.update_image(&r.canvas, id, vg.image_source_rgba(ch.data, dw, dh), 0, 0)
+		}
 	case .Group:
 		cw := ch.w if ch.w > 0 else w
 		chh := ch.h if ch.h > 0 else h

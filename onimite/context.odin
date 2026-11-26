@@ -67,6 +67,7 @@ render_scenes :: proc(f: Frame, ctx: ^Context) {
 		// shutter never opens before the scene starts.
 		held := ctx.hold_offset if info.start_frame <= ctx.held_through else 0
 		sf.shift = max(f.shift + held, -f64(sf.index) / f64(f.fps))
+		sf.held = held_frames(held, f.fps)
 		append(&ctx.scene_starts, i32(len(ctx.tree.nodes)))
 		info.scene.render(sf, ctx)
 	}

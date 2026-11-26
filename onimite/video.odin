@@ -112,6 +112,16 @@ Frame :: struct {
 	// its motion (motion.odin). Times read from the clock add it; `index`
 	// stays the frame's.
 	shift:        f64,
+	// Whole frames of a hold in `shift` (a presentation's held scene, a
+	// live board past its end, and the carry out of a hold): the clock runs
+	// on while `index` stays, and feedback shaders step once a held frame.
+	held:         int,
+}
+
+// The whole frames in a hold of `seconds` (the preview holds in whole frames
+// of its clock).
+held_frames :: #force_inline proc "contextless" (seconds: f64, fps: int) -> int {
+	return int(math.round(seconds * f64(fps))) if seconds > 0 else 0
 }
 
 frame_seconds :: #force_inline proc "contextless" (f: Frame) -> f32 {

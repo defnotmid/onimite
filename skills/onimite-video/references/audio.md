@@ -683,7 +683,8 @@ cue("hit", hits)
 
 Any value in `render` can follow the sound: `audio_energy` for how loud it is now,
 `audio_spectrum` for the spectrum at a moment, `pulse(clock.beat(t), sharpness)` for the beat, onset times (`audio_onsets`) for hits.
-Pass shader uniforms the same numbers (`uniforms = { uBass = bass }`).
+Pass shader uniforms the same numbers (`uniforms = { uBass = bass }`), or give a shader the
+sound itself (`{ sound = name }`, below) to read every frequency and the waveform.
 
 ```lua
 local levels = audio_spectrum(f, { src = "music.mp3", sample_size = 512, smooth = 2, window = "hann",
@@ -716,6 +717,24 @@ sound's end reads silence.
 `log = true` makes the groups an equal pitch step wide (bin 1 to 12 kHz), `levels = { lo, hi }`
 maps decibels to 0..1. Check the bar heights in a `frame` PNG. Patterns: `examples/media_demo`,
 `examples/why_onimite/ui.lua`, `examples/social_clip_kit`.
+
+### A sound as a shader input
+
+`{ sound = name }` binds a sound (a clip or a song) to a shader's channel as
+Shadertoy's audio texture: 512 x 2, the value in r, g and b. Its spectrum row is the 1024
+samples at the frame (what `audio_spectrum` reads with `sample_size = 1024, window = "hann"`)
+on WebAudio's scale (-100 dB to -30 dB as 0 to 1, bin k at k x 46.9 Hz); its waveform row is
+the 512 samples at the frame (0.5 is silence). Shadertoy's audio shaders run as written:
+
+```lua
+shader(f, { shadertoy = "viz.glsl", x = 0, y = 0, w = 1920, h = 1080,
+  uniforms = { iChannel0 = { sound = "music.mp3" } } })   -- texture(iChannel0, vec2(x, 0.25)).r: the spectrum; 0.75: the waveform
+shader(f, { sksl = SKSL, x = 0, y = 0, w = 1920, h = 1080,
+  uniforms = { uSound = { sound = "score" } } })          -- uSound.eval(float2(bin + 0.5, 1.5)).r: the spectrum; y 0.5: the waveform
+```
+
+A clip or song reads what its tracks play at the frame (silence while none plays), as
+`audio_spectrum` does.
 
 ## Generated audio
 

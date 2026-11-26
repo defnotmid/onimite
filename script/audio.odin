@@ -44,6 +44,11 @@ read_audio :: proc(s: ^Script, L: ^lua.State, t: c.int, scene: Maybe(int)) {
 	for &tr, i in tracks {
 		lua.rawgeti(L, list, lua.Integer(i + 1))
 		e := lua.absindex(L, -1)
+		if !lua.istable(L, e) {
+			// a bare name: each track is a table (its fields are read as one)
+			shown := string(lua.tostring(L, e)) if lua.isstring(L, e) else "..."
+			lua.L_error(L, "audio track %d is %s, not a table: write { \"%s\", start = 0 } (audio = { { ... }, ... })", i32(i + 1), lua.L_typename(L, e), strings.clone_to_cstring(shown, context.temp_allocator))
+		}
 		outer := fields_push(L, e)
 		src := text_arg(L, e)
 		if src == "" {

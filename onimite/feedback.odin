@@ -37,6 +37,13 @@ import "deps:oksl"
 //
 // This assumes iFrame counts video frames (scenes do; a frame made up in
 // the script may not).
+//
+// A hold (a presentation's held scene, a live board past its end) keeps the
+// frame's index while its clock runs on in whole frames (`Frame.held`): an
+// instance there steps once a held frame, its state the frame's index plus
+// the held frames. A hold is the viewer's, not the video's: no checkpoint is
+// kept of it, and an instance held further than its last state steps once
+// from it rather than catching up.
 
 // Frame number meaning "no state".
 @(private)
@@ -48,7 +55,11 @@ NO_FRAME :: min(int) / 2
 // `has_last`.
 Feedback :: struct {
 	key:         [dynamic]u64,
+	// The frame of each instance's state: the video frame's index plus the
+	// frames held (`Shader.held`).
 	frame:       [dynamic]int,
+	// The video frame that last drew each instance.
+	seen:        [dynamic]int,
 	width:       [dynamic]u32,
 	height:      [dynamic]u32,
 	passes:      [dynamic]Pass_Set,
@@ -144,6 +155,7 @@ feedback_destroy :: proc(fb: ^Feedback, c: ^vg.Canvas) {
 	free(fb.copy_cpu)
 	delete(fb.key)
 	delete(fb.frame)
+	delete(fb.seen)
 	delete(fb.width)
 	delete(fb.height)
 	delete(fb.passes)
@@ -190,7 +202,7 @@ feedback_passes :: proc(r: ^Renderer, n: Shader, g: ^oksl.Pass_Graph, sim: bool)
 		return {}, true
 	}
 	fb := &r.shader_state.feedback
-	frame := r.ctx.frame.global_index
+	frame := r.ctx.frame.global_index + n.held
 	bw := u32(clamp(math.round(n.w), 1, 8192))
 	bh := u32(clamp(math.round(n.h), 1, 8192))
 	i := feedback_instance(r, n.instance, passes, bw, bh)
@@ -200,10 +212,13 @@ feedback_passes :: proc(r: ^Renderer, n: Shader, g: ^oksl.Pass_Graph, sim: bool)
 	if !sim {
 		fb.drew = true
 	}
+	fb.seen[i] = r.ctx.frame.global_index
 	if fb.frame[i] == frame {
 		return feedback_outputs(fb, i), true
 	}
-	fb.has_last[i] = n.frame > 0 && fb.frame[i] == frame - 1
+	// Held, any state since the frame before the hold is the last one.
+	last := fb.frame[i] == frame - 1 || (n.held > 0 && fb.frame[i] < frame && fb.frame[i] >= frame - n.held - 1)
+	fb.has_last[i] = n.frame > 0 && last
 	fb.current[i] = 1 - fb.current[i]
 	fb.frame[i] = NO_FRAME
 	outputs = feedback_outputs(fb, i)
@@ -216,7 +231,7 @@ feedback_passes :: proc(r: ^Renderer, n: Shader, g: ^oksl.Pass_Graph, sim: bool)
 		shader_run_pass(r, n, g, pi, prog, outputs.this[pi], outputs, f32(bw) / n.w, f32(bh) / n.h) or_return
 	}
 	fb.frame[i] = frame
-	if r.ctx.shaders.stateful[n.program] {
+	if r.ctx.shaders.stateful[n.program] && n.held == 0 {
 		checkpoint_capture(r, i, frame)
 	}
 	return outputs, true
@@ -257,6 +272,7 @@ feedback_instance :: proc(r: ^Renderer, key: u64, passes: Pass_Set, w, h: u32) -
 		i = len(fb.key)
 		append(&fb.key, key)
 		append(&fb.frame, NO_FRAME)
+		append(&fb.seen, NO_FRAME)
 		append(&fb.width, 0)
 		append(&fb.height, 0)
 		append(&fb.passes, Pass_Set{})
@@ -327,6 +343,7 @@ feedback_remove :: proc(r: ^Renderer, i: int) {
 	feedback_release(r, i)
 	unordered_remove(&fb.key, i)
 	unordered_remove(&fb.frame, i)
+	unordered_remove(&fb.seen, i)
 	unordered_remove(&fb.width, i)
 	unordered_remove(&fb.height, i)
 	unordered_remove(&fb.passes, i)
@@ -344,7 +361,7 @@ feedback_end_frame :: proc(r: ^Renderer) {
 	fb.drawn = frame
 	for i := len(fb.key) - 1; i >= 0; i -= 1 {
 		// One frame of slack: the frame before can be drawn again as is.
-		if fb.frame[i] != frame && fb.frame[i] != frame - 1 {
+		if fb.seen[i] != frame && fb.seen[i] != frame - 1 {
 			feedback_remove(r, i)
 		}
 	}
@@ -386,6 +403,10 @@ feedback_catch_up :: proc(r: ^Renderer, index: int, rec: ^Frame_Record = nil) {
 			}
 		}
 		if i >= 0 && (fb.frame[i] == index - 1 || fb.frame[i] == index) {
+			continue
+		}
+		// Held: a state since the frame before the hold steps on from there.
+		if i >= 0 && n.held > 0 && fb.frame[i] >= index - 1 && fb.frame[i] < index + n.held {
 			continue
 		}
 		// Since its iFrame 0, or its own state or a checkpoint inside that

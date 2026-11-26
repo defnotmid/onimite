@@ -298,3 +298,38 @@ test_shader_chain_is_not_feedback :: proc(t: ^testing.T) {
 	testing.expectf(t, px[0] >= 126 && px[0] <= 129, "red %d, iTime 0.5 is 127.5", px[0]) // the first pass's, this frame
 	testing.expectf(t, len(r.ctx.diagnostics) == 0, "diagnostics: %v", r.ctx.diagnostics[:])
 }
+
+@(test)
+test_shader_feedback_steps_while_held :: proc(t: ^testing.T) {
+	// Held at its last frame (a presentation's hold, a live board past its
+	// end), the scene's clock runs on in whole frames: Buffer A keeps
+	// accumulating, a frame held again draws the same, and no checkpoint is
+	// kept of the hold.
+	@(static) scenes: [1]Scene
+	scenes = [1]Scene{{name = "Only", duration = Frames(10), render = render_multipass_scene}}
+	v := Video{width = 16, height = 8, fps = 30, background = BLACK, scenes = scenes[:]}
+	media: Media
+	media_init(&media)
+	defer media_destroy(&media)
+	r: Renderer
+	testing.expect_value(t, renderer_init(&r, &v, &media), Error.None)
+	defer renderer_destroy(&r)
+	feedback_checkpoints(&r, 4)
+	for f in 0 ..< 10 {
+		render_frame(&r, f)
+	}
+	kept := len(r.shader_state.feedback.checkpoints.frame)
+	last := render_frame(&r, 9)[0]
+	r.held_through = 9
+	for k in 1 ..= 6 {
+		r.clock_offset = f64(k) / 30
+		red := render_frame(&r, 9)[0]
+		testing.expectf(t, red > last, "held frame %d: red %d, after %d", k, red, last)
+		testing.expect_value(t, render_frame(&r, 9)[0], red)
+		last = red
+	}
+	testing.expect_value(t, len(r.shader_state.feedback.checkpoints.frame), kept)
+	// A hold that jumps (the preview missed frames) steps once from where it was.
+	r.clock_offset = 12.0 / 30
+	testing.expect(t, render_frame(&r, 9)[0] > last)
+}

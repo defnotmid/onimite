@@ -2,6 +2,7 @@ package onimite_script
 
 import "core:c"
 import "core:math"
+import "core:mem"
 import "core:os"
 import "core:path/filepath"
 import "core:slice"
@@ -400,6 +401,64 @@ l_audio_info :: proc "c" (L: ^lua.State) -> c.int {
 	set_int(L, "rate", clip.source_rate)
 	set_int(L, "channels", clip.source_channels)
 	return 1
+}
+
+// The sound texture's sides (Shadertoy's audio input: 512 x 2).
+SOUND_TEXTURE_W :: 512
+SOUND_TEXTURE_H :: 2
+
+// A sound as a shader input (`{ sound = name }`): Shadertoy's audio texture,
+// 512 x 2, the value in r, g and b. Its spectrum row holds the magnitudes of
+// the 1024 samples at the frame (what audio_spectrum reads with sample_size
+// 1024 and a Hann window), on WebAudio's scale (-100 dB to -30 dB as 0 to 1),
+// and its waveform row the 512 samples at the frame (0.5 is silence). As in
+// Shadertoy, `texture(iChannel0, vec2(x, 0.25))` reads the spectrum and
+// `vec2(x, 0.75)` the waveform: the image is the waveform's row over the
+// spectrum's (in SkSL, `.eval(float2(x, 1.5))` and `.eval(float2(x, 0.5))`).
+// A clip or song reads what its tracks play at the frame (silence while
+// none plays), else the frame's clock.
+@(private)
+sound_input :: proc(L: ^lua.State, s: ^Script, ctx: ^om.Context, name: string, arena: mem.Allocator) -> om.Shader_Input {
+	spectrum: [SOUND_TEXTURE_W]f32
+	wave: [SOUND_TEXTURE_W]f32
+	m := ctx.media
+	if !(s.audio_later && audio_deferred(s, name)) {
+		build_pending(L, s, name)
+	}
+	clip, is_clip := om.media_audio(m, name)
+	song := om.media_song(m, name) if !is_clip else nil
+	if !is_clip && song == nil {
+		om.report(ctx, .Error, {code = .Missing_Audio, name = name})
+	} else {
+		fps := max(ctx.video.fps, 1)
+		index := ctx.frame.global_index
+		if at, placed := placed_clip_time(ctx, name); placed {
+			t, playing := at.?
+			index = int(math.round(t * f64(fps))) if playing else -1
+		}
+		if index >= 0 {
+			om.audio_spectrum(sound_table_at(s, ctx, name, song, .Spectrum, fps, {index, index}, 2 * SOUND_TEXTURE_W, .Hann), index, 0, spectrum[:])
+			if is_clip {
+				at := index * om.MIX_RATE / fps
+				for k in 0 ..< SOUND_TEXTURE_W {
+					if i := at + k; i < clip.frames {
+						wave[k] = 0.5 * (clip.samples[2 * i] + clip.samples[2 * i + 1])
+					}
+				}
+			}
+		}
+	}
+	data := make([]u8, SOUND_TEXTURE_W * SOUND_TEXTURE_H * 4, arena)
+	for k in 0 ..< SOUND_TEXTURE_W {
+		db := 20 * math.log10(spectrum[k] / (2 * SOUND_TEXTURE_W) + 1e-9)
+		fft := u8(clamp((db + 100) / 70, 0, 1) * 255 + 0.5)
+		w := u8(clamp(0.5 + 0.5 * wave[k], 0, 1) * 255 + 0.5)
+		top := data[4 * k:][:4] // the waveform's row
+		bottom := data[4 * (SOUND_TEXTURE_W + k):][:4] // the spectrum's
+		top[0], top[1], top[2], top[3] = w, w, w, 255
+		bottom[0], bottom[1], bottom[2], bottom[3] = fft, fft, fft, 255
+	}
+	return {data = data, data_w = SOUND_TEXTURE_W, data_h = SOUND_TEXTURE_H}
 }
 
 // video_info("clip.mp4") -> { width, height, duration, fps, frames, rotation, audio } or nil

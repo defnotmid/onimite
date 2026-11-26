@@ -2809,3 +2809,93 @@ video { width = 160, height = 200, fps = 30, duration = 1, background = "#000000
 	testing.expectf(t, at(sharp, 76, 100).r == 0 && at(blurred, 76, 100).r > 0, "no streak behind the rect: %v %v", at(sharp, 76, 100), at(blurred, 76, 100))
 	testing.expectf(t, at(blurred, 140, 100) == at(sharp, 140, 100), "the still circle moved: %v %v", at(blurred, 140, 100), at(sharp, 140, 100))
 }
+
+// A hold runs a script's shaders on: past the held frame, iTime keeps the
+// held clock and a feedback pass steps once a held frame (its state the
+// frame's plus the held frames), at video level as in a scene.
+@(test)
+test_shader_runs_on_while_held :: proc(t: ^testing.T) {
+	f: Fixture
+	defer fixture_destroy(&f)
+	fixture_init(t, &f, `
+video { width = 20, height = 10, fps = 10, duration = 1, background = "#000", render = function(f)
+  shader(f, { x = 0, y = 0, w = 10, h = 10, shadertoy = {
+    buffer_a = { source = "void mainImage(out vec4 o, in vec2 p) { o = texelFetch(iChannel0, ivec2(p), 0) + vec4(0.05, 0.0, 0.0, 0.0); }", channels = { "buffer_a" } },
+    image = { source = "void mainImage(out vec4 o, in vec2 p) { o = vec4(texelFetch(iChannel0, ivec2(p), 0).rgb, 1.0); }", channels = { "buffer_a" } } } })
+  shader(f, { x = 10, y = 0, w = 10, h = 10, shadertoy = "void mainImage(out vec4 o, in vec2 p) { o = vec4(fract(iTime / 4.0), 0.0, 0.0, 1.0); }" })
+end }
+`)
+	if !fixture_load(t, &f) {
+		return
+	}
+	red :: proc(px: []u8, x: int) -> int {return int(px[(5 * 20 + x) * 4])}
+	r := fixture_renderer(t, &f)
+	for i in 0 ..< 10 {
+		fixture_frame(t, &f, i)
+	}
+	px := fixture_frame(t, &f, 9)
+	steps, clock := red(px, 5), red(px, 15)
+	testing.expectf(t, abs(clock - 57) <= 1, "iTime 0.9: red %d", clock)
+	r.held_through = 9
+	for k in 1 ..= 3 {
+		r.clock_offset = f64(k) / 10
+		px = fixture_frame(t, &f, 9)
+		testing.expectf(t, red(px, 5) > steps, "held %d: the feedback pass stepped (%d after %d)", k, red(px, 5), steps)
+		want := int(math.round(math.mod(0.9 + f64(k) / 10, 4) / 4 * 255))
+		testing.expectf(t, abs(red(px, 15) - want) <= 1, "held %d: iTime's red %d, want %d", k, red(px, 15), want)
+		steps = red(px, 5)
+	}
+	r.clock_offset, r.held_through = 0, 0
+}
+
+// A track that isn't a table (a bare name) is an error naming the fix, not a
+// crash reading it as one.
+@(test)
+test_audio_track_not_a_table :: proc(t: ^testing.T) {
+	f: Fixture
+	defer fixture_destroy(&f)
+	fixture_init(t, &f, `video { width = 8, height = 8, fps = 10, duration = 1, audio = { "tone.wav" } }`)
+	failed := load(&f.script, f.path, nil, &f.media, &f.shared) != nil
+	testing.expect(t, failed)
+	message := error_message(f.script.failure, context.temp_allocator)
+	testing.expectf(t, strings.contains(message, `audio track 1 is string, not a table: write { "tone.wav", start = 0 }`), "message: %s", message)
+}
+
+// A sound as a shader input is Shadertoy's audio texture, in both dialects:
+// its spectrum at SkSL's y 1.5 and Shadertoy's v 0.25, its waveform at 0.5
+// and 0.75: what a clip sounds at the frame.
+@(test)
+test_sound_input :: proc(t: ^testing.T) {
+	f: Fixture
+	defer fixture_destroy(&f)
+	fixture_init(t, &f, `
+local SK = [[
+uniform shader uSound;
+uniform float uBin;
+half4 main(float2 c) { return half4(uSound.eval(float2(uBin, c.y < 5.0 ? 1.5 : 0.5)).rrr, 1.0); }]]
+local ST = [[
+uniform float uBin;
+void mainImage(out vec4 o, in vec2 p) { o = vec4(vec3(texture(iChannel0, vec2(uBin / 512.0, p.y > 5.0 ? 0.25 : 0.75)).r), 1.0); }]]
+video { width = 20, height = 10, fps = 10, duration = 1, background = "#000", render = function(f)
+  -- the clip: 750 Hz (bin 16 of 512)
+  shader(f, { sksl = SK, x = 0, y = 0, w = 10, h = 10, uniforms = { uSound = { sound = "tone" }, uBin = 16.5 } })
+  shader(f, { shadertoy = ST, x = 10, y = 0, w = 10, h = 10, uniforms = { iChannel0 = { sound = "tone" }, uBin = 16.5 } })
+end }
+`)
+	samples := make([]f32, 2 * om.MIX_RATE, context.temp_allocator)
+	for i in 0 ..< om.MIX_RATE {
+		v := 0.8 * f32(math.sin(2 * math.PI * 750 * f64(i) / f64(om.MIX_RATE)))
+		samples[2 * i], samples[2 * i + 1] = v, v
+	}
+	om.media_add_audio_samples(&f.media, "tone", samples, om.MIX_RATE, 2)
+	if !fixture_load(t, &f) {
+		return
+	}
+	px := fixture_frame(t, &f, 5)
+	at :: proc(px: []u8, x, y: int) -> int {return int(px[(y * 20 + x) * 4])}
+	for x in ([]int{5, 15}) {
+		testing.expectf(t, at(px, x, 2) > 240, "x %d: the spectrum's bin reads %d", x, at(px, x, 2))
+		w := at(px, x, 7)
+		testing.expectf(t, w > 20 && w < 235, "x %d: the waveform reads %d, inside the sine's range (0.1..0.9 at most)", x, w)
+	}
+}

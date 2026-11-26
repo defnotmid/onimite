@@ -81,6 +81,10 @@ l_shader :: proc "c" (L: ^lua.State) -> c.int {
 		f = read_frame(L, ctx, 1)
 		t = 2
 	}
+	// A hold runs the clock on: the frame this render was called with has it
+	// (a held scene's, or the video's past a live board's end), the context's
+	// frame only the shutter's shift.
+	f.shift, f.held = s.frame.shift, s.frame.held
 	lua.L_checktype(L, t, i32(lua.Type.TABLE))
 	fields_begin(L, t)
 	arena := ctx.tree.arena
@@ -135,7 +139,7 @@ l_shader :: proc "c" (L: ^lua.State) -> c.int {
 				return c.int(lua.error(L))
 			} else if is_group {
 				u.input = group
-			} else if input, is_input := read_input(L, -1, arena); is_input {
+			} else if input, is_input := read_input(L, ctx, -1, arena); is_input {
 				u.input = input
 			} else {
 				values := make([dynamic]f32, arena)
@@ -283,7 +287,7 @@ read_pass_input :: proc(L: ^lua.State, ctx: ^om.Context, at: c.int, passes: []om
 		return st
 	} else if is_group {
 		in_.input = group
-	} else if input, is_input := read_input(L, idx, ctx.tree.arena); is_input {
+	} else if input, is_input := read_input(L, ctx, idx, ctx.tree.arena); is_input {
 		in_.input = input
 	}
 	return 0
@@ -365,7 +369,7 @@ read_shadertoy_channels :: proc(L: ^lua.State, ctx: ^om.Context, list: c.int) ->
 				return nil, st
 			} else if is_group {
 				in_.input = group
-			} else if input, is_input := read_input(L, -1, ctx.tree.arena); is_input {
+			} else if input, is_input := read_input(L, ctx, -1, ctx.tree.arena); is_input {
 				in_.input = input
 			}
 		}
@@ -457,9 +461,9 @@ read_group_input :: proc(L: ^lua.State, ctx: ^om.Context, at: c.int) -> (in_: om
 }
 
 // A media input: a name that isn't a color ("photo.jpg"), or a table with
-// `src` (and video options).
+// `src` (and video options), `depth_of` or `sound` (sound_input).
 @(private = "file")
-read_input :: proc(L: ^lua.State, idx: c.int, arena := context.allocator) -> (in_: om.Shader_Input, ok: bool) {
+read_input :: proc(L: ^lua.State, ctx: ^om.Context, idx: c.int, arena := context.allocator) -> (in_: om.Shader_Input, ok: bool) {
 	#partial switch lua.type(L, idx) {
 	case .STRING:
 		name := string(lua.tostring(L, idx))
@@ -471,6 +475,10 @@ read_input :: proc(L: ^lua.State, idx: c.int, arena := context.allocator) -> (in
 		// The depth of another input's 3D layer, from the same render
 		if has_field(L, idx, "depth_of") {
 			return {depth_of = strings.clone(get_str(L, idx, "depth_of", ""), arena)}, true
+		}
+		// A sound (a clip, a song) as Shadertoy's audio texture
+		if has_field(L, idx, "sound") {
+			return sound_input(L, host(L), ctx, get_str(L, idx, "sound", ""), arena), true
 		}
 		if !has_field(L, idx, "src") {
 			return {}, false

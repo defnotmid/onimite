@@ -79,7 +79,7 @@ repositories (the build's `deps` collection is their parent directory):
 
 ```bash
 git clone https://github.com/defnotmid/onimite
-git clone https://github.com/defnotmid/ovg     # 2D vector canvas: software + SDL_GPU (Vulkan / Metal / D3D12)
+git clone https://github.com/defnotmid/ovg     # 2D vector canvas: software + SDL_GPU (Vulkan / Metal)
 git clone https://github.com/defnotmid/oglyph  # fonts and OpenType text shaping (ovg draws text through it)
 git clone https://github.com/defnotmid/ocurves # curve geometry: contours, exact pixel coverage, booleans (ovg and o3d keep their shapes in it)
 git clone https://github.com/defnotmid/oksl    # shader compiler: SkSL, Shadertoy and GLSL to SPIR-V, MSL, CPU
@@ -552,6 +552,7 @@ The short version of `references/design.md`:
   were (`examples/departures`). Draw from `f.now` for the time of day and from `f.seconds`
   for motion; check it at a moment with `frame video.lua 3s --now 2026-11-02T14:05:00Z`.
   To keep it up, run it from a service that restarts it (systemd: `Restart=always`).
+  Past its end a live board's shaders run on, feedback passes too.
 - Cross-fade scenes with `overlap = { previous = 0.4 }` (added to the scene's duration; both
   scenes fade across it by themselves), give the entering scene another way across with
   `transition = { "wipe", duration = 0.5, easing = ease_in_out }` (fade, slide, wipe,

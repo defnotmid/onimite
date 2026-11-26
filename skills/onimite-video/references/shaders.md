@@ -110,7 +110,8 @@ shader(f, { sksl = HAZE, x = 0, y = 0, w = 1920, h = 1080, uniforms = {
 - Uniform values: numbers, booleans, lists (vectors, matrices column by column, arrays),
   colours (`"#rrggbb"`, `rgb()`, animated). Up to four `uniform shader` children (a `depth_of` input counts as one): a media
   image name, a clip `{ src = "clip.mp4", looping = true, start_from = 0, clip_start = 0 }`,
-  a function (a group drawn in the box's units), or `{ group = fn, w = 400, h = 300 }`.
+  a sound `{ sound = "music.mp3" }` (Shadertoy's 512 x 2 audio texture, audio.md), a function
+  (a group drawn in the box's units), or `{ group = fn, w = 400, h = 300 }`.
   Children sample with `child.eval(p)` in their own pixels (bilinear, clamped, premultiplied).
 - oksl accepts `for`, `while`, `do`, `switch` and dynamic array indexing in both dialects, with
   no iteration cap: a loop that never ends hangs the render. Compile errors are diagnostics `shader glow.sksl:12:7: ...` (the layer is skipped);

@@ -57,7 +57,7 @@ onimite is built from sibling Odin projects and Odin's vendor packages:
 
 | piece | what |
 | --- | --- |
-| [`ovg`](https://github.com/defnotmid/ovg) | 2D vector canvas (femtovg lineage): software backend + SDL_GPU (Vulkan / Metal / D3D12) |
+| [`ovg`](https://github.com/defnotmid/ovg) | 2D vector canvas (femtovg lineage): software backend + SDL_GPU (Vulkan / Metal) |
 | [`oglyph`](https://github.com/defnotmid/oglyph) | fonts and OpenType text shaping in native Odin (HarfBuzz's rules, checked against it), which ovg draws text through |
 | [`oicut`](https://github.com/defnotmid/oicut) | H.264 / H.265 / AAC codecs (native Odin, Vulkan Video when available), MP4, clip decoding; every image (PNG, JPEG, GIF, WebP, ...) and audio file (WAV, FLAC, MP3, Ogg, M4A) |
 | [`oksl`](https://github.com/defnotmid/oksl) | shader compiler for SkSL, Shadertoy and GLSL: SPIR-V, MSL and a CPU program (machine code through its JIT on Linux and macOS, AVX2 on x86-64 and NEON on arm64; an interpreter on Windows); ovg and o3d write their own shaders in it too |
