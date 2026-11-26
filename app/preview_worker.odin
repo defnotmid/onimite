@@ -10,6 +10,7 @@ import "core:thread"
 import "core:time"
 import om "../onimite"
 import enc "../encode"
+import render "../render"
 import script "../script"
 import vg "deps:ovg"
 import vgsdl "deps:ovg/sdlgpu"
@@ -18,9 +19,10 @@ import sdl "vendor:sdl3"
 
 // The preview's render worker: one thread owning the Lua state, the media,
 // the onimite renderer and the ovg canvas (SDL_GPU on the window's
-// device). It renders the latest requested frame into one of three
-// offscreen textures and publishes it; the UI thread samples the newest
-// published texture and never waits on Lua or a fence.
+// device, or the CPU). It renders the latest requested frame into one of
+// three offscreen pictures (render.Picture: textures on the window's device,
+// or with none software pictures) and publishes it; the UI thread draws the
+// newest published picture and never waits on Lua or a fence.
 //
 // The UI and the worker share only the mailbox below: the request (latest
 // wins, so scrubbing drops stale frames) and what was published. Script and
@@ -77,11 +79,11 @@ Render_Request :: struct {
 }
 
 
-// A finished timeline thumbnail: the frame and its texture (owned by the
+// A finished timeline thumbnail: the frame and its picture (owned by the
 // worker; never written again while published).
 Preview_Thumb :: struct {
 	frame:   int,
-	texture: ^sdl.GPUTexture,
+	picture: render.Picture,
 }
 
 // Shared between the UI and the worker; every field is read and written
@@ -126,8 +128,8 @@ Mailbox :: struct {
 
 	// Published by the worker.
 	published_seq:    u64,
-	slot:             int, // index of the newest finished frame's texture (-1: none yet)
-	slot_texture:     ^sdl.GPUTexture,
+	slot:             int, // index of the newest finished frame's picture (-1: none yet)
+	slot_picture:     render.Picture,
 	slot_frame:       int,
 	slot_size:        [2]u32,
 	render_ms:        f64,
@@ -208,18 +210,12 @@ mailbox_destroy :: proc(mb: ^Mailbox) {
 	delete(mb.thumbs)
 }
 
-@(private)
-Slot :: struct {
-	texture: ^sdl.GPUTexture,
-	size:    [2]u32,
-}
-
 // A cached thumbnail on the worker. `exact` is false when a video clip
 // frame in it was still decoding.
 @(private)
 Thumb_Entry :: struct {
 	frame:   int,
-	texture: ^sdl.GPUTexture,
+	picture: render.Picture,
 	exact:   bool,
 	tries:   int,
 	// Drawn without sound still being built: drawn again when it lands.
@@ -231,6 +227,8 @@ Render_Worker :: struct {
 	mb:             ^Mailbox,
 	audio:          ^Audio_Shared,
 	device:         ^sdl.GPUDevice,
+	// The window's pictures, which the worker draws its frames into.
+	pictures:       ^render.Pictures,
 	software:       bool,
 	// Bytes of decoded images the media keeps (--image-cache).
 	image_budget:   int,
@@ -262,7 +260,7 @@ Render_Worker :: struct {
 	gpu_ok:         bool,
 	// The GPU both renderers' 3D layers render on (on the window's device).
 	gpu3d:          om.View3d_Gpu,
-	slots:          [SLOT_COUNT]Slot,
+	slots:          [SLOT_COUNT]render.Picture,
 	loaded:         u64, // reload generation of the script in use
 	ever_loaded:    bool,
 	handled_seq:    u64,
@@ -312,7 +310,7 @@ Render_Worker :: struct {
 	frames_since:   int,
 	frames:         int, // the loaded video's length
 	// Thumbnails: their own renderer and canvas at THUMB_HEIGHT, the cache
-	// (sorted by frame), free textures, and textures of older generations
+	// (sorted by frame), free pictures, and pictures of older generations
 	// that become free once the UI has taken the current one.
 	thumb:          om.Renderer,
 	thumb_ok:       bool,
@@ -320,8 +318,8 @@ Render_Worker :: struct {
 	thumb_gpu_ok:   bool,
 	thumb_gpu3d:    om.View3d_Gpu,
 	thumbs:         [dynamic]Thumb_Entry,
-	thumb_free:     [dynamic]^sdl.GPUTexture,
-	thumb_retired:  [dynamic]^sdl.GPUTexture,
+	thumb_free:     [dynamic]render.Picture,
+	thumb_retired:  [dynamic]render.Picture,
 	thumb_gen:      u64,
 	thumb_size:     [2]u32,
 	thumb_wanted:   [dynamic]int,
@@ -330,7 +328,7 @@ Render_Worker :: struct {
 	bands_wanted:     [dynamic]i32,
 	bands_wanted_seq: u64,
 	band_views:       [dynamic]Band_View,
-	band_retired:     [dynamic]^sdl.GPUTexture,
+	band_retired:     [dynamic]render.Picture,
 	bands_landed:     bool, // song segments landed since the views were drawn
 	// The files the media views show and what is made of them, the textures
 	// the UI may still be drawing, and the sound file the audio thread has
@@ -338,7 +336,7 @@ Render_Worker :: struct {
 	files_wanted:     [dynamic]u64,
 	files_wanted_seq: u64,
 	image_views:       [dynamic]Image_View,
-	image_retired:     [dynamic]^sdl.GPUTexture,
+	image_retired:     [dynamic]render.Picture,
 	solo_file:         u64,
 	wanted_seq:     u64,
 	// Thumbnails draw video clips from their own decoders (one reader per
@@ -750,7 +748,7 @@ worker_idle_ready :: proc(w: ^Render_Worker) -> (ready: bool, retry: time.Durati
 		}
 		if len(w.band_retired) > 0 {
 			for t in w.band_retired {
-				vgsdl.retire_texture(w.device, &w.mb.retired, t)
+				render.picture_retire(w.pictures, &w.mb.retired, t)
 			}
 			clear(&w.band_retired)
 		}
@@ -1015,7 +1013,7 @@ worker_load :: proc(w: ^Render_Worker, req: Render_Request, reload_media: bool) 
 	w.load_error = ""
 	w.tables_dirty = true
 	for t in w.thumbs {
-		append(&w.thumb_retired, t.texture)
+		append(&w.thumb_retired, t.picture)
 	}
 	clear(&w.thumbs)
 	w.thumb_gen += 1
@@ -1034,7 +1032,7 @@ worker_load :: proc(w: ^Render_Worker, req: Render_Request, reload_media: bool) 
 		thumb_size := [2]u32{u32(f32(v.width) * thumb_scale + 0.5), u32(f32(v.height) * thumb_scale + 0.5)}
 		if thumb_size != w.thumb_size {
 			for t in w.thumb_free {
-				vgsdl.retire_texture(w.device, &w.mb.retired, t)
+				render.picture_retire(w.pictures, &w.mb.retired, t)
 			}
 			clear(&w.thumb_free)
 			append(&w.band_retired, ..w.thumb_retired[:])
@@ -1164,32 +1162,24 @@ renderer_open :: proc(w: ^Render_Worker, r: ^om.Renderer, gpu: ^vgsdl.SDL_Backen
 	return true
 }
 
-// Draws the video's frame nearest `frame` with `r` into `tex` (GPU canvas,
-// or CPU pixels uploaded) and returns it, never waiting on video decode
+// Draws the video's frame nearest `frame` with `r` into `pic` (GPU canvas,
+// or CPU pixels written) and returns it, never waiting on video decode
 // threads: the nearest decoded clip frame now, the exact one on a later
 // pass.
 @(private = "file")
-draw_into :: proc(w: ^Render_Worker, r: ^om.Renderer, gpu_ok: bool, frame: int, tex: ^sdl.GPUTexture) -> int {
+draw_into :: proc(w: ^Render_Worker, r: ^om.Renderer, gpu_ok: bool, frame: int, pic: render.Picture) -> int {
 	frame := clamp(frame, 0, max(r.timeline.duration_frames - 1, 0))
 	r.video_images.wait = .Nearest
 	r.video_images.pending = 0
 	size := [2]u32{r.width, r.height}
 	if w.software || !gpu_ok {
 		pixels := om.render_frame(r, frame)
-		upload_rgba(w.device, tex, size, pixels)
+		render.picture_write(w.pictures, pic, pixels, {0, 0, size.x, size.y}, wait = true)
 	} else {
-		out := vgsdl.Output{texture = tex, format = .R8G8B8A8_UNORM, width = size.x, height = size.y}
+		out := vgsdl.Output{texture = pic.texture, format = .R8G8B8A8_UNORM, width = size.x, height = size.y}
 		om.render_frame(r, frame, vgsdl.output(&out), readback = false)
 	}
 	return frame
-}
-
-@(private = "file")
-make_target :: proc(device: ^sdl.GPUDevice, size: [2]u32) -> ^sdl.GPUTexture {
-	return sdl.CreateGPUTexture(
-		device,
-		{type = .D2, format = .R8G8B8A8_UNORM, usage = {.SAMPLER, .COLOR_TARGET}, width = size.x, height = size.y, layer_count_or_depth = 1, num_levels = 1, sample_count = ._1},
-	)
 }
 
 @(private = "file")
@@ -1218,17 +1208,14 @@ worker_render :: proc(w: ^Render_Worker, req: Render_Request) {
 	}
 	size := [2]u32{r.width, r.height}
 	s := &w.slots[slot]
-	if s.texture == nil || s.size != size {
-		if s.texture != nil {
-			vgsdl.retire_texture(w.device, &w.mb.retired, s.texture)
-		}
-		s.texture = make_target(w.device, size)
-		s.size = size
+	if s^ == {} || s.size != size {
+		render.picture_retire(w.pictures, &w.mb.retired, s^)
+		s^ = render.picture_make(w.pictures, size, target = true)
 	}
 	began := time.tick_now()
 	r.clock_offset, r.held_through = req.hold, req.hold_through
 	w.script.video.now = req.now_start
-	frame := draw_into(w, r, w.gpu_ok, req.frame, s.texture)
+	frame := draw_into(w, r, w.gpu_ok, req.frame, s^)
 	r.clock_offset, r.held_through = 0, 0
 	ms := time.duration_milliseconds(time.tick_since(began))
 	w.last_request = req
@@ -1254,7 +1241,7 @@ worker_render :: proc(w: ^Render_Worker, req: Render_Request) {
 
 	sync.mutex_lock(&w.mb.mutex)
 	w.mb.slot = slot
-	w.mb.slot_texture = s.texture
+	w.mb.slot_picture = s^
 	w.mb.slot_frame = frame
 	w.mb.slot_size = size
 	w.mb.render_ms = ms
@@ -1344,11 +1331,11 @@ thumb_render :: proc(w: ^Render_Worker, frame: int) {
 	r := &w.thumb
 	j, found := thumb_find(w, frame)
 	if !found {
-		tex: ^sdl.GPUTexture
+		pic: render.Picture
 		if n := len(w.thumb_free); n > 0 {
-			tex = pop(&w.thumb_free)
+			pic = pop(&w.thumb_free)
 		} else if len(w.thumbs) < THUMB_MAX {
-			tex = make_target(w.device, {r.width, r.height})
+			pic = render.picture_make(w.pictures, {r.width, r.height}, target = true)
 		} else {
 			// Full: take the entry farthest from every wanted frame.
 			far, far_d := -1, -1
@@ -1364,18 +1351,18 @@ thumb_render :: proc(w: ^Render_Worker, frame: int) {
 			if far_d <= 0 {
 				return
 			}
-			tex = w.thumbs[far].texture
+			pic = w.thumbs[far].picture
 			ordered_remove(&w.thumbs, far)
 			j, _ = thumb_find(w, frame)
 		}
-		if tex == nil {
+		if pic == {} {
 			w.thumb_size = {} // no more thumbnails rather than retrying forever
 			return
 		}
-		inject_at(&w.thumbs, j, Thumb_Entry{frame = frame, texture = tex})
+		inject_at(&w.thumbs, j, Thumb_Entry{frame = frame, picture = pic})
 	}
 	e := &w.thumbs[j]
-	draw_into(w, r, w.thumb_gpu_ok, frame, e.texture)
+	draw_into(w, r, w.thumb_gpu_ok, frame, e.picture)
 	om.diagnostics_clear(&r.ctx)
 	e.audio = r.ctx.audio_pending > 0
 	e.exact = r.video_images.pending == 0 && !e.audio
@@ -1384,7 +1371,7 @@ thumb_render :: proc(w: ^Render_Worker, frame: int) {
 	sync.mutex_lock(&w.mb.mutex)
 	resize(&w.mb.thumbs, len(w.thumbs))
 	for t, k in w.thumbs {
-		w.mb.thumbs[k] = {t.frame, t.texture}
+		w.mb.thumbs[k] = {t.frame, t.picture}
 	}
 	w.mb.thumbs_seq += 1
 	exact := e.exact
@@ -1396,34 +1383,6 @@ thumb_render :: proc(w: ^Render_Worker, frame: int) {
 			sync.cond_wait_with_timeout(&w.mb.cond, &w.mb.mutex, 8 * time.Millisecond)
 		}
 		sync.mutex_unlock(&w.mb.mutex)
-	}
-}
-
-// CPU pixels into a texture through a transfer buffer (on this thread's own
-// command buffer, waited on before returning).
-@(private)
-upload_rgba :: proc(device: ^sdl.GPUDevice, tex: ^sdl.GPUTexture, size: [2]u32, pixels: []u8) {
-	n := u32(len(pixels))
-	tb := sdl.CreateGPUTransferBuffer(device, {usage = .UPLOAD, size = n})
-	if tb == nil {
-		return
-	}
-	defer sdl.ReleaseGPUTransferBuffer(device, tb)
-	dst := sdl.MapGPUTransferBuffer(device, tb, false)
-	if dst == nil {
-		return
-	}
-	runtime.mem_copy_non_overlapping(dst, raw_data(pixels), int(n))
-	sdl.UnmapGPUTransferBuffer(device, tb)
-	cb := sdl.AcquireGPUCommandBuffer(device)
-	pass := sdl.BeginGPUCopyPass(cb)
-	sdl.UploadToGPUTexture(pass, {transfer_buffer = tb, pixels_per_row = size.x, rows_per_layer = size.y}, {texture = tex, w = size.x, h = size.y, d = 1}, false)
-	sdl.EndGPUCopyPass(pass)
-	fence := sdl.SubmitGPUCommandBufferAndAcquireFence(cb)
-	if fence != nil {
-		fences := [1]^sdl.GPUFence{fence}
-		_ = sdl.WaitForGPUFences(device, true, &fences[0], 1)
-		sdl.ReleaseGPUFence(device, fence)
 	}
 }
 
@@ -1458,27 +1417,23 @@ worker_release :: proc(w: ^Render_Worker) {
 	}
 	thumb_clips_release(w)
 	for &s in w.slots {
-		if s.texture != nil {
-			vgsdl.retire_texture(w.device, &w.mb.retired, s.texture)
-			s.texture = nil
-		}
+		render.picture_retire(w.pictures, &w.mb.retired, s)
+		s = {}
 	}
 	for t in w.thumbs {
-		vgsdl.retire_texture(w.device, &w.mb.retired, t.texture)
+		render.picture_retire(w.pictures, &w.mb.retired, t.picture)
 	}
 	for t in w.thumb_free {
-		vgsdl.retire_texture(w.device, &w.mb.retired, t)
+		render.picture_retire(w.pictures, &w.mb.retired, t)
 	}
 	for t in w.thumb_retired {
-		vgsdl.retire_texture(w.device, &w.mb.retired, t)
+		render.picture_retire(w.pictures, &w.mb.retired, t)
 	}
 	for t in w.band_retired {
-		vgsdl.retire_texture(w.device, &w.mb.retired, t)
+		render.picture_retire(w.pictures, &w.mb.retired, t)
 	}
 	for v in w.band_views {
-		if v.texture.texture != nil {
-			vgsdl.retire_texture(w.device, &w.mb.retired, v.texture.texture)
-		}
+		render.picture_retire(w.pictures, &w.mb.retired, v.texture.picture)
 		delete(v.levels)
 		delete(v.drawn)
 	}

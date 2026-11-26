@@ -179,27 +179,28 @@ clip :: proc(p: Pen, x, y, w, h: f32) {
 @(private = "file")
 clip_end :: proc(p: Pen) {vg.restore(p.c)}
 
-// A texture the worker made (`size` texels), contained in the rect.
+// A picture the worker made, contained in the rect.
 @(private = "file")
-image :: proc(p: Pen, texture: ^sdl.GPUTexture, size: [2]u32, x, y, w, h: f32) {
+image :: proc(p: Pen, pic: render.Picture, x, y, w, h: f32) {
 	wx, wy, ww, wh := axis_rect(p.a, x, y, w, h)
-	if texture == nil || size.x == 0 || size.y == 0 || ww <= 0 || wh <= 0 do return
+	size := pic.size
+	if pic == {} || size.x == 0 || size.y == 0 || ww <= 0 || wh <= 0 do return
 	lo, hi := picture_rect({f32(size.x), f32(size.y)}, {ww, wh})
 	dx, dy, dw, dh := wx + lo.x, wy + lo.y, hi.x - lo.x, hi.y - lo.y
-	id := render.image_borrow(p.r, p.c, texture, size.x, size.y)
+	id := render.image_borrow(p.r, p.c, pic)
 	vg.path_reset(&p.s.path)
 	vg.path_rect(&p.s.path, dx, dy, dw, dh)
 	vg.fill_path(p.c, &p.s.path, vg.paint_image(id, dx, dy, dw, dh, 0))
 }
 
-// The texels `src` (x0, y0, x1, y1) of a texture the worker made (`size`
-// texels) stretched over a window rect: a stretch of a strip texture (a
-// spectrogram's rows).
+// The texels `src` (x0, y0, x1, y1) of a picture the worker made stretched
+// over a window rect: a stretch of a strip picture (a spectrogram's rows).
 @(private = "file")
-image_src :: proc(p: Pen, texture: ^sdl.GPUTexture, size: [2]u32, src: [4]f32, x, y, w, h: f32) {
-	if texture == nil || w <= 0 || h <= 0 || src[2] <= src[0] || src[3] <= src[1] do return
+image_src :: proc(p: Pen, pic: render.Picture, src: [4]f32, x, y, w, h: f32) {
+	if pic == {} || w <= 0 || h <= 0 || src[2] <= src[0] || src[3] <= src[1] do return
+	size := pic.size
 	sx, sy := w / (src[2] - src[0]), h / (src[3] - src[1])
-	id := render.image_borrow(p.r, p.c, texture, size.x, size.y)
+	id := render.image_borrow(p.r, p.c, pic)
 	vg.path_reset(&p.s.path)
 	vg.path_rect(&p.s.path, x, y, w, h)
 	vg.fill_path(p.c, &p.s.path, vg.paint_image(id, x - src[0] * sx, y - src[1] * sy, f32(size.x) * sx, f32(size.y) * sy, 0))
@@ -926,7 +927,7 @@ head_draw :: proc(s: ^ui.State, box: ^ui.Box, c: ^vg.Canvas) {
 			if !found {
 				continue
 			}
-			image(pen, pv.thumbs[k].texture, pv.thumb_size, x_of(f64(f), first, ppf, x0), y, g.thumb_w - line_w, g.thumb_h)
+			image(pen, pv.thumbs[k].picture, x_of(f64(f), first, ppf, x0), y, g.thumb_w - line_w, g.thumb_h)
 		}
 		if name := scene_name(&pv.timeline, sc); name != "" {
 			fs := 12 * dpi
@@ -1108,7 +1109,7 @@ draw_bands :: proc(v: ^Row_View, it: Timeline_Item, y, h: f32) {
 		return
 	}
 	bt := pv.band_textures[source]
-	if bt.texture == nil || bt.rows == 0 {
+	if bt.picture == {} || bt.rows == 0 {
 		return
 	}
 	for sp in spans {
@@ -1132,7 +1133,7 @@ draw_bands :: proc(v: ^Row_View, it: Timeline_Item, y, h: f32) {
 			// blends bands, never the strips stacked above and below
 			src := [4]f32{f32(r0 - f64(strip * BAND_STRIP)), f32(strip * om.BAND_COUNT) + 0.5, f32(end - f64(strip * BAND_STRIP)), f32((strip + 1) * om.BAND_COUNT) - 0.5}
 			wx, wy, ww, wh := axis_rect(v.a, x0, y, x1 - x0, h)
-			image_src(v.pen, bt.texture, {u32(bt.width), u32(bt.height)}, src, wx, wy, ww, wh)
+			image_src(v.pen, bt.picture, src, wx, wy, ww, wh)
 			r0 = end
 		}
 	}

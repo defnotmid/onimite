@@ -65,12 +65,12 @@ jobs:
         with:
           repository: defnotmid/ovg
           path: ovg
-          ref: v0.1.4
+          ref: v0.1.11
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/ocurves
           # Pinned like ovg and o3d, which keep their paths and shapes in its contour tables (v0.0.16: build_append can map the curves by a given frame, which ovg v0.0.73's coarse levels build with; ovg v0.0.73 needs it).
-          ref: v0.1.0
+          ref: v0.1.1
           path: ocurves
       - uses: actions/checkout@v4
         with:

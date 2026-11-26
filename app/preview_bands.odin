@@ -1,15 +1,16 @@
 package onimite_app
 
 import "base:runtime"
+import "core:slice"
 import "core:sync"
 import om "../onimite"
-import sdl "vendor:sdl3"
+import render "../render"
 
 // The timeline's bands rows, on the worker: a row shown asks for its
 // source (the UI's bands_shown, through the mailbox); the worker asks the
 // song for its band rows (a .Bands table read from its render, made as
 // the render lands, om.song_bands) and draws the rows made so far into the
-// source's texture, which the UI draws a stretch of. The texture is a view
+// source's picture, which the UI draws a stretch of. The picture is a view
 // of the rows: a row a column, a band a texel (20 Hz at the bottom), the
 // rows in strips BAND_STRIP wide stacked down (every GPU takes 4096 wide).
 // A texel is a level (R8: 0 no row yet, 1..255 -100..-10 dB), coloured as
@@ -17,10 +18,10 @@ import sdl "vendor:sdl3"
 
 BAND_STRIP :: 4096
 
-// A source's texture as the UI draws it: `rows` band rows a `step` of
+// A source's picture as the UI draws it: `rows` band rows a `step` of
 // song samples apart, in strips of BAND_STRIP columns, BAND_COUNT high.
 Band_Texture :: struct {
-	texture:       ^sdl.GPUTexture,
+	picture:       render.Picture,
 	rows, step:    int,
 	width, height: int,
 }
@@ -113,16 +114,16 @@ bands_draw :: proc(w: ^Render_Worker, v: ^Band_View) -> bool {
 		return false
 	}
 	bt := &v.texture
-	if bt.texture == nil {
+	if bt.picture == {} {
 		strips := (rows + BAND_STRIP - 1) / BAND_STRIP
 		bt^ = {rows = rows, step = t.step_num / max(t.step_den, 1), width = min(rows, BAND_STRIP), height = strips * om.BAND_COUNT}
-		bt.texture = sdl.CreateGPUTexture(w.device, {type = .D2, format = .R8G8B8A8_UNORM, usage = {.SAMPLER}, width = u32(bt.width), height = u32(bt.height), layer_count_or_depth = 1, num_levels = 1})
-		if bt.texture == nil {
+		bt.picture = render.picture_make(w.pictures, {u32(bt.width), u32(bt.height)})
+		if bt.picture == {} {
 			return false
 		}
 		v.levels = make([]u8, bt.width * bt.height)
 		v.drawn = make([]bool, rows)
-		upload_levels(w.device, bt, v.levels, {0, 0, bt.width, bt.height})
+		upload_levels(w.pictures, bt, v.levels, {0, 0, bt.width, bt.height})
 	}
 	// each strip's columns written: [lo, hi]
 	touched := make([][2]int, bt.height / om.BAND_COUNT, context.temp_allocator)
@@ -148,30 +149,21 @@ bands_draw :: proc(w: ^Render_Worker, v: ^Band_View) -> bool {
 	changed := false
 	for c, strip in touched {
 		if c[1] >= c[0] {
-			upload_levels(w.device, bt, v.levels, {c[0], strip * om.BAND_COUNT, c[1] - c[0] + 1, om.BAND_COUNT})
+			upload_levels(w.pictures, bt, v.levels, {c[0], strip * om.BAND_COUNT, c[1] - c[0] + 1, om.BAND_COUNT})
 			changed = true
 		}
 	}
 	return changed
 }
 
-// The levels in `rect` (x, y, w, h) into the texture as their heat colours
-// (a level 0 is no reading: clear; 1..255 the ramp's 0..1, opaque): a copy
-// pass on this thread's command buffer, not waited on (the queue runs it
-// before any frame the texture is published to; SDL frees the transfer
-// buffer when done).
+// The levels in `rect` (x, y, w, h) into the picture as their heat colours
+// (a level 0 is no reading: clear; 1..255 the ramp's 0..1, opaque), not
+// waited on (the picture's queue runs it before any frame it is published
+// to).
 @(private = "file")
-upload_levels :: proc(device: ^sdl.GPUDevice, bt: ^Band_Texture, levels: []u8, rect: [4]int) {
+upload_levels :: proc(ps: ^render.Pictures, bt: ^Band_Texture, levels: []u8, rect: [4]int) {
 	x, y, w, h := rect[0], rect[1], rect[2], rect[3]
-	tb := sdl.CreateGPUTransferBuffer(device, {usage = .UPLOAD, size = u32(w * h * 4)})
-	if tb == nil {
-		return
-	}
-	defer sdl.ReleaseGPUTransferBuffer(device, tb)
-	dst := ([^][4]u8)(sdl.MapGPUTransferBuffer(device, tb, false))
-	if dst == nil {
-		return
-	}
+	dst := make([][4]u8, w * h, context.temp_allocator)
 	for r in 0 ..< h {
 		for level, i in levels[(y + r) * bt.width + x:][:w] {
 			px := [4]u8{}
@@ -181,21 +173,16 @@ upload_levels :: proc(device: ^sdl.GPUDevice, bt: ^Band_Texture, levels: []u8, r
 			dst[r * w + i] = px
 		}
 	}
-	sdl.UnmapGPUTransferBuffer(device, tb)
-	cb := sdl.AcquireGPUCommandBuffer(device)
-	pass := sdl.BeginGPUCopyPass(cb)
-	sdl.UploadToGPUTexture(pass, {transfer_buffer = tb, pixels_per_row = u32(w), rows_per_layer = u32(h)}, {texture = bt.texture, x = u32(x), y = u32(y), w = u32(w), h = u32(h), d = 1}, false)
-	sdl.EndGPUCopyPass(pass)
-	_ = sdl.SubmitGPUCommandBuffer(cb)
+	render.picture_write(ps, bt.picture, slice.to_bytes(dst), {u32(x), u32(y), u32(w), u32(h)})
 }
 
-// Every view goes (a load: the sources are numbered again); the textures
+// Every view goes (a load: the sources are numbered again); the pictures
 // retire with the thumbnails' generation, so the UI drawing them is done.
 @(private)
 worker_bands_retire :: proc(w: ^Render_Worker) {
 	for v in w.band_views {
-		if v.texture.texture != nil {
-			append(&w.band_retired, v.texture.texture)
+		if v.texture.picture != {} {
+			append(&w.band_retired, v.texture.picture)
 		}
 		delete(v.levels)
 		delete(v.drawn)

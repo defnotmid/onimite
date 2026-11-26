@@ -23,7 +23,8 @@ Platform :: struct {
 	pixel_density: f32, // framebuffer pixels per SDL window coordinate
 	refresh_ns:    i64, // display refresh interval in nanoseconds
 	// The presentation init chose: mailbox doesn't wait for vsync, so the
-	// caller paces its frames.
+	// caller paces its frames (as it does a window without a device, whose
+	// surface waits for nothing either).
 	present_mode:  sdl.GPUPresentMode,
 	should_close:  bool,
 	resized:       bool, // framebuffer size changed since last tick
@@ -78,14 +79,14 @@ Error :: enum u8 {
 	None,
 	Sdl_Init,
 	Window,
-	Gpu_Device,
 	Claim_Window,
 }
 
 // init opens a resizable, high-DPI window backed by an SDL_GPU device
 // (`gpu_device_create`: Vulkan, Metal, or Direct3D 12 on a hardware adapter),
-// presenting as `present` says. On failure `detail` is SDL's reason (temp
-// memory).
+// presenting as `present` says; where no device opens, a window without one
+// (`device` nil), whose frames the caller draws on the CPU and shows
+// through its surface. On failure `detail` is SDL's reason (temp memory).
 init :: proc(p: ^Platform, title: cstring, w, h: i32, present := Present.Auto) -> (err: Error, detail: string) {
 	failed :: proc(err: Error) -> (Error, string) {
 		return err, strings.clone_from_cstring(sdl.GetError(), context.temp_allocator)
@@ -105,32 +106,17 @@ init :: proc(p: ^Platform, title: cstring, w, h: i32, present := Present.Auto) -
 	p.input.moved_ns = sdl.GetTicksNS()
 	SYSTEM_CURSORS :: [Cursor]sdl.SystemCursor{.Pointer = .DEFAULT, .Hand_Point = .POINTER, .IBar = .TEXT, .Left_Right = .EW_RESIZE, .Up_Down = .NS_RESIZE}
 	for kind, c in SYSTEM_CURSORS do p.cursors[c] = sdl.CreateSystemCursor(kind)
+	// No device: the caller draws on the CPU and shows its frames through the
+	// window's surface, which waits for nothing, so it paces them as a
+	// mailbox window's.
 	p.device = gpu_device_create(ODIN_DEBUG)
-	if p.device == nil {
-		return failed(.Gpu_Device)
+	p.present_mode = .MAILBOX
+	if p.device != nil {
+		if !sdl.ClaimWindowForGPUDevice(p.device, p.window) {
+			return failed(.Claim_Window)
+		}
+		_present_init(p, present)
 	}
-	if !sdl.ClaimWindowForGPUDevice(p.device, p.window) {
-		return failed(.Claim_Window)
-	}
-	// Mailbox presentation: never tears, and a frame that finishes after the
-	// compositor's pickup point is simply replaced by the next one; the
-	// compositor gives back a buffer a newer one replaced, so taking the next
-	// image never waits on it (with FIFO it waits for the display, forever
-	// when the display is asleep). FIFO remains where mailbox is unsupported.
-	// `present` overrides it.
-	p.present_mode = .VSYNC
-	if sdl.WindowSupportsGPUPresentMode(p.device, p.window, .MAILBOX) do p.present_mode = .MAILBOX
-	switch present {
-	case .Auto:
-	case .Immediate:
-		if sdl.WindowSupportsGPUPresentMode(p.device, p.window, .IMMEDIATE) do p.present_mode = .IMMEDIATE
-	case .Vsync:
-		p.present_mode = .VSYNC
-	case .Mailbox:
-		if sdl.WindowSupportsGPUPresentMode(p.device, p.window, .MAILBOX) do p.present_mode = .MAILBOX
-	}
-	if !sdl.SetGPUSwapchainParameters(p.device, p.window, .SDR, p.present_mode) do p.present_mode = .VSYNC
-	_ = sdl.SetGPUAllowedFramesInFlight(p.device, 2)
 	_update_size(p)
 	_ = sdl.StartTextInput(p.window) // enable TEXT_INPUT events for line edits
 	p.start_ns = sdl.GetTicksNS()
@@ -332,4 +318,27 @@ _update_size :: proc(p: ^Platform) {
 	p.dpi_scale = sdl.GetWindowDisplayScale(p.window)
 	if p.dpi_scale <= 0 do p.dpi_scale = p.pixel_density
 	p.refresh_ns = refresh_interval_ns(p.window)
+}
+
+// The swapchain's presentation, as `present` asks where the window takes it.
+_present_init :: proc(p: ^Platform, present: Present) {
+	// Mailbox presentation: never tears, and a frame that finishes after the
+	// compositor's pickup point is simply replaced by the next one; the
+	// compositor gives back a buffer a newer one replaced, so taking the next
+	// image never waits on it (with FIFO it waits for the display, forever
+	// when the display is asleep). FIFO remains where mailbox is unsupported.
+	// `present` overrides it.
+	p.present_mode = .VSYNC
+	if sdl.WindowSupportsGPUPresentMode(p.device, p.window, .MAILBOX) do p.present_mode = .MAILBOX
+	switch present {
+	case .Auto:
+	case .Immediate:
+		if sdl.WindowSupportsGPUPresentMode(p.device, p.window, .IMMEDIATE) do p.present_mode = .IMMEDIATE
+	case .Vsync:
+		p.present_mode = .VSYNC
+	case .Mailbox:
+		if sdl.WindowSupportsGPUPresentMode(p.device, p.window, .MAILBOX) do p.present_mode = .MAILBOX
+	}
+	if !sdl.SetGPUSwapchainParameters(p.device, p.window, .SDR, p.present_mode) do p.present_mode = .VSYNC
+	_ = sdl.SetGPUAllowedFramesInFlight(p.device, 2)
 }

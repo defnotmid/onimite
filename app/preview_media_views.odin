@@ -18,22 +18,21 @@ import sdl "vendor:sdl3"
 // (`Media_File_Row.id`), as the timeline's thumbnails and bands are: a view asks
 // for the id (`files_open`, through the mailbox). For an image, the worker
 // holds that file's one decoded image in the media (it stays out of the cache's
-// way until no view is on it) and makes one texture of it, which the UI borrows.
-// Nothing is copied. The pixels are read in the mailbox's table, under its lock:
+// way until no view is on it) and makes one picture of it (render.Picture), which
+// the UI draws. The pixels are read in the mailbox's table, under its lock:
 // the worker takes a row out there before it lets go of them. For a sound, the
 // worker makes the clip's pyramid, the one the timeline's regions of it use
 // (Wave_File), published with the waveforms. A row scrolled away keeps its view,
 // until it is shut or its Watch goes.
 
-// A shown file: its id and the worker's texture of it (nil: no such file, or
+// A shown file: its id and the worker's picture of it (none: no such file, or
 // it can't be read), never written again while published.
 Image_Shown :: struct {
 	id:      u64,
-	texture: ^sdl.GPUTexture,
-	size:    [2]u32,
+	picture: render.Picture,
 }
 
-// A shown file on the worker: the image it holds, and the texture.
+// A shown file on the worker: the image it holds, and the picture.
 Image_View :: struct {
 	using shown: Image_Shown,
 	image:       ^om.Media_Image,
@@ -122,7 +121,7 @@ worker_files :: proc(w: ^Render_Worker) {
 	for v in gone do image_view_retire(w, v)
 }
 
-// The view of file `id`: held in the media, and its texture made once (the
+// The view of file `id`: held in the media, and its picture made once (the
 // premultiplied pixels are what draws, and an opaque image's own are those).
 @(private = "file")
 image_view_make :: proc(w: ^Render_Worker, id: u64) -> (v: Image_View) {
@@ -133,22 +132,22 @@ image_view_make :: proc(w: ^Render_Worker, id: u64) -> (v: Image_View) {
 		img, ok := om.media_image_hold(w.media, name)
 		if !ok do break
 		v.image = img
-		v.size = {u32(img.width), u32(img.height)}
-		v.texture = sdl.CreateGPUTexture(w.device, {type = .D2, format = .R8G8B8A8_UNORM, usage = {.SAMPLER}, width = v.size.x, height = v.size.y, layer_count_or_depth = 1, num_levels = 1})
-		if v.texture != nil {
+		size := [2]u32{u32(img.width), u32(img.height)}
+		v.picture = render.picture_make(w.pictures, size)
+		if v.picture != {} {
 			pixels := om.media_premultiplied(w.media, name)
-			upload_rgba(w.device, v.texture, v.size, pixels if pixels != nil else img.pixels)
+			render.picture_write(w.pictures, v.picture, pixels if pixels != nil else img.pixels, {0, 0, size.x, size.y}, wait = true)
 		}
 		break
 	}
 	return
 }
 
-// Its hold goes; its texture retires until the UI has taken a table without it.
+// Its hold goes; its picture retires until the UI has taken a table without it.
 @(private = "file")
 image_view_retire :: proc(w: ^Render_Worker, v: Image_View) {
 	if v.image != nil do om.media_image_release(w.media, v.image)
-	if v.texture != nil do append(&w.image_retired, v.texture)
+	if v.picture != {} do append(&w.image_retired, v.picture)
 }
 
 // The table the UI reads, with each row's pixels beside it.
@@ -175,11 +174,11 @@ worker_images_retire :: proc(w: ^Render_Worker) {
 	for v in views do image_view_retire(w, v)
 }
 
-// With the mailbox locked: the textures the UI's table no longer names.
+// With the mailbox locked: the pictures the UI's table no longer names.
 @(private)
 images_retired_release :: proc(w: ^Render_Worker) {
 	if w.mb.images_ack != w.mb.images_seq do return
-	for t in w.image_retired do vgsdl.retire_texture(w.device, &w.mb.retired, t)
+	for t in w.image_retired do render.picture_retire(w.pictures, &w.mb.retired, t)
 	clear(&w.image_retired)
 }
 
@@ -188,9 +187,9 @@ images_retired_release :: proc(w: ^Render_Worker) {
 worker_images_release :: proc(w: ^Render_Worker) {
 	for v in w.image_views {
 		if v.image != nil && w.media != nil do om.media_image_release(w.media, v.image)
-		if v.texture != nil do vgsdl.retire_texture(w.device, &w.mb.retired, v.texture)
+		render.picture_retire(w.pictures, &w.mb.retired, v.picture)
 	}
-	for t in w.image_retired do vgsdl.retire_texture(w.device, &w.mb.retired, t)
+	for t in w.image_retired do render.picture_retire(w.pictures, &w.mb.retired, t)
 	delete(w.image_views)
 	delete(w.image_retired)
 	delete(w.files_wanted)
@@ -290,7 +289,7 @@ image_pixel :: proc(mb: ^Mailbox, id: u64, x, y: int) -> (rgba: [4]u8, ok: bool)
 	for row, i in mb.images {
 		if row.id != id do continue
 		pixels := mb.image_pixels[i]
-		at := (y * int(row.size.x) + x) * 4
+		at := (y * int(row.picture.size.x) + x) * 4
 		if at < 0 || at + 4 > len(pixels) do return
 		return {pixels[at], pixels[at + 1], pixels[at + 2], pixels[at + 3]}, true
 	}
@@ -359,20 +358,19 @@ picture_gestures :: proc(app: ^App_State, s: ^ui.State, id: View_Id, sig: ui.Sig
 	return
 }
 
-// The worker's texture, borrowed for the frame, and where it lies in its box's
+// The worker's picture, drawn this frame, and where it lies in its box's
 // parent (picture_rect's): to the fraction of a pixel, where a box lies on whole
 // pixels, so a camera easing moves it smoothly.
 @(private)
-Picture :: struct {
+Picture_Box :: struct {
 	r:       ^render.Renderer,
-	texture: ^sdl.GPUTexture,
-	size:    [2]u32,
+	picture: render.Picture,
 	flags:   vg.Image_Flags,
 	lo, hi:  [2]f32,
 }
 
 @(private)
-picture_box :: proc(s: ^ui.State, p: Picture, flags: ui.Box_Flags, key: string) {
+picture_box :: proc(s: ^ui.State, p: Picture_Box, flags: ui.Box_Flags, key: string) {
 	ui.set_next_fixed_x(s, p.lo.x); ui.set_next_fixed_y(s, p.lo.y)
 	ui.set_next_fixed_width(s, p.hi.x - p.lo.x); ui.set_next_fixed_height(s, p.hi.y - p.lo.y)
 	box := ui.build_box(s, flags, key)
@@ -381,8 +379,8 @@ picture_box :: proc(s: ^ui.State, p: Picture, flags: ui.Box_Flags, key: string) 
 
 @(private = "file")
 picture_draw :: proc(s: ^ui.State, box: ^ui.Box, c: ^vg.Canvas) {
-	d := (^Picture)(box.custom_data)
-	id := render.image_borrow(d.r, c, d.texture, d.size.x, d.size.y, d.flags)
+	d := (^Picture_Box)(box.custom_data)
+	id := render.image_borrow(d.r, c, d.picture, d.flags)
 	at, size := box.parent.rect.min + d.lo, d.hi - d.lo
 	ui.box_path(&s.path, at.x, at.y, size.x, size.y, {})
 	vg.fill_path(c, &s.path, vg.paint_image(id, at.x, at.y, size.x, size.y, 0, box.opacity))
@@ -404,7 +402,7 @@ picture_draw :: proc(s: ^ui.State, box: ^ui.Box, c: ^vg.Canvas) {
 bitmap_view :: proc(app: ^App_State, s: ^ui.State, id: View_Id, file_id: u64, key: string, dim: [2]f32, tab: bool) -> ui.Signal {
 	pv := &app.preview
 	file := image_made(pv, file_id)
-	size := [2]f32{f32(file.size.x), f32(file.size.y)}
+	size := [2]f32{f32(file.picture.size.x), f32(file.picture.size.y)}
 	flags: ui.Box_Flags = {.Clip, .Clickable}
 	if tab do flags += {.Scroll}
 	ui.set_next_fixed_x(s, 0); ui.set_next_fixed_y(s, 0); ui.set_next_fixed_width(s, dim.x); ui.set_next_fixed_height(s, dim.y)
@@ -421,7 +419,7 @@ bitmap_view :: proc(app: ^App_State, s: ^ui.State, id: View_Id, file_id: u64, ke
 	fs := ui.top_font_size(s)
 	grid := new_clone(Bitmap_Grid{{f32(middle.x), f32(middle.y)}, scale, fs * 10, max(2, fs * 0.1)}, context.temp_allocator)
 	ui.box_equip_custom_draw(canvas, bitmap_grid_draw, grid)
-	if file.texture == nil do return sig
+	if file.picture == {} do return sig
 
 	ui.push_parent(s, canvas)
 	defer ui.pop_parent(s)
@@ -443,7 +441,7 @@ bitmap_view :: proc(app: ^App_State, s: ^ui.State, id: View_Id, file_id: u64, ke
 	}
 	// (on whole pixels, as its border is)
 	whole_lo, whole_hi := [2]f32{math.floor(lo.x), math.floor(lo.y)}, [2]f32{math.floor(hi.x), math.floor(hi.y)}
-	picture_box(s, {pv.renderer, file.texture, file.size, {.Nearest, .Premultiplied}, whole_lo, whole_hi}, {.Draw_Border, .Draw_Drop_Shadow}, fmt.tprintf("###bmp_image_%s", key))
+	picture_box(s, {pv.renderer, file.picture, {.Nearest, .Premultiplied}, whole_lo, whole_hi}, {.Draw_Border, .Draw_Drop_Shadow}, fmt.tprintf("###bmp_image_%s", key))
 	return sig
 }
 

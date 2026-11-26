@@ -361,7 +361,10 @@ does. Sound joins as the script's clips are built, without holding up the
 picture.
 Saving any file in the script's folder reloads it within a quarter second
 (changes in `media/` reload the media); an edit that fails to load is shown
-while the last good version keeps playing. The status line shows the GPU,
+while the last good version keeps playing. On a machine without a GPU (on
+Windows, also one whose only adapter is Microsoft's software rasterizer) the
+window and its frames draw on the CPU and show through SDL's window surface; it says so on stderr, and
+the status line reads `software (no GPU)`. The status line shows the GPU,
 the preview resolution, render time, latency and the problems found in the
 frames shown; a click opens them in the Watch. The bar above it holds
 play / pause, loop, the bookmark, the sound, its volume and Reload at the

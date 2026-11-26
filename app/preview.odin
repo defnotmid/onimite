@@ -241,7 +241,7 @@ Preview_State :: struct {
 	seen_reload:        u64,
 	// The newest frame the worker published: its texture (the worker's,
 	// shown through a borrowed image) and size.
-	video_texture:      ^sdl.GPUTexture,
+	video_picture:      render.Picture,
 	video_size:         [2]u32,
 	// The window's frame (preview_run's), whose borrowed images show the
 	// worker's textures.
@@ -259,6 +259,7 @@ Preview_State :: struct {
 	// interval between frames (vsync included), in ms. For --exit-after and
 	// ONIMITE_DEBUG.
 	ui_ms:              [dynamic]f32,
+	draw_ms:            [dynamic]f32,
 	interval_ms:        [dynamic]f32,
 }
 
@@ -495,9 +496,19 @@ preview_run :: proc(app: ^App_State, capture, drive, start_spec: string) -> Erro
 		return fail(app, {code = .Window, window = err, spec = detail})
 	}
 	defer platform.shutdown(&p)
+	// No GPU device (none, or only a software one): the window's frames and
+	// the worker's are drawn on the CPU, and the window shows them through
+	// its surface.
+	if p.device == nil {
+		warn("no GPU (%s), the preview draws on the CPU", sdl.GetError())
+	}
+	// What the worker draws for the window: textures, or with no device
+	// software pictures, which the window runs each frame.
+	pictures := render.Pictures{device = p.device}
+	defer render.pictures_destroy(&pictures)
 
 	r: render.Renderer
-	render.init(&r, p.device, p.window)
+	render.init(&r, p.device, p.window, &pictures)
 	defer render.destroy(&r)
 	pv.renderer = &r
 	defer pv.renderer = nil
@@ -506,14 +517,31 @@ preview_run :: proc(app: ^App_State, capture, drive, start_spec: string) -> Erro
 		return fail(app, {code = .Window_Drawing, drawing = .Font})
 	}
 	defer render.font_unload(&font)
+	// One ovg canvas draws the whole frame: on the window's device, or on the
+	// CPU, on its own share of the app's pool.
 	gpu: vgsdl.SDL_Backend
-	if vgsdl.init(&gpu, p.device) != nil {
-		return fail(app, {code = .Window_Drawing, drawing = .Backend})
+	cpu: vg.Software_Backend
+	cpu_work: om.Pool_Work
+	backend: vg.Backend
+	if p.device != nil {
+		if vgsdl.init(&gpu, p.device) != nil {
+			return fail(app, {code = .Window_Drawing, drawing = .Backend})
+		}
+		backend = vgsdl.backend(&gpu)
+	} else {
+		vg.software_backend_init(&cpu)
+		om.pool_work_init(&cpu_work, app.pool)
+		cpu.pool = &cpu_work.work_pool
+		backend = vg.software_backend(&cpu)
 	}
-	defer vgsdl.destroy(&gpu)
-	// One ovg canvas draws the whole frame.
+	defer if p.device != nil {
+		vgsdl.destroy(&gpu)
+	} else {
+		vg.software_backend_destroy(&cpu)
+		om.pool_work_destroy(&cpu_work)
+	}
 	canvas: vg.Canvas
-	vg.canvas_init(&canvas, vgsdl.backend(&gpu))
+	vg.canvas_init(&canvas, backend)
 	defer vg.canvas_destroy(&canvas)
 	defer media_images_release(pv, &canvas)
 
@@ -528,11 +556,15 @@ preview_run :: proc(app: ^App_State, capture, drive, start_spec: string) -> Erro
 	s.theme.background = BARE_BG if pv.bare else PREVIEW_BG
 	pv.font_size = FONT_SIZE_DEFAULT
 
-	pv.device_name = strings.clone("software" if app.software else string(sdl.GetGPUDeviceDriver(p.device)))
-	props := sdl.GetGPUDeviceProperties(p.device)
-	if name := sdl.GetStringProperty(props, sdl.PROP_GPU_DEVICE_NAME_STRING, nil); name != nil && !app.software {
-		delete(pv.device_name)
-		pv.device_name = fmt.aprintf("%s (%s)", name, sdl.GetGPUDeviceDriver(p.device))
+	if p.device == nil {
+		pv.device_name = strings.clone("software (no GPU)")
+	} else {
+		pv.device_name = strings.clone("software" if app.software else string(sdl.GetGPUDeviceDriver(p.device)))
+		props := sdl.GetGPUDeviceProperties(p.device)
+		if name := sdl.GetStringProperty(props, sdl.PROP_GPU_DEVICE_NAME_STRING, nil); name != nil && !app.software {
+			delete(pv.device_name)
+			pv.device_name = fmt.aprintf("%s (%s)", name, sdl.GetGPUDeviceDriver(p.device))
+		}
 	}
 
 	// The threads: audio (our feeder, filling SDL's stream) and the render worker.
@@ -544,7 +576,7 @@ preview_run :: proc(app: ^App_State, capture, drive, start_spec: string) -> Erro
 	mb.start_loaded = -1
 	audio := new(Audio_Shared)
 	worker := new(Render_Worker)
-	worker^ = {mb = mb, audio = audio, device = p.device, software = app.software, debug = app.debug, log_clips = app.clip_log, image_budget = app.image_budget, script_path = strings.clone(pv.script_path), script_args = app.script_args, script_props = pv.script_props[:], start_spec = strings.clone(start_spec), media_dir = strings.clone(pv.media_dir), video = &app.video, pool = app.pool, background = app.background}
+	worker^ = {mb = mb, audio = audio, device = p.device, pictures = &pictures, software = app.software || p.device == nil, debug = app.debug, log_clips = app.clip_log, image_budget = app.image_budget, script_path = strings.clone(pv.script_path), script_args = app.script_args, script_props = pv.script_props[:], start_spec = strings.clone(start_spec), media_dir = strings.clone(pv.media_dir), video = &app.video, pool = app.pool, background = app.background}
 	pv.mailbox, pv.worker, pv.audio = mb, worker, audio
 	pv.audio_stream = audio_open(audio)
 	if pv.audio_stream == nil {
@@ -600,6 +632,8 @@ preview_run :: proc(app: ^App_State, capture, drive, start_spec: string) -> Erro
 
 		preview_playback_advance(app, dt)
 		preview_take_published(app, &canvas, now)
+		// The pictures the worker wrote before it published them.
+		render.pictures_run(&pictures, &canvas)
 		preview_motion_advance(app, p.frame_dt) // the cameras ease as the UI does
 		preview_view_follow(app)
 		preview_layout(app, &p)
@@ -633,7 +667,8 @@ preview_run :: proc(app: ^App_State, capture, drive, start_spec: string) -> Erro
 				fmt.eprintln("preview: captured", capture)
 			}
 		} else {
-			_, shown := render.end_frame(&r, &canvas)
+			flush_ns, shown := render.end_frame(&r, &canvas)
+			append(&pv.draw_ms, f32(f64(flush_ns) / 1e6))
 			preview_pace(&p, shown, &next_ns)
 		}
 
@@ -674,9 +709,11 @@ preview_run :: proc(app: ^App_State, capture, drive, start_spec: string) -> Erro
 	return nil
 }
 
-// The --exit-after / ONIMITE_DEBUG summary: UI work and frame intervals as
-// median / p95 / max (the first frames, window and pipeline creation, are
-// skipped), budget misses, and the worker's last render and latency.
+// The --exit-after / ONIMITE_DEBUG summary: UI work, the frame's drawing
+// (render.end_frame's flush: on the GPU, recording it; on the CPU, drawing
+// it; not the wait for the display) and frame intervals as median / p95 / max (the first
+// frames, window and pipeline creation, are skipped), budget misses, and
+// the worker's last render and latency.
 @(private)
 preview_report :: proc(app: ^App_State) {
 	pv := &app.preview
@@ -696,15 +733,20 @@ preview_report :: proc(app: ^App_State) {
 		return sorted[len(sorted) / 2], sorted[min(len(sorted) * 95 / 100, len(sorted) - 1)], sorted[len(sorted) - 1], over
 	}
 	wm, wp, ww, wo := stats(pv.ui_ms[min(SKIP, len(pv.ui_ms)):])
+	dm, dp, dw, do_ := stats(pv.draw_ms[min(SKIP, len(pv.draw_ms)):])
 	im, ip, iw, io := stats(pv.interval_ms[min(SKIP, len(pv.interval_ms)):])
 	fmt.eprintfln(
-		"preview: %d frames, first frame at %.2f s; UI work median %.2f / p95 %.2f / max %.2f ms (%d over budget); interval median %.2f / p95 %.2f / max %.2f ms (%d over budget); last video render %.2f ms, latency %.2f ms, %.0f video fps on %s; frame %d shown %d; %d thumbnails, %d lanes, %d media, %d problems%s%s",
+		"preview: %d frames, first frame at %.2f s; UI work median %.2f / p95 %.2f / max %.2f ms (%d over budget); drawing median %.2f / p95 %.2f / max %.2f ms (%d over budget); interval median %.2f / p95 %.2f / max %.2f ms (%d over budget); last video render %.2f ms, latency %.2f ms, %.0f video fps on %s; frame %d shown %d; %d thumbnails, %d lanes, %d media, %d problems%s%s",
 		len(pv.ui_ms),
 		pv.first_frame_at,
 		wm,
 		wp,
 		ww,
 		wo,
+		dm,
+		dp,
+		dw,
+		do_,
 		im,
 		ip,
 		iw,
@@ -1036,6 +1078,7 @@ preview_state_destroy :: proc(pv: ^Preview_State) {
 	delete(pv.images)
 	preview_timeline_destroy(&pv.timeline)
 	delete(pv.ui_ms)
+	delete(pv.draw_ms)
 	delete(pv.interval_ms)
 	pv^ = {}
 }
@@ -1642,7 +1685,7 @@ preview_switch_script :: proc(app: ^App_State, path: string) {
 		// new script (the stop waits for the frame in progress).
 		mb := w.mb
 		// Its textures go with it: stop showing them.
-		pv.video_texture, pv.video_size = nil, {}
+		pv.video_picture, pv.video_size = {}, {}
 		clear(&pv.thumbs)
 		clear(&pv.band_textures)
 		clear(&pv.bands_shown)
@@ -1655,7 +1698,7 @@ preview_switch_script :: proc(app: ^App_State, path: string) {
 		sync.mutex_lock(&mb.mutex)
 		mb.quit = false
 		mb.slot = -1
-		mb.slot_texture = nil
+		mb.slot_picture = {}
 		mb.displayed_slot = -1
 		mb.bookmark = -1
 		mb.bookmark_seq = 0
@@ -1837,7 +1880,7 @@ preview_take_published :: proc(app: ^App_State, c: ^vg.Canvas, now: f64) {
 		}
 		pv.seen_publish = mb.published_seq
 		mb.displayed_slot = mb.slot
-		pv.video_texture, pv.video_size = mb.slot_texture, mb.slot_size
+		pv.video_picture, pv.video_size = mb.slot_picture, mb.slot_size
 		pv.shown_frame = mb.slot_frame
 		pv.shown_size = mb.slot_size
 		pv.render_ms = mb.render_ms
@@ -2284,7 +2327,7 @@ video_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32, area: Workspace_Rect
 	// frame shows): what the worker is doing, a failed reload.
 	ui.push_parent(s, video)
 	defer ui.pop_parent(s)
-	ui.spacer(s, ui.px(12 * dpi if pv.video_texture != nil else area.height * 0.5 - 16 * dpi))
+	ui.spacer(s, ui.px(12 * dpi if pv.video_picture != {} else area.height * 0.5 - 16 * dpi))
 	label_row :: proc(s: ^ui.State, dpi: f32, text: string, bg, fg: [4]u8) {
 		ui.set_next_pref_width(s, ui.pct(1)); ui.set_next_pref_height(s, ui.children_sum()); ui.set_next_child_layout_axis(s, .X)
 		ui.push_parent(s, ui.build_box(s, {}, ""))
@@ -2297,7 +2340,7 @@ video_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32, area: Workspace_Rect
 		ui.pop_parent(s)
 	}
 	// a live board shows the last good frame while it reloads
-	if (pv.loading && !pv.live) || pv.video_texture == nil {
+	if (pv.loading && !pv.live) || pv.video_picture == {} {
 		label := "Rendering the first frame…"
 		if pv.loading {
 			phase := "running the script"
@@ -2321,11 +2364,11 @@ video_view :: proc(app: ^App_State, s: ^ui.State, dpi: f32, area: Workspace_Rect
 		label_row(s, dpi, fmt.tprintf("reload failed: %s###reload_error", first_line), {70, 24, 28, 235}, {255, 220, 220, 255})
 	}
 	// Built last, it lies under them.
-	if v := workspace_view(&pv.workspace, id); v != nil && pv.video_texture != nil && !pv.blackout && pv.video_size.x > 0 && pv.video_size.y > 0 && area.width > 0 && area.height > 0 {
+	if v := workspace_view(&pv.workspace, id); v != nil && pv.video_picture != {} && !pv.blackout && pv.video_size.x > 0 && pv.video_size.y > 0 && area.width > 0 && area.height > 0 {
 		// (`area` as the layout places its box this frame, on whole pixels)
 		dim := [2]f32{math.floor(area.x + area.width) - math.floor(area.x), math.floor(area.y + area.height) - math.floor(area.y)}
 		lo, hi := picture_rect({f32(pv.video_size.x), f32(pv.video_size.y)}, dim, v.shown)
-		picture_box(s, {pv.renderer, pv.video_texture, pv.video_size, {}, lo, hi}, {}, "###video_picture")
+		picture_box(s, {pv.renderer, pv.video_picture, {}, lo, hi}, {}, "###video_picture")
 	}
 }
 

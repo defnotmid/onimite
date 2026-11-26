@@ -1,18 +1,27 @@
-// Package render is the preview's SDL3 GPU frame, as onib's: ovg draws the
+// Package render is the preview's SDL3 frame, as onib's: ovg draws the
 // whole frame (the UI's boxes and text, the timeline, the video frame and
-// thumbnails other threads render) as one canvas into the frame image,
-// recording into the frame's command buffer; the image's texture is then
-// shown.
+// thumbnails other threads render, `Picture`s) as one canvas into the frame
+// image, then the image is shown. On the window's GPU device the canvas
+// records into the frame's command buffer and the image's texture is
+// blitted to the swapchain; with no device (a machine whose only GPU is a
+// software one, or none) the canvas draws on the CPU and the image's
+// pixels are copied into the window's surface, which SDL shows without a
+// GPU.
 package render
 
 import "core:time"
 import vg "deps:ovg"
 import vgsdl "deps:ovg/sdlgpu"
+import vgsoft "deps:ovg/sdlsoft"
 import sdl "vendor:sdl3"
 
 Renderer :: struct {
+	// Nil: the frame is drawn on the CPU and shown through the window's
+	// surface.
 	device:     ^sdl.GPUDevice,
 	window:     ^sdl.Window,
+	// What other threads draw for the window (image_borrow).
+	pictures:   ^Pictures,
 	fb_w, fb_h: u32,
 	// The ovg image the frame is drawn into (so its layers can read what is
 	// drawn, as a backdrop blur does), shown each frame or read back by
@@ -24,6 +33,8 @@ Renderer :: struct {
 	// textures in order: the first `shown` drawn this frame.
 	borrowed:   [dynamic]vg.Image_Id,
 	shown:      int,
+	// No device: shows the frame image's pixels in the window's surface.
+	presenter:  vgsoft.Presenter,
 }
 
 // What failed to set up the preview's drawing (onimite).
@@ -39,11 +50,17 @@ FORMAT :: sdl.GPUTextureFormat.R8G8B8A8_UNORM
 texture :: proc(device: ^sdl.GPUDevice, w, h: u32, format := FORMAT) -> ^sdl.GPUTexture {
 	return sdl.CreateGPUTexture(device, {type = .D2, format = format, usage = {.SAMPLER, .COLOR_TARGET}, width = w, height = h, layer_count_or_depth = 1, num_levels = 1, sample_count = ._1})
 }
-init :: proc(r: ^Renderer, device: ^sdl.GPUDevice, window: ^sdl.Window) {r.device, r.window = device, window}
+init :: proc(r: ^Renderer, device: ^sdl.GPUDevice, window: ^sdl.Window, pictures: ^Pictures) {
+	r.device, r.window, r.pictures = device, window, pictures
+	vgsoft.presenter_init(&r.presenter, window)
+}
 defer_release_texture :: proc(r: ^Renderer, t: ^sdl.GPUTexture) {if t != nil do append(&r.retired, t)}
 destroy :: proc(r: ^Renderer) {
-	_ = sdl.WaitForGPUIdle(r.device)
-	for t in r.retired do sdl.ReleaseGPUTexture(r.device, t)
+	if r.device != nil {
+		_ = sdl.WaitForGPUIdle(r.device)
+		for t in r.retired do sdl.ReleaseGPUTexture(r.device, t)
+	}
+	vgsoft.presenter_destroy(&r.presenter)
 	delete(r.retired)
 	delete(r.borrowed)
 }
@@ -68,11 +85,22 @@ begin_frame :: proc(r: ^Renderer, c: ^vg.Canvas, w, h: u32) -> vg.Image_Id {
 // shows nothing this time. The caller paces.
 end_frame :: proc(r: ^Renderer, c: ^vg.Canvas) -> (flush_ns: i64, shown: bool) {
 	t0 := time.tick_now()
+	unseen := sdl.GetWindowFlags(r.window) & {.HIDDEN, .MINIMIZED, .OCCLUDED} != {}
+	if r.device == nil {
+		vg.flush(c)
+		flush_ns = i64(time.tick_diff(t0, time.tick_now()))
+		// The frame image's pixels (premultiplied over an opaque background),
+		// copied into the window's surface.
+		if src, ok := vg.software_backend_image(c, r.frame); ok && !unseen {
+			shown = vgsoft.present_pixels(&r.presenter, src)
+		}
+		pictures_after_frame(r.pictures, c)
+		return
+	}
 	cmd := sdl.AcquireGPUCommandBuffer(r.device)
 	out := vgsdl.Output{nil, FORMAT, r.fb_w, r.fb_h, cmd}
 	vg.flush(c, vgsdl.output(&out))
 	flush_ns = i64(time.tick_diff(t0, time.tick_now()))
-	unseen := sdl.GetWindowFlags(r.window) & {.HIDDEN, .MINIMIZED, .OCCLUDED} != {}
 	swap: ^sdl.GPUTexture; w, h: u32
 	if !unseen && sdl.AcquireGPUSwapchainTexture(cmd, r.window, &swap, &w, &h) && swap != nil {
 		sdl.BlitGPUTexture(cmd, {source = {texture = vgsdl.image_texture(c, r.frame), w = r.fb_w, h = r.fb_h}, destination = {texture = swap, w = w, h = h}, load_op = .DONT_CARE, filter = .LINEAR})
@@ -88,6 +116,12 @@ end_frame :: proc(r: ^Renderer, c: ^vg.Canvas) -> (flush_ns: i64, shown: bool) {
 // returns it as tightly packed RGBA8 (for smoke tests and screenshots
 // without a compositor).
 end_frame_capture :: proc(r: ^Renderer, c: ^vg.Canvas, allocator := context.allocator) -> (pixels: []u8, ok: bool) {
+	if r.device == nil {
+		vg.flush(c)
+		pictures_after_frame(r.pictures, c)
+		read, err := vg.read_image(c, r.frame, allocator)
+		return read, err == nil
+	}
 	cmd := sdl.AcquireGPUCommandBuffer(r.device)
 	out := vgsdl.Output{nil, FORMAT, r.fb_w, r.fb_h, cmd}
 	vg.flush(c, vgsdl.output(&out))
@@ -101,11 +135,21 @@ end_frame_capture :: proc(r: ^Renderer, c: ^vg.Canvas, allocator := context.allo
 	return read, err == nil
 }
 
-// onimite: the next of the frame's borrowed images, showing `texture` (made
-// on another thread, `w` by `h`), to paint with vg.paint_image.
-image_borrow :: proc(r: ^Renderer, c: ^vg.Canvas, texture: ^sdl.GPUTexture, w, h: u32, flags: vg.Image_Flags = {}) -> vg.Image_Id {
+// onimite: picture `p` (made on another thread) as an image to paint with
+// vg.paint_image: a texture as the next of the frame's borrowed images, a
+// software picture as its own image (pictures_run wrote it).
+image_borrow :: proc(r: ^Renderer, c: ^vg.Canvas, p: Picture, flags: vg.Image_Flags = {}) -> vg.Image_Id {
+	if p.texture == nil {
+		if p.key == 0 || int(p.key) > len(r.pictures.images) do return {}
+		id := r.pictures.images[p.key - 1]
+		if info, ok := vg.image_info(c, id); ok && info.flags != flags {
+			info.flags = flags
+			vg.image_set_info(c, id, info)
+		}
+		return id
+	}
 	if r.shown == len(r.borrowed) do append(&r.borrowed, vg.Image_Id{})
-	r.borrowed[r.shown] = vgsdl.image_borrow_texture(c, r.borrowed[r.shown], texture, w, h, .RGBA8, flags)
+	r.borrowed[r.shown] = vgsdl.image_borrow_texture(c, r.borrowed[r.shown], p.texture, p.size.x, p.size.y, .RGBA8, flags)
 	r.shown += 1
 	return r.borrowed[r.shown - 1]
 }

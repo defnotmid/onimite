@@ -10,6 +10,7 @@ import "core:testing"
 import "core:thread"
 import om "../onimite"
 import platform "../platform"
+import render "../render"
 import script "../script"
 import ui "../ui"
 import odimg "deps:oicut/image"
@@ -107,7 +108,7 @@ row_view :: proc(pv: ^Preview_State, id: View_Id, row: View_Row) -> ^View_Record
 @(private = "file")
 table_has :: proc(pv: ^Preview_State, mb: ^Mailbox, file: u64) {
 	@(static) pixels := [16]u8{255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 0, 128}
-	append(&mb.images, Image_Shown{file, (^sdl.GPUTexture)(uintptr(8)), {2, 2}})
+	append(&mb.images, Image_Shown{file, {texture = (^sdl.GPUTexture)(uintptr(8)), size = {2, 2}}})
 	append(&mb.image_pixels, pixels[:])
 	mb.images_seq += 1
 	images_take(pv, mb)
@@ -896,7 +897,7 @@ test_image_view_in_a_tab :: proc(t: ^testing.T) {
 	tp.p.frame_dt = 1
 	file := u64(77)
 	pixels := []u8{255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 0, 128}
-	append(&mb.images, Image_Shown{file, (^sdl.GPUTexture)(uintptr(8)), {2, 2}})
+	append(&mb.images, Image_Shown{file, {texture = (^sdl.GPUTexture)(uintptr(8)), size = {2, 2}}})
 	append(&mb.image_pixels, pixels)
 	mb.images_seq += 1
 	images_take(pv, &mb)
@@ -949,7 +950,7 @@ test_image_view_in_a_tab :: proc(t: ^testing.T) {
 	video.camera = {{0.25, 0.25}, 2}
 	tp.s.press_keys[.Left] = {}
 	frame(&tp, id, file, dim)
-	whole := (^Picture)(test_box(&tp.s, "###bmp_image_tab").custom_data)
+	whole := (^Picture_Box)(test_box(&tp.s, "###bmp_image_tab").custom_data)
 	testing.expect(t, whole.lo.x == math.floor(whole.lo.x) && whole.lo.y == math.floor(whole.lo.y) && whole.hi.x == math.floor(whole.hi.x) && whole.hi.y == math.floor(whole.hi.y))
 	before := v.camera.center
 	frame(&tp, id, file, dim, platform.Event{kind = .Mouse_Press, button = .Left, position = on_pixel})
@@ -999,9 +1000,12 @@ test_worker_shares_what_the_views_show :: proc(t: ^testing.T) {
 	testing.expect_value(t, om.media_load_dir(&m, dir), om.Error.None)
 	mb: Mailbox
 	defer mailbox_destroy(&mb)
+	pictures: render.Pictures
+	defer render.pictures_destroy(&pictures)
 	w := Render_Worker {
-		mb    = &mb,
-		media = &m,
+		mb       = &mb,
+		media    = &m,
+		pictures = &pictures,
 	}
 	defer delete(w.files_wanted)
 	defer delete(w.image_views)
@@ -1023,7 +1027,7 @@ test_worker_shares_what_the_views_show :: proc(t: ^testing.T) {
 	worker_files(&w)
 	testing.expect(t, !files_pending(&w, w.mb.files_wanted_seq))
 	testing.expect_value(t, img.held, 1)
-	testing.expect(t, len(mb.images) == 1 && mb.images[0].id == file && mb.images[0].size == {2, 1})
+	testing.expect(t, len(mb.images) == 1 && mb.images[0].id == file && mb.images[0].picture.size == {2, 1})
 	testing.expect(t, raw_data(mb.image_pixels[0]) == raw_data(img.pixels), "the store's own bytes, not a copy")
 	testing.expect_value(t, mb.images_seq, 1)
 
@@ -1037,7 +1041,7 @@ test_worker_shares_what_the_views_show :: proc(t: ^testing.T) {
 	want(&mb, file, file + 1)
 	worker_files(&w)
 	testing.expect_value(t, len(mb.images), 2)
-	testing.expect(t, mb.images[1].id == file + 1 && mb.images[1].texture == nil && mb.image_pixels[1] == nil)
+	testing.expect(t, mb.images[1].id == file + 1 && mb.images[1].picture == {} && mb.image_pixels[1] == nil)
 	testing.expect(t, !files_pending(&w, w.mb.files_wanted_seq))
 
 	// A load: the table clear before the hold goes, then made again.
@@ -1059,11 +1063,12 @@ test_worker_shares_what_the_views_show :: proc(t: ^testing.T) {
 	testing.expect_value(t, img.held, 0)
 	testing.expect_value(t, len(w.image_views), 0)
 
-	// A retired texture waits for the UI's ack (the device is nil: SDL's
-	// release does nothing, the list is what this reads).
-	append(&w.image_retired, (^sdl.GPUTexture)(uintptr(8)))
+	// The pictures of the file's two views (the load's and this one's; the
+	// missing file's had none) wait for the UI's ack, then go to the window
+	// (no device: software pictures, let go of in the window's queue).
+	testing.expect_value(t, len(w.image_retired), 2)
 	images_retired_release(&w)
-	testing.expect_value(t, len(w.image_retired), 1)
+	testing.expect_value(t, len(w.image_retired), 2)
 	mb.images_ack = mb.images_seq
 	images_retired_release(&w)
 	testing.expect_value(t, len(w.image_retired), 0)
@@ -1092,8 +1097,11 @@ test_reads_survive_loads :: proc(t: ^testing.T) {
 	odimg.write_png(fmt.tprintf("%s/logo.png", dir), source[:], 2, 1)
 	mb: Mailbox
 	defer mailbox_destroy(&mb)
+	pictures: render.Pictures
+	defer render.pictures_destroy(&pictures)
 	w := Render_Worker {
-		mb = &mb,
+		mb       = &mb,
+		pictures = &pictures,
 	}
 	defer delete(w.files_wanted)
 	defer delete(w.image_views)
@@ -1455,13 +1463,16 @@ test_sound_view_plays_alone :: proc(t: ^testing.T) {
 test_worker_lets_go_through_the_table :: proc(t: ^testing.T) {
 	mb: Mailbox
 	defer mailbox_destroy(&mb)
+	pictures: render.Pictures
+	defer render.pictures_destroy(&pictures)
 	w := Render_Worker {
-		mb = &mb,
+		mb       = &mb,
+		pictures = &pictures,
 	}
 	defer delete(w.image_retired)
 	// (Never a real texture: it mustn't reach SDL here, and a release would.)
 	texture := (^sdl.GPUTexture)(uintptr(0x1000))
-	append(&w.image_retired, texture)
+	append(&w.image_retired, render.Picture{texture = texture})
 	images_retired_release(&w)
 	testing.expect_value(t, len(w.image_retired), 0)
 	testing.expect_value(t, len(mb.retired.textures), 1)
@@ -1502,8 +1513,8 @@ test_pictures_share_their_camera :: proc(t: ^testing.T) {
 	pv := &app.preview
 	ws := &pv.workspace
 	tp.p.frame_dt = 1
-	pv.video_texture, pv.video_size = (^sdl.GPUTexture)(uintptr(8)), {1280, 720}
-	defer pv.video_texture = nil
+	pv.video_picture, pv.video_size = {texture = (^sdl.GPUTexture)(uintptr(8)), size = {1280, 720}}, {1280, 720}
+	defer pv.video_picture = {}
 	for _ in 0 ..< 3 do test_frame(&tp)
 	id := workspace_find(ws, .Video)
 	v := workspace_view(ws, id)
@@ -1514,7 +1525,7 @@ test_pictures_share_their_camera :: proc(t: ^testing.T) {
 	dim := box.rect.max - box.rect.min
 	placed :: proc(t: ^testing.T, tp: ^Test_Preview, v: ^View_Record, dim: [2]f32, loc := #caller_location) {
 		// (to the fraction of a pixel: it eases smoothly)
-		d := (^Picture)(test_box(&tp.s, "###video_picture").custom_data)
+		d := (^Picture_Box)(test_box(&tp.s, "###video_picture").custom_data)
 		lo, hi := picture_rect({1280, 720}, dim, v.shown)
 		testing.expectf(t, d.lo == lo && d.hi == hi, "%v..%v, want %v..%v", d.lo, d.hi, lo, hi, loc = loc)
 	}
