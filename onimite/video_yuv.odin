@@ -123,7 +123,7 @@ video_yuv_run :: proc(r: ^Renderer, slot: int, info: Video_Info) -> bool {
 		if y.failed {
 			return false
 		}
-		m, _, ok := oksl.compile(VIDEO_YUV_SKSL)
+		m, _, ok := oksl.compile(VIDEO_YUV_SKSL, shader_options(r.media))
 		y.module = m
 		if !ok {
 			y.failed = true

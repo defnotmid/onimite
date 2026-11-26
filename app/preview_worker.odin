@@ -1157,6 +1157,8 @@ renderer_open :: proc(w: ^Render_Worker, r: ^om.Renderer, gpu: ^vgsdl.SDL_Backen
 	if backend != nil {
 		gpu3d.device, gpu3d.retired = w.device, &w.mb.retired3d
 		r.gpu3d = gpu3d
+		// The scripts' shaders compile to the window device's code.
+		om.media_gpu_formats(w.media, gpu.shader_format)
 	}
 	r.pool = w.pool
 	return true

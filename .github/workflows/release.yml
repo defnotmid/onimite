@@ -65,7 +65,7 @@ jobs:
         with:
           repository: defnotmid/ovg
           path: ovg
-          ref: v0.1.2
+          ref: v0.1.4
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/ocurves
@@ -82,7 +82,7 @@ jobs:
         with:
           repository: defnotmid/oksl
           # Pinned like o3d, whose shaders and onimite's it compiles (v0.0.3; o3d v0.0.50 needs it).
-          ref: v0.1.2
+          ref: v0.1.3
           path: oksl
       - uses: actions/checkout@v4
         with:
@@ -100,13 +100,13 @@ jobs:
         with:
           repository: defnotmid/o3d
           # Pinned like ottis: o3d is released on its own (v0.0.59).
-          ref: v0.1.1
+          ref: v0.1.2
           path: o3d
       - uses: actions/checkout@v4
         with:
           repository: defnotmid/odawg
           # Pinned like ottis: odawg is released on its own (v0.0.55: a SIMD sampler kernel, and voice spans merged once per mix for ducking).
-          ref: v0.1.0
+          ref: v0.1.1
           path: odawg
 
       - uses: ./onimite/.github/actions/setup-toolchain

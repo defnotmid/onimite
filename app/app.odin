@@ -12,6 +12,8 @@ import "../speech"
 import vg "deps:ovg"
 import odimg "deps:oicut/image"
 import vgsdl "deps:ovg/sdlgpu"
+import sdl "vendor:sdl3"
+import platform "../platform"
 
 App_State :: struct {
 	commands:       Command_Storage,
@@ -55,8 +57,8 @@ App_State :: struct {
 	// The GPU could not be set up: renderers draw on the CPU (the choice
 	// in `software` stays the user's).
 	gpu_failed:     bool,
-	// The preview window's device, shared with the GPU backend (nil: headless).
-	gpu_device:     rawptr,
+	// The device `gpu` draws on, made by `renderer` (nil: none).
+	gpu_device:     ^sdl.GPUDevice,
 	preview:        Preview_State,
 	// Debug_Set: time and log what runs; log the clip frames shown.
 	debug:          bool,
@@ -158,6 +160,9 @@ app_destroy :: proc(app: ^App_State) {
 	om.view3d_gpu_destroy(&app.gpu3d)
 	if app.gpu_ready {
 		vgsdl.destroy(&app.gpu)
+	}
+	if app.gpu_device != nil {
+		sdl.DestroyGPUDevice(app.gpu_device)
 	}
 	script.unload(&app.script)
 	script_inputs_clear(app)
@@ -382,12 +387,22 @@ renderer :: proc(app: ^App_State, scale: f32) -> (^om.Renderer, Error) {
 	if !app.renderer_ready {
 		backend: Maybe(vg.Backend)
 		if !app.software && !app.gpu_ready && !app.gpu_failed {
-			if err := vgsdl.init(&app.gpu, auto_cast app.gpu_device); err != nil {
+			// onimite's own device, so that a machine whose only adapter is
+			// a software one draws on the CPU (platform.gpu_device_create).
+			device := platform.gpu_device_headless()
+			if device == nil {
+				warn("no GPU (%s), drawing on the CPU", sdl.GetError())
+				app.gpu_failed = true
+			} else if err := vgsdl.init(&app.gpu, device); err != nil {
+				sdl.DestroyGPUDevice(device)
 				warn("no GPU (%v), drawing on the CPU", err)
 				app.gpu_failed = true
 			} else {
+				app.gpu_device = device
 				app.gpu_ready = true
-				app.gpu3d.device = app.gpu.device
+				app.gpu3d.device = device
+				// The scripts' shaders compile to the device's code.
+				om.media_gpu_formats(&app.media, app.gpu.shader_format)
 			}
 		}
 		if app.gpu_ready && !app.software {

@@ -82,9 +82,10 @@ Error :: enum u8 {
 	Claim_Window,
 }
 
-// init opens a resizable, high-DPI window backed by an SDL_GPU device using the
-// SPIR-V (Vulkan) or MSL (Metal) shader format, presenting as `present`
-// says. On failure `detail` is SDL's reason (temp memory).
+// init opens a resizable, high-DPI window backed by an SDL_GPU device
+// (`gpu_device_create`: Vulkan, Metal, or Direct3D 12 on a hardware adapter),
+// presenting as `present` says. On failure `detail` is SDL's reason (temp
+// memory).
 init :: proc(p: ^Platform, title: cstring, w, h: i32, present := Present.Auto) -> (err: Error, detail: string) {
 	failed :: proc(err: Error) -> (Error, string) {
 		return err, strings.clone_from_cstring(sdl.GetError(), context.temp_allocator)
@@ -104,14 +105,7 @@ init :: proc(p: ^Platform, title: cstring, w, h: i32, present := Present.Auto) -
 	p.input.moved_ns = sdl.GetTicksNS()
 	SYSTEM_CURSORS :: [Cursor]sdl.SystemCursor{.Pointer = .DEFAULT, .Hand_Point = .POINTER, .IBar = .TEXT, .Left_Right = .EW_RESIZE, .Up_Down = .NS_RESIZE}
 	for kind, c in SYSTEM_CURSORS do p.cursors[c] = sdl.CreateSystemCursor(kind)
-	// SPIR-V (Vulkan) and MSL (Metal) only: ovg and the UI commit no DXIL,
-	// so Windows runs SDL_GPU on Vulkan.
-	props := sdl.CreateProperties()
-	defer sdl.DestroyProperties(props)
-	_ = sdl.SetBooleanProperty(props, sdl.PROP_GPU_DEVICE_CREATE_SHADERS_SPIRV_BOOLEAN, true)
-	_ = sdl.SetBooleanProperty(props, sdl.PROP_GPU_DEVICE_CREATE_SHADERS_MSL_BOOLEAN, true)
-	_ = sdl.SetBooleanProperty(props, sdl.PROP_GPU_DEVICE_CREATE_DEBUGMODE_BOOLEAN, ODIN_DEBUG)
-	p.device = sdl.CreateGPUDeviceWithProperties(props)
+	p.device = gpu_device_create(ODIN_DEBUG)
 	if p.device == nil {
 		return failed(.Gpu_Device)
 	}

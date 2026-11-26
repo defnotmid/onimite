@@ -87,20 +87,21 @@ gpu_nv12_init :: proc(g: ^GPU_NV12, device: ^sdl.GPUDevice, width, height: int) 
 
 	formats := sdl.GetGPUShaderFormats(device)
 	spirv := .SPIRV in formats
-	if !spirv && .MSL not_in formats {
+	dxbc := !spirv && .MSL not_in formats
+	if dxbc && .DXBC not_in formats {
 		return .Gpu_Unsupported
 	}
-	m, errors, compiled := oksl.compile(RGBA_TO_NV12_COMP, {profile = .Glsl, stage = .Compute, no_cpu = true, no_spirv = !spirv, no_msl = spirv})
+	m, errors, compiled := oksl.compile(RGBA_TO_NV12_COMP, {profile = .Glsl, stage = .Compute, no_cpu = true, no_spirv = !spirv, no_msl = spirv || dxbc, dxbc = dxbc})
 	defer oksl.destroy(m)
 	// The shader is fixed, so failing to compile it is a bug in it or in oksl.
 	assert(compiled, oksl.format_errors(errors, context.temp_allocator))
 	assert(m.block_size == size_of(GPU_NV12_Params))
-	code := mem.slice_to_bytes(m.spirv) if spirv else transmute([]u8)m.msl
+	code := mem.slice_to_bytes(m.spirv) if spirv else m.dxbc if dxbc else transmute([]u8)m.msl
 	info := sdl.GPUComputePipelineCreateInfo {
-		format                         = {.SPIRV} if spirv else {.MSL},
+		format                         = {.SPIRV} if spirv else {.DXBC} if dxbc else {.MSL},
 		code_size                      = len(code),
 		code                           = raw_data(code),
-		entrypoint                     = oksl.SPIRV_ENTRY if spirv else oksl.MSL_ENTRY,
+		entrypoint                     = oksl.SPIRV_ENTRY if spirv else oksl.DXBC_ENTRY if dxbc else oksl.MSL_ENTRY,
 		num_samplers                   = u32(m.num_samplers),
 		num_readonly_storage_textures  = u32(m.num_readonly_storage_textures),
 		num_readonly_storage_buffers   = u32(m.num_readonly_storage_buffers),

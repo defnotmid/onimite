@@ -79,7 +79,7 @@ repositories (the build's `deps` collection is their parent directory):
 
 ```bash
 git clone https://github.com/defnotmid/onimite
-git clone https://github.com/defnotmid/ovg     # 2D vector canvas: software + SDL_GPU (Vulkan / Metal)
+git clone https://github.com/defnotmid/ovg     # 2D vector canvas: software + SDL_GPU (Vulkan / Metal / Direct3D 12)
 git clone https://github.com/defnotmid/oglyph  # fonts and OpenType text shaping (ovg draws text through it)
 git clone https://github.com/defnotmid/ocurves # curve geometry: contours, exact pixel coverage, booleans (ovg and o3d keep their shapes in it)
 git clone https://github.com/defnotmid/oksl    # shader compiler: SkSL, Shadertoy and GLSL to SPIR-V, MSL, CPU
@@ -295,7 +295,8 @@ browsers play it.
 even (1080x1350 at half is 540x676). `--codec h264|h265|av1|vp9`, `--qp N`
 (1 best .. 51; default 23, the same scale for every codec), `--native` and `--slices N` (oicut's own encoder instead of the system's, and its
 H.264 slices: only in a build with `-define:OICUT_PATENTED=true`; a release refuses them before
-loading the script), `--software` (draw on the CPU; also for machines without a usable GPU), `--scale S`,
+loading the script), `--software` (draw on the CPU; a machine without a GPU draws there anyway and says so on stderr:
+Windows uses Direct3D 12 where no Vulkan driver is installed, never Microsoft's software adapter), `--scale S`,
 `--threads N` (default one per core: a quarter render songs, audio and `say()` lines, the
 rest frames; 1: everything on one thread; output does not depend on it).
 `-o x.webm` (or `--codec vp9`, whose default output is `out.webm`) writes a WebM: VP9 through

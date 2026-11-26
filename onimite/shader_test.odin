@@ -3,6 +3,7 @@ package onimite
 import "core:hash"
 import "core:strings"
 import "core:testing"
+import "deps:o3d"
 
 @(private = "file")
 SPLIT :: `
@@ -332,4 +333,28 @@ test_shader_feedback_steps_while_held :: proc(t: ^testing.T) {
 	// A hold that jumps (the preview missed frames) steps once from where it was.
 	r.clock_offset = 12.0 / 30
 	testing.expect(t, render_frame(&r, 9)[0] > last)
+}
+
+// The scripts' shaders compile to the GPU code of the device the frames
+// draw on: SPIR-V and MSL until the host names it, Direct3D 12's DXBC alone
+// on that device, for 2D programs and 3D ShaderMaterials alike.
+@(test)
+test_shader_gpu_formats :: proc(t: ^testing.T) {
+	media: Media
+	media_init(&media)
+	defer media_destroy(&media)
+	testing.expect_value(t, media.gpu_formats, o3d.Shader_Formats{.SPIRV, .MSL})
+	testing.expect_value(t, media.view3d.shaders.formats, o3d.Shader_Formats{.SPIRV, .MSL})
+	media_gpu_formats(&media, {.DXBC})
+	testing.expect_value(t, media.gpu_formats, o3d.Shader_Formats{.DXBC})
+	testing.expect_value(t, media.view3d.shaders.formats, o3d.Shader_Formats{.DXBC})
+	lib: Shader_Library
+	defer shader_library_destroy(&lib)
+	passes := []Shader_Pass{{source = "half4 main(float2 p) { return half4(pow(p.x - 0.5, 2.0), 0, 0, 1); }", profile = .Sksl}}
+	prog := shader_library_get(&lib, &media, passes, "", 0, "t")
+	testing.expect(t, lib.ok[prog])
+	m := lib.graphs[prog].passes[0].module
+	testing.expect(t, len(m.dxbc) > 0)
+	testing.expect_value(t, len(m.spirv), 0)
+	testing.expect_value(t, len(m.msl), 0)
 }

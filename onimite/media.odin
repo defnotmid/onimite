@@ -15,6 +15,8 @@ import vglottie "deps:ovg/lottie"
 import vgsvg "deps:ovg/svg"
 import ft "deps:oglyph/font"
 import odimg "deps:oicut/image"
+import "deps:o3d"
+import sdl "vendor:sdl3"
 
 // Fonts and images a video can reference by name. Fonts are found by
 // family and weight (`Text.font`, `Text.weight`), images by file name
@@ -52,6 +54,10 @@ Media :: struct {
 	// What 3D layers draw from: glTF models by file name (.glb, .gltf),
 	// their geometry and textures, media images used as textures.
 	view3d:   View3d_Media,
+	// The GPU code the scripts' shaders compile to beside their CPU
+	// program: the format of the device their frames draw on
+	// (`media_gpu_formats`); SPIR-V and MSL until the host names it.
+	gpu_formats: o3d.Shader_Formats,
 	// The directory `media_load_dir` read (SVG <image> files resolve
 	// against it).
 	dir:      string,
@@ -217,8 +223,22 @@ media_init :: proc(m: ^Media) {
 	m.svgs = make(map[string]^Svg_Asset)
 	m.lotties = make(map[string]^vglottie.Document)
 	view3d_media_init(&m.view3d)
+	// What Vulkan and Metal take, until the host names its device.
+	media_gpu_formats(m, {.SPIRV, .MSL})
 	m.blobs = make([dynamic][]u8)
 	m.added_audio = make(map[string]u64)
+}
+
+// Has the scripts' shaders, 2D and 3D, compile to `format`, the code of
+// the device the frames draw on (ovg's `SDL_Backend.shader_format`): set
+// before the first frame.
+media_gpu_formats :: proc(m: ^Media, format: sdl.GPUShaderFormat) {
+	f: o3d.Shader_Formats
+	if .SPIRV in format {f += {.SPIRV}}
+	if .MSL in format {f += {.MSL}}
+	if .DXBC in format {f += {.DXBC}}
+	m.gpu_formats = f
+	m.view3d.shaders.formats = f
 }
 
 media_destroy :: proc(m: ^Media) {

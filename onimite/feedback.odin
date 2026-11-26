@@ -593,7 +593,7 @@ checkpoint_restore :: proc(r: ^Renderer, c: int, passes: Pass_Set) -> bool {
 feedback_copy :: proc(r: ^Renderer, dst, src: vg.Image_Id, w, h: u32) -> bool {
 	fb := &r.shader_state.feedback
 	if fb.copy == nil {
-		m, _, ok := oksl.compile(COPY_SKSL)
+		m, _, ok := oksl.compile(COPY_SKSL, shader_options(r.media))
 		fb.copy = m
 		if !ok {
 			return false

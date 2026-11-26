@@ -33,7 +33,7 @@ onimite inspect examples/why_onimite/video.lua      # what is wrong, by script l
   video. (`say()`'s voice models are an
   optional 835-866 MB download, made on first use.)
 - **Fast.** Frames are built on every core and drawn on the GPU (Vulkan,
-  Metal), with hardware encoding when there is one.
+  Metal, Direct3D 12), with hardware encoding when there is one.
   [BENCHMARK.md](BENCHMARK.md) races it against every fframes example
   ported 1:1 on each release: wall time, CPU time and memory, fframes'
   wins included.
@@ -57,7 +57,7 @@ onimite is built from sibling Odin projects and Odin's vendor packages:
 
 | piece | what |
 | --- | --- |
-| [`ovg`](https://github.com/defnotmid/ovg) | 2D vector canvas (femtovg lineage): software backend + SDL_GPU (Vulkan / Metal) |
+| [`ovg`](https://github.com/defnotmid/ovg) | 2D vector canvas (femtovg lineage): software backend + SDL_GPU (Vulkan / Metal / Direct3D 12) |
 | [`oglyph`](https://github.com/defnotmid/oglyph) | fonts and OpenType text shaping in native Odin (HarfBuzz's rules, checked against it), which ovg draws text through |
 | [`oicut`](https://github.com/defnotmid/oicut) | H.264 / H.265 / AAC codecs (native Odin, Vulkan Video when available), MP4, clip decoding; every image (PNG, JPEG, GIF, WebP, ...) and audio file (WAV, FLAC, MP3, Ogg, M4A) |
 | [`oksl`](https://github.com/defnotmid/oksl) | shader compiler for SkSL, Shadertoy and GLSL: SPIR-V, MSL and a CPU program (machine code through its JIT on Linux and macOS, AVX2 on x86-64 and NEON on arm64; an interpreter on Windows); ovg and o3d write their own shaders in it too |
@@ -148,7 +148,7 @@ onimite is built from sibling Odin projects and Odin's vendor packages:
   codec of their own: oicut's native one is only in a build with
   `-define:OICUT_PATENTED=true`. With none of those on the machine, `render`
   to an MP4 says so and names `--codec av1` and PNG frames. Frames build on all cores and draw on the GPU
-  (or on the CPU with `--software`); the output does not depend on the thread
+  (or on the CPU with `--software`, and on a machine without a GPU); the output does not depend on the thread
   count.
 - **Checking without watching**: PNG frames, contact sheets, onion skins,
   frames as SVG, snapshot tests, `inspect` (missing media and fonts,

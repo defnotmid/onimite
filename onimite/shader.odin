@@ -9,6 +9,7 @@ import "core:strings"
 import "core:sync"
 import "core:thread"
 import vg "deps:ovg"
+import "deps:o3d"
 import "deps:oksl"
 
 // Shader layers (fframes' `Shader::sksl` / `Shader::shadertoy`): SkSL,
@@ -232,11 +233,17 @@ shader_library_destroy :: proc(l: ^Shader_Library) {
 	l^ = {}
 }
 
+// oksl's options for a shader drawn in the frames of `m`: `extra`, and the
+// GPU code of the device they draw on (`Media.gpu_formats`).
+shader_options :: proc(m: ^Media, extra := oksl.Options{}) -> oksl.Options {
+	return o3d.shader_options(m.gpu_formats, extra)
+}
+
 // The program of `passes` (with `common`, drawing pass `output`), compiled
-// on first use: each pass in its dialect (a Shadertoy pass other than the
-// output unclamped, for its float buffer), its channels bound to the passes
-// they name, and the graph made of them.
-shader_library_get :: proc(l: ^Shader_Library, passes: []Shader_Pass, common: string, output: int, label: string) -> int {
+// on first use for the GPU code `m`'s frames need: each pass in its dialect
+// (a Shadertoy pass other than the output unclamped, for its float buffer),
+// its channels bound to the passes they name, and the graph made of them.
+shader_library_get :: proc(l: ^Shader_Library, m: ^Media, passes: []Shader_Pass, common: string, output: int, label: string) -> int {
 	h := shader_program_hash(passes, common, output)
 	if i, ok := l.by_hash[h]; ok {
 		return i
@@ -246,14 +253,14 @@ shader_library_get :: proc(l: ^Shader_Library, passes: []Shader_Pass, common: st
 	specs := make([]oksl.Pass_Spec, len(passes), context.temp_allocator)
 	compiled := true
 	for pass, pi in passes {
-		m, errs, ok := oksl.compile(pass.source, {profile = pass.profile, prelude = common, unclamped = pi != output})
-		if m == nil {
+		mod, errs, ok := oksl.compile(pass.source, shader_options(m, {profile = pass.profile, prelude = common, unclamped = pi != output}))
+		if mod == nil {
 			for s in specs[:pi] {
 				oksl.destroy(s.module)
 			}
 			return shader_library_add(l, h, label, nil, errors[:], false)
 		}
-		specs[pi] = {module = m, name = pass.name}
+		specs[pi] = {module = mod, name = pass.name}
 		compiled &&= ok
 		shader_add_errors(&errors, pass.name, errs)
 	}
@@ -430,7 +437,7 @@ shader :: proc(ctx: ^Context, f: Frame, p: Shader_Params) -> bool {
 		return false
 	}
 	lib := &ctx.shaders
-	prog := shader_library_get(lib, passes, p.common, output, label)
+	prog := shader_library_get(lib, ctx.media, passes, p.common, output, label)
 	if !lib.ok[prog] {
 		for e in lib.errors[prog] {
 			report(ctx, .Error, {code = .Shader_Compile, name = lib.labels[prog], b = e.pass, shader = e.error})
@@ -929,7 +936,7 @@ shader_register :: proc(r: ^Renderer, m: ^oksl.Module, cpu: ^^Shader_Cpu) -> (vg
 	if l.vertex == nil {
 		// a fixed source (oksl's test_layer_vertex compiles it): failing is
 		// oksl's bug, reported as the program's load
-		v, _, ok := oksl.compile(oksl.LAYER_VERTEX_GLSL, {profile = .Glsl, stage = .Vertex, no_cpu = true})
+		v, _, ok := oksl.compile(oksl.LAYER_VERTEX_GLSL, shader_options(r.media, {profile = .Glsl, stage = .Vertex, no_cpu = true}))
 		if !ok {
 			oksl.destroy(v)
 			return {}, .General
@@ -949,6 +956,10 @@ shader_register :: proc(r: ^Renderer, m: ^oksl.Module, cpu: ^^Shader_Cpu) -> (vg
 			vert_spirv_entry = oksl.SPIRV_ENTRY,
 			vert_msl = transmute([]u8)l.vertex.msl,
 			vert_msl_entry = oksl.MSL_ENTRY,
+			frag_dxbc = m.dxbc,
+			frag_dxbc_entry = oksl.DXBC_ENTRY,
+			vert_dxbc = l.vertex.dxbc,
+			vert_dxbc_entry = oksl.DXBC_ENTRY,
 			uniform_size = m.block_size,
 			num_samplers = m.num_samplers,
 			cpu = shader_cpu_run,
