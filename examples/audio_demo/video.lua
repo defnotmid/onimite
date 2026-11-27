@@ -7,7 +7,7 @@
 --     onimite render examples/audio_demo/video.lua -o audio_demo.mp4
 --
 -- The voice is Pocket TTS by Kyutai (CC-BY-4.0), voice "alba". The first run
--- downloads its files (835 MB on Linux, 866 MB on macOS), once.
+-- downloads its files (about 981 MB), once.
 
 local CARD_IN = 0.8      -- the card lands
 local TITLE_AT = 3.0     -- the second scene's title pops

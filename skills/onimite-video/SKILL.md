@@ -645,7 +645,7 @@ video { ..., buses = { music = {}, voice = {}, sfx = {} },
 - `inspect` checks each cued word starts a sound of its line (`cue_no_hit`); a word that
   runs on from the one before ("the sea") has no onset of its own and is reported: that is
   expected, check it with `show video.lua say/intro/N`. Read `references/audio.md`
-  ("Spoken lines") for voices, the first-run download (835 MB on Linux, 866 MB on macOS)
+  ("Spoken lines") for voices, the first-run download (about 981 MB)
   and the credit the audio needs (*Pocket TTS by Kyutai, CC-BY-4.0*).
 
 ## 7. Finish
@@ -686,7 +686,7 @@ video { ..., buses = { music = {}, voice = {}, sfx = {} },
 - Transparent output is a WebM: `background = "transparent"` and `-o x.webm` (an MP4 is always
   opaque). Alpha clips work as inputs either way.
 - A `say()` line that was never synthesized is made when the script loads (about a quarter
-  of its length; the first time ever, ottis's 835-866 MB download first), in every command (in the
+  of its length; the first time ever, ottis's 981 MB download first), in every command (in the
   preview, while its window shows the load); the lines a load is missing are made together.
   Later loads read them back. A line that can't be made is
   silent (`line.ready == false`, `tts_unavailable`, an error): `inspect` names it and

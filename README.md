@@ -31,7 +31,7 @@ onimite inspect examples/why_onimite/video.lua      # what is wrong, by script l
   Windows); [BENCHMARK.md](BENCHMARK.md) gives each archive's size as
   downloaded and unpacked. Nothing else to install, no build step per
   video. (`say()`'s voice models are an
-  optional 835-866 MB download, made on first use.)
+  optional 981 MB download, made on first use.)
 - **Fast.** Frames are built on every core and drawn on the GPU (Vulkan,
   Metal, Direct3D 12), with hardware encoding when there is one.
   [BENCHMARK.md](BENCHMARK.md) races it against every fframes example

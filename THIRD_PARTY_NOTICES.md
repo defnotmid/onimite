@@ -40,12 +40,12 @@ separate file in [LICENSES/](LICENSES); binary releases ship `LICENSE`,
 ## Downloaded at run time (`say()`)
 
 The first `say()` that needs synthesis downloads these into ottis's data
-directory (`$OTTIS_DATA`, else `ottis/` in the user data folder; 835 MB on Linux, 866 MB on macOS), each
+directory (`$OTTIS_DATA`, else `ottis/` in the user data folder; about 981 MB), each
 pinned by SHA-256. None of it is in this repository or the binary.
 
 | What | From | License |
 | --- | --- | --- |
-| ONNX Runtime 1.30.0 (CPU), loaded with dlopen | github.com/microsoft/onnxruntime releases | MIT; its `LICENSE` and `ThirdPartyNotices.txt` are extracted next to the library |
+| ONNX Runtime 1.30.0 (CPU), loaded with dlopen | Microsoft's NuGet package Microsoft.ML.OnnxRuntime 1.30.0 (nuget.org) | MIT; its `LICENSE` and `ThirdPartyNotices.txt` are extracted next to the library |
 | Pocket TTS `english_2026-04` weights | Kyutai, huggingface.co/kyutai/pocket-tts | CC-BY-4.0 |
 | ONNX export of those weights | huggingface.co/KevinAHM/pocket-tts-onnx | CC-BY-4.0 |
 | Precomputed voices | huggingface.co/kyutai/pocket-tts-without-voice-cloning | CC-BY-4.0; each voice's source recording carries its own license (huggingface.co/kyutai/tts-voices): `cosette` (Expresso) and `jean` (EARS) are non-commercial, and onimite warns about them (`tts_noncommercial`) |

@@ -876,8 +876,8 @@ Checking without listening:
 
 Where lines come from and what it costs:
 
-- The first `say` that needs synthesis downloads ottis's files, about 835 MB on Linux and
-  866 MB on macOS (ONNX Runtime 1.30.0, the Pocket TTS model, the word aligner, the voice;
+- The first `say` that needs synthesis downloads ottis's files, about 981 MB on every
+  platform (ONNX Runtime 1.30.0 from Microsoft's NuGet package, the Pocket TTS model, the word aligner, the voice;
   each other voice about 4-8 MB when first used), into `$OTTIS_DATA` or `ottis/` in the user
   data folder (`~/.local/share` or `$XDG_DATA_HOME` on Linux, `~/Library/Application Support`
   on macOS, `%LOCALAPPDATA%` on Windows), with progress on stderr; then the lines a load is missing are

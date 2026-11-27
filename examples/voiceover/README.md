@@ -14,7 +14,7 @@ onimite show examples/voiceover/video.lua song/score     # the sections the line
 onimite render examples/voiceover/video.lua -o voiceover.mp4
 ```
 
-The first run downloads ottis's files (835 MB on Linux, 866 MB on macOS:
+The first run downloads ottis's files (about 981 MB:
 ONNX Runtime and the models) and synthesizes the three lines (a few
 seconds); later runs read the lines from the store (`onimite/say/` in the
 user data folder: `~/.local/share/onimite/say/` on Linux).
