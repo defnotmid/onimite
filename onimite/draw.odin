@@ -582,7 +582,7 @@ draw_group :: proc(r: ^Renderer, i: i32, g: Group) {
 	}
 
 	// Composite the children as one layer: blurred, clipped, masked.
-	params := vg.Layer_Params{opacity = opacity, blur = g.blur, clip_rule = g.clip_rule, blend = g.blend, mask_alpha = g.mask_alpha}
+	params := vg.Layer_Params{opacity = opacity, blur = g.blur, blend = g.blend, mask_alpha = g.mask_alpha}
 	filter := g.filter
 	if fl, ok := &filter.?; ok {
 		if fl.region.units == .Object_Bounding_Box {
@@ -603,13 +603,16 @@ draw_group :: proc(r: ^Renderer, i: i32, g: Group) {
 		}
 		params.filter = fl
 	}
-	clip: vg.Path
-	defer vg.path_destroy(&clip)
+	// The clip is the group's state (dropped by the restore above, after
+	// the pop): the layer starts unclipped and its composite is what the
+	// clip cuts. An invalid path cuts everything, as an empty one does.
 	if g.clip_path != "" {
+		clip: vg.Path
+		defer vg.path_destroy(&clip)
 		if !vg.path_svg(&clip, g.clip_path) {
 			report(&r.ctx, .Error, {code = .Invalid_Clip_Path, a = g.clip_path})
 		}
-		params.clip_path = &clip
+		vg.clip_path(c, &clip, g.clip_rule)
 	}
 	vg.layer_push(&r.layers, c, params)
 	if g.masked {
